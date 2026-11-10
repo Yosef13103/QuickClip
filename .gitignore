@@ -8,3 +8,6 @@ test-media/
 *.user
 *.suo
 TestResults/
+/.quickclip-local/
+AGENTS.md
+.ai
