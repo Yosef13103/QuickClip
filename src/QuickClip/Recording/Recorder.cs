@@ -1,4 +1,5 @@
 using Microsoft.Win32;
+using QuickClip.Gallery;
 using QuickClip.Media;
 using QuickClip.Shell;
 
@@ -24,7 +25,8 @@ internal sealed class Recorder
     private string? _routing;
     private readonly Dictionary<uint, string> _audioProcesses = [];  // running processes that have had audio
     private string _family = "h264";
-    private IntPtr _captureWindow;                       // the game window being recorded, or zero for the monitor
+    private GameWindowTarget? _captureTarget;
+    private string _monitorTarget = "";
     private (int Width, int Height) _captureWindowSize;
 
     public bool IsRunning { get; private set; }
@@ -37,7 +39,8 @@ internal sealed class Recorder
     public event Action<SavedClip>? ClipSaved;
     public event Action<string>? SaveFailed;
 
-    public RecorderState State => new(IsRunning, Error, _summary, _chatApps, _musicApps);
+    public RecorderState State => new(IsRunning, Error,
+        IsRunning ? $"{_summary} · {_captureTarget?.Game ?? _monitorTarget} target" : _summary, _chatApps, _musicApps);
 
     private Recorder()
     {
@@ -113,13 +116,14 @@ internal sealed class Recorder
             bool scaled = w != area.Width || h != area.Height;
             string family = VideoEncoders.Find(encoder)?.Family ?? "h264";
             VideoKbps = RecordingPresets.VideoKbps(s.RecordQuality, w, h, s.RecordFps, family);
-            var mics = s.RecordMic ? Microphones.Plan(s.MicDeviceIds, CaptureEngine.EnumMicrophones()) : [];
+            var endpoints = EndpointAudio.Plan(s);
+            var mics = endpoints == null && s.RecordMic ? Microphones.Plan(s.MicDeviceIds, CaptureEngine.EnumMicrophones()) : [];
             bool separateMics = s.SeparateMicTracks && mics.Count > 1;
             bool splitChat = RecordingPresets.SplitChat(s), splitMusic = RecordingPresets.SplitMusic(s);
-            AudioTracks = 1 + (splitChat ? 1 : 0) + (splitMusic ? 1 : 0) + (separateMics ? mics.Count : Math.Min(mics.Count, 1));
+            AudioTracks = endpoints?.Count ?? (1 + (splitChat ? 1 : 0) + (splitMusic ? 1 : 0) + (separateMics ? mics.Count : Math.Min(mics.Count, 1)));
 
             Error = CaptureEngine.Start(monitor.DeviceName, aspect, s.RecordFps, scaled ? w : 0, scaled ? h : 0, encoder, VideoKbps,
-                RecordingPresets.AudioKbps, s.BufferSeconds, s.CaptureCursor, splitChat, splitMusic, mics, separateMics);
+                RecordingPresets.AudioKbps, s.BufferSeconds, s.CaptureCursor, splitChat, splitMusic, mics, separateMics, endpoints);
             if (Error != null) return;
             if (mics.Count > 0)
                 Log.Write($"Recording {mics.Count} microphone{(mics.Count == 1 ? "" : "s")}{(separateMics ? " on separate tracks" : "")}: " +
@@ -127,12 +131,14 @@ internal sealed class Recorder
 
             IsRunning = true;
             _family = family;
-            _captureWindow = IntPtr.Zero;
+            _captureTarget = null;
+            _monitorTarget = monitor.Label;
             _captureWindowSize = default;
             _routing = null;
+            if (endpoints != null) (_chatApps, _musicApps) = ([], []);
             lock (_audioProcesses) _audioProcesses.Clear();
             _summary = $"{h}p{s.RecordFps}{(cropped ? $" {aspect}" : "")} · {family.ToUpperInvariant()} · {RecordingPresets.Label(s.RecordQuality)}" +
-                       (s.PreferGameWindow ? " · game window" : "");
+                       (endpoints == null ? "" : endpoints.Count == 0 ? " · video only" : $" · {endpoints.Count} endpoint audio tracks");
             Log.Write($"Recording {monitor.DeviceName}{(cropped ? $" ({area.Width}x{area.Height} at {area.X},{area.Y})" : "")} at {w}x{h}@{s.RecordFps} " +
                       $"with {encoder}, {VideoKbps} kbps, {s.BufferSeconds}s buffer");
             _poll = new Timer(_ => Poll(), null, 0, 2000);
@@ -158,6 +164,10 @@ internal sealed class Recorder
         try
         {
             var s = AppSettings.Current;
+            _games.Poll();
+            if (s.PreferGameWindow) UpdateCaptureWindow(s);
+            if (s.UseAudioEndpoints) return;
+
             var processes = ProcessScan.Snapshot();
             var chat = ChatApps.Find(processes);
             var music = MusicApps.Find(processes);
@@ -166,9 +176,6 @@ internal sealed class Recorder
             var plan = PlanAudio(processes, chatPids, musicPids);
             CaptureEngine.SetAudioProcesses(plan);
             LogRouting(processes, plan);
-            _games.Poll();
-            if (s.PreferGameWindow) UpdateCaptureWindow(s);
-
             var chatNames = chat.Select(c => c.Name).Distinct().ToList();
             var musicNames = music.Select(m => m.Name).Distinct().ToList();
             if (!chatNames.SequenceEqual(_chatApps) || !musicNames.SequenceEqual(_musicApps))
@@ -207,23 +214,25 @@ internal sealed class Recorder
     /// </summary>
     private void UpdateCaptureWindow(AppSettings s)
     {
-        IntPtr window = _games.GameWindow;
-        if (window == IntPtr.Zero && GameDetector.WindowExists(_captureWindow)) window = _captureWindow;
+        var target = GameDetector.SelectTarget(_captureTarget, _games.ForegroundGame, GameDetector.IsCurrent);
+        IntPtr window = target?.Owner.Handle ?? IntPtr.Zero;
         var size = window != IntPtr.Zero ? GameDetector.WindowSize(window) : default;
         if (window != IntPtr.Zero && (size.Width < 64 || size.Height < 64)) return; // minimized: carry on as it was
-        if (window == _captureWindow && size == _captureWindowSize) return;
-        _captureWindow = window;
+        if (target?.Owner == _captureTarget?.Owner && size == _captureWindowSize) return;
+        _captureTarget = target;
         _captureWindowSize = size;
         if (window == IntPtr.Zero)
         {
             CaptureEngine.SetCaptureWindow(IntPtr.Zero, 0, 0, 0);
             Log.Write("Recording the monitor again: the game's window closed");
+            StateChanged?.Invoke(State);
             return;
         }
         var (w, h) = RecordingPresets.OutputSize(size.Width & ~7, size.Height & ~1, s.RecordResolution);
         int kbps = RecordingPresets.VideoKbps(s.RecordQuality, w, h, s.RecordFps, _family);
         CaptureEngine.SetCaptureWindow(window, w, h, kbps);
-        Log.Write($"Recording the game window \"{GameDetector.WindowTitle(window, 80)}\" ({size.Width}x{size.Height}) at {w}x{h}, {kbps} kbps");
+        Log.Write($"Recording the game window ({size.Width}x{size.Height}) at {w}x{h}, {kbps} kbps");
+        StateChanged?.Invoke(State);
     }
 
     private AudioRouting.Plan PlanAudio(IReadOnlyList<ProcessScan.Entry> processes, List<uint> chat, List<uint> music)
@@ -261,31 +270,48 @@ internal sealed class Recorder
             return null;
         }
         if (!await _saveGate.WaitAsync(0)) return null; // a save is already in progress
+        string? staged = null;
+        bool complete = false;
         try
         {
             var s = AppSettings.Current;
             int seconds = s.BufferSeconds;
-            string folder = _games.GameForClip(seconds) ?? "Desktop";
-            string dir = Path.Combine(s.ClipsFolder, folder);
+            string folder = _captureTarget?.Game ?? _games.GameForClip(seconds) ?? "Desktop";
+            string folderName = ClipNaming.SafeComponent(folder, 64);
+            if (ClipLibrary.IsExcluded(folderName, null)) folderName += " (game)";
+            string dir = Path.Combine(s.ClipsFolder, folderName);
+            if (ClipLibrary.IsMomentsPath(dir)) throw new IOException("Choose a clips folder outside the Moments archive.");
             Directory.CreateDirectory(dir);
-            string path = Path.Combine(dir, $"{folder} {DateTime.Now:yyyy-MM-dd HH-mm-ss}.mp4");
-            for (int i = 2; File.Exists(path); i++)
-                path = Path.Combine(dir, $"{folder} {DateTime.Now:yyyy-MM-dd HH-mm-ss} ({i}).mp4");
-
-            string? error = await Task.Run(() => CaptureEngine.Save(path, seconds, folder));
+            DateTimeOffset requestedAt = DateTimeOffset.Now;
+            if (AppProfile.IsPersonal) _ = ClipNaming.Stem(s.ClipFilenameTemplate, folder, requestedAt, null);
+            string stagingPath = staged = ClipNaming.ReserveStagingPath(dir, ".mp4");
+            string? error = await Task.Run(() => CaptureEngine.Save(stagingPath, seconds, folder));
             if (error != null)
             {
                 Log.Write("Saving a clip failed: " + error);
                 SaveFailed?.Invoke(error);
                 return null;
             }
+            complete = true;
+            DateTimeOffset capture = Mp4Info.Read(stagingPath).CaptureTime?.ToLocalTime() ?? requestedAt;
+            string stem = AppProfile.IsPersonal ? ClipNaming.Stem(s.ClipFilenameTemplate, folder, capture, null)
+                : $"{folder} {requestedAt:yyyy-MM-dd HH-mm-ss}";
+            string path = ClipNaming.Publish(stagingPath, dir, stem, ".mp4");
+            if (AppProfile.IsPersonal) ClipDetailsStore.TryWrite(path, new ClipDetails(capture, folder));
             var clip = new SavedClip(path, folder, seconds);
             Log.Write($"Saved clip {path}");
             ClipSaved?.Invoke(clip);
             return clip;
         }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException)
+        {
+            Log.Write("Saving a clip failed: " + ex.Message);
+            SaveFailed?.Invoke(complete && File.Exists(staged) ? $"{ex.Message} The recording is still at {staged}." : ex.Message);
+            return null;
+        }
         finally
         {
+            try { if (!complete && staged != null) File.Delete(staged); } catch (IOException) { } catch (UnauthorizedAccessException) { }
             _saveGate.Release();
         }
     }

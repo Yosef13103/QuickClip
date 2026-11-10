@@ -38,6 +38,7 @@ internal static class ShellIntegration
     /// <summary>True when scripts\add-win11-menu.ps1 registered the Windows 11 menu package for this user.</summary>
     public static bool IsMenuPackageInstalled()
     {
+        if (AppProfile.IsPersonal) return false;
         uint count = 0, length = 0;
         GetPackagesByPackageFamily(MenuPackageFamily, ref count, IntPtr.Zero, ref length, IntPtr.Zero);
         return count > 0;
@@ -45,6 +46,7 @@ internal static class ShellIntegration
 
     public static bool IsRegistered()
     {
+        if (AppProfile.IsPersonal) return false;
         if (IsMenuPackageInstalled()) return true;
         using var key = Registry.CurrentUser.OpenSubKey(VerbKey + @"\command");
         var cmd = key?.GetValue(null) as string;
@@ -54,6 +56,7 @@ internal static class ShellIntegration
     /// <summary>Adds the classic menu entry, unless the menu package already provides one (it shows in both menus).</summary>
     public static void Register()
     {
+        EnsureSupported();
         string exe = ExePath;
         RemoveLegacyKeys();
         if (IsMenuPackageInstalled())
@@ -76,9 +79,15 @@ internal static class ShellIntegration
 
     public static void Unregister()
     {
+        EnsureSupported();
         Registry.CurrentUser.DeleteSubKeyTree(VerbKey, throwOnMissingSubKey: false);
         RemoveLegacyKeys();
         NotifyShell();
+    }
+
+    private static void EnsureSupported()
+    {
+        if (AppProfile.IsPersonal) throw new InvalidOperationException("Explorer registration is disabled for QuickClip Personal.");
     }
 
     /// <summary>Earlier versions registered one verb per extension.</summary>

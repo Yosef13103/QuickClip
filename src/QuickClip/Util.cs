@@ -34,7 +34,7 @@ internal static class Deps
 }
 
 /// <summary>
-/// The log file (%LOCALAPPDATA%\QuickClip\quickclip.log). Write only queues the line; a background thread writes it,
+/// The profile's log file. Write only queues the line; a background thread writes it,
 /// so a slow or locked file can never hold up the caller (the recorder's threads log too).
 /// </summary>
 internal static class Log
@@ -43,8 +43,7 @@ internal static class Log
     private static readonly ManualResetEventSlim Idle = new(true);
     private static bool _failureReported;
 
-    public static string FilePath { get; } = Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "QuickClip", "quickclip.log");
+    public static string FilePath { get; } = Path.Combine(AppProfile.LocalDirectory, "quickclip.log");
 
     static Log()
     {
@@ -106,7 +105,8 @@ internal static class Log
         _failureReported = true;
         try
         {
-            File.WriteAllText(Path.Combine(Path.GetTempPath(), "QuickClip log error.txt"),
+            Directory.CreateDirectory(AppProfile.TempDirectory);
+            File.WriteAllText(Path.Combine(AppProfile.TempDirectory, "log error.txt"),
                 $"{DateTime.Now:yyyy-MM-dd HH:mm:ss} QuickClip couldn't write {FilePath}:{Environment.NewLine}{ex}{Environment.NewLine}");
         }
         catch { }

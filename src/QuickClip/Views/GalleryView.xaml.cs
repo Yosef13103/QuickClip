@@ -37,6 +37,7 @@ public partial class GalleryView : UserControl
     private string _folder = ClipLibrary.AllClips;
     private string? _openProject;
     private string? _loadedRoot;
+    private string[] _loadedExclusions = [];
     private FileSystemWatcher? _watcher;
     private int _columns = 3;
     private bool _loading, _reloadQueued, _released, _settingLists;
@@ -77,7 +78,8 @@ public partial class GalleryView : UserControl
         Recorder.Instance.ClipSaved += OnClipSaved;
         IsVisibleChanged += (_, _) =>
         {
-            if (IsVisible && _loadedRoot != AppSettings.Current.ClipsFolder) _ = ReloadAsync();
+            if (IsVisible && (_loadedRoot != AppSettings.Current.ClipsFolder ||
+                !_loadedExclusions.SequenceEqual(AppSettings.Current.LibraryExclusions ?? []))) _ = ReloadAsync();
         };
         Loaded += (_, _) => _ = ReloadAsync();
     }
@@ -117,14 +119,19 @@ public partial class GalleryView : UserControl
         try
         {
             string root = AppSettings.Current.ClipsFolder;
+            string[] exclusions = AppSettings.Current.LibraryExclusions ?? [];
             if (root != _loadedRoot) Watch(root);
             _loadedRoot = root;
+            _loadedExclusions = exclusions;
             var previous = _clips.ToDictionary(c => c.Path, StringComparer.OrdinalIgnoreCase);
-            (_clips, _projects) = await Task.Run(() => (ClipLibrary.Scan(root), ProjectLibrary.List(root)));
+            (_clips, _projects) = await Task.Run(() => ClipLibrary.IsMomentsPath(root)
+                ? (new List<ClipItem>(), new List<ProjectSummary>())
+                : (ClipLibrary.Scan(root, exclusions, previous), ProjectLibrary.List(root)));
             foreach (var clip in _clips)
             {
                 // Keep thumbnails already on screen so a new clip doesn't make every card flicker.
-                if (previous.TryGetValue(clip.Path, out var old) && old.Size == clip.Size && old.Thumbnail != null)
+                if (previous.TryGetValue(clip.Path, out var old) && old.Size == clip.Size && old.Thumbnail != null &&
+                    old.File.LastWriteTimeUtc == clip.File.LastWriteTimeUtc && old.File.CreationTimeUtc == clip.File.CreationTimeUtc)
                 {
                     clip.Thumbnail = old.Thumbnail;
                     clip.ThumbnailRequested = true;
@@ -156,18 +163,29 @@ public partial class GalleryView : UserControl
     {
         _watcher?.Dispose();
         _watcher = null;
+        if (ClipLibrary.IsMomentsPath(root)) return;
         try
         {
             Directory.CreateDirectory(root);
             _watcher = new FileSystemWatcher(root)
             {
                 IncludeSubdirectories = true,
-                NotifyFilter = NotifyFilters.FileName | NotifyFilters.DirectoryName,
+                NotifyFilter = NotifyFilters.FileName | NotifyFilters.DirectoryName | NotifyFilters.LastWrite,
             };
-            FileSystemEventHandler changed = (_, _) => Dispatcher.BeginInvoke(QueueReload);
+            bool Relevant(string path) => !Path.GetFileName(path).StartsWith(".quickclip-tmp", StringComparison.OrdinalIgnoreCase) &&
+                !ClipLibrary.IsExcluded(Path.GetRelativePath(root, path), AppSettings.Current.LibraryExclusions);
+            FileSystemEventHandler changed = (_, e) =>
+            {
+                if (Relevant(e.FullPath)) Dispatcher.BeginInvoke(QueueReload);
+            };
             _watcher.Created += changed;
             _watcher.Deleted += changed;
-            _watcher.Renamed += (_, _) => Dispatcher.BeginInvoke(QueueReload);
+            _watcher.Changed += changed;
+            _watcher.Renamed += (_, e) =>
+            {
+                if (Relevant(e.OldFullPath) || Relevant(e.FullPath)) Dispatcher.BeginInvoke(QueueReload);
+            };
+            _watcher.Error += (_, _) => Dispatcher.BeginInvoke(QueueReload);
             _watcher.EnableRaisingEvents = true;
         }
         catch (Exception ex)
@@ -296,6 +314,7 @@ public partial class GalleryView : UserControl
         string clips = count == 1 ? "" : $" {count} selected clips";
         foreach (var entry in menu.Items.OfType<MenuItem>())
         {
+            if (entry.Tag is "title" or "game") entry.Visibility = AppProfile.IsPersonal ? Visibility.Visible : Visibility.Collapsed;
             if (entry.Tag as string == "copy") entry.Header = count == 1 ? "Copy to folder…" : $"Copy{clips} to folder…";
             if (entry.Tag as string != "projects") continue;
             entry.Header = count == 1 ? "Add to project" : $"Add{clips} to project";
@@ -315,6 +334,27 @@ public partial class GalleryView : UserControl
                 if (CreateProject() is { } folder) await AddClipsToAsync(paths, folder, open: true);
             };
             entry.Items.Add(create);
+        }
+    }
+
+    private async void EditClipDetails_Click(object sender, RoutedEventArgs e)
+    {
+        if (!AppProfile.IsPersonal || ItemOf(sender) is not { } item) return;
+        bool title = (sender as MenuItem)?.Tag as string == "title";
+        string? value = TextPrompt.Ask(Window.GetWindow(this),
+            title ? "Custom title (blank uses the filename)" : "Game classification (blank uses the folder)",
+            (title ? item.Details.Title : item.Details.Game) ?? "", "Save", allowEmpty: true);
+        if (value == null) return;
+        var details = title ? item.Details with { Title = value.Length == 0 ? null : value }
+            : item.Details with { Game = value.Length == 0 ? ClipLibrary.InitialGame(AppSettings.Current.ClipsFolder, item.Path) : value };
+        try
+        {
+            ClipDetailsStore.Write(item.Path, details);
+            await ReloadAsync();
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            MessageBox.Show(Window.GetWindow(this), ex.Message, "Could not save clip details", MessageBoxButton.OK, MessageBoxImage.Warning);
         }
     }
 

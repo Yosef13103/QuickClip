@@ -21,8 +21,7 @@ internal static class ClipSharing
     /// Where the copies go: in Videos but outside the clips folder, so they don't show up in the gallery. Not in
     /// AppData: apps treat files pasted from there with suspicion (Discord took one as an empty file).
     /// </summary>
-    public static readonly string Folder = Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.MyVideos), "QuickClip Shared");
+    public static readonly string Folder = AppProfile.SharedDirectory;
 
     private static CancellationTokenSource? _cts;
 

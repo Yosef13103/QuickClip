@@ -1,10 +1,12 @@
 using System.Buffers.Binary;
 using System.ComponentModel;
 using System.Diagnostics;
+using System.IO.Enumeration;
 using System.Runtime.CompilerServices;
 using System.Security.Cryptography;
 using System.Text;
 using System.Windows.Media;
+using QuickClip.Media;
 
 namespace QuickClip.Gallery;
 
@@ -15,14 +17,16 @@ public sealed class ClipItem : INotifyPropertyChanged
     private string _ago = "";
     private bool _selected;
 
-    public ClipItem(FileInfo file, string folder, double? duration)
+    internal ClipItem(FileInfo file, ClipDetails details, ClipHeader header)
     {
         Path = file.FullName;
-        Folder = folder;
-        Title = System.IO.Path.GetFileNameWithoutExtension(file.Name);
-        Created = file.CreationTime;
+        Details = details;
+        Header = header;
+        Folder = details.Game;
+        Title = details.Title ?? System.IO.Path.GetFileNameWithoutExtension(file.Name);
+        Created = details.CapturedAt.LocalDateTime;
         Size = file.Length;
-        Duration = duration;
+        Duration = header.Duration;
         File = file;
         RefreshAgo();
     }
@@ -34,6 +38,8 @@ public sealed class ClipItem : INotifyPropertyChanged
     public long Size { get; }
     public double? Duration { get; }
     internal FileInfo File { get; }
+    internal ClipDetails Details { get; }
+    internal ClipHeader Header { get; }
     internal bool ThumbnailRequested { get; set; }
 
     public string DurationText => Duration is double d ? Fmt.Time(d, millis: false) : "";
@@ -97,87 +103,158 @@ internal static class TimeAgo
 internal static class ClipLibrary
 {
     public const string AllClips = "All clips";
+    private const string MomentsArchive = "SteelSeries Moments";
     private static readonly string[] Extensions = [".mp4", ".mkv", ".mov", ".webm", ".m4v"];
 
     public static bool IsClipFile(string path) =>
         Extensions.Contains(System.IO.Path.GetExtension(path), StringComparer.OrdinalIgnoreCase)
         && !path.Contains(".quickclip-tmp", StringComparison.OrdinalIgnoreCase);
 
-    public static List<ClipItem> Scan(string root)
+    public static bool IsMomentsPath(string path) =>
+        Path.GetFullPath(path).Split(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
+            .Contains(MomentsArchive, StringComparer.OrdinalIgnoreCase);
+
+    public static bool IsExcluded(string relative, IEnumerable<string>? exclusions)
+    {
+        relative = relative.Replace('/', '\\');
+        return IsWithin(relative, MomentsArchive) || IsWithin(relative, "QuickClip") ||
+            (exclusions ?? []).Any(excluded => IsWithin(relative, excluded.Trim().Replace('/', '\\').TrimEnd('\\')));
+    }
+
+    private static bool IsWithin(string path, string folder) => folder.Length > 0 &&
+        (path.Equals(folder, StringComparison.OrdinalIgnoreCase) || path.StartsWith(folder + "\\", StringComparison.OrdinalIgnoreCase));
+
+    public static string InitialGame(string root, string path)
+    {
+        string parent = Path.GetDirectoryName(path)!;
+        string relative = Path.GetRelativePath(root, parent);
+        return relative == "." ? "Desktop" : AppProfile.IsPersonal ? Path.GetFileName(parent)
+            : relative.Split(Path.DirectorySeparatorChar)[0];
+    }
+
+    public static List<ClipItem> Scan(string root, string[]? exclusions = null, IReadOnlyDictionary<string, ClipItem>? previous = null)
     {
         var clips = new List<ClipItem>();
-        if (!Directory.Exists(root)) return clips;
-        var options = new EnumerationOptions { RecurseSubdirectories = true, MaxRecursionDepth = 2, IgnoreInaccessible = true };
-        foreach (var path in Directory.EnumerateFiles(root, "*", options))
+        if (!Directory.Exists(root) || IsMomentsPath(root)) return clips;
+        var options = new EnumerationOptions
+        {
+            RecurseSubdirectories = true,
+            MaxRecursionDepth = 2,
+            IgnoreInaccessible = true,
+            AttributesToSkip = FileAttributes.Hidden | FileAttributes.System | FileAttributes.ReparsePoint,
+        };
+        var files = new FileSystemEnumerable<string>(root, (ref FileSystemEntry entry) => entry.ToFullPath(), options)
+        {
+            ShouldIncludePredicate = (ref FileSystemEntry entry) => !entry.IsDirectory,
+            ShouldRecursePredicate = (ref FileSystemEntry entry) =>
+            {
+                string relative = Path.GetRelativePath(root, entry.ToFullPath());
+                return !IsWithin(relative, ProjectLibrary.FolderName) && !IsExcluded(relative, exclusions);
+            },
+        };
+        foreach (var path in files)
         {
             if (!IsClipFile(path)) continue;
-            var file = new FileInfo(path);
-            string relative = System.IO.Path.GetRelativePath(root, file.DirectoryName!);
-            string folder = relative == "." ? "Desktop" : relative.Split(System.IO.Path.DirectorySeparatorChar)[0];
-            if (string.Equals(folder, ProjectLibrary.FolderName, StringComparison.OrdinalIgnoreCase)) continue;
-            clips.Add(new ClipItem(file, folder, Mp4Info.TryReadDuration(path)));
+            try
+            {
+                var file = new FileInfo(path);
+                var header = previous != null && previous.TryGetValue(path, out var old) &&
+                    old.Size == file.Length && old.File.LastWriteTimeUtc == file.LastWriteTimeUtc &&
+                    old.File.CreationTimeUtc == file.CreationTimeUtc ? old.Header : ReadHeader(path);
+                clips.Add(new ClipItem(file, ClipDetailsStore.Read(file, InitialGame(root, path), header.CaptureTime), header));
+            }
+            catch (Exception ex) when (ex is FileNotFoundException or DirectoryNotFoundException)
+            {
+                // A watcher notification will reconcile a clip moved during enumeration.
+            }
         }
-        return clips.OrderByDescending(c => c.Created).ToList();
+        return clips.OrderByDescending(c => c.Details.CapturedAt).ToList();
+    }
+
+    private static ClipHeader ReadHeader(string path)
+    {
+        if (!AppProfile.IsPersonal || Path.GetExtension(path).ToLowerInvariant() is not (".mkv" or ".webm"))
+            return Mp4Info.Read(path);
+        using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(2));
+        try
+        {
+            var info = Task.Run(() => MediaInfo.ProbeAsync(path, deadline.Token, localOnly: true)).GetAwaiter().GetResult();
+            return new ClipHeader(info.Duration, info.EmbeddedCreationTime);
+        }
+        catch (Exception ex) when (ex is IOException or InvalidOperationException or OperationCanceledException or
+            System.Text.Json.JsonException or System.ComponentModel.Win32Exception or UnauthorizedAccessException)
+        {
+            return default;
+        }
     }
 }
 
-/// <summary>Reads an MP4/MOV duration from its 'mvhd' box without decoding anything.</summary>
+internal readonly record struct ClipHeader(double? Duration, DateTimeOffset? CaptureTime);
+
+/// <summary>Reads MP4/MOV duration and creation time from the movie header without decoding media.</summary>
 internal static class Mp4Info
 {
-    public static double? TryReadDuration(string path)
+    public static double? TryReadDuration(string path) => Read(path).Duration;
+
+    public static ClipHeader Read(string path)
     {
+        if (Path.GetExtension(path).ToLowerInvariant() is not (".mp4" or ".mov" or ".m4v")) return default;
         try
         {
             using var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete, 4096, FileOptions.RandomAccess);
-            return FindMvhd(fs, 0, fs.Length);
+            return FindMvhd(fs, 0, fs.Length, insideMovie: false);
         }
-        catch
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            return null;
+            return default;
         }
     }
 
-    private static double? FindMvhd(FileStream fs, long start, long end)
+    private static ClipHeader FindMvhd(FileStream fs, long start, long end, bool insideMovie)
     {
         Span<byte> header = stackalloc byte[16];
         long pos = start;
         while (pos + 8 <= end)
         {
             fs.Position = pos;
-            if (fs.Read(header[..8]) < 8) return null;
+            if (fs.Read(header[..8]) < 8) return default;
             long size = BinaryPrimitives.ReadUInt32BigEndian(header);
             string type = Encoding.ASCII.GetString(header.Slice(4, 4));
             int headerSize = 8;
             if (size == 1)
             {
-                if (fs.Read(header[8..16]) < 8) return null;
+                if (fs.Read(header[8..16]) < 8) return default;
                 size = (long)BinaryPrimitives.ReadUInt64BigEndian(header[8..16]);
                 headerSize = 16;
             }
             else if (size == 0) size = end - pos;
-            if (size < headerSize) return null;
+            if (size < headerSize || size > end - pos) return default;
 
-            if (type == "moov") return FindMvhd(fs, pos + headerSize, pos + size);
-            if (type == "mvhd")
+            if (type == "moov" && !insideMovie) return FindMvhd(fs, pos + headerSize, pos + size, insideMovie: true);
+            if (type == "mvhd" && insideMovie)
             {
                 Span<byte> body = stackalloc byte[32];
-                if (fs.Read(body) < 32) return null;
+                if (size - headerSize < 32 || fs.Read(body) < 32 || body[0] > 1) return default;
                 bool v1 = body[0] == 1;
                 uint timescale = BinaryPrimitives.ReadUInt32BigEndian(v1 ? body.Slice(20, 4) : body.Slice(12, 4));
                 ulong duration = v1 ? BinaryPrimitives.ReadUInt64BigEndian(body.Slice(24, 8)) : BinaryPrimitives.ReadUInt32BigEndian(body.Slice(16, 4));
-                return timescale > 0 ? duration / (double)timescale : null;
+                ulong created = v1 ? BinaryPrimitives.ReadUInt64BigEndian(body[4..]) : BinaryPrimitives.ReadUInt32BigEndian(body[4..]);
+                const ulong unixEpochInMp4 = 2_082_844_800;
+                DateTimeOffset? time = created >= unixEpochInMp4 &&
+                    created - unixEpochInMp4 <= (ulong)DateTimeOffset.MaxValue.ToUnixTimeSeconds()
+                    ? DateTimeOffset.FromUnixTimeSeconds((long)(created - unixEpochInMp4)) : null;
+                return new ClipHeader(timescale > 0 ? duration / (double)timescale : null, time);
             }
             pos += size;
         }
-        return null;
+        return default;
     }
 }
 
 /// <summary>Small JPEG previews of clips, made once with FFmpeg and cached in %LOCALAPPDATA%\QuickClip\thumbs.</summary>
 internal static class ThumbnailCache
 {
-    private static readonly string Dir = System.IO.Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "QuickClip", "thumbs");
+    private static readonly string Dir = System.IO.Path.Combine(AppProfile.LocalDirectory, "thumbs");
     private static readonly SemaphoreSlim Gate = new(2, 2);
 
     /// <summary>Reads a cached thumbnail, scaled down to <paramref name="width"/> pixels (call off the UI thread; the image is frozen).</summary>

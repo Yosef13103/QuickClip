@@ -13,10 +13,12 @@
 #>
 param(
     [string]$InstallDir = (Join-Path $env:LOCALAPPDATA 'Programs\QuickClip'),
-    [switch]$Remove
+    [switch]$Remove,
+    [switch]$Upstream
 )
 
 $ErrorActionPreference = 'Stop'
+if (-not $Upstream) { throw 'Explorer registration is only available for the stock app. Specify -Upstream explicitly.' }
 $root = Split-Path -Parent $PSScriptRoot
 $packageName = 'QuickClip.ContextMenu'
 $publisher = 'CN=QuickClip Local' # must match packaging\AppxManifest.xml

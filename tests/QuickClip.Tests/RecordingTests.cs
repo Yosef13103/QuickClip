@@ -232,4 +232,24 @@ public sealed class Mp4InfoTests(MediaFixture media)
         Assert.Equal(6, d!.Value, 1);
         Assert.Null(Mp4Info.TryReadDuration(media.ThreeTracks)); // MKV: not an MP4
     }
+
+    [Fact]
+    public void Gallery_skips_the_nested_moments_archive_and_project_folders()
+    {
+        string root = media.Out("gallery-scan");
+        foreach (string relative in new[]
+        {
+            "desktop.mp4", "Game/game.mp4", "Game/SteelSeries Moments/finished.mp4",
+            "sTEELsERIES mOMENTS/original.mp4", "Projects/Example/project-media.mp4",
+        })
+        {
+            string path = Path.Combine(root, relative);
+            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+            File.WriteAllBytes(path, []);
+        }
+
+        var files = ClipLibrary.Scan(root + Path.DirectorySeparatorChar)
+            .Select(c => Path.GetFileName(c.Path)).OrderBy(n => n).ToArray();
+        Assert.Equal(["desktop.mp4", "finished.mp4", "game.mp4"], files);
+    }
 }

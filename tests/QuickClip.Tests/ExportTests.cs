@@ -1,4 +1,5 @@
 using QuickClip.Media;
+using QuickClip.Gallery;
 
 namespace QuickClip.Tests;
 
@@ -41,6 +42,67 @@ public sealed class ExportTests(MediaFixture media)
         Assert.Equal(["Mic", "Desktop Audio"], info.Audio.Select(a => a.DisplayName));
         Assert.Equal([1, 2], info.Audio.Select(a => a.Channels));
         Assert.Equal(6, info.Duration, 1);
+        Assert.Null(info.EmbeddedCreationTime);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Mp4_exports_preserve_the_embedded_creation_time(bool copyVideo)
+    {
+        const string timestamp = "2023-08-04T03:44:24Z";
+        var expected = new DateTimeOffset(2023, 8, 4, 3, 44, 24, TimeSpan.Zero);
+        string source = media.Out($"dated-source-{copyVideo}.mp4");
+        await MediaFixture.Run(["-i", media.TwoTracks, "-map", "0", "-c", "copy", "-metadata", $"creation_time={timestamp}", source]);
+
+        var (input, output) = await Export($"dated-export-{copyVideo}.mp4", Containers.Mp4,
+            s => s.Audio.Select(a => Track(a, 1)).ToList(),
+            r => r with { VideoMode = copyVideo ? VideoMode.Copy : VideoMode.Encode },
+            start: 1, end: 3, source: source);
+        Assert.Equal(expected, input.EmbeddedCreationTime);
+        Assert.Equal(expected, output.EmbeddedCreationTime);
+        Assert.Equal(expected, Mp4Info.Read(output.Path).CaptureTime);
+        Assert.NotEqual(expected.Date, File.GetCreationTimeUtc(output.Path).Date);
+    }
+
+    [Fact]
+    public async Task Gallery_uses_embedded_date_and_preserves_details_on_a_named_export()
+    {
+        if (!AppProfile.IsPersonal) return;
+        var capture = new DateTimeOffset(2023, 8, 4, 6, 44, 24, TimeSpan.FromHours(3));
+        string dir = media.Out("metadata-gallery");
+        Directory.CreateDirectory(Path.Combine(dir, "Game"));
+        Directory.CreateDirectory(Path.Combine(dir, "Ignored"));
+        Directory.CreateDirectory(Path.Combine(dir, "QuickClip", "Originals"));
+        string original = Path.Combine(dir, "Game", "legacy.mp4");
+        File.Copy(media.TwoTracks, original);
+        File.Copy(original, Path.Combine(dir, "Ignored", "ignored.mp4"));
+        File.Copy(original, Path.Combine(dir, "QuickClip", "Originals", "original.mp4"));
+        var (_, exported) = await Export("export-details.mp4", Containers.Mp4, s => s.Audio.Select(a => Track(a, 1)).ToList(),
+            r => r with { CaptureTime = capture, ClipTitle = "Final round" }, source: original);
+        string finished = Path.Combine(dir, "Game", "finished.mp4");
+        File.Move(exported.Path, finished);
+        Assert.Equal(capture.UtcDateTime, exported.EmbeddedCreationTime?.UtcDateTime);
+        ClipDetailsStore.Write(finished, new ClipDetails(capture, "Corrected game", "Final round"));
+
+        var scanned = ClipLibrary.Scan(dir, ["Ignored"]);
+        Assert.Equal(["legacy", "Final round"], scanned.Select(c => c.Title));
+        Assert.Equal("Corrected game", scanned[1].Folder);
+        Assert.Equal(capture, scanned[1].Details.CapturedAt);
+        Assert.Equal("legacy.mp4", Path.GetFileName(scanned[0].Path));
+    }
+
+    [Fact]
+    public async Task Gallery_reads_matroska_capture_time()
+    {
+        if (!AppProfile.IsPersonal) return;
+        string dir = media.Out("dated-matroska");
+        Directory.CreateDirectory(dir);
+        string path = Path.Combine(dir, "capture.mkv");
+        await MediaFixture.Run(["-i", media.ThreeTracks, "-map", "0", "-c", "copy",
+            "-metadata", "creation_time=2023-08-04T03:44:24Z", path]);
+        var clip = Assert.Single(ClipLibrary.Scan(dir));
+        Assert.Equal(new DateTimeOffset(2023, 8, 4, 3, 44, 24, TimeSpan.Zero), clip.Details.CapturedAt);
     }
 
     [Fact]

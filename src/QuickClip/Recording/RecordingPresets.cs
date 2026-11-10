@@ -93,7 +93,7 @@ internal static class RecordingPresets
 
     /// <summary>Desktop, plus Chat, Music and the microphones' tracks when they're on.</summary>
     public static int AudioTrackCount(AppSettings s) =>
-        1 + (SplitChat(s) ? 1 : 0) + (SplitMusic(s) ? 1 : 0) + Microphones.TrackCount(s);
+        EndpointAudio.Plan(s)?.Count ?? (1 + (SplitChat(s) ? 1 : 0) + (SplitMusic(s) ? 1 : 0) + Microphones.TrackCount(s));
 
     public static bool SplitChat(AppSettings s) => AudioRouting.SeparateTracks && s.SplitChatAudio;
     public static bool SplitMusic(AppSettings s) => AudioRouting.SeparateTracks && s.SplitMusicAudio;

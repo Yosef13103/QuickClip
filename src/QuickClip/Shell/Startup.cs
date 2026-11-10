@@ -16,6 +16,7 @@ internal static class Startup
     {
         get
         {
+            if (AppProfile.IsPersonal) return false;
             using var key = Registry.CurrentUser.OpenSubKey(RunKey);
             return key?.GetValue(ValueName) is string cmd && cmd.Contains(Environment.ProcessPath ?? "\0", StringComparison.OrdinalIgnoreCase);
         }
@@ -23,6 +24,7 @@ internal static class Startup
 
     public static void Set(bool enabled)
     {
+        if (AppProfile.IsPersonal) throw new InvalidOperationException("Windows startup is disabled for QuickClip Personal.");
         using var key = Registry.CurrentUser.CreateSubKey(RunKey);
         if (enabled) key.SetValue(ValueName, Command);
         else key.DeleteValue(ValueName, throwOnMissingValue: false);
@@ -32,12 +34,11 @@ internal static class Startup
 /// <summary>Keeps one QuickClip per user: later launches hand their arguments to the running one.</summary>
 internal static class SingleInstance
 {
-    private static readonly string PipeName = "QuickClip.Instance." + Environment.UserName;
     private static Mutex? _mutex;
 
     public static bool TryBecomePrimary()
     {
-        _mutex = new Mutex(true, @"Local\QuickClip.Instance", out bool created);
+        _mutex = new Mutex(true, AppProfile.MutexName, out bool created);
         return created;
     }
 
@@ -45,7 +46,7 @@ internal static class SingleInstance
     {
         try
         {
-            using var pipe = new NamedPipeClientStream(".", PipeName, PipeDirection.Out);
+            using var pipe = new NamedPipeClientStream(".", AppProfile.PipeName, PipeDirection.Out);
             pipe.Connect(3000);
             var bytes = Encoding.UTF8.GetBytes(string.Join("\n", args.Length == 0 ? ["--show"] : args));
             pipe.Write(bytes);
@@ -67,7 +68,7 @@ internal static class SingleInstance
             {
                 try
                 {
-                    await using var server = new NamedPipeServerStream(PipeName, PipeDirection.In, 1, PipeTransmissionMode.Byte, PipeOptions.Asynchronous);
+                    await using var server = new NamedPipeServerStream(AppProfile.PipeName, PipeDirection.In, 1, PipeTransmissionMode.Byte, PipeOptions.Asynchronous);
                     await server.WaitForConnectionAsync();
                     using var reader = new StreamReader(server, Encoding.UTF8);
                     string text = await reader.ReadToEndAsync();

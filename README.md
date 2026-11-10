@@ -140,10 +140,13 @@ recording engine).
 powershell -ExecutionPolicy Bypass -File scripts\get-deps.ps1   # FFmpeg (+ headers), libmpv and Inno Setup into .\deps
 dotnet build                                                    # also builds the C++ recording engine
 dotnet test                                                     # real exports, preview mixing and a short capture
-powershell -ExecutionPolicy Bypass -File scripts\package.ps1    # release: installer + portable zip in .\publish
+powershell -ExecutionPolicy Bypass -File scripts\package.ps1 -Upstream # stock installer and portable zip
 ```
 
-The version comes from `<Version>` in `src/QuickClip/QuickClip.csproj`. To release, attach both files from `publish`
+This fork builds QuickClip Personal by default. See [the personal build guide](.ai/SETUP_AND_USE.md#running-quickclip-personal)
+for profile paths and portable builds. Use `-p:QuickClipProfile=Upstream` for a stock-compatible build.
+
+The version comes from `<Version>` in `src/QuickClip/QuickClip.csproj`. For upstream releases, attach both files from `publish`
 to a GitHub release tagged `v<version>` (mark betas as pre-releases); running copies pick it up on their next check.
 
 Settings live in `%APPDATA%\QuickClip`, thumbnails and the log in `%LOCALAPPDATA%\QuickClip`.

@@ -29,6 +29,8 @@ internal sealed record ExportRequest
     public int AudioBitrateK { get; init; } = 192;
     /// <summary>Lowering the frame rate blends the dropped frames into motion blur rather than discarding them.</summary>
     public bool MotionBlur { get; init; }
+    public DateTimeOffset? CaptureTime { get; init; }
+    public string? ClipTitle { get; init; }
 
     public double Duration => End - Start;
 }
@@ -157,6 +159,9 @@ internal static class ExportBuilder
         // an edit list to hide the extra; Windows' player and Discord ignore that and play the sound that much late.
         if (r.Start > 0.0005) args.AddRange(["-copypriorss:a", "0"]);
         args.AddRange(["-map_metadata", "0", "-map_chapters", "-1"]);
+        if (r.CaptureTime is { } captured)
+            args.AddRange(["-metadata", "creation_time=" + captured.UtcDateTime.ToString("yyyy-MM-ddTHH:mm:ssZ", CultureInfo.InvariantCulture)]);
+        if (r.ClipTitle is { } title) args.AddRange(["-metadata", $"title={title}"]);
         if (r.VideoMode == VideoMode.Copy) args.AddRange(["-avoid_negative_ts", "make_zero"]);
         if (c.FastStart) args.AddRange(["-movflags", "+faststart"]);
         if (c.IsGif) args.AddRange(["-loop", "0"]);
@@ -375,7 +380,7 @@ internal static class ExportRunner
     public static async Task RunAsync(IReadOnlyList<string> args, string outputPath, double duration, IProgress<double> progress, CancellationToken ct)
     {
         if (Deps.FFmpeg == null) throw new ExportException("ffmpeg.exe was not found.");
-        Log.Write("ffmpeg " + Proc.Quote(args));
+        Log.Write("ffmpeg " + Proc.Quote(args.Select(a => a.StartsWith("title=", StringComparison.Ordinal) ? "title=<redacted>" : a)));
 
         var errors = new StringBuilder();
         using var p = new Process { StartInfo = Proc.StartInfo(Deps.FFmpeg, args) };

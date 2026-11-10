@@ -10,6 +10,7 @@
 #include <wrl/implements.h>
 #include <algorithm>
 #include <cmath>
+#include <stdexcept>
 
 extern "C" {
 #include <libavutil/mem.h>
@@ -493,27 +494,25 @@ namespace qc
             return S_OK;
         }
 
-        HRESULT ActivateMicrophone(const std::wstring& deviceId, ComPtr<IAudioClient>& client)
+        HRESULT ActivateEndpoint(EDataFlow flow, const std::wstring& deviceId, ComPtr<IAudioClient>& client)
         {
             ComPtr<IMMDeviceEnumerator> enumerator;
             HRESULT hr = CoCreateInstance(__uuidof(MMDeviceEnumerator), nullptr, CLSCTX_ALL, IID_PPV_ARGS(&enumerator));
             if (FAILED(hr)) return hr;
             ComPtr<IMMDevice> device;
             hr = deviceId.empty()
-                ? enumerator->GetDefaultAudioEndpoint(eCapture, eConsole, &device)
+                ? enumerator->GetDefaultAudioEndpoint(flow, eConsole, &device)
                 : enumerator->GetDevice(deviceId.c_str(), &device);
             if (FAILED(hr)) return hr;
-            return device->Activate(__uuidof(IAudioClient), CLSCTX_ALL, nullptr, &client);
-        }
-
-        HRESULT ActivateDefaultOutput(ComPtr<IAudioClient>& client)
-        {
-            ComPtr<IMMDeviceEnumerator> enumerator;
-            HRESULT hr = CoCreateInstance(__uuidof(MMDeviceEnumerator), nullptr, CLSCTX_ALL, IID_PPV_ARGS(&enumerator));
-            if (FAILED(hr)) return hr;
-            ComPtr<IMMDevice> device;
-            hr = enumerator->GetDefaultAudioEndpoint(eRender, eConsole, &device);
-            if (FAILED(hr)) return hr;
+            if (!deviceId.empty())
+            {
+                ComPtr<IMMEndpoint> endpoint;
+                EDataFlow actual = eAll;
+                hr = device.As(&endpoint);
+                if (SUCCEEDED(hr)) hr = endpoint->GetDataFlow(&actual);
+                if (FAILED(hr)) return hr;
+                if (actual != flow) return E_INVALIDARG;
+            }
             return device->Activate(__uuidof(IAudioClient), CLSCTX_ALL, nullptr, &client);
         }
 
@@ -543,11 +542,12 @@ namespace qc
         int rate = SampleRate;
         ComPtr<IAudioClient> client;
         WAVEFORMATEX* mix = nullptr;
-        if (SUCCEEDED(ActivateDefaultOutput(client)) && SUCCEEDED(client->GetMixFormat(&mix)) && mix)
+        if (SUCCEEDED(ActivateEndpoint(eRender, L"", client)) && SUCCEEDED(client->GetMixFormat(&mix)) && mix)
         {
             if (mix->nSamplesPerSec >= 8000 && mix->nSamplesPerSec <= 384000) rate = static_cast<int>(mix->nSamplesPerSec);
             CoTaskMemFree(mix);
         }
+        client.Reset();
         if (SUCCEEDED(init)) CoUninitialize();
         return rate;
     }
@@ -556,7 +556,9 @@ namespace qc
         : kind_(kind), pid_(pid), deviceId_(std::move(deviceId)), rate_(rate), sink_(std::move(sink)),
           stop_(CreateEventW(nullptr, TRUE, FALSE, nullptr))
     {
-        thread_ = std::thread([this] { Run(); });
+        if (!stop_) throw std::runtime_error("Could not create the audio stop event.");
+        try { thread_ = std::thread([this] { Run(); }); }
+        catch (...) { CloseHandle(stop_); throw; }
     }
 
     AudioSource::~AudioSource()
@@ -568,7 +570,12 @@ namespace qc
 
     void AudioSource::Run()
     {
-        CoInitializeEx(nullptr, COINIT_MULTITHREADED);
+        HRESULT init = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
+        if (FAILED(init))
+        {
+            Log("could not initialize COM for audio capture: 0x%08lx", static_cast<unsigned long>(init));
+            return;
+        }
         DWORD taskIndex = 0;
         HANDLE task = AvSetMmThreadCharacteristicsW(L"Audio", &taskIndex);
         // Keep capturing until stopped; if the device disappears (or isn't there yet), try again, backing off
@@ -594,8 +601,8 @@ namespace qc
     {
         ComPtr<IAudioClient> client;
         HRESULT hr;
-        if (kind_ == SourceKind::Microphone)
-            hr = ActivateMicrophone(deviceId_, client);
+        if (kind_ == SourceKind::Microphone || kind_ == SourceKind::RenderLoopback)
+            hr = ActivateEndpoint(kind_ == SourceKind::Microphone ? eCapture : eRender, deviceId_, client);
         else
         {
             hr = PerAppCaptureAvailable() ? ActivateProcessLoopback(pid_, kind_ == SourceKind::ProcessInclude, client) : E_NOTIMPL;
@@ -607,7 +614,7 @@ namespace qc
                     Log("per-app audio capture unavailable (0x%08lx); recording all system audio", static_cast<unsigned long>(hr));
                     endpointFallbackLogged_ = true;
                 }
-                hr = ActivateDefaultOutput(client);
+                hr = ActivateEndpoint(eRender, L"", client);
             }
         }
         if (FAILED(hr)) return hr;
@@ -629,8 +636,9 @@ namespace qc
         hr = client->GetService(IID_PPV_ARGS(&capture));
         if (FAILED(hr)) return hr;
         HANDLE ready = CreateEventW(nullptr, FALSE, FALSE, nullptr);
-        client->SetEventHandle(ready);
-        hr = client->Start();
+        if (!ready) return HRESULT_FROM_WIN32(GetLastError());
+        hr = client->SetEventHandle(ready);
+        if (SUCCEEDED(hr)) hr = client->Start();
         if (FAILED(hr))
         {
             CloseHandle(ready);
@@ -643,6 +651,7 @@ namespace qc
         {
             DWORD signaled = WaitForMultipleObjects(2, waits, FALSE, 500);
             if (signaled == WAIT_OBJECT_0) break;
+            if (signaled == WAIT_FAILED) { hr = HRESULT_FROM_WIN32(GetLastError()); break; }
             UINT32 packetFrames = 0;
             while (SUCCEEDED(hr = capture->GetNextPacketSize(&packetFrames)) && packetFrames > 0)
             {
@@ -657,9 +666,11 @@ namespace qc
                     ? NowUs() - static_cast<int64_t>(frames) * 1000000 / rate_
                     : static_cast<int64_t>(qpcPosition / 10);
                 bool silent = (bufferFlags & AUDCLNT_BUFFERFLAGS_SILENT) != 0;
-                sink_->Push(silent ? nullptr : reinterpret_cast<const float*>(data), frames, timeUs, first);
+                bool restart = first || (bufferFlags & AUDCLNT_BUFFERFLAGS_DATA_DISCONTINUITY) != 0;
+                sink_->Push(silent ? nullptr : reinterpret_cast<const float*>(data), frames, timeUs, restart);
                 first = false;
-                capture->ReleaseBuffer(frames);
+                hr = capture->ReleaseBuffer(frames);
+                if (FAILED(hr)) break;
             }
             if (FAILED(hr)) break;
         }
@@ -674,7 +685,7 @@ namespace qc
             CoInitializeEx(nullptr, COINIT_MULTITHREADED);
             ComPtr<IAudioClient> client;
             WAVEFORMATEX format{ WAVE_FORMAT_IEEE_FLOAT, Channels, SampleRate, SampleRate * Channels * 4, Channels * 4, 32, 0 };
-            if (SUCCEEDED(ActivateDefaultOutput(client)) && SUCCEEDED(client->Initialize(AUDCLNT_SHAREMODE_SHARED,
+            if (SUCCEEDED(ActivateEndpoint(eRender, L"", client)) && SUCCEEDED(client->Initialize(AUDCLNT_SHAREMODE_SHARED,
                     AUDCLNT_STREAMFLAGS_EVENTCALLBACK | AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM | AUDCLNT_STREAMFLAGS_SRC_DEFAULT_QUALITY,
                     1000000, 0, &format, nullptr)))
             {
@@ -713,46 +724,73 @@ namespace qc
         }).detach();
     }
 
-    int EnumMicrophones(QcAudioDevice* devices, int max)
+    namespace
     {
-        // PKEY_Device_FriendlyName
-        static const PROPERTYKEY friendlyName = { { 0xa45c254e, 0xdf1c, 0x4efd, { 0x80, 0x20, 0x67, 0xd1, 0x46, 0xa8, 0x50, 0xe0 } }, 14 };
-        HRESULT init = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
-        int count = 0;
-        ComPtr<IMMDeviceEnumerator> enumerator;
-        ComPtr<IMMDeviceCollection> collection;
-        if (SUCCEEDED(CoCreateInstance(__uuidof(MMDeviceEnumerator), nullptr, CLSCTX_ALL, IID_PPV_ARGS(&enumerator)))
-            && SUCCEEDED(enumerator->EnumAudioEndpoints(eCapture, DEVICE_STATE_ACTIVE, &collection)))
+        template <typename Visitor>
+        void ForEachEndpoint(EDataFlow flow, Visitor visit)
         {
+            // PKEY_Device_FriendlyName
+            static const PROPERTYKEY friendlyName = { { 0xa45c254e, 0xdf1c, 0x4efd, { 0x80, 0x20, 0x67, 0xd1, 0x46, 0xa8, 0x50, 0xe0 } }, 14 };
+            ComPtr<IMMDeviceEnumerator> enumerator;
+            ComPtr<IMMDeviceCollection> collection;
+            if (FAILED(CoCreateInstance(__uuidof(MMDeviceEnumerator), nullptr, CLSCTX_ALL, IID_PPV_ARGS(&enumerator))) ||
+                FAILED(enumerator->EnumAudioEndpoints(flow, DEVICE_STATE_ACTIVE, &collection))) return;
+
             std::wstring defaultId;
             ComPtr<IMMDevice> def;
             LPWSTR id = nullptr;
-            if (SUCCEEDED(enumerator->GetDefaultAudioEndpoint(eCapture, eConsole, &def)) && SUCCEEDED(def->GetId(&id)))
+            if (SUCCEEDED(enumerator->GetDefaultAudioEndpoint(flow, eConsole, &def)) && SUCCEEDED(def->GetId(&id)))
             {
                 defaultId = id;
                 CoTaskMemFree(id);
             }
             UINT n = 0;
             collection->GetCount(&n);
-            for (UINT i = 0; i < n && count < max; i++)
+            for (UINT i = 0; i < n; i++)
             {
                 ComPtr<IMMDevice> device;
                 ComPtr<IPropertyStore> props;
                 if (FAILED(collection->Item(i, &device)) || FAILED(device->GetId(&id))) continue;
-                QcAudioDevice& d = devices[count++];
-                wcsncpy_s(d.id, id, _TRUNCATE);
-                d.isDefault = defaultId == id;
-                CoTaskMemFree(id);
-                d.name[0] = 0;
                 PROPVARIANT name;
                 PropVariantInit(&name);
-                if (SUCCEEDED(device->OpenPropertyStore(STGM_READ, &props)) && SUCCEEDED(props->GetValue(friendlyName, &name)) && name.vt == VT_LPWSTR)
-                    wcsncpy_s(d.name, name.pwszVal, _TRUNCATE);
+                if (SUCCEEDED(device->OpenPropertyStore(STGM_READ, &props))) props->GetValue(friendlyName, &name);
+                bool more = visit(id, name.vt == VT_LPWSTR && name.pwszVal ? name.pwszVal : L"", defaultId == id);
                 PropVariantClear(&name);
+                CoTaskMemFree(id);
+                if (!more) break;
             }
         }
+    }
+
+    int EnumMicrophones(QcAudioDevice* devices, int max)
+    {
+        if (!devices || max <= 0) return 0;
+        HRESULT init = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
+        if (FAILED(init) && init != RPC_E_CHANGED_MODE) return 0;
+        int count = 0;
+        ForEachEndpoint(eCapture, [&](const wchar_t* id, const wchar_t* name, bool isDefault)
+        {
+            auto& d = devices[count++];
+            wcsncpy_s(d.id, id, _TRUNCATE);
+            wcsncpy_s(d.name, name, _TRUNCATE);
+            d.isDefault = isDefault;
+            return count < max;
+        });
         if (SUCCEEDED(init)) CoUninitialize();
         return count;
+    }
+
+    void EnumAudioEndpoints(QcEndpointCallback callback)
+    {
+        HRESULT init = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
+        if (FAILED(init) && init != RPC_E_CHANGED_MODE) return;
+        for (EDataFlow flow : { eRender, eCapture })
+            ForEachEndpoint(flow, [&](const wchar_t* id, const wchar_t* name, bool isDefault)
+            {
+                callback(flow, id, name, isDefault ? 1 : 0);
+                return true;
+            });
+        if (SUCCEEDED(init)) CoUninitialize();
     }
 
     // ---------------------------------------------------------------------------------------------

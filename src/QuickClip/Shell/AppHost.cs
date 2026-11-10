@@ -55,6 +55,7 @@ internal sealed class AppHost : IDisposable
         recorder.StateChanged += _ => _dispatcher.BeginInvoke(UpdateTooltip);
         _ = recorder.ApplySettingsAsync();
 
+        if (!Updater.IsEnabled) return;
         // Look for a new release shortly after start (not during it), then once a day while running.
         _updateTimer = new DispatcherTimer(TimeSpan.FromSeconds(20), DispatcherPriority.Background, async (_, _) =>
         {
@@ -119,7 +120,7 @@ internal sealed class AppHost : IDisposable
             : r.Error != null ? "Not recording: " + r.Error : "Recording is off";
         var data = NewIconData();
         data.uFlags = NIF_TIP | NIF_SHOWTIP;
-        data.szTip = Truncate("QuickClip — " + state, 127);
+        data.szTip = Truncate(AppProfile.Name + " — " + state, 127);
         Shell_NotifyIcon(NIM_MODIFY, ref data);
     }
 
@@ -129,7 +130,7 @@ internal sealed class AppHost : IDisposable
         data.uFlags = NIF_MESSAGE | NIF_ICON | NIF_TIP | NIF_SHOWTIP;
         data.uCallbackMessage = TrayCallback;
         data.hIcon = _icon;
-        data.szTip = "QuickClip";
+        data.szTip = AppProfile.Name;
         _iconAdded = Shell_NotifyIcon(NIM_ADD, ref data);
         data.uTimeoutOrVersion = 4; // NOTIFYICON_VERSION_4: event in LOWORD(lParam)
         Shell_NotifyIcon(NIM_SETVERSION, ref data);
@@ -183,7 +184,7 @@ internal sealed class AppHost : IDisposable
         var recorder = Recorder.Instance;
         var s = AppSettings.Current;
         var menu = new ContextMenu { Placement = PlacementMode.MousePoint };
-        menu.Items.Add(Item("Open QuickClip", () => OpenRequested?.Invoke(), bold: true));
+        menu.Items.Add(Item("Open " + AppProfile.Name, () => OpenRequested?.Invoke(), bold: true));
         menu.Items.Add(Item($"Save clip ({new Hotkey(s.HotkeyModifiers, s.HotkeyKey)})", () => _ = recorder.SaveClipAsync(), enabled: recorder.IsRunning));
         menu.Items.Add(new Separator());
         menu.Items.Add(Item(s.RecordingEnabled ? "Turn recording off" : "Turn recording on", () =>

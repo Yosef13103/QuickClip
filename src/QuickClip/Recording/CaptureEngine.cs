@@ -58,10 +58,23 @@ internal static class CaptureEngine
         public int IsDefault;
     }
 
+    [StructLayout(LayoutKind.Sequential)]
+    private struct EndpointConfig
+    {
+        public int Flow;
+        public IntPtr DeviceId;
+        public IntPtr Title;
+    }
+
     [UnmanagedFunctionPointer(CallingConvention.StdCall)]
     private delegate void LogCallback(IntPtr message);
 
+    [UnmanagedFunctionPointer(CallingConvention.StdCall, CharSet = CharSet.Unicode)]
+    private delegate void EndpointCallback(int flow, [MarshalAs(UnmanagedType.LPWStr)] string id,
+        [MarshalAs(UnmanagedType.LPWStr)] string name, int isDefault);
+
     private static readonly LogCallback LogDelegate = message => Log.Write("[capture] " + Marshal.PtrToStringUTF8(message));
+    private static readonly object InitializationGate = new();
     private static bool _initialized;
 
     public static bool IsAvailable => File.Exists(Path.Combine(AppContext.BaseDirectory, Dll));
@@ -69,10 +82,13 @@ internal static class CaptureEngine
     /// <summary>Points the loader at the bundled FFmpeg DLLs the engine links against. Call before any other method.</summary>
     public static void Initialize()
     {
-        if (_initialized) return;
-        _initialized = true;
-        SetDllDirectory(Path.Combine(AppContext.BaseDirectory, "ffmpeg"));
-        qc_set_log(LogDelegate);
+        lock (InitializationGate)
+        {
+            if (_initialized) return;
+            SetDllDirectory(Path.Combine(AppContext.BaseDirectory, "ffmpeg"));
+            qc_set_log(LogDelegate);
+            _initialized = true;
+        }
     }
 
     public static IReadOnlyList<Output> EnumOutputs()
@@ -89,13 +105,21 @@ internal static class CaptureEngine
         return buffer.Take(Math.Min(n, buffer.Length)).ToList();
     }
 
+    public static IReadOnlyList<AudioEndpoint> EnumAudioEndpoints()
+    {
+        var endpoints = new List<AudioEndpoint>();
+        qc_enum_audio_endpoints((flow, id, name, isDefault) => endpoints.Add(new AudioEndpoint((EndpointFlow)flow, id, name, isDefault != 0)));
+        return endpoints;
+    }
+
     /// <param name="aspect">Record only the centered part of the monitor with this shape ("16:9"), or "" for all of it.
     /// The engine works the area out itself, again after a display change.</param>
     /// <param name="outWidth">Size to scale the area to, or 0 for its native size.</param>
     /// <param name="mics">Microphones to record (see <see cref="Microphones.Plan"/>).</param>
     /// <param name="separateMics">Each microphone on its own track, named by its title, instead of all on one Mic track.</param>
     public static string? Start(string monitorDevice, string aspect, int fps, int outWidth, int outHeight, string encoder, int videoKbps,
-        int audioKbps, int bufferSeconds, bool cursor, bool splitChat, bool splitMusic, IReadOnlyList<Microphones.Input> mics, bool separateMics)
+        int audioKbps, int bufferSeconds, bool cursor, bool splitChat, bool splitMusic, IReadOnlyList<Microphones.Input> mics,
+        bool separateMics, IReadOnlyList<EndpointTrack>? endpointTracks = null)
     {
         var strings = new List<IntPtr>();
         IntPtr Uni(string? s) { var p = s == null ? IntPtr.Zero : Marshal.StringToHGlobalUni(s); strings.Add(p); return p; }
@@ -131,7 +155,20 @@ internal static class CaptureEngine
             };
             strings.Add(config.Encoder);
             var error = new char[1024];
-            return qc_start(ref config, error, error.Length) != 0 ? null : new string(error).TrimEnd('\0');
+            int started;
+            if (endpointTracks == null)
+                started = qc_start(ref config, error, error.Length);
+            else
+            {
+                var tracks = endpointTracks.Select(t => new EndpointConfig
+                {
+                    Flow = (int)t.Flow,
+                    DeviceId = Uni(t.DeviceId),
+                    Title = Uni(t.Label),
+                }).ToArray();
+                started = qc_start_endpoints(ref config, tracks, tracks.Length, error, error.Length);
+            }
+            return started != 0 ? null : new string(error).TrimEnd('\0');
         }
         finally
         {
@@ -181,7 +218,10 @@ internal static class CaptureEngine
     [DllImport(Dll)] private static extern void qc_set_log(LogCallback callback);
     [DllImport(Dll)] private static extern int qc_enum_outputs([Out] Output[] outputs, int max);
     [DllImport(Dll)] private static extern int qc_enum_microphones([Out] AudioDevice[] devices, int max);
+    [DllImport(Dll)] private static extern void qc_enum_audio_endpoints(EndpointCallback callback);
     [DllImport(Dll, CharSet = CharSet.Unicode)] private static extern int qc_start(ref Config config, [Out] char[] error, int errorLength);
+    [DllImport(Dll, CharSet = CharSet.Unicode)] private static extern int qc_start_endpoints(ref Config config, [In] EndpointConfig[] endpoints,
+        int count, [Out] char[] error, int errorLength);
     [DllImport(Dll)] private static extern void qc_stop();
     [DllImport(Dll)] private static extern void qc_restart_video();
     [DllImport(Dll)] private static extern void qc_set_capture_window(ulong window, int width, int height, int videoKbps);

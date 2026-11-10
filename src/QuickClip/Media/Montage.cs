@@ -107,7 +107,8 @@ internal static class Montage
     public static async Task ExportAsync(IReadOnlyList<MediaInfo> clips, MediaInfo? music, VideoEncoder encoder, string output,
         IProgress<double> progress, CancellationToken ct)
     {
-        string graphFile = Path.Combine(Path.GetTempPath(), $"quickclip-montage-{Guid.NewGuid():N}.txt");
+        Directory.CreateDirectory(AppProfile.TempDirectory);
+        string graphFile = Path.Combine(AppProfile.TempDirectory, $"montage-{Guid.NewGuid():N}.txt");
         var (args, graph) = Build(clips, music, encoder, output, graphFile);
         await File.WriteAllTextAsync(graphFile, graph, ct);
         try

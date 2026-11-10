@@ -56,6 +56,15 @@ extern "C"
         wchar_t name[256];
         int isDefault;
     };
+
+    struct QcEndpointTrack
+    {
+        int flow;                       // eRender or eCapture
+        const wchar_t* deviceId;
+        const wchar_t* title;
+    };
+
+    using QcEndpointCallback = void(__stdcall*)(int flow, const wchar_t* id, const wchar_t* name, int isDefault);
 }
 
 namespace qc
@@ -78,7 +87,6 @@ namespace qc
         void Push(AVPacket* packet, int stream, int64_t timeUs, bool key);
         /// Packets from the last video keyframe at or before `fromUs` up to `toUs` (new references).
         std::vector<Entry> Snapshot(int64_t fromUs, int64_t toUs, int64_t& startUs);
-        int64_t NewestVideoUs();
         void Stats(int64_t& bytes, double& seconds);
         void Clear();
 
@@ -102,7 +110,7 @@ namespace qc
     class Engine
     {
     public:
-        explicit Engine(const QcConfig& config);
+        Engine(const QcConfig& config, bool endpointMode, const QcEndpointTrack* endpoints, int endpointCount);
         ~Engine();
         bool Start(std::string& error);
         /// Desktop records everything but `desktopExclude`'s process tree (nothing when that is 0) plus the trees of
@@ -132,15 +140,16 @@ namespace qc
 
         std::shared_ptr<Shared> shared_;
         std::wstring monitor_;
-        bool splitChat_, splitMusic_, micSeparate_;
+        bool splitChat_, splitMusic_, micSeparate_, endpointMode_;
         int audioKbps_;
 
-        struct Mic
+        struct Endpoint
         {
+            SourceKind kind;
             std::wstring deviceId;      // empty = the default microphone
             std::string title;
         };
-        std::vector<Mic> mics_;
+        std::vector<Endpoint> mics_, endpoints_;
 
         // Audio tracks are Desktop, then Chat and Music when enabled, then one Mic track or one per microphone.
         struct Track
@@ -167,11 +176,13 @@ namespace qc
         int nativeRate_ = SampleRate;
         std::unique_ptr<Canceller> canceller_;
         std::map<SourceKey, std::unique_ptr<AudioSource>> sources_;
-        std::vector<std::unique_ptr<AudioSource>> micSources_;
+        std::vector<std::unique_ptr<AudioSource>> endpointSources_;
 
+        std::mutex videoRestartLock_;
         std::thread videoThread_, audioThread_, watchThread_;
     };
 
     int EnumOutputs(QcOutput* outputs, int max);
     int EnumMicrophones(QcAudioDevice* devices, int max);
+    void EnumAudioEndpoints(QcEndpointCallback callback);
 }

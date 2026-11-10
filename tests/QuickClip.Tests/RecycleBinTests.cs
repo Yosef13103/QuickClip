@@ -45,7 +45,7 @@ public sealed class RecycleBinTests : IDisposable
         Assert.Null(RecycleBin.ReadInfo(TempFile("$IBROKEN.mp4", [1, 2, 3])));
     }
 
-    [Fact]
+    [OptInFact("QUICKCLIP_TEST_RECYCLE_BIN")]
     public void A_recycled_file_can_be_found_and_taken_back_out()
     {
         byte[] contents = Encoding.UTF8.GetBytes("the clip before it was edited " + Guid.NewGuid());

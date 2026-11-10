@@ -1,0 +1,45 @@
+namespace QuickClip.Recording;
+
+// Values match EDataFlow in the Windows SDK and the capture DLL ABI.
+internal enum EndpointFlow { Playback, Microphone }
+
+internal sealed record AudioEndpoint(EndpointFlow Flow, string Id, string Name, bool IsDefault);
+
+internal sealed record EndpointTrack(EndpointFlow Flow, string DeviceId, string Label, bool Enabled = true);
+
+internal static class EndpointAudio
+{
+    public const int MaxTracks = 16;
+
+    public static List<EndpointTrack> Normalize(IEnumerable<EndpointTrack?>? tracks)
+    {
+        var result = new List<EndpointTrack>();
+        var ids = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var track in tracks ?? [])
+        {
+            if (track is null || !Enum.IsDefined(track.Flow) || string.IsNullOrWhiteSpace(track.DeviceId) ||
+                track.DeviceId.Contains('\0') || !ids.Add(track.DeviceId))
+                continue;
+            result.Add(track);
+            if (result.Count == MaxTracks) break;
+        }
+        return result;
+    }
+
+    /// <summary>A non-null empty plan means video only. Null selects legacy Desktop/mic routing.</summary>
+    public static IReadOnlyList<EndpointTrack>? Plan(AppSettings settings)
+    {
+        if (!settings.UseAudioEndpoints) return null;
+        var titles = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var result = new List<EndpointTrack>();
+        foreach (var track in Normalize(settings.EndpointTracks).Where(t => t.Enabled))
+        {
+            string name = string.Concat((track.Label ?? "").Where(c => !char.IsControl(c))).Trim();
+            if (name.Length == 0) name = track.Flow == EndpointFlow.Playback ? "Playback" : "Mic";
+            string title = name;
+            for (int suffix = 2; !titles.Add(title); suffix++) title = $"{name} ({suffix})";
+            result.Add(track with { Label = title });
+        }
+        return result;
+    }
+}

@@ -10,11 +10,19 @@
     <ApplicationIcon>Assets\QuickClip.ico</ApplicationIcon>
     <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
     <Version>0.7.1</Version>
-    <Product>QuickClip</Product>
+    <QuickClipProfile Condition="'$(QuickClipProfile)' == ''">Personal</QuickClipProfile>
+    <Product Condition="'$(QuickClipProfile)' == 'Personal'">QuickClip Personal</Product>
+    <Product Condition="'$(QuickClipProfile)' == 'Upstream'">QuickClip</Product>
+    <DefineConstants Condition="'$(QuickClipProfile)' == 'Personal'">$(DefineConstants);QUICKCLIP_PERSONAL</DefineConstants>
     <!-- Fluent theme (ThemeMode) is still flagged as experimental. -->
     <NoWarn>$(NoWarn);WPF0001</NoWarn>
     <DepsDir>$(MSBuildThisFileDirectory)..\..\deps\</DepsDir>
   </PropertyGroup>
+
+  <Target Name="ValidateQuickClipProfile" BeforeTargets="PrepareForBuild">
+    <Error Condition="'$(QuickClipProfile)' != 'Personal' And '$(QuickClipProfile)' != 'Upstream'"
+           Text="QuickClipProfile must be Personal or Upstream." />
+  </Target>
 
   <ItemGroup>
     <Resource Include="Assets\QuickClip.ico" />
@@ -27,12 +35,14 @@
   <PropertyGroup>
     <CaptureEngineDir>$(MSBuildThisFileDirectory)..\QuickClip.Capture\</CaptureEngineDir>
     <CaptureEngineDll>$(CaptureEngineDir)bin\QuickClipCapture.dll</CaptureEngineDll>
+    <CaptureBuildFailure Condition="'$(RequireCaptureEngine)' == 'true'">ErrorAndStop</CaptureBuildFailure>
+    <CaptureBuildFailure Condition="'$(CaptureBuildFailure)' == ''">WarnAndContinue</CaptureBuildFailure>
   </PropertyGroup>
   <ItemGroup>
-    <CaptureEngineSource Include="$(CaptureEngineDir)*.cpp;$(CaptureEngineDir)*.h" />
+    <CaptureEngineSource Include="$(CaptureEngineDir)*.cpp;$(CaptureEngineDir)*.h;$(MSBuildThisFileDirectory)..\..\scripts\build-capture.ps1;$(DepsDir)ffmpeg-dev\lib\*.lib;$(DepsDir)ffmpeg-dev\include\**\*.h" />
   </ItemGroup>
   <Target Name="BuildCaptureEngine" BeforeTargets="BeforeBuild" Inputs="@(CaptureEngineSource)" Outputs="$(CaptureEngineDll)">
-    <Exec Command="powershell -NoProfile -ExecutionPolicy Bypass -File &quot;$(MSBuildThisFileDirectory)..\..\scripts\build-capture.ps1&quot;" ContinueOnError="true" />
+    <Exec Command="powershell -NoProfile -ExecutionPolicy Bypass -File &quot;$(MSBuildThisFileDirectory)..\..\scripts\build-capture.ps1&quot;" ContinueOnError="$(CaptureBuildFailure)" />
   </Target>
   <Target Name="IncludeCaptureEngine" AfterTargets="BuildCaptureEngine">
     <ItemGroup Condition="Exists('$(CaptureEngineDll)')">

@@ -41,6 +41,28 @@ namespace
         wcsncpy_s(error, static_cast<size_t>(length), qc::Widen(message).c_str(), _TRUNCATE);
     }
 
+    int StartEngine(const QcConfig& config, bool endpointMode, const QcEndpointTrack* endpoints, int count, wchar_t* error, int length)
+    {
+        std::unique_lock guard(g_engineLock);
+        g_engine.reset();
+        try
+        {
+            auto engine = std::make_unique<qc::Engine>(config, endpointMode, endpoints, count);
+            std::string message;
+            if (engine->Start(message))
+            {
+                g_engine = std::move(engine);
+                return 1;
+            }
+            CopyError(message, error, length);
+        }
+        catch (const std::exception& ex)
+        {
+            CopyError(ex.what(), error, length);
+        }
+        return 0;
+    }
+
     void FfmpegLog(void* avcl, int level, const char* format, va_list args)
     {
         if (level > AV_LOG_WARNING || !g_log) return;
@@ -123,19 +145,41 @@ extern "C"
         return qc::EnumMicrophones(devices, max);
     }
 
+    __declspec(dllexport) void qc_enum_audio_endpoints(QcEndpointCallback callback)
+    {
+        if (callback) qc::EnumAudioEndpoints(callback);
+    }
+
     __declspec(dllexport) int qc_start(const QcConfig* config, wchar_t* error, int errorLength)
     {
-        std::unique_lock guard(g_engineLock);
-        g_engine.reset();
-        auto engine = std::make_unique<qc::Engine>(*config);
-        std::string message;
-        if (!engine->Start(message))
+        if (!config) return 0;
+        return StartEngine(*config, false, nullptr, 0, error, errorLength);
+    }
+
+    __declspec(dllexport) int qc_start_endpoints(const QcConfig* config, const QcEndpointTrack* endpoints, int count,
+        wchar_t* error, int errorLength)
+    {
+        if (!config || count < 0 || count > 16 || (count > 0 && !endpoints))
         {
-            CopyError(message, error, errorLength);
+            CopyError("Invalid endpoint audio configuration.", error, errorLength);
             return 0;
         }
-        g_engine = std::move(engine);
-        return 1;
+        for (int i = 0; i < count; i++)
+        {
+            const auto& track = endpoints[i];
+            if ((track.flow != 0 && track.flow != 1) || !track.deviceId || !*track.deviceId || !track.title || !*track.title)
+            {
+                CopyError("Each audio track needs a playback or microphone endpoint and a name.", error, errorLength);
+                return 0;
+            }
+            for (int prior = 0; prior < i; prior++)
+                if (_wcsicmp(track.deviceId, endpoints[prior].deviceId) == 0)
+                {
+                    CopyError("An audio endpoint can only be recorded once.", error, errorLength);
+                    return 0;
+                }
+        }
+        return StartEngine(*config, true, endpoints, count, error, errorLength);
     }
 
     __declspec(dllexport) void qc_stop()

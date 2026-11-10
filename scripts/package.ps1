@@ -1,13 +1,18 @@
 <#
 .SYNOPSIS
-    Builds a QuickClip release into .\publish: the installer (QuickClip-<version>-setup.exe) and a
-    portable zip (QuickClip-<version>-win-x64.zip). The version comes from src\QuickClip\QuickClip.csproj.
+    Builds an upstream-compatible QuickClip installer and portable zip into .\publish with -Upstream.
+    The version comes from src\QuickClip\QuickClip.csproj.
 
 .DESCRIPTION
     The app is published self-contained, so neither needs .NET installed. Needs the tools from
     scripts\get-deps.ps1 (FFmpeg, libmpv, Inno Setup) and Visual Studio's C++ tools for the recording engine.
 #>
+param([switch]$Upstream)
+
 $ErrorActionPreference = 'Stop'
+if (-not $Upstream) {
+    throw 'Stock packaging requires -Upstream. Publish QuickClip Personal to its own portable folder with dotnet publish.'
+}
 $root = Split-Path -Parent $PSScriptRoot
 $csproj = Join-Path $root 'src\QuickClip\QuickClip.csproj'
 $iscc = Join-Path $root 'deps\innosetup\ISCC.exe'
@@ -27,7 +32,7 @@ $app = Join-Path $out 'QuickClip'
 if (Test-Path $out) { Remove-Item -Recurse -Force $out }
 
 Write-Host "Building QuickClip $version ($display)..."
-dotnet publish $csproj -c Release -r win-x64 --self-contained true -o $app -p:DebugType=none -nologo -v q
+dotnet publish $csproj -c Release -r win-x64 --self-contained true -o $app -p:QuickClipProfile=Upstream -p:DebugType=none -nologo -v q
 if ($LASTEXITCODE -ne 0) { throw 'Build failed.' }
 foreach ($required in 'QuickClip.exe', 'QuickClipCapture.dll', 'libmpv-2.dll', 'ffmpeg\ffmpeg.exe') {
     if (-not (Test-Path (Join-Path $app $required))) { throw "The build is missing $required." }

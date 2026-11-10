@@ -8,6 +8,7 @@ using System.Windows.Input;
 using System.Windows.Threading;
 using Microsoft.Win32;
 using QuickClip.Controls;
+using QuickClip.Gallery;
 using QuickClip.Media;
 using QuickClip.Mpv;
 using QuickClip.Shell;
@@ -40,7 +41,7 @@ public partial class EditorView : UserControl
     private CancellationTokenSource? _soundCts;
 
     // Added sounds are previewed from copies already placed on the clip's timeline.
-    private static readonly string SoundPreviewDir = Path.Combine(Path.GetTempPath(), "QuickClip", "sound previews");
+    private static readonly string SoundPreviewDir = Path.Combine(AppProfile.TempDirectory, "sound previews");
     private static readonly HashSet<string> AudioExtensions = new(
         [".mp3", ".wav", ".flac", ".m4a", ".aac", ".ogg", ".oga", ".opus", ".wma", ".aif", ".aiff", ".ac3", ".eac3", ".dts",
          ".mka", ".amr", ".ape", ".wv", ".caf", ".alac", ".mp2", ".m4b"], StringComparer.OrdinalIgnoreCase);
@@ -317,9 +318,9 @@ public partial class EditorView : UserControl
             UndoButton.Visibility = Visibility.Collapsed;
             StatusText.Text = "";
 
-            FileTitle = Path.GetFileName(path);
+            FileTitle = CurrentClipDetails().Title ?? Path.GetFileName(path);
             TitleChanged?.Invoke();
-            FileNameText.Text = Path.GetFileName(path);
+            FileNameText.Text = FileTitle;
             FileNameText.ToolTip = path;
             FileInfoText.Text = info.Summary;
 
@@ -1420,17 +1421,29 @@ public partial class EditorView : UserControl
         if (_media == null || _exportCts != null) return;
         var container = CurrentContainer(forOverwrite: false);
         string dir = Path.GetDirectoryName(_media.Path)!;
-        string name = Path.GetFileNameWithoutExtension(_media.Path);
+        var details = CurrentClipDetails();
+        string suggested;
+        try
+        {
+            string stem = AppProfile.IsPersonal ? ClipNaming.Stem(_settings.ClipFilenameTemplate, details.Game, details.CapturedAt, details.Title)
+                : Path.GetFileNameWithoutExtension(_media.Path) + " (clip)";
+            suggested = ClipNaming.AvailablePath(dir, stem, container.Extension);
+        }
+        catch (Exception ex) when (ex is IOException or ArgumentException)
+        {
+            MessageBox.Show(OwnerWindow, ex.Message, "Can't name the clip", MessageBoxButton.OK, MessageBoxImage.Warning);
+            return;
+        }
 
         var dlg = new SaveFileDialog
         {
             Title = "Export clip",
             InitialDirectory = dir,
-            FileName = Path.GetFileName(UniquePath(dir, $"{name} (clip)", container.Extension)),
+            FileName = Path.GetFileName(suggested),
             Filter = $"{container.Label}|*{container.Extension}",
             DefaultExt = container.Extension,
             AddExtension = true,
-            OverwritePrompt = true,
+            OverwritePrompt = false,
         };
         if (dlg.ShowDialog(OwnerWindow) != true) return;
 
@@ -1441,6 +1454,12 @@ public partial class EditorView : UserControl
             return;
         }
         await RunExportAsync(dlg.FileName, container, overwrite: false);
+    }
+
+    private ClipDetails CurrentClipDetails()
+    {
+        var file = new FileInfo(_media!.Path);
+        return ClipDetailsStore.Read(file, ClipLibrary.InitialGame(_settings.ClipsFolder, file.FullName), _media.EmbeddedCreationTime);
     }
 
     private async void SaveOver_Click(object sender, RoutedEventArgs e)
@@ -1467,14 +1486,26 @@ public partial class EditorView : UserControl
 
     private async Task RunExportAsync(string outputPath, Container container, bool overwrite)
     {
-        var request = BuildRequest(outputPath, container);
+        string? staging = null;
+        var details = CurrentClipDetails();
+        ExportRequest request;
         List<string> args;
         try
         {
+            if (ClipLibrary.IsMomentsPath(outputPath) || (overwrite && ClipLibrary.IsMomentsPath(_media!.Path)))
+                throw new ExportException("Choose an export location outside the Moments archive.");
+            if (!overwrite)
+            {
+                if (Path.Exists(outputPath)) throw new ExportException("That file already exists. Choose a new filename.");
+                staging = ClipNaming.ReserveStagingPath(Path.GetDirectoryName(outputPath)!, container.Extension);
+            }
+            request = BuildRequest(staging ?? outputPath, container);
+            if (AppProfile.IsPersonal) request = request with { CaptureTime = details.CapturedAt, ClipTitle = details.Title };
             args = ExportBuilder.BuildArgs(request);
         }
-        catch (ExportException ex)
+        catch (Exception ex) when (ex is ExportException or IOException or UnauthorizedAccessException)
         {
+            if (staging != null) RemoveExportStaging(staging);
             MessageBox.Show(OwnerWindow, ex.Message, "Can't export", MessageBoxButton.OK, MessageBoxImage.Warning);
             return;
         }
@@ -1500,14 +1531,20 @@ public partial class EditorView : UserControl
 
         try
         {
-            await ExportRunner.RunAsync(args, outputPath, request.Duration, progress, cts.Token);
+            await ExportRunner.RunAsync(args, request.OutputPath, request.Duration, progress, cts.Token);
             string final = outputPath;
             if (overwrite)
             {
                 StatusText.Text = "Replacing the original…";
                 DateTime? recycled;
-                (final, recycled) = await ReplaceOriginalAsync(outputPath);
+                (final, recycled) = await ReplaceOriginalAsync(outputPath, details);
                 if (recycled is { } when) _undo = (final, when);
+            }
+            else
+            {
+                cts.Token.ThrowIfCancellationRequested();
+                File.Move(staging!, final);
+                if (AppProfile.IsPersonal) ClipDetailsStore.TryWrite(final, details);
             }
             _lastExport = final;
             RevealButton.Visibility = Visibility.Visible;
@@ -1526,6 +1563,7 @@ public partial class EditorView : UserControl
         }
         finally
         {
+            if (staging != null) RemoveExportStaging(staging);
             _exportCts = null;
             _exportPath = null;
             cts.Dispose();
@@ -1534,11 +1572,17 @@ public partial class EditorView : UserControl
         }
     }
 
+    private static void RemoveExportStaging(string path)
+    {
+        try { File.Delete(path); }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { Log.Write("Could not remove an export staging file: " + ex.Message); }
+    }
+
     /// <summary>
     /// Swaps the exported temp file in for the original (which goes to the Recycle Bin), then reloads it. Returns the
     /// edited file and, if the original went to the Recycle Bin, when (so it can be put back).
     /// </summary>
-    private async Task<(string Final, DateTime? RecycledUtc)> ReplaceOriginalAsync(string tempPath)
+    private async Task<(string Final, DateTime? RecycledUtc)> ReplaceOriginalAsync(string tempPath, ClipDetails details)
     {
         string original = _media!.Path;
         DateTime created = File.GetCreationTime(original);
@@ -1556,6 +1600,7 @@ public partial class EditorView : UserControl
                 string dir = Path.GetDirectoryName(original)!;
                 string keep = UniquePath(dir, Path.GetFileNameWithoutExtension(original) + " (edited)", Path.GetExtension(original));
                 File.Move(tempPath, keep);
+                if (AppProfile.IsPersonal) ClipDetailsStore.TryWrite(keep, details);
                 await OpenFileAsync(original);
                 return (keep, null);
             }
@@ -1564,6 +1609,7 @@ public partial class EditorView : UserControl
 
         await RetryAsync(() => { File.Move(tempPath, original); return true; });
         try { File.SetCreationTime(original, created); } catch { }
+        if (AppProfile.IsPersonal) ClipDetailsStore.TryWrite(original, details);
         await OpenFileAsync(original);
         return (original, recycled ? before : null);
     }
@@ -1598,6 +1644,7 @@ public partial class EditorView : UserControl
         StatusText.Text = "Putting the original back…";
         try
         {
+            var details = CurrentClipDetails();
             var original = RecycleBin.FindLatest(clip, undo.RecycledUtc)
                 ?? throw new IOException("The original isn't in the Recycle Bin any more.");
             await ReleaseFileAsync();
@@ -1608,6 +1655,7 @@ public partial class EditorView : UserControl
                 throw new IOException("The edited clip couldn't be moved to the Recycle Bin.");
             await RetryAsync(() => { File.Move(parked, clip); return true; });
             parked = null;
+            if (AppProfile.IsPersonal) ClipDetailsStore.TryWrite(clip, details);
             Log.Write($"Undid the edit of {clip}: the original is back, the edited version is in the Recycle Bin");
             await OpenFileAsync(clip);
             StatusText.Text = "The clip is back as it was before the edit. The edited version is in the Recycle Bin.";

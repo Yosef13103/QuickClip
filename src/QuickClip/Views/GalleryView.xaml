@@ -19,6 +19,8 @@
                             <MenuItem Header="Play" Click="PlayClip_Click" FontWeight="SemiBold" />
                             <MenuItem Header="Share (copy to clipboard)" Click="ShareClip_Click" ToolTip="Share: makes a copy under the size limit in Settings (at most 60 fps, all audio mixed into one track) and copies it to the clipboard to paste anywhere. The original stays as it is." />
                             <MenuItem Header="Open in editor" Click="OpenClip_Click" />
+                            <MenuItem Header="Set custom title…" Click="EditClipDetails_Click" Tag="title" />
+                            <MenuItem Header="Change game classification…" Click="EditClipDetails_Click" Tag="game" />
                             <Separator />
                             <!-- Filled in when the menu opens: every project, then New project -->
                             <MenuItem Header="Add to project" Tag="projects">

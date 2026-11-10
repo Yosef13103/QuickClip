@@ -40,7 +40,7 @@ internal static class ProcessScan
     internal static bool IsStranger(long child, long parent) => child > 0 && parent > 0 && parent > child;
 
     /// <summary>When the process started (FILETIME), or 0 when that can't be read.</summary>
-    private static long StartTime(uint pid)
+    internal static long StartTime(uint pid)
     {
         if (pid == 0) return 0;
         IntPtr h = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid);

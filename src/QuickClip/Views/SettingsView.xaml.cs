@@ -3,6 +3,7 @@ using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Threading;
 using Microsoft.Win32;
+using QuickClip.Gallery;
 using QuickClip.Media;
 using QuickClip.Recording;
 using QuickClip.Shell;
@@ -28,6 +29,13 @@ public partial class SettingsView : UserControl
     public SettingsView()
     {
         InitializeComponent();
+        LibraryOptions.Visibility = AppProfile.IsPersonal ? Visibility.Visible : Visibility.Collapsed;
+        if (AppProfile.IsPersonal)
+        {
+            PersonalProfileHint.Text = $"{AppProfile.Name} {AppVersion.Current.Display} · Updates, Windows startup and Explorer integration are disabled.";
+            PersonalProfileHint.Visibility = Visibility.Visible;
+            UpdatesCard.Visibility = StartupCheck.Visibility = ShellCheck.Visibility = Visibility.Collapsed;
+        }
         // Recording settings restart the recorder; wait until the user stops fiddling.
         _restartTimer = new DispatcherTimer(TimeSpan.FromMilliseconds(700), DispatcherPriority.Background, (_, _) =>
         {
@@ -54,6 +62,7 @@ public partial class SettingsView : UserControl
 
     private void ShowUpdateState()
     {
+        if (!Updater.IsEnabled) return;
         VersionText.Text = $"You have QuickClip {AppVersion.Current.Display}" + (AppVersion.Current.IsPrerelease ? " (a nightly build)" : "") +
                            (Updater.LastChecked is DateTime t ? $" · last checked {t:t}" : "");
         CheckUpdatesButton.IsEnabled = !Updater.IsChecking && !_installing;
@@ -138,6 +147,8 @@ public partial class SettingsView : UserControl
         {
             var s = AppSettings.Current;
             RecordingCheck.IsChecked = s.RecordingEnabled;
+            EndpointModeCheck.IsChecked = s.UseAudioEndpoints;
+            ShowEndpointMode();
 
             _monitors = await Task.Run(Monitors.List);
             MonitorCombo.ItemsSource = _monitors.Select(m => new Choice(m.Label, m.DeviceName)).ToList();
@@ -175,6 +186,7 @@ public partial class SettingsView : UserControl
             }
             MicCheck.IsChecked = s.RecordMic;
             _mics = CaptureEngine.IsAvailable ? await Task.Run(() => { CaptureEngine.Initialize(); return CaptureEngine.EnumMicrophones(); }) : [];
+            if (s.UseAudioEndpoints) await LoadEndpointsAsync();
             ShowMics(s.MicDeviceIds.Count > 0 ? s.MicDeviceIds : [""]);
             MicTracksCombo.ItemsSource = new List<Choice> { new("All on one Mic track", false), new("A track for each microphone", true) };
             Select(MicTracksCombo, s.SeparateMicTracks);
@@ -193,6 +205,8 @@ public partial class SettingsView : UserControl
                 ShellCheck.ToolTip = "On the Windows 11 right-click menu (added with scripts\\add-win11-menu.ps1; run it with -Remove to undo).";
             }
             FolderBox.Text = s.ClipsFolder;
+            FilenameTemplate.Text = s.ClipFilenameTemplate;
+            ExclusionsBox.Text = string.Join(Environment.NewLine, s.LibraryExclusions ?? []);
             AutoUpdateCheck.IsChecked = s.CheckForUpdates;
             ChannelCombo.ItemsSource = new[]
             {
@@ -396,11 +410,51 @@ public partial class SettingsView : UserControl
         UpdateEstimates();
         bool recordingSetting = sender != StartupCheck && sender != MinTrayCheck && sender != CloseTrayCheck && sender != SoundCheck
                                 && sender != MotionBlurCheck;
-        if (recordingSetting)
+        if (recordingSetting) ScheduleRecorderRestart();
+    }
+
+    private void ScheduleRecorderRestart()
+    {
+        _restartTimer.Stop();
+        _restartTimer.Start();
+    }
+
+    private void FilenameTemplate_Changed(object sender, TextChangedEventArgs e)
+    {
+        if (FilenamePreview == null) return;
+        try
         {
-            _restartTimer.Stop();
-            _restartTimer.Start();
+            var capture = new DateTimeOffset(2023, 8, 4, 6, 44, 24, TimeSpan.Zero);
+            string named = ClipNaming.Stem(FilenameTemplate.Text, "PlateUp", capture, "Last round");
+            string unnamed = ClipNaming.Stem(FilenameTemplate.Text, "PlateUp", capture, null);
+            FilenamePreview.Text = $"{named}.mp4\n{unnamed}.mp4";
         }
+        catch (ArgumentException ex) { FilenamePreview.Text = ex.Message; }
+    }
+
+    private void FilenameTemplate_Commit(object sender, KeyboardFocusChangedEventArgs e)
+    {
+        if (_loading) return;
+        try
+        {
+            _ = ClipNaming.Stem(FilenameTemplate.Text, "Game", DateTimeOffset.Now, "Title");
+            AppSettings.Current.ClipFilenameTemplate = FilenameTemplate.Text.Trim();
+            AppSettings.Current.Save();
+        }
+        catch (ArgumentException) { }
+    }
+
+    private void Exclusions_Commit(object sender, KeyboardFocusChangedEventArgs e)
+    {
+        if (_loading) return;
+        string[] folders = ExclusionsBox.Text.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        if (folders.Any(folder => Path.IsPathRooted(folder) || folder.Split('/', '\\').Any(part => part is "." or "..")))
+        {
+            MessageBox.Show(Window.GetWindow(this), "Use folder paths relative to the clips folder.", "Invalid exclusion", MessageBoxButton.OK);
+            return;
+        }
+        AppSettings.Current.LibraryExclusions = folders.Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
+        AppSettings.Current.Save();
     }
 
     private void ShowShareSize() =>
@@ -465,7 +519,8 @@ public partial class SettingsView : UserControl
     {
         var s = AppSettings.Current;
         HotkeyButton.Content = new Hotkey(s.HotkeyModifiers, s.HotkeyKey).ToString();
-        HotkeyStatus.Text = App.Host?.HotkeyActive == false && s.HotkeyKey != 0
+        HotkeyStatus.Text = s.HotkeyKey == 0 ? "Click to assign a shortcut."
+            : App.Host?.HotkeyActive == false
             ? "Another app is already using this shortcut — pick a different one."
             : "Works everywhere, including in games.";
     }
@@ -540,6 +595,11 @@ public partial class SettingsView : UserControl
     {
         var dlg = new OpenFolderDialog { Title = "Where should clips be saved?", InitialDirectory = AppSettings.Current.ClipsFolder };
         if (dlg.ShowDialog(Window.GetWindow(this)) != true) return;
+        if (ClipLibrary.IsMomentsPath(dlg.FolderName))
+        {
+            MessageBox.Show(Window.GetWindow(this), "Choose a clips folder outside the Moments archive.", "Protected archive", MessageBoxButton.OK);
+            return;
+        }
         AppSettings.Current.ClipsFolder = dlg.FolderName;
         AppSettings.Current.Save();
         FolderBox.Text = dlg.FolderName;

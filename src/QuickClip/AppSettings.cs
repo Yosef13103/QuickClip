@@ -4,7 +4,7 @@ using QuickClip.Recording;
 
 namespace QuickClip;
 
-/// <summary>User preferences persisted to %APPDATA%\QuickClip\settings.json.</summary>
+/// <summary>User preferences persisted in the active application profile.</summary>
 internal sealed class AppSettings
 {
     // The editor's encoder, quality, size and frame rate start at "same as original" for every clip.
@@ -18,7 +18,7 @@ internal sealed class AppSettings
     public string? SoundFolder { get; set; }                     // where the editor last added a sound from
 
     // Recording (instant replay)
-    public bool RecordingEnabled { get; set; } = true;
+    public bool RecordingEnabled { get; set; } = !AppProfile.IsPersonal;
     public string RecordMonitor { get; set; } = "";             // GDI device name; empty = main monitor
     public string RecordAspect { get; set; } = "";              // "16:9" records the monitor's 16:9 center; empty = all of it
     public int RecordFps { get; set; } = 60;
@@ -27,30 +27,33 @@ internal sealed class AppSettings
     public string RecordEncoder { get; set; } = "";             // empty = newest GPU codec available
     public int BufferSeconds { get; set; } = 60;
     public bool CaptureCursor { get; set; } = true;
-    public bool PreferGameWindow { get; set; }                   // record a running game by its window (the aspect ratio is then for the desktop)
+    public bool PreferGameWindow { get; set; } = AppProfile.IsPersonal;
     public bool SplitChatAudio { get; set; } = true;
     public bool SplitMusicAudio { get; set; } = true;
-    public bool RecordMic { get; set; } = true;
+    public bool RecordMic { get; set; } = !AppProfile.IsPersonal;
     public List<string> MicDeviceIds { get; set; } = [""];      // empty id = Windows default
     public bool SeparateMicTracks { get; set; }                 // a track per microphone instead of one shared Mic track
+    public bool UseAudioEndpoints { get; set; }
+    public List<EndpointTrack> EndpointTracks { get; set; } = [];
 
     /// <summary>The single microphone of settings from before several could be recorded, moved into <see cref="MicDeviceIds"/>
     /// when loaded.</summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? MicDeviceId { get; set; }
     public int HotkeyModifiers { get; set; } = 1;               // MOD_ALT
-    public int HotkeyKey { get; set; } = 0x79;                  // F10
+    public int HotkeyKey { get; set; } = AppProfile.IsPersonal ? 0 : 0x79; // Alt+F10 upstream
     public bool ClipSound { get; set; } = true;
     public double ShareSizeMB { get; set; } = 30;                // shared copies are made to fit under this
     public bool ShareMotionBlur { get; set; } = true;             // sharing a 120 fps clip blends it into 60 fps motion blur
-    public string ClipsFolder { get; set; } =
-        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyVideos), "QuickClip");
+    public string ClipsFolder { get; set; } = AppProfile.ClipsDirectory;
+    public string ClipFilenameTemplate { get; set; } = Gallery.ClipNaming.DefaultTemplate;
+    public string[] LibraryExclusions { get; set; } = [];
 
     // Window behaviour
     public bool MinimizeToTray { get; set; } = true;
     public bool CloseToTray { get; set; } = true;
 
-    public bool CheckForUpdates { get; set; } = true;
+    public bool CheckForUpdates { get; set; } = !AppProfile.IsPersonal;
     public string? UpdateChannel { get; set; }
     public string? SeenVersion { get; set; }                      // the version whose "what's new" was last shown
 
@@ -60,8 +63,7 @@ internal sealed class AppSettings
     public string? EncoderCacheKey { get; set; }
     public List<string>? EncoderCache { get; set; }
 
-    private static readonly string FilePath = Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "QuickClip", "settings.json");
+    internal static string FilePath => Path.Combine(AppProfile.SettingsDirectory, "settings.json");
 
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
@@ -69,7 +71,8 @@ internal sealed class AppSettings
         Converters = { new System.Text.Json.Serialization.JsonStringEnumConverter() },
     };
 
-    public static AppSettings Current { get; } = Load();
+    private static readonly Lazy<AppSettings> Settings = new(Load);
+    public static AppSettings Current => Settings.Value;
 
     private static AppSettings Load()
     {
@@ -96,6 +99,7 @@ internal sealed class AppSettings
             settings.MicDeviceIds = [settings.MicDeviceId];
             settings.MicDeviceId = null;
         }
+        settings.EndpointTracks = EndpointAudio.Normalize(settings.EndpointTracks);
         return settings;
     }
 

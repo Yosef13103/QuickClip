@@ -57,6 +57,8 @@ internal sealed class MediaInfo
     public long Size { get; init; }
     /// <summary>The first timestamp in the file; seeking and the timeline count from here.</summary>
     public double StartTime { get; init; }
+    /// <summary>Container creation_time when present. For new QuickClip captures this is the first retained frame in UTC.</summary>
+    public DateTimeOffset? EmbeddedCreationTime { get; init; }
     public VideoStreamInfo? Video { get; init; }
     public List<AudioStreamInfo> Audio { get; } = [];
 
@@ -87,11 +89,12 @@ internal sealed class MediaInfo
         "L-SMASH Audio Handler", "Stereo", "Mono",
     ];
 
-    public static async Task<MediaInfo> ProbeAsync(string path, CancellationToken ct = default)
+    public static async Task<MediaInfo> ProbeAsync(string path, CancellationToken ct = default, bool localOnly = false)
     {
         if (Deps.FFprobe == null) throw new InvalidOperationException("ffprobe.exe was not found.");
         var (code, stdout, stderr) = await Proc.RunAsync(Deps.FFprobe,
-            ["-v", "error", "-print_format", "json", "-show_format", "-show_streams", path], ct);
+            ["-v", "error", "-print_format", "json", "-show_format", "-show_streams",
+                .. localOnly ? new[] { "-protocol_whitelist", "file" } : Array.Empty<string>(), path], ct);
         if (code != 0 || string.IsNullOrWhiteSpace(stdout))
             throw new InvalidOperationException(string.IsNullOrWhiteSpace(stderr) ? "ffprobe could not read this file." : stderr.Trim());
 
@@ -161,6 +164,10 @@ internal sealed class MediaInfo
         if (duration <= 0) duration = streamDuration;
 
         bool hasFormat = format.ValueKind == JsonValueKind.Object;
+        var formatTags = hasFormat && format.TryGetProperty("tags", out var tagsElement) ? tagsElement : default;
+        DateTimeOffset? creationTime = DateTimeOffset.TryParse(Tag(formatTags, "creation_time"), CultureInfo.InvariantCulture,
+            DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal, out var parsedCreationTime)
+            ? parsedCreationTime : null;
         // Matroska doesn't store a bitrate per stream.
         if (video is { BitRate: 0 } && hasFormat && Dbl(format, "bit_rate") is > 0 and var total)
             video.BitRate = Math.Max(0, (long)total - audio.Sum(a => a.BitRate > 0 ? a.BitRate : 160_000));
@@ -172,6 +179,7 @@ internal sealed class MediaInfo
             FormatName = hasFormat ? Str(format, "format_name") ?? "" : "",
             Size = new FileInfo(path).Length,
             StartTime = hasFormat ? Dbl(format, "start_time") : 0,
+            EmbeddedCreationTime = creationTime,
             Video = video,
         };
         info.Audio.AddRange(audio);

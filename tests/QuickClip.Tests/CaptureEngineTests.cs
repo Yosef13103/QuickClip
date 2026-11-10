@@ -12,6 +12,65 @@ namespace QuickClip.Tests;
 public sealed class CaptureEngineTests(MediaFixture media, Xunit.Abstractions.ITestOutputHelper output)
 {
     [Fact]
+    public void Lists_both_endpoint_flows_and_rejects_duplicate_ids_before_starting_capture()
+    {
+        if (!CaptureEngine.IsAvailable) return;
+        CaptureEngine.Initialize();
+        var endpoints = CaptureEngine.EnumAudioEndpoints();
+        Assert.All(endpoints, endpoint =>
+        {
+            Assert.False(string.IsNullOrWhiteSpace(endpoint.Id));
+            Assert.True(Enum.IsDefined(endpoint.Flow));
+        });
+        Assert.Equal(endpoints.Count, endpoints.Select(e => e.Id).Distinct(StringComparer.OrdinalIgnoreCase).Count());
+        Assert.Equal(CaptureEngine.EnumMicrophones().Select(e => e.Id), endpoints
+            .Where(e => e.Flow == EndpointFlow.Microphone).Take(32).Select(e => e.Id));
+        output.WriteLine("Windows reports {0} playback and {1} capture endpoints.",
+            endpoints.Count(e => e.Flow == EndpointFlow.Playback), endpoints.Count(e => e.Flow == EndpointFlow.Microphone));
+
+        var duplicate = new EndpointTrack(EndpointFlow.Playback, "explicit-device", "Game");
+        var error = CaptureEngine.Start("missing monitor", "", 30, 0, 0, "libx264", 2000,
+            RecordingPresets.AudioKbps, 10, false, false, false, [], false, [duplicate, duplicate with { Label = "Chat" }]);
+        Assert.Equal("An audio endpoint can only be recorded once.", error);
+    }
+
+    [OptInFact("QUICKCLIP_TEST_CAPTURE")]
+    public async Task Explicit_endpoint_tracks_are_named_ordered_and_do_not_include_desktop()
+    {
+        Assert.True(CaptureEngine.IsAvailable, "Native capture DLL is required.");
+        CaptureEngine.Initialize();
+        var encoder = RecordingPresets.DefaultEncoder(await VideoEncoders.GetAvailableAsync());
+        Assert.NotNull(encoder);
+        var monitor = Monitors.List().First(m => m.IsPrimary);
+        var playback = CaptureEngine.EnumAudioEndpoints().First(e => e.Flow == EndpointFlow.Playback && e.IsDefault);
+        EndpointTrack[] tracks =
+        [
+            new(EndpointFlow.Playback, playback.Id, "Game"),
+            new(EndpointFlow.Playback, "test-device-is-unavailable", "Chat"),
+        ];
+        Assert.Null(CaptureEngine.Start(monitor.DeviceName, "", 30, 0, 0, encoder.Id, 4000,
+            RecordingPresets.AudioKbps, 10, false, false, false, [], false, tracks));
+
+        string clip = media.Out("explicit-endpoints.mp4");
+        try
+        {
+            await Task.Delay(1500);
+            CaptureEngine.TestPlayNoise(2100, 0.07f);
+            await Task.Delay(2600);
+            Assert.Null(await Task.Run(() => CaptureEngine.Save(clip, 2, "Endpoint test")));
+        }
+        finally
+        {
+            CaptureEngine.Stop();
+        }
+        var info = await MediaInfo.ProbeAsync(clip);
+        Assert.Equal(["Game", "Chat"], info.Audio.Select(a => a.DisplayName));
+        double game = await MediaFixture.BandLevel(clip, 0, 2000);
+        double chat = await MediaFixture.BandLevel(clip, 1, 2000);
+        Assert.True(game > -65 && game - chat > 20, $"Game {game:0.0} dB, unavailable Chat {chat:0.0} dB.");
+    }
+
+    [OptInFact("QUICKCLIP_TEST_CAPTURE")]
     public async Task Records_and_saves_a_clip_with_named_audio_tracks()
     {
         if (!CaptureEngine.IsAvailable) return;
@@ -24,6 +83,7 @@ public sealed class CaptureEngineTests(MediaFixture media, Xunit.Abstractions.IT
         // rate even when the screen doesn't change, so the clip's length doesn't depend on what's on screen.
         var area = RecordingPresets.Area(monitor.Width, monitor.Height, "16:9");
         var (w, h) = (area.Width, area.Height);
+        var captureStarted = DateTimeOffset.UtcNow.AddSeconds(-1);
         string? error = CaptureEngine.Start(monitor.DeviceName, "16:9", 30, 0, 0, encoder.Id,
             RecordingPresets.VideoKbps(RecordingQuality.Low, w, h, 30, encoder.Family), RecordingPresets.AudioKbps,
             bufferSeconds: 10, cursor: true, splitChat: true, splitMusic: true, mics: [new("", "Mic")], separateMics: false);
@@ -52,11 +112,13 @@ public sealed class CaptureEngineTests(MediaFixture media, Xunit.Abstractions.IT
         Assert.Equal(encoder.Family, info.Video!.Codec);
         Assert.Equal((w, h), (info.Video.Width, info.Video.Height));
         Assert.InRange(info.Duration, 1.9, 3.2); // starts on the keyframe before the 2 s mark
+        Assert.NotNull(info.EmbeddedCreationTime);
+        Assert.InRange(info.EmbeddedCreationTime.Value, captureStarted, DateTimeOffset.UtcNow);
         Assert.Equal(["Desktop", "Chat", "Music", "Mic"], info.Audio.Select(a => a.DisplayName));
         File.Delete(clip);
     }
 
-    [Theory]
+    [CaptureTheory]
     [InlineData(true, new[] { "Desktop", "Mic (Yeti)", "Mic (Headset)" })]
     [InlineData(false, new[] { "Desktop", "Mic" })]
     public async Task Several_microphones_record_on_their_own_tracks_or_one_shared_track(bool separate, string[] tracks)
@@ -95,7 +157,7 @@ public sealed class CaptureEngineTests(MediaFixture media, Xunit.Abstractions.IT
     /// sample for sample. Here this test is the "music app", playing noise at -80 dB (too quiet to hear), and a
     /// sleeping process stands in for the chat app: the noise has to be on Music and gone from Desktop.
     /// </summary>
-    [Fact]
+    [OptInFact("QUICKCLIP_TEST_CAPTURE")]
     public async Task Desktop_takes_an_apps_sound_out_by_subtracting_it()
     {
         if (!CaptureEngine.IsAvailable) return;
@@ -184,7 +246,7 @@ public sealed class CaptureEngineTests(MediaFixture media, Xunit.Abstractions.IT
     /// The graphics card's encoder through Windows, used when the card's own route can't be: FFmpeg's NVENC needs NVIDIA
     /// driver 610, which GTX 900 and 10 series cards never get. Runs for each one this PC's card offers.
     /// </summary>
-    [Theory]
+    [CaptureTheory]
     [InlineData("h264_mf")]
     [InlineData("hevc_mf")]
     [InlineData("av1_mf")]
@@ -222,7 +284,7 @@ public sealed class CaptureEngineTests(MediaFixture media, Xunit.Abstractions.IT
     /// Above 60 fps the engine records through Windows Graphics Capture: Desktop Duplication tops out around 75 fps of
     /// 120 on some PCs. A tiny window flickering on every screen refresh keeps the picture changing, as a game would.
     /// </summary>
-    [Fact]
+    [OptInFact("QUICKCLIP_TEST_CAPTURE")]
     public async Task Records_120_fps_at_full_speed()
     {
         if (!CaptureEngine.IsAvailable) return;
@@ -262,7 +324,7 @@ public sealed class CaptureEngineTests(MediaFixture media, Xunit.Abstractions.IT
     /// Recording a game's window records just it: a window on top of it (an overlay) isn't in the picture. Checked by
     /// colour alone: the "game" is blue, the window over a quarter of it red.
     /// </summary>
-    [Fact]
+    [OptInFact("QUICKCLIP_TEST_CAPTURE")]
     public async Task A_game_window_is_recorded_without_the_windows_on_top_of_it()
     {
         if (!CaptureEngine.IsAvailable) return;
@@ -305,6 +367,40 @@ public sealed class CaptureEngineTests(MediaFixture media, Xunit.Abstractions.IT
         return (Average("UAVG"), Average("VAVG"));
     }
 
+    [OptInFact("QUICKCLIP_TEST_CAPTURE")]
+    public async Task Saving_during_a_resolution_switch_never_muxes_incompatible_packets()
+    {
+        Assert.True(CaptureEngine.IsAvailable);
+        CaptureEngine.Initialize();
+        var encoder = RecordingPresets.DefaultEncoder(await VideoEncoders.GetAvailableAsync());
+        Assert.NotNull(encoder);
+        var monitor = Monitors.List().First(m => m.IsPrimary);
+        using var first = TestWindow.Show(monitor.Left + 80, monitor.Top + 80, 320, 240, Colors.Blue, Colors.DarkBlue, false);
+        using var second = TestWindow.Show(monitor.Left + 460, monitor.Top + 80, 480, 270, Colors.Green, Colors.DarkGreen, false);
+        Assert.Null(CaptureEngine.Start(monitor.DeviceName, "", 30, 0, 0, encoder.Id, 2000, RecordingPresets.AudioKbps,
+            10, false, false, false, [], false, []));
+        try
+        {
+            CaptureEngine.SetCaptureWindow(first.Handle, 320, 240, 2000);
+            await Task.Delay(2200);
+            Assert.Equal(320, CaptureEngine.GetStats().Width);
+            string during = media.Out("during-switch.mp4");
+            var save = Task.Run(() => CaptureEngine.Save(during, 2, "Transition"));
+            CaptureEngine.SetCaptureWindow(second.Handle, 480, 270, 2000);
+            string? error = await save;
+            if (error == null) await MediaFixture.Run(["-xerror", "-i", during, "-map", "0:v:0", "-f", "null", "-"]);
+            else Assert.Equal("Nothing has been recorded yet.", error);
+
+            await Task.Delay(2200);
+            string after = media.Out("after-switch.mp4");
+            Assert.Null(await Task.Run(() => CaptureEngine.Save(after, 2, "Transition")));
+            var info = await MediaInfo.ProbeAsync(after);
+            Assert.Equal((480, 270), (info.Video!.Width, info.Video.Height));
+            await MediaFixture.Run(["-xerror", "-i", after, "-map", "0:v:0", "-f", "null", "-"]);
+        }
+        finally { CaptureEngine.Stop(); }
+    }
+
     /// <summary>A borderless window that alternates between two colours on every screen refresh, so it always has new frames.</summary>
     private sealed class TestWindow : IDisposable
     {
@@ -340,7 +436,7 @@ public sealed class CaptureEngineTests(MediaFixture media, Xunit.Abstractions.IT
         public void Dispose() => _dispatcher.InvokeShutdown();
     }
 
-    [Fact]
+    [OptInFact("QUICKCLIP_TEST_CAPTURE")]
     public async Task Scaled_recordings_crop_before_scaling()
     {
         if (!CaptureEngine.IsAvailable) return;
@@ -373,7 +469,7 @@ public sealed class CaptureEngineTests(MediaFixture media, Xunit.Abstractions.IT
         File.Delete(clip);
     }
 
-    [Fact]
+    [OptInFact("QUICKCLIP_TEST_CAPTURE")]
     public async Task Records_the_center_of_the_monitor_at_full_size()
     {
         if (!CaptureEngine.IsAvailable) return;
@@ -404,7 +500,7 @@ public sealed class CaptureEngineTests(MediaFixture media, Xunit.Abstractions.IT
         File.Delete(clip);
     }
 
-    [Fact]
+    [OptInFact("QUICKCLIP_TEST_CAPTURE")]
     public async Task A_stuck_capture_is_replaced_and_the_picture_comes_back()
     {
         if (await RecordAsync(async () =>
@@ -421,7 +517,7 @@ public sealed class CaptureEngineTests(MediaFixture media, Xunit.Abstractions.IT
         Assert.True(frames[^1] > 11, $"the picture didn't come back (last frame at {frames[^1]:0.0} s of 12)");
     }
 
-    [Fact]
+    [OptInFact("QUICKCLIP_TEST_CAPTURE")]
     public async Task Capture_restarts_on_request_without_losing_the_buffer()
     {
         if (await RecordAsync(async () =>
@@ -435,7 +531,7 @@ public sealed class CaptureEngineTests(MediaFixture media, Xunit.Abstractions.IT
         Assert.True(LargestGap(frames) < 1.5, $"gap of {LargestGap(frames):0.00} s");
     }
 
-    [Fact]
+    [OptInFact("QUICKCLIP_TEST_CAPTURE")]
     public async Task A_flat_picture_starts_capture_again()
     {
         long logStart = new FileInfo(Log.FilePath).Length;

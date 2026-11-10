@@ -5,7 +5,13 @@
 #include <algorithm>
 #include <atomic>
 #include <cmath>
+#include <ctime>
+#include <cstring>
 #include <set>
+
+extern "C" {
+#include <libavutil/time.h>
+}
 
 namespace qc
 {
@@ -48,12 +54,6 @@ namespace qc
             if (e.timeUs >= start && e.timeUs <= toUs)
                 result.push_back({ av_packet_clone(e.packet), e.stream, e.timeUs, e.key });
         return result;
-    }
-
-    int64_t PacketRing::NewestVideoUs()
-    {
-        std::lock_guard guard(lock_);
-        return newestVideoUs_;
     }
 
     void PacketRing::Stats(int64_t& bytes, double& seconds)
@@ -118,6 +118,19 @@ namespace qc
 
     namespace
     {
+        bool SameVideoFormat(const StreamInfo& before, const StreamInfo& after)
+        {
+            const auto& a = *before.params;
+            const auto& b = *after.params;
+            return before.timeBase.num == after.timeBase.num && before.timeBase.den == after.timeBase.den &&
+                a.codec_id == b.codec_id && a.format == b.format && a.width == b.width && a.height == b.height &&
+                a.profile == b.profile && a.level == b.level && a.field_order == b.field_order &&
+                a.color_range == b.color_range && a.color_space == b.color_space && a.color_primaries == b.color_primaries &&
+                a.color_trc == b.color_trc && a.sample_aspect_ratio.num == b.sample_aspect_ratio.num &&
+                a.sample_aspect_ratio.den == b.sample_aspect_ratio.den && a.extradata_size == b.extradata_size &&
+                (a.extradata_size == 0 || (a.extradata && b.extradata && std::memcmp(a.extradata, b.extradata, a.extradata_size) == 0));
+        }
+
         struct MonitorTarget
         {
             int adapter = -1, output = -1;
@@ -233,6 +246,7 @@ namespace qc
         bool cursor = true;
         std::string encoder;
         int64_t t0 = 0;
+        int64_t startedUtcUs = 0;
 
         std::atomic<bool> stop{ false };
         HANDLE videoStarted = CreateEventW(nullptr, TRUE, FALSE, nullptr);
@@ -561,9 +575,11 @@ namespace qc
                     {
                         std::scoped_lock guard(s->videoLock, s->infoLock);
                         if (!current()) break;
-                        // Packets from a differently sized encoder can't share a file with the new ones.
-                        if (s->video && (s->video->params->width != info->params->width || s->video->params->height != info->params->height))
+                        if (s->video && !SameVideoFormat(*s->video, *info))
+                        {
+                            Log("video format changed; starting a new replay buffer");
                             s->ring.Clear();
+                        }
                         s->video = info;
                     }
                     s->width = pipe.encoder->width;
@@ -716,17 +732,21 @@ namespace qc
     // Engine
     // ---------------------------------------------------------------------------------------------
 
-    Engine::Engine(const QcConfig& c)
+    Engine::Engine(const QcConfig& c, bool endpointMode, const QcEndpointTrack* endpoints, int endpointCount)
         : shared_(std::make_shared<Shared>(static_cast<int64_t>(c.bufferSeconds) * 1000000)),
           monitor_(c.monitorDevice ? c.monitorDevice : L""),
-          splitChat_(c.splitChat != 0), splitMusic_(c.splitMusic != 0), micSeparate_(c.micSeparate != 0), audioKbps_(c.audioKbps)
+          splitChat_(c.splitChat != 0), splitMusic_(c.splitMusic != 0), micSeparate_(c.micSeparate != 0),
+          endpointMode_(endpointMode), audioKbps_(c.audioKbps)
     {
-        for (int i = 0; i < c.micCount; i++)
+        for (int i = 0; !endpointMode_ && i < c.micCount; i++)
         {
             const wchar_t* id = c.micDeviceIds ? c.micDeviceIds[i] : nullptr;
             const wchar_t* title = c.micTitles ? c.micTitles[i] : nullptr;
-            mics_.push_back({ id ? id : L"", title && *title ? Narrow(title) : "Mic " + std::to_string(i + 1) });
+            mics_.push_back({ SourceKind::Microphone, id ? id : L"", title && *title ? Narrow(title) : "Mic " + std::to_string(i + 1) });
         }
+        for (int i = 0; i < endpointCount; i++)
+            endpoints_.push_back({ endpoints[i].flow == 0 ? SourceKind::RenderLoopback : SourceKind::Microphone,
+                endpoints[i].deviceId, Narrow(endpoints[i].title) });
         shared_->fps = std::clamp(c.fps, 10, 240);
         shared_->outWidth = c.outWidth & ~7;
         shared_->outHeight = c.outHeight & ~1;
@@ -747,6 +767,7 @@ namespace qc
         }
         shared_->monitorDevice = monitor_;
         shared_->t0 = NowUs();
+        shared_->startedUtcUs = av_gettime();
 
         auto addTrack = [&](const char* title) {
             auto track = std::make_unique<Track>();
@@ -756,16 +777,24 @@ namespace qc
             tracks_.push_back(std::move(track));
             return static_cast<int>(tracks_.size()) - 1;
         };
-        if (addTrack("Desktop") < 0) return false;
-        if (splitChat_ && (chatTrack_ = addTrack("Chat")) < 0) return false;
-        if (splitMusic_ && (musicTrack_ = addTrack("Music")) < 0) return false;
-        // Microphones on one track are mixed together, each keeping its own place on the timeline.
         std::vector<int> micTracks;
-        for (size_t i = 0; i < mics_.size(); i++)
+        if (endpointMode_)
         {
-            int track = micSeparate_ ? addTrack(mics_[i].title.c_str()) : i == 0 ? addTrack("Mic") : micTracks[0];
-            if (track < 0) return false;
-            micTracks.push_back(track);
+            for (const auto& endpoint : endpoints_)
+                if (addTrack(endpoint.title.c_str()) < 0) return false;
+        }
+        else
+        {
+            if (addTrack("Desktop") < 0) return false;
+            if (splitChat_ && (chatTrack_ = addTrack("Chat")) < 0) return false;
+            if (splitMusic_ && (musicTrack_ = addTrack("Music")) < 0) return false;
+            // Microphones on one track are mixed together, each keeping its own place on the timeline.
+            for (size_t i = 0; i < mics_.size(); i++)
+            {
+                int track = micSeparate_ ? addTrack(mics_[i].title.c_str()) : i == 0 ? addTrack("Mic") : micTracks[0];
+                if (track < 0) return false;
+                micTracks.push_back(track);
+            }
         }
 
         videoThread_ = std::thread(VideoLoop, shared_, 0);
@@ -776,14 +805,24 @@ namespace qc
             return false;
         }
 
-        nativeRate_ = DefaultOutputRate();
-        canceller_ = std::make_unique<Canceller>(nativeRate_, std::make_unique<MixerSink>(*tracks_[0]->mixer, nativeRate_));
-        // Until the app reports its chat and music apps: everything except QuickClip's own previews.
-        SetAudioProcesses(GetCurrentProcessId(), {}, {}, {}, {});
-        for (size_t i = 0; i < mics_.size(); i++)
-            micSources_.push_back(std::make_unique<AudioSource>(SourceKind::Microphone, 0, mics_[i].deviceId, SampleRate,
-                std::make_unique<MixerSink>(*tracks_[static_cast<size_t>(micTracks[i])]->mixer, SampleRate)));
-        audioThread_ = std::thread([this] { AudioLoop(); });
+        auto captureEndpoint = [&](const Endpoint& endpoint, size_t track)
+        {
+            endpointSources_.push_back(std::make_unique<AudioSource>(endpoint.kind, 0, endpoint.deviceId, SampleRate,
+                std::make_unique<MixerSink>(*tracks_[track]->mixer, SampleRate)));
+        };
+        if (endpointMode_)
+        {
+            for (size_t i = 0; i < endpoints_.size(); i++) captureEndpoint(endpoints_[i], i);
+        }
+        else
+        {
+            nativeRate_ = DefaultOutputRate();
+            canceller_ = std::make_unique<Canceller>(nativeRate_, std::make_unique<MixerSink>(*tracks_[0]->mixer, nativeRate_));
+            // Until the app reports its chat and music apps: everything except QuickClip's own previews.
+            SetAudioProcesses(GetCurrentProcessId(), {}, {}, {}, {});
+            for (size_t i = 0; i < mics_.size(); i++) captureEndpoint(mics_[i], static_cast<size_t>(micTracks[i]));
+        }
+        if (!tracks_.empty()) audioThread_ = std::thread([this] { AudioLoop(); });
         watchThread_ = std::thread([this] { WatchLoop(); });
         return true;
     }
@@ -821,6 +860,8 @@ namespace qc
     /// (without touching the ring again) once it does.
     void Engine::RestartVideo()
     {
+        std::lock_guard restart(videoRestartLock_);
+        if (shared_->stop) return;
         int generation;
         {
             std::lock_guard guard(shared_->videoLock);
@@ -866,7 +907,7 @@ namespace qc
             std::lock_guard guard(sourcesLock_);
             sources_.clear();
         }
-        micSources_.clear();
+        endpointSources_.clear();
         canceller_.reset(); // after the sources that feed it
         // A capture call returns with the next frame; with a frozen screen that may take a while.
         for (int i = 0; i < 150 && shared_->runningVideoThreads > 0; i++) Sleep(20);
@@ -880,6 +921,7 @@ namespace qc
     void Engine::SetAudioProcesses(DWORD desktopExclude, const std::vector<DWORD>& desktopInclude,
         const std::vector<DWORD>& chat, const std::vector<DWORD>& music, const std::vector<DWORD>& desktopSubtract)
     {
+        if (endpointMode_) return;
         std::set<SourceKey> wanted;
         bool subtracting = false;
         if (PerAppCaptureAvailable())
@@ -943,7 +985,7 @@ namespace qc
         while (!shared_->stop)
         {
             Sleep(20);
-            canceller_->Process();
+            if (canceller_) canceller_->Process();
             int64_t upTo = (NowUs() - shared_->t0) * SampleRate / 1000000 - latency;
             for (size_t i = 0; i < tracks_.size(); i++)
             {
@@ -968,17 +1010,17 @@ namespace qc
             if (ready) break;
             Sleep(20);
         }
-        if (shared_->ring.NewestVideoUs() < 0) { error = "Nothing has been recorded yet."; return false; }
         int64_t startUs = 0;
-        auto entries = shared_->ring.Snapshot(endUs - static_cast<int64_t>(seconds) * 1000000, endUs, startUs);
-        if (entries.empty()) { error = "Nothing has been recorded yet."; return false; }
-        std::stable_sort(entries.begin(), entries.end(), [](const auto& a, const auto& b) { return a.timeUs < b.timeUs; });
-
+        std::vector<PacketRing::Entry> entries;
         std::shared_ptr<StreamInfo> video;
         {
+            // A size change clears the ring under the same lock. Snapshot matching stream parameters and packets.
             std::lock_guard guard(shared_->infoLock);
             video = shared_->video;
+            if (video) entries = shared_->ring.Snapshot(endUs - static_cast<int64_t>(seconds) * 1000000, endUs, startUs);
         }
+        if (entries.empty()) { error = "Nothing has been recorded yet."; return false; }
+        std::stable_sort(entries.begin(), entries.end(), [](const auto& a, const auto& b) { return a.timeUs < b.timeUs; });
 
         auto freeEntries = [&] { for (auto& e : entries) av_packet_free(&e.packet); };
         std::string utf8 = Narrow(path);
@@ -1004,6 +1046,12 @@ namespace qc
         }
         if (!title.empty()) av_dict_set(&out->metadata, "title", Narrow(title).c_str(), 0);
         av_dict_set(&out->metadata, "comment", "Recorded with QuickClip", 0);
+        // QPC identifies the first retained keyframe. Map it to UTC using the recording session's clock anchor.
+        std::time_t capturedAt = static_cast<std::time_t>((shared_->startedUtcUs + startUs) / 1000000);
+        std::tm utc{};
+        char timestamp[32];
+        if (gmtime_s(&utc, &capturedAt) == 0 && std::strftime(timestamp, sizeof timestamp, "%Y-%m-%dT%H:%M:%SZ", &utc) > 0)
+            av_dict_set(&out->metadata, "creation_time", timestamp, 0);
 
         ret = avio_open(&out->pb, utf8.c_str(), AVIO_FLAG_WRITE);
         AVDictionary* options = nullptr;

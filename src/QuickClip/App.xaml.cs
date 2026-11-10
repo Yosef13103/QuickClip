@@ -24,8 +24,18 @@ public partial class App : Application
         ShutdownMode = ShutdownMode.OnExplicitShutdown;
 
         var args = e.Args;
+        if (args.Length == 1 && args[0] == "--check-personal-runtime")
+        {
+            Shutdown(CheckPersonalRuntime());
+            return;
+        }
         if (args.Length > 0 && args[0] is "--register" or "--unregister")
         {
+            if (AppProfile.IsPersonal)
+            {
+                Shutdown(1);
+                return;
+            }
             try
             {
                 if (args[0] == "--register") ShellIntegration.Register();
@@ -48,9 +58,9 @@ public partial class App : Application
         {
             AppSettings.SaveDisabled = true;
             AppSettings.Current.RecordingEnabled = false;
-            _renderOffscreen = true;
         }
 #endif
+        _renderOffscreen = renderTest;
 
         // One QuickClip per user: a second launch (e.g. "Edit with QuickClip") hands its file to the first.
         if (!renderTest && !SingleInstance.TryBecomePrimary())
@@ -78,17 +88,6 @@ public partial class App : Application
             Shutdown(1);
             return;
         }
-
-        Host = new AppHost();
-        Host.OpenRequested += () => ShowMain();
-        Host.UpdateRequested += () =>
-        {
-            ShowMain();
-            _main?.ShowSettings();
-        };
-        Host.QuitRequested += Quit;
-        Host.Start();
-        if (!renderTest) SingleInstance.Listen(a => Dispatcher.BeginInvoke(() => HandleArgs(a)));
 
         bool tray = args.Contains("--tray");
         string? file = args.FirstOrDefault(a => !a.StartsWith("--", StringComparison.Ordinal));
@@ -121,6 +120,17 @@ public partial class App : Application
             return;
         }
 #endif
+        Host = new AppHost();
+        Host.OpenRequested += () => ShowMain();
+        Host.UpdateRequested += () =>
+        {
+            ShowMain();
+            _main?.ShowSettings();
+        };
+        Host.QuitRequested += Quit;
+        Host.Start();
+        SingleInstance.Listen(a => Dispatcher.BeginInvoke(() => HandleArgs(a)));
+
         if (!tray || file != null) ShowMain(file);
         else TrimMemorySoon();
     }
@@ -163,6 +173,29 @@ public partial class App : Application
 
     private bool _renderOffscreen;
 
+    private static int CheckPersonalRuntime()
+    {
+        try
+        {
+            if (!AppProfile.IsPersonal || Updates.Updater.IsEnabled)
+                throw new InvalidOperationException("Expected QuickClip Personal with upstream updates disabled.");
+            if (!CaptureEngine.IsAvailable || !Deps.HasLibMpv)
+                throw new InvalidOperationException("QuickClipCapture.dll and libmpv-2.dll must be bundled.");
+            CaptureEngine.Initialize();
+            var endpoints = CaptureEngine.EnumAudioEndpoints();
+            IntPtr mpv = Mpv.MpvNative.mpv_create();
+            if (mpv == IntPtr.Zero) throw new InvalidOperationException("libmpv could not create a context.");
+            Mpv.MpvNative.mpv_terminate_destroy(mpv);
+            Console.WriteLine($"Native capture and libmpv loaded. Windows reported {endpoints.Count} active audio endpoints.");
+            return 0;
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine(ex.Message);
+            return 1;
+        }
+    }
+
     /// <summary>Shows (or recreates) the window, optionally opening a file in the editor.</summary>
     internal void ShowMain(string? file = null)
     {
@@ -186,7 +219,7 @@ public partial class App : Application
             window.Show();
             if (window.WindowState == WindowState.Minimized) window.WindowState = WindowState.Normal;
         }
-        window.Activate();
+        if (!_renderOffscreen) window.Activate();
         if (file != null) _ = window.OpenInEditorAsync(file);
     }
 

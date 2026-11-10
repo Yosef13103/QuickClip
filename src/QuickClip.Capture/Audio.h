@@ -157,7 +157,7 @@ namespace qc
         std::map<DWORD, std::unique_ptr<Input>> inputs_;
     };
 
-    enum class SourceKind { ProcessInclude, ProcessExclude, Microphone };
+    enum class SourceKind { ProcessInclude, ProcessExclude, Microphone, RenderLoopback };
 
     /// Whether Windows can capture single apps (Windows 11, or Windows 10 build 20348 and later). Without it,
     /// Desktop records everything the speakers play and the Chat and Music tracks stay silent.

@@ -27,8 +27,11 @@
         <StackPanel MaxWidth="760" Margin="28,22,28,28" HorizontalAlignment="Left">
             <TextBlock Text="Settings" FontSize="24" FontWeight="SemiBold" Margin="0,0,0,16" />
 
+            <TextBlock x:Name="PersonalProfileHint" Style="{StaticResource Hint}" Visibility="Collapsed"
+                       TextWrapping="Wrap" Margin="0,0,0,14" />
+
             <!-- Updates -->
-            <Border Style="{StaticResource Card}">
+            <Border x:Name="UpdatesCard" Style="{StaticResource Card}">
                 <StackPanel>
                     <DockPanel Margin="0,10,0,0">
                         <Button x:Name="CheckUpdatesButton" DockPanel.Dock="Right" Style="{StaticResource TextButton}" Margin="0" VerticalAlignment="Center"
@@ -164,39 +167,61 @@
             <Border Style="{StaticResource Card}">
                 <StackPanel>
                     <TextBlock Text="Audio" Style="{StaticResource CardTitle}" />
-                    <TextBlock x:Name="AudioHint" Style="{StaticResource Hint}" TextWrapping="Wrap"
-                               Text="Clips get a separate track for each source, named in the editor, so you can set their volumes or merge them when exporting." />
-                    <CheckBox x:Name="SplitChatCheck" Margin="0,12,0,0" Checked="Changed" Unchecked="Changed">
-                        <TextBlock Text="Put voice chat on its own track (Discord, TeamSpeak, Mumble, Teams, Zoom and more)" TextWrapping="Wrap" />
-                    </CheckBox>
-                    <TextBlock x:Name="ChatText" Margin="28,4,0,0" Style="{StaticResource Hint}" />
-                    <CheckBox x:Name="SplitMusicCheck" Margin="0,10,0,0" Checked="Changed" Unchecked="Changed">
-                        <TextBlock Text="Put music on its own track (Spotify, TIDAL, Apple Music, Deezer, Amazon Music and more)" TextWrapping="Wrap" />
-                    </CheckBox>
-                    <TextBlock x:Name="MusicText" Margin="28,4,0,0" Style="{StaticResource Hint}" />
+                    <CheckBox x:Name="EndpointModeCheck" Content="Record selected Windows audio devices"
+                              Margin="0,8,0,0" Checked="EndpointMode_Changed" Unchecked="EndpointMode_Changed" />
+                    <StackPanel x:Name="EndpointPanel" Visibility="Collapsed" Margin="0,8,0,0">
+                        <TextBlock Style="{StaticResource Hint}" TextWrapping="Wrap"
+                                   Text="Each enabled device gets its own track. With no devices enabled, the clip is video only. Changing these settings restarts the replay buffer." />
+                        <StackPanel x:Name="EndpointRows" />
+                        <Grid Margin="0,10,0,0">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition />
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <ComboBox x:Name="EndpointPicker" SelectionChanged="EndpointPicker_Changed" />
+                            <Button x:Name="AddEndpointButton" Grid.Column="1" Content="Add device" Margin="8,0,0,0"
+                                    Style="{StaticResource TextButton}" Click="AddEndpoint_Click" />
+                            <Button Grid.Column="2" Content="Refresh devices" Margin="8,0,0,0"
+                                    Style="{StaticResource TextButton}" Click="RefreshEndpoints_Click" />
+                        </Grid>
+                        <TextBlock x:Name="EndpointNotice" Style="{StaticResource Hint}" Margin="0,8,0,0" TextWrapping="Wrap" />
+                    </StackPanel>
+                    <StackPanel x:Name="LegacyAudioPanel" Margin="0,8,0,0">
+                        <TextBlock x:Name="AudioHint" Style="{StaticResource Hint}" TextWrapping="Wrap"
+                                   Text="Clips get a separate track for each source, named in the editor, so you can set their volumes or merge them when exporting." />
+                        <CheckBox x:Name="SplitChatCheck" Margin="0,12,0,0" Checked="Changed" Unchecked="Changed">
+                            <TextBlock Text="Put voice chat on its own track (Discord, TeamSpeak, Mumble, Teams, Zoom and more)" TextWrapping="Wrap" />
+                        </CheckBox>
+                        <TextBlock x:Name="ChatText" Margin="28,4,0,0" Style="{StaticResource Hint}" />
+                        <CheckBox x:Name="SplitMusicCheck" Margin="0,10,0,0" Checked="Changed" Unchecked="Changed">
+                            <TextBlock Text="Put music on its own track (Spotify, TIDAL, Apple Music, Deezer, Amazon Music and more)" TextWrapping="Wrap" />
+                        </CheckBox>
+                        <TextBlock x:Name="MusicText" Margin="28,4,0,0" Style="{StaticResource Hint}" />
 
-                    <Grid Style="{StaticResource Row}">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="160" />
-                            <ColumnDefinition Width="*" />
-                        </Grid.ColumnDefinitions>
-                        <CheckBox x:Name="MicCheck" Content="Microphone" VerticalAlignment="Top" Checked="Changed" Unchecked="Changed" />
-                        <StackPanel Grid.Column="1">
-                            <!-- A row per microphone, filled in by the code -->
-                            <StackPanel x:Name="MicList" />
-                            <Button x:Name="AddMicButton" Style="{StaticResource TextButton}" Content="Add another microphone" HorizontalAlignment="Left"
-                                    Margin="0,8,0,0" Click="AddMic_Click" />
-                        </StackPanel>
-                    </Grid>
+                        <Grid Style="{StaticResource Row}">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="160" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+                            <CheckBox x:Name="MicCheck" Content="Microphone" VerticalAlignment="Top" Checked="Changed" Unchecked="Changed" />
+                            <StackPanel Grid.Column="1">
+                                <!-- A row per microphone, filled in by the code -->
+                                <StackPanel x:Name="MicList" />
+                                <Button x:Name="AddMicButton" Style="{StaticResource TextButton}" Content="Add another microphone" HorizontalAlignment="Left"
+                                        Margin="0,8,0,0" Click="AddMic_Click" />
+                            </StackPanel>
+                        </Grid>
 
-                    <Grid x:Name="MicTracksRow" Style="{StaticResource Row}">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="160" />
-                            <ColumnDefinition Width="*" />
-                        </Grid.ColumnDefinitions>
-                        <TextBlock Text="Microphone tracks" VerticalAlignment="Center" />
-                        <ComboBox x:Name="MicTracksCombo" Grid.Column="1" SelectionChanged="Changed" />
-                    </Grid>
+                        <Grid x:Name="MicTracksRow" Style="{StaticResource Row}">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="160" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Text="Microphone tracks" VerticalAlignment="Center" />
+                            <ComboBox x:Name="MicTracksCombo" Grid.Column="1" SelectionChanged="Changed" />
+                        </Grid>
+                    </StackPanel>
                 </StackPanel>
             </Border>
 
@@ -273,6 +298,15 @@
                         <TextBox x:Name="FolderBox" Grid.Column="1" IsReadOnly="True" Style="{StaticResource CompactBox}" Padding="8,6" />
                         <Button Grid.Column="2" Style="{StaticResource TextButton}" Content="Change…" Margin="8,0,0,0" Click="ChangeFolder_Click" />
                     </Grid>
+                    <StackPanel x:Name="LibraryOptions" Margin="0,16,0,0">
+                        <TextBlock Text="Clip filename template" />
+                        <TextBox x:Name="FilenameTemplate" Margin="0,5,0,0" TextChanged="FilenameTemplate_Changed"
+                                 LostKeyboardFocus="FilenameTemplate_Commit" />
+                        <TextBlock x:Name="FilenamePreview" Margin="0,5,0,0" Style="{StaticResource Hint}" TextWrapping="Wrap" />
+                        <TextBlock Text="Additional excluded folders (relative to clips folder, one per line)" Margin="0,12,0,0" TextWrapping="Wrap" />
+                        <TextBox x:Name="ExclusionsBox" Margin="0,5,0,0" AcceptsReturn="True" MinHeight="50"
+                                 LostKeyboardFocus="Exclusions_Commit" />
+                    </StackPanel>
                 </StackPanel>
             </Border>
         </StackPanel>

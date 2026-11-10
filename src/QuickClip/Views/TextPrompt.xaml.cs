@@ -16,13 +16,15 @@ public partial class TextPrompt : Window
     }
 
     /// <summary>The text entered, or null if the user cancelled or left it empty.</summary>
-    public static string? Ask(Window? owner, string prompt, string initial, string okText)
+    public static string? Ask(Window? owner, string prompt, string initial, string okText, bool allowEmpty = false)
     {
         var dialog = new TextPrompt { Owner = owner };
         dialog.PromptText.Text = prompt;
         dialog.Input.Text = initial;
         dialog.OkButton.Content = okText;
-        return dialog.ShowDialog() == true && dialog.Input.Text.Trim() is { Length: > 0 } text ? text : null;
+        if (dialog.ShowDialog() != true) return null;
+        string text = dialog.Input.Text.Trim();
+        return allowEmpty || text.Length > 0 ? text : null;
     }
 
     private void Ok_Click(object sender, RoutedEventArgs e) => DialogResult = true;

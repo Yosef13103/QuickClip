@@ -16,6 +16,7 @@ internal static class Updater
 {
     public const string Repository = "swiiftex/QuickClip";
     public static string ReleasesPage => $"https://github.com/{Repository}/releases";
+    public static bool IsEnabled => !AppProfile.IsPersonal;
 
     private static readonly HttpClient Http = CreateClient();
 
@@ -53,6 +54,7 @@ internal static class Updater
 
     public static async Task<ReleaseInfo?> CheckAsync()
     {
+        if (!IsEnabled) return null;
         if (IsChecking) return Available;
         IsChecking = true;
         Changed?.Invoke();
@@ -80,6 +82,7 @@ internal static class Updater
     /// <summary>The repository's latest releases, as GitHub's JSON.</summary>
     internal static async Task<string> GetReleasesJsonAsync(CancellationToken ct)
     {
+        EnsureEnabled();
         using var request = new HttpRequestMessage(HttpMethod.Get, $"https://api.github.com/repos/{Repository}/releases?per_page=30");
         request.Headers.Accept.ParseAdd("application/vnd.github+json");
         using var response = await Http.SendAsync(request, ct);
@@ -134,6 +137,7 @@ internal static class Updater
     /// <summary>True if this copy can update itself to <paramref name="release"/>.</summary>
     public static bool CanInstall(ReleaseInfo release)
     {
+        if (!IsEnabled) return false;
         if (IsInstalledCopy) return release.Setup != null;
         if (release.Portable == null) return false;
         try
@@ -156,6 +160,7 @@ internal static class Updater
     /// </summary>
     public static async Task<Action> PrepareInstallAsync(ReleaseInfo release, bool restartInTray, IProgress<double> progress, CancellationToken ct)
     {
+        EnsureEnabled();
         string work = Path.Combine(Path.GetTempPath(), "QuickClip-update", release.Tag);
         if (Directory.Exists(work)) Directory.Delete(work, recursive: true);
         Directory.CreateDirectory(work);
@@ -187,6 +192,11 @@ internal static class Updater
                      "-ProcessId", Environment.ProcessId.ToString(), "-Source", source, "-Target", target, "-Restart", restartInTray ? "tray" : "window" })
             psi.ArgumentList.Add(arg);
         return () => Process.Start(psi);
+    }
+
+    private static void EnsureEnabled()
+    {
+        if (!IsEnabled) throw new InvalidOperationException("Updates are disabled for QuickClip Personal.");
     }
 
     private static async Task DownloadAsync(ReleaseAsset asset, string path, IProgress<double> progress, CancellationToken ct)

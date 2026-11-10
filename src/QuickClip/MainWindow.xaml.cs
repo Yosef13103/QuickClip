@@ -25,6 +25,7 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
+        Title = AppProfile.Name;
         Width = Math.Min(Width, SystemParameters.WorkArea.Width * 0.95);
         Height = Math.Min(Height, SystemParameters.WorkArea.Height * 0.95);
 
@@ -152,9 +153,9 @@ public partial class MainWindow : Window
     }
 
     private void UpdateTitle() =>
-        Title = _player?.IsVisible == true && _player.ClipTitle is string clip ? $"{clip} – QuickClip"
-            : EditorNav.IsChecked == true && _editor?.FileTitle is string file ? $"{file} – QuickClip"
-            : "QuickClip";
+        Title = _player?.IsVisible == true && _player.ClipTitle is string clip ? $"{clip} – {AppProfile.Name}"
+            : EditorNav.IsChecked == true && _editor?.FileTitle is string file ? $"{file} – {AppProfile.Name}"
+            : AppProfile.Name;
 
     /// <summary>Video fills the screen: no title bar, taskbar, navigation or status bar.</summary>
     private void SetFullScreen(bool on)
@@ -206,7 +207,8 @@ public partial class MainWindow : Window
             var stats = recorder.Stats();
             RecDot.Fill = (Brush)FindResource("RecordingRed");
             string buffered = RecordingPresets.DurationLabel((int)Math.Round(stats.BufferSeconds));
-            string hotkeyText = App.Host?.HotkeyActive == false ? "the hotkey is unavailable (see Settings)" : $"{hotkey} saves a clip";
+            string hotkeyText = s.HotkeyKey == 0 ? "no save hotkey configured"
+                : App.Host?.HotkeyActive == false ? "the hotkey is unavailable (see Settings)" : $"{hotkey} saves a clip";
             RecStatus.Text = $"Recording  ·  {recorder.State.Summary}  ·  {buffered} buffered ({Fmt.Size(stats.BufferBytes)})  ·  {hotkeyText}";
         }
         else
@@ -222,7 +224,7 @@ public partial class MainWindow : Window
 
     private async Task ShowWhatsNewAfterUpdateAsync()
     {
-        if (AppSettings.SaveDisabled) return; // test and page-render runs
+        if (!Updater.IsEnabled || AppSettings.SaveDisabled) return;
         var s = AppSettings.Current;
         var (show, after) = ReleaseNotes.Check(s.SeenVersion, s.LoadedFromFile, AppVersion.Current);
         if (show) await ShowWhatsNewAsync(after, onlyIfAny: true);
@@ -235,6 +237,7 @@ public partial class MainWindow : Window
     /// </summary>
     public async Task ShowWhatsNewAsync(AppVersion? after, bool onlyIfAny = false)
     {
+        if (!Updater.IsEnabled) return;
         var current = AppVersion.Current;
         WhatsNew.ShowLoading(current);
         if (!onlyIfAny) WhatsNew.Visibility = Visibility.Visible;
