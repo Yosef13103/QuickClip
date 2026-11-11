@@ -30,6 +30,7 @@ internal sealed record GameScanRoot(string Path, bool IsCollection = false);
 
 internal sealed record CatalogRequest
 {
+    public bool DiscoverSteam { get; init; }
     public ImmutableArray<GameScanRoot> GameRoots { get; init; } = [];
     public ImmutableArray<string> SteamLibraryRoots { get; init; } = [];
     public ImmutableArray<string> ExcludedDirectories { get; init; } = [];
@@ -54,10 +55,13 @@ internal sealed record CatalogEntry(
     };
 }
 
-internal enum CatalogIssueKind { InvalidPath, Unavailable, ReparsePoint, InvalidManifest, InvalidManualEntry }
+internal enum CatalogIssueKind { InvalidPath, Unavailable, ReparsePoint, InvalidManifest, InvalidManualEntry, Incomplete }
 
 internal sealed record CatalogIssue(string Location, CatalogIssueKind Kind);
 
 internal sealed record CatalogResult(
     ImmutableArray<CatalogEntry> Entries, ImmutableArray<CatalogIssue> Issues,
-    int VisitedEntries, bool LimitReached, DateTimeOffset CompletedAt);
+    int VisitedEntries, bool LimitReached, DateTimeOffset CompletedAt)
+{
+    public ImmutableArray<string> SteamLibraries { get; init; } = [];
+}
