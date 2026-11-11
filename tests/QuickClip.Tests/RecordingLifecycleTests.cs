@@ -106,6 +106,25 @@ public sealed class RecordingLifecycleTests
         Assert.Equal(3, backend.Starts.Count);
     }
 
+    [Fact]
+    public void Revalidation_does_not_promote_a_folder_candidate_and_refreshes_a_verified_name()
+    {
+        var game = Game(1);
+        var folder = game.Match.Entry! with { Source = CatalogSource.Folder };
+        Assert.Null(CaptureSourcePolicy.RefreshEligibleGame(game, _ => true,
+            (_, _) => new(CatalogMatchKind.Candidate, folder)));
+
+        var renamed = folder with { Rules = new(DisplayName: "Renamed") };
+        var current = CaptureSourcePolicy.RefreshEligibleGame(game with { IsForeground = false }, _ => true,
+            (_, foreground) =>
+            {
+                Assert.False(foreground);
+                return new(CatalogMatchKind.Game, renamed);
+            });
+        Assert.Equal(game.Owner, current?.VerifiedTarget?.Owner);
+        Assert.Equal("Renamed", current?.VerifiedTarget?.Game);
+    }
+
     [Theory]
     [InlineData((int)CatalogMatchKind.Ignored)]
     [InlineData((int)CatalogMatchKind.Inactive)]

@@ -12,11 +12,20 @@ internal static class CaptureSourcePolicy
     internal static bool IsEligibleGame(GameCaptureObservation observation, Func<WindowOwner, bool> current,
         Func<string, bool, Discovery.CatalogMatch> match)
     {
-        if (observation.Target is not { Recognized: true } target || target.Owner != observation.Owner
-            || observation.SkipAutomaticCapture || observation.Match.Entry is not { } entry || !current(target.Owner))
-            return false;
-        var latest = match(observation.Executable, observation.IsForeground);
-        return latest.Entry?.Id == entry.Id && latest.Kind is Discovery.CatalogMatchKind.Game or Discovery.CatalogMatchKind.Candidate;
+        return RefreshEligibleGame(observation, current, match) != null;
+    }
+
+    internal static GameCaptureObservation? RefreshEligibleGame(GameCaptureObservation observation,
+        Func<WindowOwner, bool> current, Func<string, bool, Discovery.CatalogMatch> match)
+    {
+        if (observation.VerifiedTarget is not { } target || target.Owner != observation.Owner ||
+            observation.Match.Entry == null) return null;
+
+        // Revalidate the retained row even when it is the foreground. The selector's
+        // foreground fast path assumes the producer already observed the latest match.
+        var refreshed = GameDetector.SelectVerifiedObservation(observation, null, current,
+            (path, _) => match(path, observation.IsForeground));
+        return refreshed == null ? null : refreshed with { IsForeground = observation.IsForeground };
     }
 
     internal static CaptureSourceDecision Resolve(CaptureSourceMode mode, CaptureEngine.MonitorBackend monitorBackend,

@@ -154,12 +154,13 @@ internal sealed class Recorder
         {
             _games.Poll();
             foreach (var observation in new[] { _games.ActiveObservation, _games.ForegroundObservation })
-                if (observation != null && Eligible(observation))
+                if (observation?.VerifiedTarget != null)
                     _observedGames[observation.Owner] = observation;
             foreach (var owner in _observedGames.Keys.ToArray())
             {
                 var observed = _observedGames[owner] with { IsForeground = owner == _games.ForegroundObservation?.Owner };
-                if (Eligible(observed)) _observedGames[owner] = observed;
+                var refreshed = CaptureSourcePolicy.RefreshEligibleGame(observed, GameDetector.IsCurrent, GameCatalogRuntime.Match);
+                if (refreshed != null) _observedGames[owner] = refreshed;
                 else _observedGames.Remove(owner);
             }
         }
@@ -200,7 +201,7 @@ internal sealed class Recorder
             StopGraph();
             return "The eligible game closed while capture was starting.";
         }
-        _sessionGame = game?.Target?.Game;
+        _sessionGame = game?.VerifiedTarget?.Game;
         _sessionGameId = activation.GameId;
         _sessionDisplay = monitor.DeviceName;
         _lastFreshVideo = Environment.TickCount64;
