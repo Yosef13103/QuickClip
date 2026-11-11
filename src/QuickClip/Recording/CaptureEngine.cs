@@ -5,7 +5,7 @@ namespace QuickClip.Recording;
 /// <summary>P/Invoke surface of QuickClipCapture.dll (src/QuickClip.Capture). Struct layouts mirror Engine.h.</summary>
 internal static class CaptureEngine
 {
-    internal enum MonitorBackend { Automatic, DesktopDuplication, GraphicsCapture }
+    internal enum MonitorBackend { Automatic, DesktopDuplication, GraphicsCapture, MonitorOnlyDuplication, MonitorOnlyGraphics }
     internal enum NvencSpeed { BalancedP4, FasterP3, FastestP2 }
     [StructLayout(LayoutKind.Sequential)]
     internal struct VideoOptions
@@ -230,15 +230,25 @@ internal static class CaptureEngine
         public long Sequence, OffsetUs;
     }
 
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct ReplayVideo
+    {
+        public int Width, Height, FpsNumerator, FpsDenominator;
+    }
+
     internal static ReplayPosition? GetReplayPosition() =>
         qc_get_replay_position(out var position) != 0 ? position : null;
 
     internal static string? SaveReplay(string path, int seconds, string title, ReplayPosition position, bool bounded,
-        ReplayAnchor[] anchors, out ReplaySpan span)
+        ReplayAnchor[] anchors, out ReplaySpan span) =>
+        SaveReplay(path, seconds, title, position, bounded, anchors, out span, out _);
+
+    internal static string? SaveReplay(string path, int seconds, string title, ReplayPosition position, bool bounded,
+        ReplayAnchor[] anchors, out ReplaySpan span, out ReplayVideo video)
     {
         var error = new char[1024];
-        return qc_save_replay(path, seconds, title, position.Session, bounded ? position.EventUs : -1, out span, anchors, anchors.Length,
-            error, error.Length) != 0 ? null : new string(error).TrimEnd('\0');
+        return qc_save_replay_with_video(path, seconds, title, position.Session, bounded ? position.EventUs : -1, out span,
+            anchors, anchors.Length, out video, error, error.Length) != 0 ? null : new string(error).TrimEnd('\0');
     }
 
     public static Stats GetStats()
@@ -285,6 +295,7 @@ internal static class CaptureEngine
     [DllImport(Dll, CharSet = CharSet.Unicode)] private static extern int qc_save(string path, int seconds, string title, [Out] char[] error, int errorLength);
     [DllImport(Dll)] private static extern int qc_get_stats(out Stats stats);
     [DllImport(Dll)] private static extern int qc_get_replay_position(out ReplayPosition position);
-    [DllImport(Dll, CharSet = CharSet.Unicode)] private static extern int qc_save_replay(string path, int seconds, string title,
-        long session, long requestUs, out ReplaySpan span, [In, Out] ReplayAnchor[] anchors, int count, [Out] char[] error, int errorLength);
+    [DllImport(Dll, CharSet = CharSet.Unicode)] private static extern int qc_save_replay_with_video(string path, int seconds, string title,
+        long session, long requestUs, out ReplaySpan span, [In, Out] ReplayAnchor[] anchors, int count, out ReplayVideo video,
+        [Out] char[] error, int errorLength);
 }

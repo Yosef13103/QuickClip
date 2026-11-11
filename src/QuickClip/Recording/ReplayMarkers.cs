@@ -6,11 +6,21 @@ public sealed record LiveReplayMarker(Guid Id, Guid SessionId, long SourceId, Ti
 
 public sealed record SavedReplayMarker(LiveReplayMarker Marker, TimeSpan Offset);
 
+public enum ReplayCaptureBackend { DesktopDuplication, WindowsGraphicsCapture }
+
+/// <summary>Source identity verified by the fixed monitor policy. An unknown legacy source is left unset.</summary>
+public sealed record ReplayDesktopSource(string DisplayDevice, ReplayCaptureBackend Backend);
+
+public sealed record ReplayVideoOutput(int Width, int Height, double? AverageFps);
+
 /// <summary>Metadata for a published clip. The available span runs from the oldest usable keyframe to the latest retained video frame.</summary>
 public sealed record ReplaySaveReceipt(string Path, string Game, Guid SessionId, int RequestedSeconds,
     TimeSpan? ActualVideoDuration, TimeSpan AvailableVideoSpan, TimeSpan FirstFrameTime, TimeSpan LastFrameTime,
     long FirstSourceId, long LastSourceId, DateTimeOffset? CapturedAt, IReadOnlyList<SavedReplayMarker> Markers)
 {
+    public ReplayDesktopSource? DesktopSource { get; init; }
+    public ReplayVideoOutput? VideoOutput { get; init; }
+    public bool SpansCaptureEpochs => FirstSourceId != LastSourceId;
     public bool? IsShorterThanRequested => ActualVideoDuration is TimeSpan duration ? duration < TimeSpan.FromSeconds(RequestedSeconds) : null;
 }
 

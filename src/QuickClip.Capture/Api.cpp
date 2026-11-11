@@ -167,7 +167,7 @@ extern "C"
         const QcVideoOptions* video, wchar_t* error, int errorLength)
     {
         if (!config || !video || count < -1 || count > 16 || (count > 0 && !endpoints) ||
-            video->backend < 0 || video->backend > 2 || video->nvencPreset < 0 || video->nvencPreset > 2)
+            video->backend < 0 || video->backend > 4 || video->nvencPreset < 0 || video->nvencPreset > 2)
         {
             CopyError("Invalid endpoint audio configuration.", error, errorLength);
             return 0;
@@ -290,9 +290,11 @@ extern "C"
         return 1;
     }
 
-    __declspec(dllexport) int qc_save_replay(const wchar_t* path, int seconds, const wchar_t* title, int64_t session,
-        int64_t requestUs, QcReplaySpan* span, QcReplayAnchor* anchors, int count, wchar_t* error, int errorLength)
+    __declspec(dllexport) int qc_save_replay_with_video(const wchar_t* path, int seconds, const wchar_t* title, int64_t session,
+        int64_t requestUs, QcReplaySpan* span, QcReplayAnchor* anchors, int count, QcReplayVideo* savedVideo,
+        wchar_t* error, int errorLength)
     {
+        if (savedVideo) *savedVideo = {};
         if (!path || !span || seconds <= 0 || count < 0 || count > 128 || (count && !anchors))
         {
             CopyError("Invalid replay request.", error, errorLength);
@@ -307,9 +309,15 @@ extern "C"
             return 0;
         }
         std::string message;
-        if (g_engine->Save(path, seconds, title ? title : L"", message, span, anchors, count, requestUs)) return 1;
+        if (g_engine->Save(path, seconds, title ? title : L"", message, span, anchors, count, requestUs, savedVideo)) return 1;
         CopyError(message, error, errorLength);
         return 0;
+    }
+
+    __declspec(dllexport) int qc_save_replay(const wchar_t* path, int seconds, const wchar_t* title, int64_t session,
+        int64_t requestUs, QcReplaySpan* span, QcReplayAnchor* anchors, int count, wchar_t* error, int errorLength)
+    {
+        return qc_save_replay_with_video(path, seconds, title, session, requestUs, span, anchors, count, nullptr, error, errorLength);
     }
 
     // Deterministic packet fixture for the managed tests. No encoder, audio endpoints or desktop are opened.

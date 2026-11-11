@@ -30,6 +30,7 @@ internal sealed class Recorder
     private string _family = "h264";
     private GameWindowTarget? _captureTarget;
     private string _monitorTarget = "";
+    private ReplayDesktopSource? _desktopSource;
     private (int Width, int Height) _captureWindowSize;
 
     public bool IsRunning { get; private set; }
@@ -85,6 +86,18 @@ internal sealed class Recorder
     {
         var s = AppSettings.Current;
         Error = null;
+        var backend = s.CaptureBackend;
+        if (AppProfile.IsPersonal)
+        {
+            var mode = s.PreferGameWindow ? CaptureSourceMode.GameWindowOnly : CaptureSourceMode.SelectedMonitor;
+            var decision = CaptureSourcePolicy.Resolve(mode, backend);
+            if (!decision.Allowed)
+            {
+                Error = decision.Error;
+                return;
+            }
+            backend = decision.Backend;
+        }
         if (!CaptureEngine.IsAvailable)
         {
             Error = "The recording engine (QuickClipCapture.dll) is missing.";
@@ -94,11 +107,10 @@ internal sealed class Recorder
         {
             CaptureEngine.Initialize();
             var monitors = Monitors.List();
-            var monitor = monitors.FirstOrDefault(m => string.Equals(m.DeviceName, s.RecordMonitor, StringComparison.OrdinalIgnoreCase))
-                ?? monitors.FirstOrDefault(m => m.IsPrimary) ?? monitors.FirstOrDefault();
+            var monitor = CaptureSourcePolicy.SelectMonitor(monitors, s.RecordMonitor, AppProfile.IsPersonal);
             if (monitor == null)
             {
-                Error = "No monitor to record was found.";
+                Error = "The selected monitor is unavailable. Choose a connected display to start recording.";
                 return;
             }
 
@@ -128,7 +140,7 @@ internal sealed class Recorder
 
             Error = CaptureEngine.Start(monitor.DeviceName, aspect, s.RecordFps, scaled ? w : 0, scaled ? h : 0, encoder, VideoKbps,
                 RecordingPresets.AudioKbps, s.BufferSeconds, s.CaptureCursor, splitChat, splitMusic, mics, separateMics, endpoints,
-                new() { Backend = s.CaptureBackend, Preset = s.NvencPreset, Diagnostics = s.RecordingDiagnostics ? 1 : 0 });
+                new() { Backend = backend, Preset = s.NvencPreset, Diagnostics = s.RecordingDiagnostics ? 1 : 0 });
             if (Error != null) return;
             if (mics.Count > 0)
                 Log.Write($"Recording {mics.Count} microphone{(mics.Count == 1 ? "" : "s")}{(separateMics ? " on separate tracks" : "")}: " +
@@ -139,7 +151,18 @@ internal sealed class Recorder
             _replayBufferSeconds = s.BufferSeconds;
             _family = family;
             _captureTarget = null;
-            _monitorTarget = monitor.Label;
+            _desktopSource = backend switch
+            {
+                CaptureEngine.MonitorBackend.MonitorOnlyDuplication => new(monitor.DeviceName, ReplayCaptureBackend.DesktopDuplication),
+                CaptureEngine.MonitorBackend.MonitorOnlyGraphics => new(monitor.DeviceName, ReplayCaptureBackend.WindowsGraphicsCapture),
+                _ => null,
+            };
+            _monitorTarget = _desktopSource?.Backend switch
+            {
+                ReplayCaptureBackend.DesktopDuplication => $"Desktop · {monitor.Label} · Desktop Duplication",
+                ReplayCaptureBackend.WindowsGraphicsCapture => $"Desktop · {monitor.Label} · Windows Graphics Capture (capture border may appear)",
+                _ => monitor.Label,
+            };
             _captureWindowSize = default;
             _routing = null;
             if (endpoints != null) (_chatApps, _musicApps) = ([], []);
@@ -173,7 +196,7 @@ internal sealed class Recorder
         {
             var s = AppSettings.Current;
             _games.Poll();
-            if (s.PreferGameWindow) UpdateCaptureWindow(s);
+            if (!AppProfile.IsPersonal && s.PreferGameWindow) UpdateCaptureWindow(s);
             if (s.UseAudioEndpoints) return;
 
             var processes = ProcessScan.Snapshot();
@@ -314,17 +337,19 @@ internal sealed class Recorder
             ReplayMarkers.Candidate[] candidates;
             Guid sessionId;
             int gameLookback;
+            ReplayDesktopSource? desktopSource;
             lock (_gate)
             {
                 if (!IsRunning || CaptureEngine.GetReplayPosition() is not { } active)
                     throw new IOException("The recording session has ended.");
                 position = active;
                 sessionId = _replaySession;
+                desktopSource = _desktopSource;
                 candidates = _replayMarkers.Snapshot(position, sessionId);
                 gameLookback = requestedSeconds.HasValue ? Math.Min(seconds, _replayBufferSeconds) : seconds;
             }
             var anchors = candidates.Select(item => new CaptureEngine.ReplayAnchor { Sequence = item.Sequence, OffsetUs = -1 }).ToArray();
-            string folder = _captureTarget?.Game ?? _games.GameForClip(gameLookback) ?? "Desktop";
+            string folder = desktopSource != null ? "Desktop" : _captureTarget?.Game ?? _games.GameForClip(gameLookback) ?? "Desktop";
             string folderName = ClipNaming.SafeComponent(folder, 64);
             if (ClipLibrary.IsExcluded(folderName, null)) folderName += " (game)";
             string dir = Path.Combine(s.ClipsFolder, folderName);
@@ -334,8 +359,9 @@ internal sealed class Recorder
             if (AppProfile.IsPersonal) _ = ClipNaming.Stem(s.ClipFilenameTemplate, folder, requestedAt, null);
             string stagingPath = staged = ClipNaming.ReserveStagingPath(dir, ".mp4");
             CaptureEngine.ReplaySpan span = default;
+            CaptureEngine.ReplayVideo video = default;
             string? error = await Task.Run(() => CaptureEngine.SaveReplay(stagingPath, seconds, folder, position,
-                requestedSeconds.HasValue, anchors, out span), cancellationToken);
+                requestedSeconds.HasValue, anchors, out span, out video), cancellationToken);
             cancellationToken.ThrowIfCancellationRequested();
             if (error != null)
             {
@@ -353,7 +379,14 @@ internal sealed class Recorder
             TimeSpan? actual = span.DurationUs >= 0 ? ReplayMarkers.Time(span.DurationUs) : null;
             var receipt = new ReplaySaveReceipt(path, folder, sessionId, seconds, actual, ReplayMarkers.Time(span.AvailableUs),
                 ReplayMarkers.Time(span.FirstUs), ReplayMarkers.Time(span.LastUs), span.FirstSource, span.LastSource,
-                capturedAt, ReplayMarkers.Match(candidates, anchors, actual));
+                capturedAt, ReplayMarkers.Match(candidates, anchors, actual))
+            {
+                DesktopSource = desktopSource,
+                VideoOutput = video.Width > 0 && video.Height > 0
+                    ? new(video.Width, video.Height, video.FpsNumerator > 0 && video.FpsDenominator > 0
+                        ? (double)video.FpsNumerator / video.FpsDenominator : null)
+                    : null,
+            };
             if (AppProfile.IsPersonal) ClipDetailsStore.TryWrite(path, new ClipDetails(capture, folder)
             {
                 Bookmarks = receipt.Markers.Select(mark => new ClipBookmark(mark.Offset.TotalSeconds, mark.Marker.Label ?? "Marker")
