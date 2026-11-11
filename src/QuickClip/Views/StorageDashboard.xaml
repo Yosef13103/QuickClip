@@ -1,0 +1,88 @@
+<UserControl x:Class="QuickClip.Views.StorageDashboard"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:controls="clr-namespace:QuickClip.Controls">
+    <UserControl.Resources>
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <ResourceDictionary Source="/QuickClip;component/Themes/Styles.xaml" />
+            </ResourceDictionary.MergedDictionaries>
+            <Style x:Key="InventoryCard" TargetType="Border">
+                <Setter Property="Background" Value="{StaticResource PanelBrush}" />
+                <Setter Property="CornerRadius" Value="8" />
+                <Setter Property="Padding" Value="16" />
+                <Setter Property="Margin" Value="0,0,12,12" />
+            </Style>
+            <Style x:Key="InventoryHeading" TargetType="TextBlock">
+                <Setter Property="FontSize" Value="16" />
+                <Setter Property="FontWeight" Value="SemiBold" />
+                <Setter Property="Margin" Value="0,0,0,8" />
+            </Style>
+            <GridView x:Key="InventoryColumns" x:Shared="False">
+                <GridViewColumn Header="Name" Width="180" DisplayMemberBinding="{Binding Label}" />
+                <GridViewColumn Header="Clips" Width="65" DisplayMemberBinding="{Binding Clips}" />
+                <GridViewColumn Header="Size" Width="105" DisplayMemberBinding="{Binding Size}" />
+            </GridView>
+        </ResourceDictionary>
+    </UserControl.Resources>
+    <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+        <StackPanel MaxWidth="1340" Margin="24,18,12,24">
+            <DockPanel Margin="0,0,12,12">
+                <Button DockPanel.Dock="Right" x:Name="RefreshButton" Content="Refresh inventory" Click="Refresh_Click" />
+                <StackPanel Orientation="Horizontal">
+                    <Button x:Name="BackButton" Content="Gallery" Click="Back_Click" Margin="0,0,10,0" />
+                    <TextBlock Text="Library storage" FontSize="24" FontWeight="SemiBold" VerticalAlignment="Center" />
+                </StackPanel>
+            </DockPanel>
+            <TextBlock x:Name="Status" Style="{StaticResource Hint}" TextWrapping="Wrap" Margin="0,0,12,12"
+                       AutomationProperties.LiveSetting="Polite" />
+            <StackPanel x:Name="InventoryContent" Visibility="Collapsed">
+                <Border Style="{StaticResource InventoryCard}">
+                    <StackPanel>
+                        <TextBlock x:Name="Totals" FontSize="20" FontWeight="SemiBold" TextWrapping="Wrap" />
+                        <TextBlock x:Name="Availability" Margin="0,5,0,0" TextWrapping="Wrap" />
+                        <TextBlock Style="{StaticResource Hint}" Margin="0,5,0,0" TextWrapping="Wrap"
+                                   Text="Logical sizes cover available indexed files. Hard links can share the same bytes on disk." />
+                    </StackPanel>
+                </Border>
+                <controls:ResponsiveCards>
+                    <Border Style="{StaticResource InventoryCard}">
+                        <StackPanel>
+                            <TextBlock Text="By category" Style="{StaticResource InventoryHeading}" />
+                            <ListView x:Name="CategoryRows" View="{StaticResource InventoryColumns}" AutomationProperties.Name="Inventory by category" />
+                        </StackPanel>
+                    </Border>
+                    <Border Style="{StaticResource InventoryCard}">
+                        <StackPanel>
+                            <TextBlock Text="By game" Style="{StaticResource InventoryHeading}" />
+                            <ListView x:Name="GameRows" MaxHeight="300" View="{StaticResource InventoryColumns}"
+                                      VirtualizingPanel.IsVirtualizing="True" VirtualizingPanel.VirtualizationMode="Recycling"
+                                      AutomationProperties.Name="Inventory by game" />
+                        </StackPanel>
+                    </Border>
+                </controls:ResponsiveCards>
+                <Border Style="{StaticResource InventoryCard}">
+                    <StackPanel>
+                        <TextBlock Text="Indexed roots" Style="{StaticResource InventoryHeading}" />
+                        <TextBlock x:Name="NoRoots" Text="No indexed roots." Style="{StaticResource Hint}" Visibility="Collapsed" />
+                        <ItemsControl x:Name="RootRows">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <DockPanel Margin="0,0,0,8">
+                                        <Button DockPanel.Dock="Right" Content="Reveal in Explorer" Margin="8,0,0,0"
+                                                IsEnabled="{Binding CanReveal}" Click="Reveal_Click" />
+                                        <StackPanel>
+                                            <TextBlock Text="{Binding Path}" TextWrapping="Wrap" />
+                                            <TextBlock Text="{Binding Summary}" Style="{StaticResource Hint}" TextWrapping="Wrap" />
+                                        </StackPanel>
+                                    </DockPanel>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                        <TextBlock Text="Roots on the same volume share its free space." Style="{StaticResource Hint}" TextWrapping="Wrap" />
+                    </StackPanel>
+                </Border>
+            </StackPanel>
+        </StackPanel>
+    </ScrollViewer>
+</UserControl>

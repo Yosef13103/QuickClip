@@ -73,6 +73,22 @@
             <Button x:Name="CinemaButton" DockPanel.Dock="Right" Content="Cinema" Click="ToggleCinema_Click"
                     Style="{StaticResource TextButton}" ToolTip="Cinema mode (Shift+F11). Space plays or pauses." />
             <Button x:Name="DeleteMediaButton" DockPanel.Dock="Right" Content="Delete…" Click="DeleteMedia_Click" Style="{StaticResource TextButton}" />
+            <ToggleButton x:Name="FavoriteButton" DockPanel.Dock="Right" Click="Favorite_Click"
+                          AutomationProperties.Name="Favorite" ToolTip="Add to or remove from favorites">
+                <ToggleButton.Style>
+                    <Style TargetType="ToggleButton">
+                        <Setter Property="Content" Value="☆" />
+                        <Setter Property="FontSize" Value="18" />
+                        <Setter Property="Padding" Value="8,3" />
+                        <Style.Triggers>
+                            <Trigger Property="IsChecked" Value="True">
+                                <Setter Property="Content" Value="★" />
+                                <Setter Property="Foreground" Value="#FFB900" />
+                            </Trigger>
+                        </Style.Triggers>
+                    </Style>
+                </ToggleButton.Style>
+            </ToggleButton>
             <Button DockPanel.Dock="Left" Style="{StaticResource TextButton}" Click="Open_Click" ToolTip="Open a file (Ctrl+O)">
                 <StackPanel Orientation="Horizontal">
                     <TextBlock FontFamily="{StaticResource IconFont}" Text="&#xE8E5;" VerticalAlignment="Center" Margin="0,0,8,0" />
@@ -89,6 +105,7 @@
                         I / O — set in / out at the playhead<LineBreak />
                         Shift+I / Shift+O — jump to in / out<LineBreak />
                         Home / End — start / end of file<LineBreak />
+                        Ctrl+B — bookmark the playhead<LineBreak />
                         L — loop selection · C — crop on/off · M — mute<LineBreak />
                         + / − / 0 — zoom timeline in / out / fit<LineBreak />
                         Mouse wheel on timeline — zoom · Shift+wheel — scroll<LineBreak />

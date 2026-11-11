@@ -78,6 +78,13 @@ public partial class EditorView : UserControl
     public event Action? TitleChanged;
     public event Action? BackRequested;
     internal event Action<string, ClipDetails>? ClipDetailsSaved;
+    internal Func<IReadOnlyList<string>>? KnownTags { get; set; }
+    internal IClipAnnotationActions AnnotationActions
+    {
+        get => MetadataEditor.AnnotationActions;
+        set => MetadataEditor.AnnotationActions = value;
+    }
+    private bool _favoriteSaving;
     public string? CurrentFile => _media?.Path;
     private bool _viewMode, _cinemaMode, _updatingViewSeek;
     private bool _deletingMedia;
@@ -93,7 +100,7 @@ public partial class EditorView : UserControl
             if (AppProfile.IsPersonal && !MetadataEditor.HasDraft && File.Exists(path))
             {
                 var details = CurrentClipDetails();
-                MetadataEditor.Open(path, details);
+                MetadataEditor.Open(path, details, duration: _media?.Duration);
                 ShowClipTitle(details);
             }
             return;
@@ -113,7 +120,7 @@ public partial class EditorView : UserControl
 
     private async void DeleteMedia_Click(object sender, RoutedEventArgs e)
     {
-        if (_deletingMedia || _loading || _exportCts != null || _media is not { } media) return;
+        if (_deletingMedia || _loading || _favoriteSaving || MetadataEditor.IsSaving || _exportCts != null || _media is not { } media) return;
         _deletingMedia = true;
         try
         {
@@ -143,6 +150,7 @@ public partial class EditorView : UserControl
             FileTitle = null;
             FileNameText.Text = "No file open";
             FileInfoText.Text = "";
+            FavoriteButton.IsChecked = false;
             MetadataGroup.Visibility = Visibility.Collapsed;
             Timeline.HasMedia = false;
             Timeline.SetBookmarks([]);
@@ -206,10 +214,11 @@ public partial class EditorView : UserControl
         InitializeComponent();
         MetadataEditor.Saved += (path, details) =>
         {
-            ShowClipTitle(details);
+            if (string.Equals(CurrentFile, path, StringComparison.OrdinalIgnoreCase)) ShowClipTitle(details);
             ClipDetailsSaved?.Invoke(path, details);
         };
         MetadataEditor.BookmarkPosition = () => (_timeline.Position, _timeline.Duration);
+        MetadataEditor.KnownTags = () => KnownTags?.Invoke() ?? [];
         MetadataEditor.SeekBookmark = seconds => OnSeekRequested(seconds, true);
         MetadataEditor.BookmarksChanged += Timeline.SetBookmarks;
         Timeline.BookmarkActivated += mark =>
@@ -219,6 +228,7 @@ public partial class EditorView : UserControl
             MetadataEditor.QueueBookmarkFocus(mark.Seconds);
         };
         BookmarkButton.Visibility = AppProfile.IsPersonal ? Visibility.Visible : Visibility.Collapsed;
+        FavoriteButton.Visibility = AppProfile.IsPersonal ? Visibility.Visible : Visibility.Collapsed;
 
         TrackList.ItemsSource = _tracks;
         Timeline.State = _timeline;
@@ -302,7 +312,7 @@ public partial class EditorView : UserControl
     public async Task<bool> CloseAsync()
     {
         if (_closed) return true;
-        if (_deletingMedia || _loading) return false;
+        if (_deletingMedia || _loading || _favoriteSaving || MetadataEditor.IsSaving) return false;
         if (_exportCts != null)
         {
             var answer = MessageBox.Show(OwnerWindow, "An export is still running. Cancel it and close?", "QuickClip",
@@ -344,6 +354,7 @@ public partial class EditorView : UserControl
     {
         FileTitle = details.Title ?? Path.GetFileName(CurrentFile);
         FileNameText.Text = FileTitle;
+        FavoriteButton.IsChecked = details.IsFavorite;
         TitleChanged?.Invoke();
     }
 
@@ -466,7 +477,7 @@ public partial class EditorView : UserControl
             FileNameText.ToolTip = path;
             FileInfoText.Text = info.Summary;
             MetadataGroup.Visibility = AppProfile.IsPersonal ? Visibility.Visible : Visibility.Collapsed;
-            if (AppProfile.IsPersonal) MetadataEditor.Open(path, details);
+            if (AppProfile.IsPersonal) MetadataEditor.Open(path, details, duration: info.Duration);
 
             _soundCts?.Cancel();
             _soundPreviewTimer.Stop();
@@ -968,9 +979,57 @@ public partial class EditorView : UserControl
 
     private void Bookmark_Click(object sender, RoutedEventArgs e)
     {
-        if (_media == null || _loading) return;
+        if (!AppProfile.IsPersonal || _media == null || _loading || _exportCts != null || _favoriteSaving) return;
+        if (_viewMode || _cinemaMode)
+        {
+            _viewMode = _cinemaMode = false;
+            ApplyMode();
+        }
         MetadataGroup.IsExpanded = true;
         MetadataEditor.AddBookmark(_timeline.Position, _timeline.Duration);
+    }
+
+    private async void Favorite_Click(object sender, RoutedEventArgs e)
+    {
+        if (MetadataEditor.AnnotationTarget is not { } target || _media == null) return;
+        FavoriteButton.IsChecked = target.Details.IsFavorite;
+        if (_favoriteSaving || _loading || MetadataEditor.IsSaving || _exportCts != null || _deletingMedia) return;
+        if (MetadataEditor.HasDraft)
+        {
+            _viewMode = _cinemaMode = false;
+            ApplyMode();
+            MetadataGroup.IsExpanded = true;
+            MetadataEditor.ShowSaveReminder("Save or cancel the open details before changing the favorite.");
+            return;
+        }
+        _favoriteSaving = true;
+        UpdateUiState();
+        try
+        {
+            var results = await AnnotationActions.ApplyAsync([target], null, !target.Details.IsFavorite, CancellationToken.None);
+            var result = results.Single();
+            bool isCurrent = string.Equals(CurrentFile, target.Path, StringComparison.OrdinalIgnoreCase);
+            if (result.Details is { } details)
+            {
+                if (isCurrent)
+                {
+                    MetadataEditor.Open(target.Path, details, duration: _media?.Duration);
+                    ShowClipTitle(details);
+                }
+                ClipDetailsSaved?.Invoke(target.Path, details);
+            }
+            else if (isCurrent) StatusText.Text = result.Error;
+        }
+        catch (Exception ex)
+        {
+            Log.Write("Could not change clip favorite: " + ex.Message);
+            StatusText.Text = "Couldn’t change favorite.";
+        }
+        finally
+        {
+            _favoriteSaving = false;
+            UpdateUiState();
+        }
     }
 
     private void TogglePlay()
@@ -1086,7 +1145,7 @@ public partial class EditorView : UserControl
 
     private void OnPreviewKeyDown(object sender, KeyEventArgs e)
     {
-        if (MetadataEditor.IsKeyboardFocusWithin) return;
+        if (MetadataEditor.IsKeyboardFocusWithin || FavoriteButton.IsKeyboardFocused && e.Key == Key.Space) return;
         if (Keyboard.FocusedElement is TextBox)
         {
             // Enter finishes editing (the boxes commit when they lose focus); Escape is left to each box.
@@ -1110,6 +1169,9 @@ public partial class EditorView : UserControl
                 if (!e.IsRepeat) DeleteMedia_Click(this, e);
                 break;
             case Key.O when ctrl: _ = PromptOpenAsync(); break;
+            case Key.B when ctrl && AppProfile.IsPersonal:
+                if (!e.IsRepeat) Bookmark_Click(this, e);
+                break;
             case Key.E when ctrl: ExportNew_Click(this, e); break;
             case Key.S when ctrl: SaveOver_Click(this, e); break;
             case Key.Z when ctrl && _undo != null: Undo_Click(this, e); break;
@@ -1418,7 +1480,7 @@ public partial class EditorView : UserControl
         if (!IsInitialized) return;
         var container = CurrentContainer(forOverwrite: false);
         bool hasVideo = _media?.Video != null;
-        bool busy = _exportCts != null;
+        bool busy = _exportCts != null || _favoriteSaving;
         bool videoOut = (container.HasVideo || container.IsGif) && (hasVideo || _media == null);
 
         static Visibility Show(bool show) => show ? Visibility.Visible : Visibility.Collapsed;
@@ -1439,6 +1501,7 @@ public partial class EditorView : UserControl
         SaveOverButton.IsEnabled = _media != null && !busy;
         DeleteMediaButton.IsEnabled = _media != null && !busy && !_deletingMedia;
         BookmarkButton.IsEnabled = _media != null && !busy;
+        FavoriteButton.IsEnabled = _media != null && !busy && !_deletingMedia;
         MetadataEditor.IsEnabled = !busy;
         MergeCheck.IsEnabled = _tracks.Count > 1;
         MergeCheck.Visibility = container.IsGif ? Visibility.Collapsed : Visibility.Visible;
@@ -1643,6 +1706,7 @@ public partial class EditorView : UserControl
 
     private bool EnsureSavedDetails()
     {
+        if (_favoriteSaving || MetadataEditor.IsSaving) return false;
         if (!MetadataEditor.HasDraft) return true;
         _viewMode = _cinemaMode = false;
         ApplyMode();

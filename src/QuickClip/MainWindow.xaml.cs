@@ -94,6 +94,7 @@ public partial class MainWindow : Window
             _editor.TitleChanged += UpdateTitle;
             _editor.BackRequested += () => ShowPage(Gallery);
             _editor.ClipDetailsSaved += Gallery.ApplyClipDetails;
+            _editor.KnownTags = () => Gallery.KnownTags;
             Pages.Children.Add(_editor);
             return _editor;
         }
