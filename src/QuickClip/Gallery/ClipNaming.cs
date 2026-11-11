@@ -5,7 +5,7 @@ namespace QuickClip.Gallery;
 
 internal static partial class ClipNaming
 {
-    public const string DefaultTemplate = "{game}__{yyyy-MM-dd}__{HH-mm-ss}_{custom_title}";
+    public const string DefaultTemplate = "{game}__{yyyy-MM-dd}-{HH-mm-ss} - {custom_title}";
     private const int MaxPath = 240;
 
     public static string Stem(string? template, string game, DateTimeOffset capture, string? title)
