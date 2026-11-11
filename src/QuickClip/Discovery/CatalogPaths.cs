@@ -40,4 +40,13 @@ internal static class CatalogPaths
             StringComparison.OrdinalIgnoreCase);
 
     public static bool IsExecutable(string path) => Path.GetExtension(path).Equals(".exe", StringComparison.OrdinalIgnoreCase);
+
+    public static bool IsDiscordUpdater(string path) =>
+        Path.GetFileNameWithoutExtension(path).Equals("Update", StringComparison.OrdinalIgnoreCase)
+        && IsDiscord(Path.GetFileName(Path.GetDirectoryName(path)) ?? "");
+
+    public static bool IsDiscord(string name) =>
+        name.Equals("Discord", StringComparison.OrdinalIgnoreCase) ||
+        name.Equals("DiscordPTB", StringComparison.OrdinalIgnoreCase) ||
+        name.Equals("DiscordCanary", StringComparison.OrdinalIgnoreCase);
 }

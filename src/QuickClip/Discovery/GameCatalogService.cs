@@ -185,17 +185,9 @@ internal static class GameCatalogService
         private static void AddExecutable(Candidate game, string path)
         {
             if (!CatalogPaths.IsExecutable(path)) return;
-            string stem = Path.GetFileNameWithoutExtension(path);
-            if (IsDiscord(stem)) return;
-            if (stem.Equals("Update", StringComparison.OrdinalIgnoreCase) &&
-                IsDiscord(Path.GetFileName(Path.GetDirectoryName(path)) ?? "")) return;
+            if (CatalogPaths.IsDiscord(Path.GetFileNameWithoutExtension(path)) || CatalogPaths.IsDiscordUpdater(path)) return;
             game.Executables.Add(path);
         }
-
-        private static bool IsDiscord(string name) =>
-            name.Equals("Discord", StringComparison.OrdinalIgnoreCase) ||
-            name.Equals("DiscordPTB", StringComparison.OrdinalIgnoreCase) ||
-            name.Equals("DiscordCanary", StringComparison.OrdinalIgnoreCase);
 
         private void AddManual(ManualCatalogEntry manual)
         {

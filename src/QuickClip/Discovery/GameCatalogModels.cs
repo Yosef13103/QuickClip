@@ -16,7 +16,10 @@ internal sealed record CatalogRules(
     CatalogActivation Activation = CatalogActivation.Default,
     CatalogCapturePreference CapturePreference = CatalogCapturePreference.Default,
     string? ProfileId = null,
-    int Priority = 0);
+    int Priority = 0)
+{
+    public ImmutableArray<string> LauncherExecutables { get; init; } = [];
+}
 
 internal sealed record ManualCatalogEntry(Guid Id, string DisplayName, ImmutableArray<string> Executables);
 
