@@ -16,7 +16,7 @@ The previous agent reported **365 tests passed / 18 opt-in skipped** for the v4 
 
 | ID | Area | Tier | Code gates | Acceptance gates | State |
 |---|---|---|---:|---:|---|
-| QC-001 | Reproducible builds, CI and protected integration | P0 | 0/3 | 0/2 | active |
+| QC-001 | Reproducible builds, CI and protected integration | P0 | 2/3 | 0/2 | active |
 | QC-002 | Instant replay correctness, saving and memory safety | P0 | 3/4 | 0/5 | active |
 | QC-003 | Automatic game detection and per-game profiles | P0 | 4/6 | 0/5 | active |
 | QC-004 | Capture targeting and truthful recorded-source identity | P0 | 3/5 | 0/4 | active |
@@ -42,8 +42,8 @@ First milestone. A passing local report is not the same as required CI.
 
 | Gate | Stage | Status | Objective evidence / requirement |
 |---|---|---|---|
-| `QC-001-I01` | implementation | TODO | Windows GitHub Actions builds and deterministic dependency restore |
-| `QC-001-I02` | implementation | TODO | Test job runs synthetic managed and relevant native tests on PR |
+| `QC-001-I01` | implementation | PASS | Merged PR #2 at `60c4172` provides strict x64 Release builds for both profiles with SDK 10.0.403, hash-verified native assets and NuGet restore. NuGet transitives are not lock-file enforced. [Windows CI evidence](https://github.com/Yosef13103/QuickClip/actions/runs/43071338005) |
+| `QC-001-I02` | implementation | PASS | PR #2 Windows CI ran synthetic tests and native interop preflight with capture off. Personal passed 366 with 18 skips. Upstream passed 27 with 14 skips. Zero failures. [Windows CI evidence](https://github.com/Yosef13103/QuickClip/actions/runs/43071338005) |
 | `QC-001-I03` | implementation | TODO | PRs target custom/main with change/evidence handoff and protected main |
 | `QC-001-A01` | acceptance | TODO | Latest custom/main passes Windows CI (0 failing; skips explicitly reported) |
 | `QC-001-A02` | acceptance | TODO | Every new P0 PR has traceable acceptance IDs and reproducible commands |
