@@ -1,5 +1,7 @@
 # Live replay markers and duration requests
 
+The [v4 integration report](personal-v4-integration.md) describes the tray actions, metadata persistence and notification wiring added after this backend handoff.
+
 `feat/replay-markers-hotkeys` is based on capture frame pacing commit `651d8c4b8e3daf6e182bef674ff53cc1f8037479`.
 
 ## Recorder API

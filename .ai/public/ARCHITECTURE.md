@@ -1,0 +1,8 @@
+# QuickClip Personal architecture
+
+- The .NET 10 WPF host owns settings, tray commands and global hotkeys. The native C++ engine captures the selected window or monitor and audio endpoints, then retains compressed packets in the replay ring. Monitor GPU scaling and the Personal P2 NVENC default stay in the capture path.
+- Monitor dimensions feed the centered crop schematic and the recorder's short-side resolution. The editor uses its existing libmpv session across edit, view and fullscreen layouts. Share and export reuse the existing FFmpeg pipeline and keep source files independent of metadata.
+- Replay duration choices read one ring. A published save receipt carries the requested duration, actual video duration when known, and markers whose exact anchored frames survived the save. The tray host dispatches feedback only after publication or a save failure.
+- Library indexing is opt-in for the configured clips folder. The profile-local SQLite database tracks stable media IDs and annotations. Stat-verified legacy JSON seeds the index. A single annotation revision covers editor metadata and batch gallery updates. The catalog uses file identity to reconcile moves and deduplicate known hard links in the overall inventory.
+- Gallery cards share one muted hover preview and an asynchronous, versioned thumbnail cache. The WPF modal overlay owns focus while its prompt is open. The clip notification window is a separate, short-lived no-activate surface.
+- The Personal identity keeps separate settings, cache, IPC and clip paths. The portable build ships the SQLite, capture, FFmpeg and libmpv runtimes. Production installation and registry integration need a separate Personal-owned package.

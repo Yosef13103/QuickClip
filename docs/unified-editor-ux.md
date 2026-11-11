@@ -1,5 +1,7 @@
 # Unified editor UX handoff
 
+This document records the original workstream. See the [v4 integration report](personal-v4-integration.md) for current fullscreen, gallery preview and SQLite behavior.
+
 The feature branch is `feat/unified-editor-ux`. Its base is `5bc5d3a237ce39824006a76eb0f756d14fd753ef`, the published performance and production-integration handoff on `origin/custom/main`.
 
 ## Gallery and editor

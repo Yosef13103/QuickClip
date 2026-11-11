@@ -10,4 +10,9 @@ test-media/
 TestResults/
 /.quickclip-local/
 AGENTS.md
-.ai
+/.ai/*
+!/.ai/public/
+/.ai/public/*
+!/.ai/public/README.md
+!/.ai/public/ARCHITECTURE.md
+!/.ai/public/VALIDATION.md

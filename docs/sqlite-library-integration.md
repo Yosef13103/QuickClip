@@ -1,5 +1,7 @@
 # QuickClip Personal library index
 
+The following backend handoff predates app wiring. The [v4 integration report](personal-v4-integration.md) describes the Gallery, Editor, and storage behavior available after enabling the index.
+
 The catalog is an opt-in service. A host supplies approved roots and calls reconciliation explicitly. The existing Gallery, Editor and Projects workflows still use their current paths. `LibraryIndex.ForCurrentProfile()` keeps the database at `library/clips.sqlite3` under the Personal local-data directory, including portable profiles. It reads existing `clip-details` records from that profile. The constructor accepts an absolute database path and optional legacy metadata directory and header reader for fixtures or a different host.
 
 ## Schema and deployment
