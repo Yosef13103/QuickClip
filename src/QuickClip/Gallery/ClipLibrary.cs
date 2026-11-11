@@ -22,8 +22,6 @@ public sealed class ClipItem : INotifyPropertyChanged
         Path = file.FullName;
         Details = details;
         Header = header;
-        Folder = details.Game;
-        Title = details.Title ?? System.IO.Path.GetFileNameWithoutExtension(file.Name);
         Created = details.CapturedAt.LocalDateTime;
         Size = file.Length;
         Duration = header.Duration;
@@ -32,18 +30,29 @@ public sealed class ClipItem : INotifyPropertyChanged
     }
 
     public string Path { get; }
-    public string Folder { get; }
-    public string Title { get; }
+    public string Folder => Details.Game;
+    public string Title => Details.Title ?? System.IO.Path.GetFileNameWithoutExtension(File.Name);
+    public bool IsFavorite => Details.IsFavorite;
+    public string TagText => string.Join("  ·  ", Details.Tags);
     public DateTime Created { get; }
     public long Size { get; }
     public double? Duration { get; }
     internal FileInfo File { get; }
-    internal ClipDetails Details { get; }
+    internal ClipDetails Details { get; private set; }
     internal ClipHeader Header { get; }
     internal bool ThumbnailRequested { get; set; }
 
     public string DurationText => Duration is double d ? Fmt.Time(d, millis: false) : "";
     public string SizeText => Fmt.Size(Size);
+
+    internal void ApplyDetails(ClipDetails details)
+    {
+        Details = details;
+        OnChanged(nameof(Folder));
+        OnChanged(nameof(Title));
+        OnChanged(nameof(IsFavorite));
+        OnChanged(nameof(TagText));
+    }
 
     public string Ago
     {

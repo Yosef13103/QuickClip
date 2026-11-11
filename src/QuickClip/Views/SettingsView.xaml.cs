@@ -13,7 +13,7 @@ namespace QuickClip.Views;
 
 public partial class SettingsView : UserControl
 {
-    private sealed record Choice(string Label, object Value)
+    private sealed record Choice(string Label, object Value, string Group = "", bool Enabled = true)
     {
         public override string ToString() => Label;
     }
@@ -167,23 +167,27 @@ public partial class SettingsView : UserControl
 
             _encoders = await VideoEncoders.GetAvailableAsync();
             var auto = RecordingPresets.DefaultEncoder(_encoders);
-            var encoders = new List<Choice> { new(auto != null ? $"Automatic — {auto.Label}" : "Automatic (no GPU encoder found)", "") };
+            var encoders = new List<Choice> { new(auto != null ? $"Automatic — {auto.Label}" : "Automatic (no GPU encoder found)", "", "Automatic") };
             encoders.AddRange(RecordingPresets.RecordingEncoderOrder.Where(_encoders.Contains)
-                .Select(id => new Choice(VideoEncoders.Find(id)?.Label ?? id, id)));
-            EncoderCombo.ItemsSource = encoders;
+                .Select(id => new Choice(VideoEncoders.Find(id)?.Label ?? id, id, id.EndsWith("_mf", StringComparison.Ordinal) ? "Windows compatibility" : "Direct hardware encoders")));
+            if (s.RecordEncoder.Length > 0 && !encoders.Any(choice => Equals(choice.Value, s.RecordEncoder)))
+                encoders.Add(new Choice($"{VideoEncoders.Find(s.RecordEncoder)?.Label ?? s.RecordEncoder} (saved, unavailable)", s.RecordEncoder, "Unavailable", false));
+            var encoderGroups = new System.Windows.Data.ListCollectionView(encoders);
+            encoderGroups.GroupDescriptions.Add(new System.Windows.Data.PropertyGroupDescription(nameof(Choice.Group)));
+            EncoderCombo.ItemsSource = encoderGroups;
             Select(EncoderCombo, s.RecordEncoder);
-            BackendCombo.ItemsSource = new Choice[] { new("Automatic", CaptureEngine.MonitorBackend.Automatic), new("Desktop Duplication (borderless monitor)", CaptureEngine.MonitorBackend.DesktopDuplication), new("Windows Graphics Capture", CaptureEngine.MonitorBackend.GraphicsCapture) };
+            BackendCombo.ItemsSource = new Choice[] { new("Automatic", CaptureEngine.MonitorBackend.Automatic), new("Desktop Duplication (DXGI)", CaptureEngine.MonitorBackend.DesktopDuplication), new("Windows Graphics Capture (WGC)", CaptureEngine.MonitorBackend.GraphicsCapture) };
             Select(BackendCombo, s.CaptureBackend);
             NvencPresetCombo.ItemsSource = new Choice[]
             {
-                new(AppProfile.IsPersonal ? "P2 / HQ — lower encoder work (Personal default)" : "P2 / HQ — lower encoder work", CaptureEngine.NvencSpeed.FastestP2),
-                new("P3 / HQ — intermediate preset", CaptureEngine.NvencSpeed.FasterP3),
-                new(AppProfile.IsPersonal ? "P4 / HQ — more compression work" : "P4 / HQ — balanced (default)", CaptureEngine.NvencSpeed.BalancedP4),
+                new(AppProfile.IsPersonal ? "Performance — NVENC P2/HQ (default)" : "Performance — NVENC P2/HQ", CaptureEngine.NvencSpeed.FastestP2),
+                new("Balanced — NVENC P3/HQ", CaptureEngine.NvencSpeed.FasterP3),
+                new(AppProfile.IsPersonal ? "Quality — NVENC P4/HQ" : "Quality — NVENC P4/HQ (default)", CaptureEngine.NvencSpeed.BalancedP4),
             };
             Select(NvencPresetCombo, s.NvencPreset);
             DiagnosticsCheck.IsChecked = s.RecordingDiagnostics;
             CursorCheck.IsChecked = s.CaptureCursor;
-            GameWindowCheck.IsChecked = s.PreferGameWindow;
+            SourceCombo.SelectedIndex = s.PreferGameWindow ? 0 : 1;
             ShowGameWindowState();
 
             SplitChatCheck.IsChecked = s.SplitChatAudio;
@@ -254,7 +258,7 @@ public partial class SettingsView : UserControl
 
 #if DEBUG
     internal void SelectAspectForRender(string aspect) => Select(AreaCombo, aspect);
-    internal void SetGameWindowForRender(bool on) => GameWindowCheck.IsChecked = on;
+    internal void SetGameWindowForRender(bool on) => SourceCombo.SelectedIndex = on ? 0 : 1;
 
     /// <summary>Adds a second microphone row and scrolls to the microphones.</summary>
     internal void AddMicForRender()
@@ -298,12 +302,14 @@ public partial class SettingsView : UserControl
     /// <summary>A game recorded by its window is taken as it is, so the aspect ratio is then only for the desktop.</summary>
     private void ShowGameWindowState()
     {
-        bool gameWindow = GameWindowCheck.IsChecked == true;
+        bool gameWindow = SourceCombo.SelectedIndex == 0;
         AreaLabel.Text = gameWindow ? "Desktop aspect ratio" : "Aspect ratio";
         AreaHint.Visibility = gameWindow ? Visibility.Visible : Visibility.Collapsed;
+        var selected = (EncoderCombo.SelectedItem as Choice)?.Value as string;
+        NvencPresetCombo.IsEnabled = (string.IsNullOrEmpty(selected) ? RecordingPresets.DefaultEncoder(_encoders)?.Id : selected)?.EndsWith("_nvenc", StringComparison.Ordinal) == true;
         CaptureTargetHint.Text = gameWindow
-            ? "Automatic target: prefer a detected game window via Windows Graphics Capture, then fall back to the selected monitor. The monitor backend choice does not override game targeting. Windows 10 may show a yellow border."
-            : "Monitor target: record the selected monitor, including windows covering the game. The monitor backend choice applies here. Desktop Duplication avoids the WGC monitor border; Auto prefers it through 60 fps and WGC above 60 fps.";
+            ? "Automatic captures a detected game window even when another window covers it. It records the selected monitor when game capture is unavailable. On Windows 10, WGC can display a yellow border. Strict game-only capture requires a future no-monitor fallback policy."
+            : "Records everything visible on the selected display, including windows covering a game. The advanced monitor backend applies to this source.";
     }
 
     // ---- microphones ---------------------------------------------------------------------------
@@ -399,12 +405,12 @@ public partial class SettingsView : UserControl
         if (QualityCombo.SelectedItem is Choice { Value: RecordingQuality q }) s.RecordQuality = q;
         if (FpsCombo.SelectedItem is Choice { Value: int fps }) s.RecordFps = fps;
         if (ResolutionCombo.SelectedItem is Choice { Value: int res }) s.RecordResolution = res;
-        s.RecordEncoder = (EncoderCombo.SelectedItem as Choice)?.Value as string ?? "";
+        if (sender == EncoderCombo && EncoderCombo.SelectedItem is Choice { Enabled: true, Value: string encoder }) s.RecordEncoder = encoder;
         if (BackendCombo.SelectedItem is Choice { Value: CaptureEngine.MonitorBackend backend }) s.CaptureBackend = backend;
         if (NvencPresetCombo.SelectedItem is Choice { Value: CaptureEngine.NvencSpeed preset }) s.NvencPreset = preset;
         s.RecordingDiagnostics = DiagnosticsCheck.IsChecked == true;
         s.CaptureCursor = CursorCheck.IsChecked == true;
-        s.PreferGameWindow = GameWindowCheck.IsChecked == true;
+        s.PreferGameWindow = SourceCombo.SelectedIndex == 0;
         ShowGameWindowState();
         s.SplitChatAudio = SplitChatCheck.IsChecked == true;
         s.SplitMusicAudio = SplitMusicCheck.IsChecked == true;

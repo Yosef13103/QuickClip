@@ -68,7 +68,7 @@ public partial class EditorView : UserControl
     private bool _closed;
     /// <summary>The frame rate choice "Smooth 60 fps": 60 fps with the extra frames blended into motion blur.</summary>
     private const double SmoothFps = -60;
-    private (string Clip, DateTime RecycledUtc)? _undo; // the open clip was just saved over; its original is in the Recycle Bin
+    private (string Clip, DateTime RecycledUtc, ClipDetails OriginalDetails)? _undo;
     private bool _settingMerge;
     private int _timePosQueued;
     private double _mpvTimePos;
@@ -76,13 +76,28 @@ public partial class EditorView : UserControl
     /// <summary>File name of the open clip (for the window title), or null.</summary>
     public string? FileTitle { get; private set; }
     public event Action? TitleChanged;
+    public event Action? BackRequested;
+    internal event Action<string, ClipDetails>? ClipDetailsSaved;
     public string? CurrentFile => _media?.Path;
+    private bool _viewMode, _cinemaMode, _updatingViewSeek;
+    private bool _deletingMedia;
+    private string? _openedDraft;
 
     private Window OwnerWindow => Window.GetWindow(this) ?? Application.Current.MainWindow;
 
     /// <summary>Opens a file now, or as soon as the player is ready.</summary>
     public async Task OpenAsync(string path)
     {
+        if (string.Equals(CurrentFile, Path.GetFullPath(path), StringComparison.OrdinalIgnoreCase))
+        {
+            if (AppProfile.IsPersonal && !MetadataEditor.HasDraft && File.Exists(path))
+            {
+                var details = CurrentClipDetails();
+                MetadataEditor.Open(path, details);
+                ShowClipTitle(details);
+            }
+            return;
+        }
         if (!_uiReady)
         {
             _pendingFile = path;
@@ -94,9 +109,116 @@ public partial class EditorView : UserControl
     /// <summary>Gives keyboard focus to the editor so its shortcuts work.</summary>
     public void FocusEditor() => Root.Focus();
 
+    private void Back_Click(object sender, RoutedEventArgs e) => BackRequested?.Invoke();
+
+    private async void DeleteMedia_Click(object sender, RoutedEventArgs e)
+    {
+        if (_deletingMedia || _loading || _exportCts != null || _media is not { } media) return;
+        _deletingMedia = true;
+        try
+        {
+            var result = await ClipDeletion.Current.DeleteAsync([media.Path],
+                paths => ClipDeleteDialog.Confirm(OwnerWindow, paths), () => _player?.Command("stop"));
+            if (result.Cancelled) return;
+            if (result.Deleted == 0)
+            {
+                ReloadPreview();
+                MessageBox.Show(OwnerWindow, "This clip could not be moved to the Recycle Bin.", "Delete clip",
+                    MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
+            _waveCts?.Cancel();
+            _keyframeCts?.Cancel();
+            _soundCts?.Cancel();
+            _soundPreviewTimer.Stop();
+            _stalePreviews.AddRange(_tracks.Select(t => t.PreviewFile).OfType<string>());
+            DeleteStalePreviews();
+            _tracks.Clear();
+            _media = null;
+            _openedDraft = null;
+            _undo = null;
+            _lastExport = null;
+            RevealButton.Visibility = UndoButton.Visibility = Visibility.Collapsed;
+            StatusText.Text = "";
+            FileTitle = null;
+            FileNameText.Text = "No file open";
+            FileInfoText.Text = "";
+            MetadataGroup.Visibility = Visibility.Collapsed;
+            Timeline.HasMedia = false;
+            Timeline.SetBookmarks([]);
+            _timeline.Reset(0);
+            UpdateViewSeek();
+            TitleChanged?.Invoke();
+            UpdateUiState();
+            BackRequested?.Invoke();
+        }
+        finally
+        {
+            _deletingMedia = false;
+            DeleteMediaButton.IsEnabled = _media != null && _exportCts == null;
+        }
+    }
+
+    private void ToggleMode_Click(object sender, RoutedEventArgs e)
+    {
+        _viewMode = !_cinemaMode && !_viewMode;
+        _cinemaMode = false;
+        ApplyMode();
+    }
+
+    private void ToggleCinema_Click(object sender, RoutedEventArgs e)
+    {
+        _cinemaMode = !_cinemaMode;
+        ApplyMode();
+    }
+
+    private void ApplyMode()
+    {
+        bool editing = !_viewMode && !_cinemaMode;
+        Inspector.Visibility = TracksArea.Visibility = EditControls.Visibility = editing ? Visibility.Visible : Visibility.Collapsed;
+        ViewSeek.Visibility = _viewMode && !_cinemaMode ? Visibility.Visible : Visibility.Collapsed;
+        Transport.Visibility = ModeButton.Visibility = _cinemaMode ? Visibility.Collapsed : Visibility.Visible;
+        InspectorGap.Width = new GridLength(editing ? 12 : 0);
+        InspectorColumn.Width = new GridLength(editing ? 330 : 0);
+        ModeButton.Content = _viewMode ? "Edit mode" : "View mode";
+        CinemaButton.Content = _cinemaMode ? "Exit cinema" : "Cinema";
+        UpdateViewSeek();
+        Root.Focus();
+    }
+
+    private void UpdateViewSeek()
+    {
+        if (!_viewMode) return;
+        _updatingViewSeek = true;
+        ViewSeek.IsEnabled = _media != null;
+        ViewSeek.Maximum = Math.Max(0, _timeline.Duration);
+        ViewSeek.Value = _timeline.Position;
+        _updatingViewSeek = false;
+    }
+
+    private void ViewSeek_Changed(object sender, RoutedPropertyChangedEventArgs<double> e)
+    {
+        if (_viewMode && !_updatingViewSeek && _media != null) Seek(e.NewValue);
+    }
+
     public EditorView()
     {
         InitializeComponent();
+        MetadataEditor.Saved += (path, details) =>
+        {
+            ShowClipTitle(details);
+            ClipDetailsSaved?.Invoke(path, details);
+        };
+        MetadataEditor.BookmarkPosition = () => (_timeline.Position, _timeline.Duration);
+        MetadataEditor.SeekBookmark = seconds => OnSeekRequested(seconds, true);
+        MetadataEditor.BookmarksChanged += Timeline.SetBookmarks;
+        Timeline.BookmarkActivated += mark =>
+        {
+            OnSeekRequested(mark.Seconds, true);
+            MetadataGroup.IsExpanded = true;
+            MetadataEditor.QueueBookmarkFocus(mark.Seconds);
+        };
+        BookmarkButton.Visibility = AppProfile.IsPersonal ? Visibility.Visible : Visibility.Collapsed;
 
         TrackList.ItemsSource = _tracks;
         Timeline.State = _timeline;
@@ -125,6 +247,10 @@ public partial class EditorView : UserControl
         DragOver += OnDragOver;
         DragLeave += OnDragLeave;
         Loaded += OnLoaded;
+        IsVisibleChanged += (_, _) =>
+        {
+            if (!IsVisible) _player?.SetProperty("pause", true);
+        };
 
         foreach (var combo in new[] { AspectCombo, FormatCombo, EncoderCombo, QualityCombo, ResolutionCombo, FpsCombo, AudioBitrateCombo })
             combo.DropDownClosed += ComboBox_DropDownClosed;
@@ -176,6 +302,7 @@ public partial class EditorView : UserControl
     public async Task<bool> CloseAsync()
     {
         if (_closed) return true;
+        if (_deletingMedia || _loading) return false;
         if (_exportCts != null)
         {
             var answer = MessageBox.Show(OwnerWindow, "An export is still running. Cancel it and close?", "QuickClip",
@@ -184,6 +311,7 @@ public partial class EditorView : UserControl
             _exportCts.Cancel();
         }
 
+        if (_exportCts == null && !ConfirmDiscardDraft()) return false;
         _closed = true;
         SaveSettings();
         _waveCts?.Cancel();
@@ -212,6 +340,13 @@ public partial class EditorView : UserControl
         _settings.Save();
     }
 
+    private void ShowClipTitle(ClipDetails details)
+    {
+        FileTitle = details.Title ?? Path.GetFileName(CurrentFile);
+        FileNameText.Text = FileTitle;
+        TitleChanged?.Invoke();
+    }
+
     // ------------------------------------------------------------------------------------------
     // Opening files
     // ------------------------------------------------------------------------------------------
@@ -220,6 +355,7 @@ public partial class EditorView : UserControl
 
     private bool CanOpenAnother()
     {
+        if (_deletingMedia) return false;
         if (_exportCts == null) return true;
         MessageBox.Show(OwnerWindow, "Please wait for the export to finish first.", "QuickClip", MessageBoxButton.OK, MessageBoxImage.Information);
         return false;
@@ -236,7 +372,7 @@ public partial class EditorView : UserControl
             InitialDirectory = _media != null ? Path.GetDirectoryName(_media.Path) : _settings.LastFolder,
         };
         if (dlg.ShowDialog(OwnerWindow) == true)
-            await OpenFileAsync(dlg.FileName);
+            await OpenAsync(dlg.FileName);
     }
 
     private void OnDragOver(object sender, DragEventArgs e)
@@ -289,6 +425,7 @@ public partial class EditorView : UserControl
     private async Task OpenFileAsync(string path)
     {
         if (_loading) return;
+        if (!string.Equals(CurrentFile, Path.GetFullPath(path), StringComparison.OrdinalIgnoreCase) && !ConfirmDiscardDraft()) return;
         _loading = true;
         try
         {
@@ -310,7 +447,13 @@ public partial class EditorView : UserControl
             }
 
             _waveCts?.Cancel();
+            bool differentClip = !string.Equals(_media?.Path, path, StringComparison.OrdinalIgnoreCase);
             _media = info;
+            if (differentClip && (_viewMode || _cinemaMode))
+            {
+                _viewMode = _cinemaMode = false;
+                ApplyMode();
+            }
             _settings.LastFolder = Path.GetDirectoryName(path);
             _lastExport = null;
             _undo = null;
@@ -318,11 +461,12 @@ public partial class EditorView : UserControl
             UndoButton.Visibility = Visibility.Collapsed;
             StatusText.Text = "";
 
-            FileTitle = CurrentClipDetails().Title ?? Path.GetFileName(path);
-            TitleChanged?.Invoke();
-            FileNameText.Text = FileTitle;
+            var details = CurrentClipDetails();
+            ShowClipTitle(details);
             FileNameText.ToolTip = path;
             FileInfoText.Text = info.Summary;
+            MetadataGroup.Visibility = AppProfile.IsPersonal ? Visibility.Visible : Visibility.Collapsed;
+            if (AppProfile.IsPersonal) MetadataEditor.Open(path, details);
 
             _soundCts?.Cancel();
             _soundPreviewTimer.Stop();
@@ -373,6 +517,8 @@ public partial class EditorView : UserControl
             RefreshFpsList();
             RefreshEncoderList();
             UpdateUiState();
+            _openedDraft = DraftSignature();
+            UpdateViewSeek();
             Root.Focus();
         }
         finally
@@ -820,6 +966,13 @@ public partial class EditorView : UserControl
         Seek(t);
     }
 
+    private void Bookmark_Click(object sender, RoutedEventArgs e)
+    {
+        if (_media == null || _loading) return;
+        MetadataGroup.IsExpanded = true;
+        MetadataEditor.AddBookmark(_timeline.Position, _timeline.Duration);
+    }
+
     private void TogglePlay()
     {
         if (_player == null || _media == null) return;
@@ -889,6 +1042,7 @@ public partial class EditorView : UserControl
     private void UpdateTimeText()
     {
         TimeText.Text = Fmt.Time(_timeline.Position);
+        UpdateViewSeek();
         DurationText.Text = " / " + Fmt.Time(_timeline.Duration);
     }
 
@@ -932,6 +1086,7 @@ public partial class EditorView : UserControl
 
     private void OnPreviewKeyDown(object sender, KeyEventArgs e)
     {
+        if (MetadataEditor.IsKeyboardFocusWithin) return;
         if (Keyboard.FocusedElement is TextBox)
         {
             // Enter finishes editing (the boxes commit when they lose focus); Escape is left to each box.
@@ -947,6 +1102,13 @@ public partial class EditorView : UserControl
         bool handled = true;
         switch (e.Key)
         {
+            case Key.F11 when shift && !e.IsRepeat: ToggleCinema_Click(this, e); break;
+            case Key.F11 when !e.IsRepeat: ToggleMode_Click(this, e); break;
+            case Key.Escape when _cinemaMode: ToggleCinema_Click(this, e); break;
+            case Key.Escape when _viewMode: ToggleMode_Click(this, e); break;
+            case Key.Delete when mods == ModifierKeys.None && ReferenceEquals(Keyboard.FocusedElement, Root):
+                if (!e.IsRepeat) DeleteMedia_Click(this, e);
+                break;
             case Key.O when ctrl: _ = PromptOpenAsync(); break;
             case Key.E when ctrl: ExportNew_Click(this, e); break;
             case Key.S when ctrl: SaveOver_Click(this, e); break;
@@ -1275,6 +1437,9 @@ public partial class EditorView : UserControl
         CropPanel.IsEnabled = _crop.Enabled && !busy;
         ExportButton.IsEnabled = _media != null && !busy;
         SaveOverButton.IsEnabled = _media != null && !busy;
+        DeleteMediaButton.IsEnabled = _media != null && !busy && !_deletingMedia;
+        BookmarkButton.IsEnabled = _media != null && !busy;
+        MetadataEditor.IsEnabled = !busy;
         MergeCheck.IsEnabled = _tracks.Count > 1;
         MergeCheck.Visibility = container.IsGif ? Visibility.Collapsed : Visibility.Visible;
         AddSoundButton.IsEnabled = _media != null;
@@ -1373,12 +1538,19 @@ public partial class EditorView : UserControl
     // Export
     // ------------------------------------------------------------------------------------------
 
-    private ExportRequest BuildRequest(string outputPath, Container container)
+    private string DraftSignature() => System.Text.Json.JsonSerializer.Serialize(CreateDraft("", CurrentContainer(forOverwrite: false)));
+
+    private bool ConfirmDiscardDraft() => _media == null || _openedDraft == null ||
+        (!MetadataEditor.HasDraft && _openedDraft == DraftSignature()) ||
+        MessageBox.Show(OwnerWindow, "Discard the current clip’s unsaved edit settings?", "Unsaved edits",
+            MessageBoxButton.YesNo, MessageBoxImage.Question, MessageBoxResult.No) == MessageBoxResult.Yes;
+
+    private ExportRequest CreateDraft(string outputPath, Container container)
     {
         double.TryParse(TargetSizeBox.Text, NumberStyles.Float, CultureInfo.CurrentCulture, out var mb);
         double fps = (FpsCombo.SelectedItem as Choice)?.Value is double f ? f : 0;
         string chosenEncoder = (EncoderCombo.SelectedItem as Choice)?.Value as string ?? "";
-        var request = new ExportRequest
+        return new ExportRequest
         {
             Media = _media!,
             OutputPath = outputPath,
@@ -1403,6 +1575,12 @@ public partial class EditorView : UserControl
             MotionBlur = fps == SmoothFps,
             AudioBitrateK = (AudioBitrateCombo.SelectedItem as Choice)?.Value is int b ? b : 192,
         };
+    }
+
+    private ExportRequest BuildRequest(string outputPath, Container container)
+    {
+        var request = CreateDraft(outputPath, container);
+        string chosenEncoder = request.EncoderId;
 
         // Copied as it is whenever that gives what's asked for; re-encoded (to the original's codec unless another
         // encoder was picked) when something needs it.
@@ -1418,7 +1596,8 @@ public partial class EditorView : UserControl
 
     private async void ExportNew_Click(object sender, RoutedEventArgs e)
     {
-        if (_media == null || _exportCts != null) return;
+        if (_media == null || _exportCts != null || _deletingMedia) return;
+        if (!EnsureSavedDetails()) return;
         var container = CurrentContainer(forOverwrite: false);
         string dir = Path.GetDirectoryName(_media.Path)!;
         var details = CurrentClipDetails();
@@ -1462,9 +1641,20 @@ public partial class EditorView : UserControl
         return ClipDetailsStore.Read(file, ClipLibrary.InitialGame(_settings.ClipsFolder, file.FullName), _media.EmbeddedCreationTime);
     }
 
+    private bool EnsureSavedDetails()
+    {
+        if (!MetadataEditor.HasDraft) return true;
+        _viewMode = _cinemaMode = false;
+        ApplyMode();
+        MetadataGroup.IsExpanded = true;
+        MetadataEditor.ShowSaveReminder();
+        return false;
+    }
+
     private async void SaveOver_Click(object sender, RoutedEventArgs e)
     {
-        if (_media == null || _exportCts != null) return;
+        if (_media == null || _exportCts != null || _deletingMedia) return;
+        if (!EnsureSavedDetails()) return;
         var container = CurrentContainer(forOverwrite: true);
         string fileName = Path.GetFileName(_media.Path);
         int tracks = _tracks.Count(t => t.Include);
@@ -1532,19 +1722,20 @@ public partial class EditorView : UserControl
         try
         {
             await ExportRunner.RunAsync(args, request.OutputPath, request.Duration, progress, cts.Token);
+            var exportedDetails = details.ForExport(request.Start, request.End);
             string final = outputPath;
             if (overwrite)
             {
                 StatusText.Text = "Replacing the original…";
                 DateTime? recycled;
-                (final, recycled) = await ReplaceOriginalAsync(outputPath, details);
-                if (recycled is { } when) _undo = (final, when);
+                (final, recycled) = await ReplaceOriginalAsync(outputPath, exportedDetails);
+                if (recycled is { } when) _undo = (final, when, details);
             }
             else
             {
                 cts.Token.ThrowIfCancellationRequested();
                 File.Move(staging!, final);
-                if (AppProfile.IsPersonal) ClipDetailsStore.TryWrite(final, details);
+                if (AppProfile.IsPersonal) ClipDetailsStore.TryWrite(final, exportedDetails);
             }
             _lastExport = final;
             RevealButton.Visibility = Visibility.Visible;
@@ -1644,7 +1835,6 @@ public partial class EditorView : UserControl
         StatusText.Text = "Putting the original back…";
         try
         {
-            var details = CurrentClipDetails();
             var original = RecycleBin.FindLatest(clip, undo.RecycledUtc)
                 ?? throw new IOException("The original isn't in the Recycle Bin any more.");
             await ReleaseFileAsync();
@@ -1655,7 +1845,7 @@ public partial class EditorView : UserControl
                 throw new IOException("The edited clip couldn't be moved to the Recycle Bin.");
             await RetryAsync(() => { File.Move(parked, clip); return true; });
             parked = null;
-            if (AppProfile.IsPersonal) ClipDetailsStore.TryWrite(clip, details);
+            if (AppProfile.IsPersonal) ClipDetailsStore.TryWrite(clip, undo.OriginalDetails);
             Log.Write($"Undid the edit of {clip}: the original is back, the edited version is in the Recycle Bin");
             await OpenFileAsync(clip);
             StatusText.Text = "The clip is back as it was before the edit. The edited version is in the Recycle Bin.";
@@ -1669,6 +1859,7 @@ public partial class EditorView : UserControl
                 // Keep the original where it can be found rather than back in the bin.
                 string keep = UniquePath(dir, name + " (before edit)", ext);
                 try { File.Move(parked, keep); parked = keep; } catch { }
+                if (AppProfile.IsPersonal) ClipDetailsStore.TryWrite(parked, undo.OriginalDetails);
                 message += $"\n\nThe original is saved as \"{Path.GetFileName(parked)}\" next to the clip.";
             }
             StatusText.Text = "Undo failed.";
@@ -1719,6 +1910,37 @@ public partial class EditorView : UserControl
     }
 
 #if DEBUG
+    internal void ToggleModeForRender() => ToggleMode_Click(this, new RoutedEventArgs());
+    internal void ToggleCinemaForRender() => ToggleCinema_Click(this, new RoutedEventArgs());
+    internal double PositionForRender => _timeline.Position;
+    internal double TrimEndForRender => _timeline.Out;
+    internal void SetTrimForRender(double end) => _timeline.SetOut(end);
+    internal bool ViewingForRender => _viewMode;
+    internal bool CinemaForRender => _cinemaMode && Transport.Visibility == Visibility.Collapsed;
+
+    internal async Task<string> MeasureAccordionForRenderAsync()
+    {
+        double OutputY() => OutputExpander.TranslatePoint(new Point(), Inspector).Y;
+        UpdateLayout();
+        double closed = OutputY();
+        EncodingExpander.IsExpanded = true;
+        var samples = new List<double>();
+        for (int i = 0; i < 12; i++)
+        {
+            await Task.Delay(20);
+            UpdateLayout();
+            samples.Add(OutputY());
+        }
+        double opened = samples[^1];
+        EncodingExpander.IsExpanded = false;
+        await Task.Delay(220);
+        UpdateLayout();
+        int intermediate = samples.Count(y => y > closed + 1 && y < opened - 1);
+        if (opened <= closed || Math.Abs(OutputY() - closed) > 1)
+            throw new InvalidOperationException("The accordion did not move Output and restore its layout.");
+        return $"accordion Output Y {closed:0.0} -> {opened:0.0} -> {OutputY():0.0}, intermediate samples={intermediate}, system motion={SystemParameters.ClientAreaAnimation}";
+    }
+
     internal string DebugState
     {
         get

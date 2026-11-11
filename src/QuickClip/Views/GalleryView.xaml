@@ -8,19 +8,33 @@
             <ResourceDictionary.MergedDictionaries>
                 <ResourceDictionary Source="/QuickClip;component/Themes/Styles.xaml" />
             </ResourceDictionary.MergedDictionaries>
+            <BooleanToVisibilityConverter x:Key="ShowIf" />
 
             <DataTemplate x:Key="ClipCard" DataType="{x:Type gallery:ClipItem}">
-                <Border x:Name="Card" Width="264" Margin="0,0,14,16" CornerRadius="8" Background="{StaticResource CardBrush}"
-                        BorderThickness="1" BorderBrush="Transparent" Cursor="Hand" ToolTip="{Binding Title}"
+                <Border x:Name="Card" Width="{Binding CardWidth, RelativeSource={RelativeSource AncestorType=views:GalleryView}}"
+                        Margin="0,0,14,16" CornerRadius="8" Background="{StaticResource CardBrush}"
+                        Focusable="True" AutomationProperties.Name="{Binding Title}" KeyDown="Card_KeyDown"
+                        BorderThickness="1" BorderBrush="Transparent" Cursor="Hand"
+                        ToolTipService.InitialShowDelay="750" ToolTipService.BetweenShowDelay="0" ToolTipService.ShowDuration="3500"
+                        ToolTipService.IsEnabled="{Binding HoverPosters, RelativeSource={RelativeSource AncestorType=views:GalleryView}}"
                         MouseLeftButtonUp="Card_MouseLeftButtonUp" Loaded="Card_Loaded" DataContextChanged="Card_DataContextChanged"
                         PreviewMouseLeftButtonDown="Card_PreviewMouseLeftButtonDown" MouseMove="Card_MouseMove">
+                    <Border.ToolTip>
+                        <ToolTip DataContext="{Binding PlacementTarget.DataContext, RelativeSource={RelativeSource Self}}">
+                            <StackPanel MinWidth="360" MaxWidth="640"
+                                        Width="{Binding PlacementTarget.ActualWidth, RelativeSource={RelativeSource AncestorType=ToolTip}}">
+                                <Image Source="{Binding Thumbnail}" Stretch="Uniform" MaxHeight="360" />
+                                <TextBlock Text="{Binding Title}" TextWrapping="Wrap" />
+                                <TextBlock Text="{Binding Folder}" />
+                            </StackPanel>
+                        </ToolTip>
+                    </Border.ToolTip>
                     <Border.ContextMenu>
-                        <ContextMenu Opened="ClipMenu_Opened">
-                            <MenuItem Header="Play" Click="PlayClip_Click" FontWeight="SemiBold" />
+                        <ContextMenu Opened="ClipMenu_Opened" DataContext="{Binding PlacementTarget.DataContext, RelativeSource={RelativeSource Self}}">
+                            <MenuItem Header="Watch and edit" Click="OpenClip_Click" FontWeight="SemiBold" />
                             <MenuItem Header="Share (copy to clipboard)" Click="ShareClip_Click" ToolTip="Share: makes a copy under the size limit in Settings (at most 60 fps, all audio mixed into one track) and copies it to the clipboard to paste anywhere. The original stays as it is." />
-                            <MenuItem Header="Open in editor" Click="OpenClip_Click" />
-                            <MenuItem Header="Set custom title…" Click="EditClipDetails_Click" Tag="title" />
-                            <MenuItem Header="Change game classification…" Click="EditClipDetails_Click" Tag="game" />
+                            <MenuItem Header="Open classic player" Click="PlayClip_Click" />
+                            <MenuItem Header="Edit title, game or tags…" Click="EditClipDetails_Click" Tag="details" />
                             <Separator />
                             <!-- Filled in when the menu opens: every project, then New project -->
                             <MenuItem Header="Add to project" Tag="projects">
@@ -37,7 +51,7 @@
                         </ContextMenu>
                     </Border.ContextMenu>
                     <StackPanel>
-                        <Grid Height="148">
+                        <Grid Height="{Binding PosterHeight, RelativeSource={RelativeSource AncestorType=views:GalleryView}}">
                             <Border CornerRadius="7,7,0,0" Background="#111" />
                             <Border CornerRadius="7,7,0,0">
                                 <Border.Background>
@@ -61,14 +75,38 @@
                                 <CheckBox IsChecked="{Binding IsSelected}" MinHeight="0" ToolTip="Select (Ctrl+click a clip also selects it)" />
                             </Border>
                         </Grid>
-                        <StackPanel Margin="11,8,11,10">
-                            <Button Content="Delete…" Style="{StaticResource TextButton}" HorizontalAlignment="Right" Focusable="False"
-                                    Click="DeleteClip_Click" ToolTip="Send this clip (or the selected clips) to the Recycle Bin" />
-                            <TextBlock Text="{Binding Folder}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
-                            <TextBlock Margin="0,2,0,0" FontSize="12" Foreground="{StaticResource SubtleText}">
-                                <Run Text="{Binding Ago, Mode=OneWay}" /><Run Text="  ·  " /><Run Text="{Binding SizeText, Mode=OneWay}" />
-                            </TextBlock>
-                        </StackPanel>
+                        <DockPanel Margin="11,8,11,10">
+                            <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Top" Margin="8,0,0,0">
+                                <Button Content="Delete…" Style="{StaticResource TextButton}" Focusable="False" Click="DeleteClip_Click"
+                                        ToolTip="Send this clip (or the selected clips) to the Recycle Bin" />
+                                <Button Content="⋮" Style="{StaticResource TextButton}" Padding="10,5" FontSize="18"
+                                        Tag="{Binding ElementName=Card}" Click="ClipOverflow_Click"
+                                        AutomationProperties.Name="Clip actions" ToolTip="Clip actions" />
+                            </StackPanel>
+                            <StackPanel>
+                                <DockPanel>
+                                    <TextBlock DockPanel.Dock="Left" Text="★" AutomationProperties.Name="Favorite" Foreground="#FFB900"
+                                               Margin="0,0,6,0" Visibility="{Binding IsFavorite, Converter={StaticResource ShowIf}}" />
+                                    <TextBlock Text="{Binding Title}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
+                                </DockPanel>
+                                <TextBlock Text="{Binding Folder}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
+                                <TextBlock Text="{Binding TagText}" ToolTip="{Binding TagText}" FontSize="12"
+                                           Foreground="{StaticResource SubtleText}" TextTrimming="CharacterEllipsis">
+                                    <TextBlock.Style>
+                                        <Style TargetType="TextBlock">
+                                            <Style.Triggers>
+                                                <DataTrigger Binding="{Binding TagText}" Value="">
+                                                    <Setter Property="Visibility" Value="Collapsed" />
+                                                </DataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </TextBlock.Style>
+                                </TextBlock>
+                                <TextBlock Margin="0,2,0,0" FontSize="12" Foreground="{StaticResource SubtleText}">
+                                    <Run Text="{Binding Ago, Mode=OneWay}" /><Run Text="  ·  " /><Run Text="{Binding SizeText, Mode=OneWay}" />
+                                </TextBlock>
+                            </StackPanel>
+                        </DockPanel>
                     </StackPanel>
                 </Border>
                 <DataTemplate.Triggers>
@@ -207,6 +245,24 @@
                     </DockPanel>
                 </Border>
                 <TextBlock x:Name="StatusText" DockPanel.Dock="Top" Style="{StaticResource Hint}" Margin="0,-4,14,12" Visibility="Collapsed" />
+                <WrapPanel DockPanel.Dock="Top" Margin="0,0,0,10">
+                    <StackPanel x:Name="OrganizationFilters" Orientation="Horizontal" Margin="0,0,16,0">
+                        <TextBlock Text="Filter by tag" VerticalAlignment="Center" Margin="0,0,8,0" />
+                        <TextBox x:Name="TagSearchBox" MinWidth="128" MaxLength="32" TextChanged="OrganizationFilter_Changed"
+                                 AutomationProperties.Name="Filter by tag" />
+                        <CheckBox x:Name="FavoritesFilter" Content="Favorites only" VerticalAlignment="Center" Margin="10,0,0,0"
+                                  Checked="OrganizationFilter_Changed" Unchecked="OrganizationFilter_Changed" />
+                    </StackPanel>
+                    <CheckBox Content="Show poster previews on hover" VerticalAlignment="Center"
+                              IsChecked="{Binding HoverPosters, RelativeSource={RelativeSource AncestorType=views:GalleryView}}"
+                              ToolTip="Shows the full cached image without starting video playback." />
+                </WrapPanel>
+                <Border x:Name="InlineDetails" DockPanel.Dock="Top" Visibility="Collapsed"
+                        Background="{StaticResource PanelBrush}" Padding="14,4" Margin="0,0,14,12">
+                    <ScrollViewer MaxHeight="320" VerticalScrollBarVisibility="Auto">
+                        <views:ClipDetailsEditor x:Name="GalleryDetailsEditor" />
+                    </ScrollViewer>
+                </Border>
 
                 <Grid x:Name="ClipArea" SizeChanged="ClipArea_SizeChanged">
                     <ItemsControl x:Name="Rows" VirtualizingPanel.IsVirtualizing="True" VirtualizingPanel.VirtualizationMode="Recycling"

@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Windows;
 using System.Windows.Input;
 using System.Windows.Media;
+using QuickClip.Gallery;
 
 namespace QuickClip.Controls;
 
@@ -17,6 +18,8 @@ public sealed class TimelineBar : FrameworkElement
     private static readonly Brush LabelBrush = Freeze(new SolidColorBrush(Color.FromRgb(0xA8, 0xA8, 0xA8)));
     private static readonly Pen TickPen = Freeze(new Pen(TickBrush, 1));
     private static readonly Pen PlayheadPen = Freeze(new Pen(PlayheadBrush, 1.5));
+    private static readonly Brush BookmarkBrush = Freeze(new SolidColorBrush(Color.FromRgb(0x80, 0xCC, 0xFF)));
+    private const double BookmarkHeight = 11;
     private static readonly Typeface LabelFace = new("Segoe UI");
 
     private static readonly double[] TickSteps =
@@ -27,6 +30,15 @@ public sealed class TimelineBar : FrameworkElement
     private TimelineState? _state;
 
     public event Action<double, bool>? SeekRequested; // time, final (mouse released)
+    internal event Action<ClipBookmark>? BookmarkActivated;
+    private IReadOnlyList<ClipBookmark> _bookmarks = [];
+
+    internal void SetBookmarks(IReadOnlyList<ClipBookmark> bookmarks)
+    {
+        _bookmarks = bookmarks;
+        ToolTip = null;
+        InvalidateVisual();
+    }
 
     public TimelineState? State
     {
@@ -100,6 +112,13 @@ public sealed class TimelineBar : FrameworkElement
             tri.Freeze();
             dc.DrawGeometry(PlayheadBrush, null, tri);
         }
+
+        foreach (var mark in _bookmarks)
+        {
+            if (mark.Seconds >= s.Duration || mark.Seconds < s.ViewStart || mark.Seconds > s.ViewEnd) continue;
+            double x = BookmarkX(s, mark, w);
+            dc.DrawRoundedRectangle(BookmarkBrush, null, new Rect(x - 4, 0, 8, BookmarkHeight), 2, 2);
+        }
     }
 
     private static void DrawHandle(DrawingContext dc, double x, double h, bool isIn)
@@ -125,7 +144,14 @@ public sealed class TimelineBar : FrameworkElement
         var s = _state;
         if (s == null || !HasMedia) return;
         double w = ActualWidth;
-        double x = e.GetPosition(this).X;
+        var position = e.GetPosition(this);
+        if (BookmarkAt(s, position) is { } bookmark)
+        {
+            BookmarkActivated?.Invoke(bookmark);
+            e.Handled = true;
+            return;
+        }
+        double x = position.X;
         double xi = s.TimeToX(s.In, w), xo = s.TimeToX(s.Out, w);
         const double grab = 7;
 
@@ -145,11 +171,14 @@ public sealed class TimelineBar : FrameworkElement
         var s = _state;
         if (s == null || !HasMedia) return;
         double w = ActualWidth;
-        double x = e.GetPosition(this).X;
+        var position = e.GetPosition(this);
+        double x = position.X;
         if (_drag == Drag.None)
         {
+            var mark = BookmarkAt(s, position);
+            if (!Equals(ToolTip, mark?.Label)) ToolTip = mark?.Label;
             double xi = s.TimeToX(s.In, w), xo = s.TimeToX(s.Out, w);
-            Cursor = Math.Abs(x - xi) <= 7 || Math.Abs(x - xo) <= 7 ? Cursors.SizeWE : Cursors.Hand;
+            Cursor = mark == null && (Math.Abs(x - xi) <= 7 || Math.Abs(x - xo) <= 7) ? Cursors.SizeWE : Cursors.Hand;
             return;
         }
         double t = s.XToTime(x, w);
@@ -159,6 +188,29 @@ public sealed class TimelineBar : FrameworkElement
             case Drag.In: s.DragIn(t); SeekRequested?.Invoke(s.In, false); break;
             case Drag.Out: s.DragOut(t); SeekRequested?.Invoke(s.Out, false); break;
         }
+    }
+
+    private ClipBookmark? BookmarkAt(TimelineState state, Point position)
+    {
+        if (position.Y > BookmarkHeight || ActualWidth <= 0) return null;
+        ClipBookmark? nearest = null;
+        double distance = 6;
+        foreach (var mark in _bookmarks)
+        {
+            if (mark.Seconds >= state.Duration || mark.Seconds < state.ViewStart || mark.Seconds > state.ViewEnd) continue;
+            double x = BookmarkX(state, mark, ActualWidth);
+            double delta = Math.Abs(x - position.X);
+            if (delta > distance) continue;
+            distance = delta;
+            nearest = mark;
+        }
+        return nearest;
+    }
+
+    private static double BookmarkX(TimelineState state, ClipBookmark mark, double width)
+    {
+        double inset = Math.Min(4, width / 2);
+        return Math.Clamp(state.TimeToX(mark.Seconds, width), inset, width - inset);
     }
 
     protected override void OnMouseLeftButtonUp(MouseButtonEventArgs e)

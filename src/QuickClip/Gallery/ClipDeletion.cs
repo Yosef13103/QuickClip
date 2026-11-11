@@ -1,4 +1,3 @@
-using System.Windows;
 using QuickClip.Shell;
 
 namespace QuickClip.Gallery;
@@ -18,15 +17,6 @@ internal sealed class ClipDeletion
 
     internal ClipDeletion(Func<string, bool> recycle, Func<string, DateTime, RecycledFile?> find, Action<RecycledFile, string> restore) =>
         (_recycle, _find, _restore) = (recycle, find, restore);
-
-    internal static bool Confirm(Window? owner, IReadOnlyList<string> paths)
-    {
-        if (!AppSettings.Current.ConfirmClipDeletion) return true;
-        string subject = paths.Count == 1 ? $"\"{Path.GetFileName(paths[0])}\"" : $"these {paths.Count} clips";
-        string message = $"Move {subject} to the Recycle Bin?\n\nProjects that refer to these files will need them restored. You can undo the latest batch from the gallery, or restore files in the Windows Recycle Bin.";
-        return MessageBox.Show(owner, message, "Delete clips", MessageBoxButton.YesNo, MessageBoxImage.Question,
-            MessageBoxResult.No) == MessageBoxResult.Yes;
-    }
 
     internal async Task<Result> DeleteAsync(IEnumerable<string> paths, Func<IReadOnlyList<string>, bool> confirm, Action? release = null)
     {

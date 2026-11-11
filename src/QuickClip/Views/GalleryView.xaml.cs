@@ -18,9 +18,27 @@ namespace QuickClip.Views;
 /// </summary>
 public partial class GalleryView : UserControl
 {
+    public static readonly DependencyProperty HoverPostersProperty =
+        DependencyProperty.Register(nameof(HoverPosters), typeof(bool), typeof(GalleryView), new PropertyMetadata(false));
+
+    public bool HoverPosters
+    {
+        get => (bool)GetValue(HoverPostersProperty);
+        set => SetValue(HoverPostersProperty, value);
+    }
+
     private sealed record Folder(string Name, int Count, DateTime Latest);
 
-    private const double CardSlot = 264 + 14; // card width + right margin
+    private const double CardGap = 14; // must match the card's right margin
+    private const double PreferredCardWidth = 410;
+
+    public static readonly DependencyProperty CardWidthProperty =
+        DependencyProperty.Register(nameof(CardWidth), typeof(double), typeof(GalleryView), new PropertyMetadata(304d));
+    public static readonly DependencyProperty PosterHeightProperty =
+        DependencyProperty.Register(nameof(PosterHeight), typeof(double), typeof(GalleryView), new PropertyMetadata(170d));
+
+    public double CardWidth => (double)GetValue(CardWidthProperty);
+    public double PosterHeight => (double)GetValue(PosterHeightProperty);
 
     public static readonly DependencyProperty HasSelectionProperty =
         DependencyProperty.Register(nameof(HasSelection), typeof(bool), typeof(GalleryView));
@@ -28,6 +46,7 @@ public partial class GalleryView : UserControl
     private readonly DispatcherTimer _reloadTimer;
     private readonly DispatcherTimer _agoTimer;
     private readonly DispatcherTimer _statusTimer;
+    private readonly DispatcherTimer _filterTimer;
     private readonly HashSet<string> _selected = new(StringComparer.OrdinalIgnoreCase);
     private Point? _dragStart;      // where a press on a clip began, until it becomes a drag or a click
     private ClipItem? _dragItem;
@@ -41,6 +60,9 @@ public partial class GalleryView : UserControl
     private FileSystemWatcher? _watcher;
     private int _columns = 3;
     private bool _loading, _reloadQueued, _released, _settingLists;
+    private string _tagSearch = "";
+    private bool _favoritesOnly;
+    private bool IsFiltered => _tagSearch.Length > 0 || _favoritesOnly;
 
     /// <summary>The user wants to edit a file.</summary>
     public event Action<string>? OpenRequested;
@@ -58,6 +80,21 @@ public partial class GalleryView : UserControl
     public GalleryView()
     {
         InitializeComponent();
+        GalleryDetailsEditor.Cancelled += () => InlineDetails.Visibility = Visibility.Collapsed;
+        GalleryDetailsEditor.Saved += (path, details) =>
+        {
+            InlineDetails.Visibility = Visibility.Collapsed;
+            ApplyClipDetails(path, details);
+        };
+        OrganizationFilters.Visibility = AppProfile.IsPersonal ? Visibility.Visible : Visibility.Collapsed;
+        _filterTimer = new DispatcherTimer(TimeSpan.FromMilliseconds(180), DispatcherPriority.Background, (_, _) =>
+        {
+            _filterTimer!.Stop();
+            _tagSearch = TagSearchBox.Text.Trim();
+            _favoritesOnly = FavoritesFilter.IsChecked == true;
+            ClearSelection();
+            ShowFolder();
+        }, Dispatcher) { IsEnabled = false };
         _reloadTimer = new DispatcherTimer(TimeSpan.FromMilliseconds(800), DispatcherPriority.Background, (_, _) =>
         {
             _reloadTimer!.Stop();
@@ -96,6 +133,7 @@ public partial class GalleryView : UserControl
         _reloadTimer.Stop();
         _agoTimer.Stop();
         _statusTimer.Stop();
+        _filterTimer.Stop();
         Rows.ItemsSource = null;
         _clips = [];
         await ProjectPane.CloseAsync();
@@ -221,26 +259,65 @@ public partial class GalleryView : UserControl
         ShowFolder();
     }
 
-    private IEnumerable<ClipItem> CurrentClips =>
-        _folder == ClipLibrary.AllClips ? _clips : _clips.Where(c => string.Equals(c.Folder, _folder, StringComparison.OrdinalIgnoreCase));
+    private bool IsInCurrentFolder(ClipItem clip) => _folder == ClipLibrary.AllClips ||
+        string.Equals(clip.Folder, _folder, StringComparison.OrdinalIgnoreCase);
+
+    private bool MatchesFilter(ClipDetails details) => details.MatchesOrganizationFilter(_tagSearch, _favoritesOnly);
+    private IEnumerable<ClipItem> CurrentClips => _clips.Where(c => IsInCurrentFolder(c) && MatchesFilter(c.Details));
+
+    private void OrganizationFilter_Changed(object sender, RoutedEventArgs e)
+    {
+        if (_filterTimer == null || _released) return;
+        _filterTimer.Stop();
+        _filterTimer.Start();
+    }
+
+    internal void ApplyClipDetails(string path, ClipDetails details)
+    {
+        if (_loading) _reloadQueued = true;
+        var clip = _clips.Find(c => string.Equals(c.Path, path, StringComparison.OrdinalIgnoreCase));
+        if (clip == null) return;
+        bool regroup = clip.Folder != details.Game;
+        bool visibilityChanged = MatchesFilter(clip.Details) != MatchesFilter(details);
+        clip.ApplyDetails(details);
+        if (regroup) RebuildFolders();
+        else if (visibilityChanged) ShowFolder();
+    }
 
     private void ShowFolder()
     {
         var clips = CurrentClips.ToList();
+        if (IsFiltered && HasSelection)
+        {
+            foreach (var clip in _clips.Where(c => c.IsSelected && (!IsInCurrentFolder(c) || !MatchesFilter(c.Details))))
+                clip.IsSelected = false;
+        }
         FolderTitle.Text = _folder;
         FolderInfo.Text = clips.Count == 0 ? "" : $"{clips.Count} clip{(clips.Count == 1 ? "" : "s")}  ·  {Fmt.Size(clips.Sum(c => c.Size))}";
         Rows.ItemsSource = clips.Chunk(_columns).ToList();
 
         EmptyState.Visibility = clips.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+        EmptyTitle.Text = IsFiltered ? "No matching clips" : "No clips yet";
+        _agoTimer.Start();
+        if (IsFiltered)
+        {
+            EmptyText.Text = "Change the tag or favorites filter to see more clips.";
+            return;
+        }
         var s = AppSettings.Current;
         EmptyText.Text = $"Press {new Hotkey(s.HotkeyModifiers, s.HotkeyKey)} while you play to save the last " +
                          $"{RecordingPresets.DurationLabel(s.BufferSeconds)}. Clips are filed by game in {s.ClipsFolder}.";
-        _agoTimer.Start();
     }
 
     private void ClipArea_SizeChanged(object sender, SizeChangedEventArgs e)
     {
-        int columns = Math.Max(1, (int)((ClipArea.ActualWidth - 18) / CardSlot));
+        if (!e.WidthChanged || e.NewSize.Width <= 0) return;
+        // Reserve scrollbar space even when it is hidden so filtering does not change the columns.
+        double width = Math.Max(1, e.NewSize.Width - SystemParameters.VerticalScrollBarWidth);
+        int columns = Math.Clamp((int)(width / (PreferredCardWidth + CardGap)), 1, 4);
+        double cardWidth = Math.Max(1, Math.Floor(width / columns) - CardGap);
+        SetValue(CardWidthProperty, cardWidth);
+        SetValue(PosterHeightProperty, Math.Max(1, cardWidth - 2) * 9 / 16);
         if (columns == _columns) return;
         _columns = columns;
         if (_clips.Count > 0) ShowFolder();
@@ -288,7 +365,7 @@ public partial class GalleryView : UserControl
         if (_dragged || ItemOf(sender) is not { } item) return;
         // While clips are being picked, a click picks; Ctrl+click always does.
         if (HasSelection || Keyboard.Modifiers.HasFlag(ModifierKeys.Control)) item.IsSelected = !item.IsSelected;
-        else Play(item);
+        else OpenRequested?.Invoke(item.Path);
     }
 
     private void Play(ClipItem? item)
@@ -316,7 +393,7 @@ public partial class GalleryView : UserControl
         string clips = count == 1 ? "" : $" {count} selected clips";
         foreach (var entry in menu.Items.OfType<MenuItem>())
         {
-            if (entry.Tag is "title" or "game") entry.Visibility = AppProfile.IsPersonal ? Visibility.Visible : Visibility.Collapsed;
+            if (entry.Tag is "details") entry.Visibility = AppProfile.IsPersonal ? Visibility.Visible : Visibility.Collapsed;
             if (entry.Tag as string == "copy") entry.Header = count == 1 ? "Copy to folder…" : $"Copy{clips} to folder…";
             if (entry.Tag as string != "projects") continue;
             entry.Header = count == 1 ? "Add to project" : $"Add{clips} to project";
@@ -339,25 +416,34 @@ public partial class GalleryView : UserControl
         }
     }
 
-    private async void EditClipDetails_Click(object sender, RoutedEventArgs e)
+    private void EditClipDetails_Click(object sender, RoutedEventArgs e)
     {
         if (!AppProfile.IsPersonal || ItemOf(sender) is not { } item) return;
-        bool title = (sender as MenuItem)?.Tag as string == "title";
-        string? value = TextPrompt.Ask(Window.GetWindow(this),
-            title ? "Custom title (blank uses the filename)" : "Game classification (blank uses the folder)",
-            (title ? item.Details.Title : item.Details.Game) ?? "", "Save", allowEmpty: true);
-        if (value == null) return;
-        var details = title ? item.Details with { Title = value.Length == 0 ? null : value }
-            : item.Details with { Game = value.Length == 0 ? ClipLibrary.InitialGame(AppSettings.Current.ClipsFolder, item.Path) : value };
-        try
+        if (InlineDetails.IsVisible && GalleryDetailsEditor.HasDraft)
         {
-            ClipDetailsStore.Write(item.Path, details);
-            await ReloadAsync();
+            ShowStatus("Save or cancel the current clip details first.");
+            return;
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-        {
-            MessageBox.Show(Window.GetWindow(this), ex.Message, "Could not save clip details", MessageBoxButton.OK, MessageBoxImage.Warning);
-        }
+        InlineDetails.Visibility = Visibility.Visible;
+        GalleryDetailsEditor.Open(item.Path, item.Details, focus: true);
+    }
+
+    private void ClipOverflow_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not Button { Tag: Border { ContextMenu: { } menu } } button) return;
+        menu.PlacementTarget = button;
+        menu.Placement = PlacementMode.Bottom;
+        menu.IsOpen = true;
+        e.Handled = true;
+    }
+
+    private void Card_KeyDown(object sender, KeyEventArgs e)
+    {
+        if (e.OriginalSource != sender || ItemOf(sender) is not { } item || e.IsRepeat) return;
+        if (e.Key == Key.Enter) OpenRequested?.Invoke(item.Path);
+        else if (e.Key == Key.Space) item.IsSelected = !item.IsSelected;
+        else return;
+        e.Handled = true;
     }
 
     private async void CopyClipsToFolder_Click(object sender, RoutedEventArgs e)
@@ -478,7 +564,7 @@ public partial class GalleryView : UserControl
 
     private async Task DeleteClipsAsync(List<string> paths)
     {
-        var result = await ClipDeletion.Current.DeleteAsync(paths, batch => ClipDeletion.Confirm(Window.GetWindow(this), batch));
+        var result = await ClipDeletion.Current.DeleteAsync(paths, batch => ClipDeleteDialog.Confirm(Window.GetWindow(this), batch));
         if (result.Cancelled) return;
         foreach (var clip in _clips.Where(c => paths.Contains(c.Path, StringComparer.OrdinalIgnoreCase))) clip.IsSelected = false;
         ShowStatus($"{result.Deleted} clip(s) sent to the Recycle Bin." + (result.Failed > 0 ? $" {result.Failed} could not be recycled and were left in place." :
@@ -762,6 +848,15 @@ public partial class GalleryView : UserControl
     }
 
 #if DEBUG
+    internal bool OpenFirstForRender()
+    {
+        if (CurrentClips.FirstOrDefault() is not { } first) return false;
+        OpenRequested?.Invoke(first.Path);
+        return true;
+    }
+
+    internal string RealizedRowsForRender => $"{Enumerable.Range(0, Rows.Items.Count).Count(i => Rows.ItemContainerGenerator.ContainerFromIndex(i) != null)}/{Rows.Items.Count}";
+
     internal bool PlayFirstForRender()
     {
         if (CurrentClips.FirstOrDefault() is not { } first) return false;

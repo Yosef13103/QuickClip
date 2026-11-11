@@ -331,7 +331,7 @@ public partial class PlayerView : UserControl
         try
         {
             var result = await ClipDeletion.Current.DeleteAsync([clip.Path],
-                batch => ClipDeletion.Confirm(Window.GetWindow(this), batch), Unload);
+                batch => ClipDeleteDialog.Confirm(Window.GetWindow(this), batch), Unload);
             if (result.Cancelled) return;
             if (result.Deleted == 0)
             {

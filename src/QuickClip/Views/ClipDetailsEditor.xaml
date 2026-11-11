@@ -1,0 +1,28 @@
+<UserControl x:Class="QuickClip.Views.ClipDetailsEditor"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <StackPanel Margin="0,6,0,10">
+        <TextBlock x:Name="CaptureDate" TextWrapping="Wrap" Margin="0,0,0,6" />
+        <TextBlock Text="Clip title" />
+        <TextBox x:Name="TitleBox" AutomationProperties.Name="Clip title" ToolTip="Leave blank to use the filename" />
+        <TextBlock Text="Game classification" Margin="0,6,0,0" />
+        <TextBox x:Name="GameBox" AutomationProperties.Name="Game classification" ToolTip="Leave blank to use the folder" />
+        <CheckBox x:Name="FavoriteBox" Content="Favorite" Margin="0,8,0,4" />
+        <TextBlock Text="Tags" />
+        <WrapPanel x:Name="TagChips" />
+        <DockPanel Margin="0,4,0,0">
+            <Button DockPanel.Dock="Right" Content="Add tag" Click="AddTag_Click" Margin="6,0,0,0" />
+            <TextBox x:Name="TagBox" AutomationProperties.Name="New tag" MaxLength="32" KeyDown="TagBox_KeyDown" />
+        </DockPanel>
+        <StackPanel x:Name="BookmarkPanel" Visibility="Collapsed" Margin="0,10,0,0">
+            <TextBlock Text="Bookmarks" FontWeight="SemiBold" />
+            <Button Content="Bookmark playhead" Click="AddBookmark_Click" HorizontalAlignment="Left" Margin="0,4,0,4" />
+            <StackPanel x:Name="BookmarkRows" />
+        </StackPanel>
+        <TextBlock x:Name="Feedback" TextWrapping="Wrap" Margin="0,4,0,0" />
+        <StackPanel Orientation="Horizontal" Margin="0,6,0,0">
+            <Button x:Name="SaveButton" Content="Save details" Click="Save_Click" />
+            <Button x:Name="CancelButton" Content="Cancel" Click="Cancel_Click" Margin="8,0,0,0" />
+        </StackPanel>
+    </StackPanel>
+</UserControl>

@@ -92,6 +92,8 @@ public partial class MainWindow : Window
             if (_editor != null) return _editor;
             _editor = new EditorView { Visibility = Visibility.Collapsed };
             _editor.TitleChanged += UpdateTitle;
+            _editor.BackRequested += () => ShowPage(Gallery);
+            _editor.ClipDetailsSaved += Gallery.ApplyClipDetails;
             Pages.Children.Add(_editor);
             return _editor;
         }
