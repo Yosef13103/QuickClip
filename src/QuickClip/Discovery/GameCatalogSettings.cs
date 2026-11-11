@@ -74,11 +74,12 @@ internal static class GameCatalogRuntime
                 InstallDirectories = [.. entry.InstallDirectories.Concat(prior.InstallDirectories).Distinct(StringComparer.OrdinalIgnoreCase)],
                 Executables = [.. entry.Executables.Concat(prior.Executables).Distinct(StringComparer.OrdinalIgnoreCase)],
             }
-            : entry).Concat(retained.Values).ToArray();
+            : entry).ToArray();
+        var entries = merged.Concat(retained.Values).ToArray();
         return settings with
         {
-            Snapshot = scan with { Entries = [.. merged] },
-            OfflineIds = [.. merged.Where(Incomplete).Select(entry => entry.Id)],
+            Snapshot = scan with { Entries = [.. entries] },
+            OfflineIds = [.. entries.Where(Incomplete).Select(entry => entry.Id)],
         };
     }
 }
