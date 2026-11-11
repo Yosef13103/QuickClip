@@ -212,6 +212,35 @@ internal static class CaptureEngine
         return qc_save(path, seconds, title, error, error.Length) != 0 ? null : new string(error).TrimEnd('\0');
     }
 
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct ReplayPosition
+    {
+        public long Session, EventUs, FrameUs, Sequence, FirstSequence, Source;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct ReplaySpan
+    {
+        public long FirstUs, LastUs, AvailableUs, DurationUs, FirstSource, LastSource;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct ReplayAnchor
+    {
+        public long Sequence, OffsetUs;
+    }
+
+    internal static ReplayPosition? GetReplayPosition() =>
+        qc_get_replay_position(out var position) != 0 ? position : null;
+
+    internal static string? SaveReplay(string path, int seconds, string title, ReplayPosition position, bool bounded,
+        ReplayAnchor[] anchors, out ReplaySpan span)
+    {
+        var error = new char[1024];
+        return qc_save_replay(path, seconds, title, position.Session, bounded ? position.EventUs : -1, out span, anchors, anchors.Length,
+            error, error.Length) != 0 ? null : new string(error).TrimEnd('\0');
+    }
+
     public static Stats GetStats()
     {
         qc_get_stats(out var stats);
@@ -255,4 +284,7 @@ internal static class CaptureEngine
     [DllImport(Dll)] private static extern void qc_test_play_noise(int milliseconds, float amplitude);
     [DllImport(Dll, CharSet = CharSet.Unicode)] private static extern int qc_save(string path, int seconds, string title, [Out] char[] error, int errorLength);
     [DllImport(Dll)] private static extern int qc_get_stats(out Stats stats);
+    [DllImport(Dll)] private static extern int qc_get_replay_position(out ReplayPosition position);
+    [DllImport(Dll, CharSet = CharSet.Unicode)] private static extern int qc_save_replay(string path, int seconds, string title,
+        long session, long requestUs, out ReplaySpan span, [In, Out] ReplayAnchor[] anchors, int count, [Out] char[] error, int errorLength);
 }

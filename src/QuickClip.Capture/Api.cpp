@@ -281,4 +281,70 @@ extern "C"
         g_engine->GetStats(*stats);
         return 1;
     }
+
+    __declspec(dllexport) int qc_get_replay_position(QcReplayPosition* position)
+    {
+        std::shared_lock guard(g_engineLock);
+        if (!g_engine || !position) return 0;
+        g_engine->GetReplayPosition(*position);
+        return 1;
+    }
+
+    __declspec(dllexport) int qc_save_replay(const wchar_t* path, int seconds, const wchar_t* title, int64_t session,
+        int64_t requestUs, QcReplaySpan* span, QcReplayAnchor* anchors, int count, wchar_t* error, int errorLength)
+    {
+        if (!path || !span || seconds <= 0 || count < 0 || count > 128 || (count && !anchors))
+        {
+            CopyError("Invalid replay request.", error, errorLength);
+            return 0;
+        }
+        std::shared_lock guard(g_engineLock);
+        QcReplayPosition position{};
+        if (g_engine) g_engine->GetReplayPosition(position);
+        if (!g_engine || position.session != session)
+        {
+            CopyError("The recording session ended before the replay could be saved.", error, errorLength);
+            return 0;
+        }
+        std::string message;
+        if (g_engine->Save(path, seconds, title ? title : L"", message, span, anchors, count, requestUs)) return 1;
+        CopyError(message, error, errorLength);
+        return 0;
+    }
+
+    // Deterministic packet fixture for the managed tests. No encoder, audio endpoints or desktop are opened.
+    struct QcTestReplayFrame { int64_t timeUs, source; int key, clearBefore; };
+
+    __declspec(dllexport) int qc_test_replay_ring(const QcTestReplayFrame* frames, int frameCount, int bufferSeconds,
+        int requestedSeconds, int64_t requestUs, QcReplayPosition* position, QcReplaySpan* span,
+        QcReplayAnchor* anchors, int anchorCount, int* streamCounts)
+    {
+        if (!frames || frameCount < 1 || frameCount > 1024 || bufferSeconds < 1 || requestedSeconds < 1 ||
+            !position || !span || !streamCounts || anchorCount < 0 || anchorCount > 128 || (anchorCount && !anchors)) return 0;
+        qc::PacketRing ring(static_cast<int64_t>(bufferSeconds) * 1'000'000);
+        for (int i = 0; i < frameCount; ++i)
+        {
+            const auto& frame = frames[i];
+            if (frame.clearBefore) ring.Clear();
+            for (int stream = 0; stream < 4; ++stream)
+            {
+                auto* packet = av_packet_alloc();
+                if (!packet) return 0;
+                ring.Push(packet, stream, frame.timeUs, stream == 0 && frame.key != 0, frame.source);
+            }
+        }
+        *position = {};
+        position->eventUs = requestUs;
+        ring.Position(*position);
+        std::fill_n(streamCounts, 4, 0);
+        int64_t first = 0;
+        auto packets = ring.Snapshot(requestUs - static_cast<int64_t>(requestedSeconds) * 1'000'000,
+            requestUs, first, span, anchors, anchorCount, 1'000'000 / 60);
+        for (auto& entry : packets)
+        {
+            ++streamCounts[entry.stream];
+            av_packet_free(&entry.packet);
+        }
+        return !packets.empty();
+    }
 }

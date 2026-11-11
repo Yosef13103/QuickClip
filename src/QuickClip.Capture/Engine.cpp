@@ -20,10 +20,10 @@ namespace qc
     // PacketRing
     // ---------------------------------------------------------------------------------------------
 
-    void PacketRing::Push(AVPacket* packet, int stream, int64_t timeUs, bool key)
+    void PacketRing::Push(AVPacket* packet, int stream, int64_t timeUs, bool key, int64_t source)
     {
         std::lock_guard guard(lock_);
-        entries_.push_back({ packet, stream, timeUs, key });
+        entries_.push_back({ packet, stream, timeUs, key, stream == 0 ? ++sequence_ : 0, source });
         bytes_ += packet->size;
         if (stream == 0) newestVideoUs_ = std::max(newestVideoUs_, timeUs);
         // Keep a little more than the window so a keyframe at or before its start is always there.
@@ -36,24 +36,62 @@ namespace qc
         }
     }
 
-    std::vector<PacketRing::Entry> PacketRing::Snapshot(int64_t fromUs, int64_t toUs, int64_t& startUs)
+    void PacketRing::Position(QcReplayPosition& position)
     {
         std::lock_guard guard(lock_);
-        int64_t firstKey = -1, start = -1;
+        // A marker represents the latest already encoded picture. Do not attach a new action to a frozen source.
+        if (newestVideoUs_ < 0 || position.eventUs - newestVideoUs_ > 250'000) return;
+        for (const auto& e : entries_)
+            if (e.stream == 0 && e.key) { position.firstSequence = e.sequence; break; }
+        if (!position.firstSequence) return;
+        for (auto it = entries_.rbegin(); it != entries_.rend(); ++it)
+            if (it->stream == 0 && it->timeUs <= position.eventUs && position.eventUs - it->timeUs <= 250'000)
+            {
+                position.sequence = it->sequence;
+                position.frameUs = it->timeUs;
+                position.source = it->source;
+                break;
+            }
+    }
+
+    std::vector<PacketRing::Entry> PacketRing::Snapshot(int64_t fromUs, int64_t toUs, int64_t& startUs,
+        QcReplaySpan* span, QcReplayAnchor* anchors, int count, int64_t boundedFrameUs)
+    {
+        std::lock_guard guard(lock_);
+        if (boundedFrameUs > 0) fromUs = std::max(fromUs, toUs - windowUs_);
+        int64_t firstKey = -1, start = -1, firstKeyInRange = -1, latest = -1;
         for (const auto& e : entries_)
         {
-            if (e.stream != 0 || !e.key) continue;
-            if (firstKey < 0) firstKey = e.timeUs;
-            if (e.timeUs <= fromUs) start = e.timeUs;
-            else break;
+            if (e.stream != 0 || e.timeUs > toUs) continue;
+            latest = std::max(latest, e.timeUs);
+            if (!e.key) continue;
+            if (firstKey < 0 || e.timeUs < firstKey) firstKey = e.timeUs;
+            if (e.timeUs <= fromUs) start = std::max(start, e.timeUs);
+            if (e.timeUs >= fromUs && (firstKeyInRange < 0 || e.timeUs < firstKeyInRange)) firstKeyInRange = e.timeUs;
         }
-        if (start < 0) start = firstKey;
+        if (boundedFrameUs > 0) start = firstKeyInRange;
+        else if (start < 0) start = firstKey;
         std::vector<Entry> result;
         startUs = start;
-        if (start < 0) return result;
+        if (start < 0 || (boundedFrameUs > 0 && latest < fromUs)) return result;
+        if (boundedFrameUs > 0) toUs = std::min(toUs, latest + boundedFrameUs);
+        std::map<int64_t, int64_t> offsets;
+        for (int i = 0; i < count; ++i) offsets.emplace(anchors[i].sequence, -1);
+        if (span) *span = { start, start, latest - firstKey, -1, 0, 0 };
         for (const auto& e : entries_)
             if (e.timeUs >= start && e.timeUs <= toUs)
-                result.push_back({ av_packet_clone(e.packet), e.stream, e.timeUs, e.key });
+            {
+                result.push_back({ av_packet_clone(e.packet), e.stream, e.timeUs, e.key, e.sequence, e.source });
+                if (!span || e.stream != 0) continue;
+                if (e.timeUs == start && e.key && !span->firstSource) span->firstSource = e.source;
+                if (e.timeUs >= span->lastUs)
+                {
+                    span->lastUs = e.timeUs;
+                    span->lastSource = e.source;
+                }
+                if (auto offset = offsets.find(e.sequence); offset != offsets.end()) offset->second = e.timeUs - start;
+            }
+        for (int i = 0; i < count; ++i) anchors[i].offsetUs = offsets.at(anchors[i].sequence);
         return result;
     }
 
@@ -306,6 +344,7 @@ namespace qc
         std::string encoder;
         QcVideoOptions videoOptions{};
         int64_t t0 = 0;
+        int64_t replaySession = 0;
         int64_t startedUtcUs = 0;
 
         std::atomic<bool> stop{ false };
@@ -332,6 +371,7 @@ namespace qc
         PacketRing ring;
         std::mutex infoLock;
         std::shared_ptr<StreamInfo> video;
+        int64_t nextSource = 0; // protected by videoLock when publishing a capture graph
 
         std::atomic<int> width{ 0 }, height{ 0 };
         std::atomic<int64_t> dropped{ 0 };
@@ -554,6 +594,7 @@ namespace qc
             // next picture, or handing it to the encoder. (Graphics Capture sends frames only when the screen changes.)
             int64_t paceStartUs = NowUs(), paceWaitUs = 0, paceEncodeUs = 0, paceFrames = 0, paceSkipped = 0, paceCaptured = 0;
             const bool diagnostics = s->videoOptions.diagnostics != 0;
+            int64_t source = 0;
             struct
             {
                 int64_t scaleUs = 0, scaled = 0, rejected = 0;
@@ -659,6 +700,7 @@ namespace qc
                             s->ring.Clear();
                         }
                         s->video = info;
+                        source = ++s->nextSource;
                     }
                     s->width = pipe.encoder->width;
                     s->height = pipe.encoder->height;
@@ -811,7 +853,7 @@ namespace qc
                     const int64_t ringStartUs = diagnostics ? NowUs() : 0;
                     {
                         std::lock_guard guard(s->videoLock);
-                        if (s->generation == generation) s->ring.Push(av_packet_clone(packet), 0, timeUs, key);
+                        if (s->generation == generation) s->ring.Push(av_packet_clone(packet), 0, timeUs, key, source);
                     }
                     if (diagnostics)
                     {
@@ -920,6 +962,8 @@ namespace qc
         }
         shared_->monitorDevice = monitor_;
         shared_->t0 = NowUs();
+        static std::atomic<int64_t> nextReplaySession{ 0 };
+        shared_->replaySession = ++nextReplaySession;
         shared_->startedUtcUs = av_gettime();
 
         auto addTrack = [&](const char* title) {
@@ -1151,11 +1195,22 @@ namespace qc
         }
     }
 
-    bool Engine::Save(const std::wstring& path, int seconds, const std::wstring& title, std::string& error)
+    void Engine::GetReplayPosition(QcReplayPosition& position)
+    {
+        position = {};
+        position.session = shared_->replaySession;
+        position.eventUs = NowUs() - shared_->t0;
+        shared_->ring.Position(position);
+    }
+
+    bool Engine::Save(const std::wstring& path, int seconds, const std::wstring& title, std::string& error,
+        QcReplaySpan* span, QcReplayAnchor* anchors, int count, int64_t requestUs)
     {
         // The clip ends now, when it was asked for. Audio is encoded ~200 ms behind, so wait for every
         // track to get past this moment (they always do unless something is badly stuck).
         int64_t endUs = NowUs() - shared_->t0;
+        const bool bounded = requestUs >= 0;
+        if (bounded) endUs = std::min(endUs, requestUs);
         int64_t endSample = endUs * SampleRate / 1000000;
         for (int i = 0; i < 50; i++)
         {
@@ -1170,9 +1225,14 @@ namespace qc
             // A size change clears the ring under the same lock. Snapshot matching stream parameters and packets.
             std::lock_guard guard(shared_->infoLock);
             video = shared_->video;
-            if (video) entries = shared_->ring.Snapshot(endUs - static_cast<int64_t>(seconds) * 1000000, endUs, startUs);
+            if (video) entries = shared_->ring.Snapshot(endUs - static_cast<int64_t>(seconds) * 1000000, endUs, startUs,
+                span, anchors, count, bounded ? 1'000'000 / shared_->fps : 0);
         }
-        if (entries.empty()) { error = "Nothing has been recorded yet."; return false; }
+        if (entries.empty())
+        {
+            error = bounded ? "No decodable video is retained for this replay request." : "Nothing has been recorded yet.";
+            return false;
+        }
         std::stable_sort(entries.begin(), entries.end(), [](const auto& a, const auto& b) { return a.timeUs < b.timeUs; });
 
         auto freeEntries = [&] { for (auto& e : entries) av_packet_free(&e.packet); };
@@ -1218,6 +1278,9 @@ namespace qc
             if (ret >= 0)
             {
                 AVRational src = sourceBase[e.stream];
+                // A sparse source must not extend the explicit replay's last picture by the preceding frame gap.
+                if (bounded && span && e.stream == 0 && e.timeUs == span->lastUs && p->duration <= 0)
+                    p->duration = av_rescale_q(1, AVRational{ 1, shared_->fps }, src);
                 int64_t offset = av_rescale_q(startUs, AVRational{ 1, 1000000 }, src);
                 p->stream_index = e.stream;
                 if (p->pts != AV_NOPTS_VALUE) p->pts -= offset;
@@ -1228,13 +1291,31 @@ namespace qc
             av_packet_free(&e.packet);
         }
         if (ret >= 0) ret = av_write_trailer(out);
-        avio_closep(&out->pb);
+        int closeResult = avio_closep(&out->pb);
+        if (ret >= 0) ret = closeResult;
         avformat_free_context(out);
         if (ret < 0)
         {
             error = "Writing the clip failed: " + AvError(ret);
             DeleteFileW(path.c_str());
             return false;
+        }
+        if (span)
+        {
+            // The muxer decides the final sample duration. Read the MP4 track header without probing frames.
+            AVFormatContext* saved = nullptr;
+            if (avformat_open_input(&saved, utf8.c_str(), av_find_input_format("mov"), nullptr) >= 0)
+            {
+                for (unsigned i = 0; i < saved->nb_streams; ++i)
+                {
+                    auto* stream = saved->streams[i];
+                    if (stream->codecpar->codec_type != AVMEDIA_TYPE_VIDEO) continue;
+                    if (stream->duration > 0)
+                        span->durationUs = av_rescale_q(stream->duration, stream->time_base, AVRational{ 1, 1'000'000 });
+                    break;
+                }
+                avformat_close_input(&saved);
+            }
         }
         return true;
     }
