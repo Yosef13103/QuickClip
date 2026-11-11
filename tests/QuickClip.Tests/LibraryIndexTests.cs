@@ -241,7 +241,7 @@ public sealed class LibraryIndexTests : IDisposable
         var b = Assert.Single(await index.QueryClipsAsync(ordered with { Offset = 1 }));
         Assert.Equal(("A", "B"), (a.Title, b.Title));
 
-        var marker = new ClipBookmark(Guid.NewGuid(), TimeSpan.FromSeconds(8), "Live marker", BookmarkOrigin.Live,
+        var marker = new QuickClip.Library.ClipBookmark(Guid.NewGuid(), TimeSpan.FromSeconds(8), "Live marker", BookmarkOrigin.Live,
             Guid.NewGuid(), CaptureTime);
         Assert.Equal(1, await index.UpsertBookmarkAsync(a.Id, marker, a.Revision));
         await Assert.ThrowsAsync<LibraryConflictException>(() => index.SetFavoriteAsync(a.Id, true, a.Revision));
