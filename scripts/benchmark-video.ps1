@@ -15,12 +15,14 @@ param(
     [ValidateSet('hevc_nvenc','h264_nvenc')][string]$Encoder = 'hevc_nvenc',
     [ValidateSet('p4','p3','p2')][string]$Preset = 'p4',
     [ValidateSet('Automatic','DesktopDuplication','GraphicsCapture')][string]$Backend = 'DesktopDuplication',
-    [ValidateRange(500,500000)][int]$VideoKbps = 20000,
+    [ValidateRange(500,250000)][int]$VideoKbps = 20000,
+    [switch]$AutoVideoBitrate,
     [string]$Monitor = '',
     [switch]$Build
 )
 $ErrorActionPreference = 'Stop'
 if (!$CaptureDesktop) { throw 'Desktop capture requires -CaptureDesktop. No media or audio will be saved.' }
+if ($AutoVideoBitrate -and $PSBoundParameters.ContainsKey('VideoKbps')) { throw 'Choose either -AutoVideoBitrate or -VideoKbps.' }
 if (Get-Process -Name QuickClip -ErrorAction SilentlyContinue) { throw 'Quit QuickClip before benchmarking to avoid overlapping recorders. Also stop other recording tools manually.' }
 $root = Split-Path -Parent $PSScriptRoot
 $sdk = Join-Path $root '.quickclip-local\dotnet\dotnet.exe'
@@ -32,7 +34,8 @@ $directory = Join-Path $root ('.quickclip-local\benchmarks\' + [DateTime]::UtcNo
 New-Item -ItemType Directory -Path $directory -Force | Out-Null
 $inputFile = Join-Path $directory 'input.json'
 $outputFile = Join-Path $directory 'result.json'
-@{ AllowDesktopCapture=$true; Seconds=$Seconds; Fps=$Fps; Height=$Height; Encoder=$Encoder; Preset=$Preset; Backend=$Backend; VideoKbps=$VideoKbps; Monitor=$Monitor } |
+$targetKbps = if ($AutoVideoBitrate) { $null } else { $VideoKbps }
+@{ AllowDesktopCapture=$true; Seconds=$Seconds; Fps=$Fps; Height=$Height; Encoder=$Encoder; Preset=$Preset; Backend=$Backend; VideoKbps=$targetKbps; Monitor=$Monitor } |
     ConvertTo-Json | Set-Content -LiteralPath $inputFile -Encoding UTF8
 $previousProfile = $env:QUICKCLIP_PERSONAL_DATA_DIR
 $env:QUICKCLIP_PERSONAL_DATA_DIR = Join-Path $directory 'profile'
