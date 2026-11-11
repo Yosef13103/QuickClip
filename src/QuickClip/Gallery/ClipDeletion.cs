@@ -14,6 +14,7 @@ internal sealed class ClipDeletion
     internal bool Busy { get; private set; }
     internal bool CanUndo => _undo.Count > 0;
     internal event Action? Changed;
+    internal event Action<IReadOnlyList<string>>? Releasing;
 
     internal ClipDeletion(Func<string, bool> recycle, Func<string, DateTime, RecycledFile?> find, Action<RecycledFile, string> restore) =>
         (_recycle, _find, _restore) = (recycle, find, restore);
@@ -27,6 +28,7 @@ internal sealed class ClipDeletion
         {
             var batch = paths.Select(Path.GetFullPath).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
             if (batch.Count == 0 || !confirm(batch)) return new(0, 0, true);
+            Releasing?.Invoke(batch);
             release?.Invoke(); // only unload the player once the user confirms
             var receipts = new List<RecycledFile>();
             foreach (string path in batch)
