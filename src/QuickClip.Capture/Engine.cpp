@@ -463,7 +463,8 @@ namespace qc
                     a.x, a.y, m.width - a.x - a.width, m.height - a.y - a.height);
 
                 // High-rate Auto retains Graphics Capture first. Explicit choices keep their selected backend.
-                bool preferGraphics = s.videoOptions.backend == 2 || (s.videoOptions.backend == 0 && s.fps > 60);
+                bool preferGraphics = s.videoOptions.backend == 2 || s.videoOptions.backend == 4 ||
+                    (s.videoOptions.backend == 0 && s.fps > 60);
                 bool system = NeedsSystemFrames(s);
                 std::string ddaError, wgcError;
                 auto tryBackend = [&](bool useDuplication) {
@@ -1031,6 +1032,7 @@ namespace qc
 
     void Engine::SetCaptureWindow(HWND window, int width, int height, int videoKbps)
     {
+        if (shared_->videoOptions.backend >= 3) return; // explicit monitor authorization never includes a window
         {
             std::lock_guard guard(shared_->targetLock);
             shared_->window = window;
@@ -1204,7 +1206,7 @@ namespace qc
     }
 
     bool Engine::Save(const std::wstring& path, int seconds, const std::wstring& title, std::string& error,
-        QcReplaySpan* span, QcReplayAnchor* anchors, int count, int64_t requestUs)
+        QcReplaySpan* span, QcReplayAnchor* anchors, int count, int64_t requestUs, QcReplayVideo* savedVideo)
     {
         // The clip ends now, when it was asked for. Audio is encoded ~200 ms behind, so wait for every
         // track to get past this moment (they always do unless something is badly stuck).
@@ -1312,6 +1314,9 @@ namespace qc
                     if (stream->codecpar->codec_type != AVMEDIA_TYPE_VIDEO) continue;
                     if (stream->duration > 0)
                         span->durationUs = av_rescale_q(stream->duration, stream->time_base, AVRational{ 1, 1'000'000 });
+                    if (savedVideo)
+                        *savedVideo = { stream->codecpar->width, stream->codecpar->height,
+                            stream->avg_frame_rate.num, stream->avg_frame_rate.den };
                     break;
                 }
                 avformat_close_input(&saved);
