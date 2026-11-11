@@ -19,7 +19,7 @@ public sealed class GamesSettingsViewTests
                 page.Measure(size);
                 page.Arrange(new Rect(size));
                 Assert.True(page.Games.ActualHeight > 0);
-                Assert.NotEqual(true, page.AutoScan.IsChecked);
+                Assert.True(page.AutoScan.IsChecked == true);
                 Assert.False(page.CancelButton.IsEnabled);
                 result.SetResult();
             }

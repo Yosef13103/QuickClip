@@ -4,7 +4,7 @@ namespace QuickClip.Discovery;
 
 internal sealed record GameCatalogSettings
 {
-    public bool AutoScan { get; init; }
+    public bool AutoScan { get; init; } = true;
     public CatalogRequest Request { get; init; } = new();
     public CatalogResult? Snapshot { get; init; }
     public ImmutableArray<string> OfflineIds { get; init; } = [];
@@ -43,7 +43,8 @@ internal static class GameCatalogRuntime
     {
         var rules = new Dictionary<string, CatalogRules>(StringComparer.Ordinal);
         foreach (var entry in settings.Request.Overrides) rules[entry.Id] = entry.Rules;
-        var roots = settings.Request.GameRoots.Select(root => root.Path).Concat(settings.Request.SteamLibraryRoots).ToArray();
+        var roots = settings.Request.GameRoots.Select(root => root.Path).Concat(settings.Request.SteamLibraryRoots)
+            .Concat(settings.Snapshot?.SteamLibraries ?? []).ToArray();
         bool Approved(string path) => roots.Any(root => CatalogPaths.IsWithin(path, root))
             && !settings.Request.ExcludedDirectories.Any(root => CatalogPaths.IsWithin(path, root));
         var discovered = (settings.Snapshot?.Entries ?? []).Where(entry => entry.Source != CatalogSource.Manual)
@@ -68,18 +69,33 @@ internal static class GameCatalogRuntime
                 entry.Source == CatalogSource.Steam && CatalogPaths.IsWithin(issue.Location,
                     Path.GetDirectoryName(Path.GetDirectoryName(dir)!)!))));
         var retained = previous.Where(Incomplete).ToDictionary(entry => entry.Id, StringComparer.Ordinal);
+        var offline = new HashSet<string>(StringComparer.Ordinal);
         var merged = scan.Entries.Select(entry => retained.Remove(entry.Id, out var prior)
-            ? entry with
-            {
-                InstallDirectories = [.. entry.InstallDirectories.Concat(prior.InstallDirectories).Distinct(StringComparer.OrdinalIgnoreCase)],
-                Executables = [.. entry.Executables.Concat(prior.Executables).Distinct(StringComparer.OrdinalIgnoreCase)],
-            }
+            ? Merge(entry, prior)
             : entry).ToArray();
+        offline.UnionWith(retained.Keys);
         var entries = merged.Concat(retained.Values).ToArray();
         return settings with
         {
-            Snapshot = scan with { Entries = [.. entries] },
-            OfflineIds = [.. entries.Where(Incomplete).Select(entry => entry.Id)],
+            Snapshot = scan with
+            {
+                Entries = [.. entries],
+                SteamLibraries = [.. scan.SteamLibraries.Concat((scan.LimitReached || scan.Issues.Length > 0)
+                    ? settings.Snapshot?.SteamLibraries ?? [] : []).Distinct(StringComparer.OrdinalIgnoreCase)],
+            },
+            OfflineIds = [.. offline.Order(StringComparer.Ordinal)],
         };
+
+        CatalogEntry Merge(CatalogEntry entry, CatalogEntry prior)
+        {
+            var comparer = StringComparer.OrdinalIgnoreCase;
+            if (prior.Executables.Except(entry.Executables, comparer).Any() ||
+                prior.InstallDirectories.Except(entry.InstallDirectories, comparer).Any()) offline.Add(entry.Id);
+            return entry with
+            {
+                InstallDirectories = [.. entry.InstallDirectories.Concat(prior.InstallDirectories).Distinct(comparer)],
+                Executables = [.. entry.Executables.Concat(prior.Executables).Distinct(comparer)],
+            };
+        }
     }
 }

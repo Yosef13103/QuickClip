@@ -10,6 +10,11 @@ internal sealed record GameWindowTarget(WindowOwner Owner, string Game, bool Rec
 internal sealed record GameCaptureObservation(WindowOwner Owner, string Executable, CatalogMatch Match,
     GameWindowTarget? Target, bool IsForeground)
 {
+    /// <summary>Eligible exact catalog identity for the armed recorder. The legacy target can be heuristic.</summary>
+    public GameWindowTarget? VerifiedTarget => !SkipAutomaticCapture && Target is { Recognized: true } target &&
+        (Match.Kind == CatalogMatchKind.Game || Match is { Kind: CatalogMatchKind.Candidate, Entry.Source: CatalogSource.Steam })
+            ? target : null;
+
     public bool SkipAutomaticCapture => Match.Kind is CatalogMatchKind.Ignored or CatalogMatchKind.Inactive
         or CatalogMatchKind.Ambiguous or CatalogMatchKind.Launcher or CatalogMatchKind.Application
         || Match.Kind == CatalogMatchKind.Candidate && Target == null;
@@ -98,6 +103,14 @@ internal sealed class GameDetector
     internal string? VerifiedGameContext() =>
         VerifiedGameContext(ActiveObservation, DetectForeground(), IsCurrent);
 
+    internal static GameCaptureObservation? SelectVerifiedObservation(GameCaptureObservation? retained,
+        GameCaptureObservation? foreground, Func<WindowOwner, bool> isCurrent, Func<string, bool, CatalogMatch>? match = null)
+    {
+        var selected = SelectObservation(retained?.VerifiedTarget != null ? retained : null,
+            foreground?.VerifiedTarget != null ? foreground : null, isCurrent, match);
+        return selected?.VerifiedTarget != null ? selected : null;
+    }
+
     internal static string? VerifiedGameContext(GameCaptureObservation? current,
         GameCaptureObservation? foreground, Func<WindowOwner, bool> isCurrent,
         Func<string, bool, CatalogMatch>? match = null) =>
@@ -143,7 +156,7 @@ internal sealed class GameDetector
 
         bool recognized = match.Kind == CatalogMatchKind.Game
             || match.Kind == CatalogMatchKind.Candidate && (known.Contains(path) || fullscreen ||
-                match.Entry?.Source == CatalogSource.Steam && GameFolderName(path) != null);
+                match.Entry?.Source == CatalogSource.Steam);
         string? name = recognized ? match.Entry?.DisplayName : null;
         if (match.Kind == CatalogMatchKind.Unknown)
         {

@@ -11,6 +11,25 @@ public sealed class GameObservationTests
         [@"C:\Games\Fixture"], [Renderer], new());
     private static readonly IReadOnlySet<string> Known = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { Renderer };
 
+    [Fact]
+    public void Armed_observation_requires_verified_identity_and_rechecks_retained_veto()
+    {
+        const string path = @"D:\Library\steamapps\common\Fixture\Fixture.exe";
+        var steam = Entry with { Id = "steam:42", Source = CatalogSource.Steam, Executables = [path] };
+        var match = new CatalogMatch(CatalogMatchKind.Candidate, steam);
+        var game = GameDetector.Observe(Original, path, match, false, new HashSet<string>());
+        Assert.NotNull(game.VerifiedTarget);
+        var heuristic = GameDetector.Observe(Original, Renderer, new(CatalogMatchKind.Unknown), true, Known);
+        Assert.Null(heuristic.VerifiedTarget);
+        var discord = GameDetector.Observe(Original with { ProcessId = 99 }, @"C:\Apps\Discord.exe",
+            new(CatalogMatchKind.Unknown), true, Known);
+        var retained = GameDetector.SelectVerifiedObservation(game, discord, _ => true, (_, _) => match);
+        Assert.Equal(Original, retained?.VerifiedTarget?.Owner);
+        Assert.False(retained?.IsForeground);
+        Assert.Null(GameDetector.SelectVerifiedObservation(game, discord, _ => true,
+            (_, _) => new(CatalogMatchKind.Ignored, steam)));
+    }
+
     [Theory]
     [InlineData(0, true, true, true, false)]
     [InlineData(1, false, true, true, false)]

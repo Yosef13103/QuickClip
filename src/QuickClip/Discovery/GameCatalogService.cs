@@ -1,16 +1,36 @@
 using System.Collections.Immutable;
+using System.Diagnostics;
 using System.Globalization;
+using System.IO.Enumeration;
 using System.Security.Cryptography;
 using System.Text;
+using Microsoft.Win32;
 
 namespace QuickClip.Discovery;
 
-/// <summary>One explicitly requested catalog scan. No background polling or executable inspection.</summary>
+/// <summary>One bounded catalog scan. Discovered executables are never launched.</summary>
 internal static class GameCatalogService
 {
     public static Task<CatalogResult> ScanAsync(CatalogRequest request, CancellationToken cancellationToken = default,
-        IProgress<int>? progress = null) =>
-        Task.Run(() => new Scan(request, cancellationToken, progress).Run(), cancellationToken);
+        IProgress<int>? progress = null, Func<IEnumerable<string>>? steamInstallations = null) =>
+        Task.Run(() => new Scan(request, cancellationToken, progress, steamInstallations ?? FindSteamInstallations).Run(), cancellationToken);
+
+    private static IEnumerable<string> FindSteamInstallations()
+    {
+        foreach (var (hive, keyName) in new[]
+        {
+            (Registry.CurrentUser, @"Software\Valve\Steam"),
+            (Registry.LocalMachine, @"Software\WOW6432Node\Valve\Steam"),
+            (Registry.LocalMachine, @"Software\Valve\Steam"),
+        })
+        {
+            using var key = hive.OpenSubKey(keyName);
+            if ((key?.GetValue("SteamPath") ?? key?.GetValue("InstallPath")) is string path)
+                yield return path;
+        }
+        string conventional = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86), "Steam");
+        if (File.Exists(Path.Combine(conventional, "Steam.exe"))) yield return conventional;
+    }
 
     private sealed class Scan
     {
@@ -24,14 +44,18 @@ internal static class GameCatalogService
         private readonly CatalogRequest _request;
         private readonly CancellationToken _cancel;
         private readonly IProgress<int>? _progress;
+        private readonly Func<IEnumerable<string>> _steamInstallations;
         private readonly string[] _excluded;
         private readonly Dictionary<string, Candidate> _games = new(StringComparer.Ordinal);
         private readonly Dictionary<string, Candidate> _steamFolders = new(Paths);
         private readonly List<CatalogIssue> _issues = [];
-        private int _visited, _manifestBytes;
+        private readonly long _scanStarted = Stopwatch.GetTimestamp();
+        private int _visited, _manifestBytes, _segmentEntries, _reportedGames = -1;
+        private long _segmentStarted;
         private bool _limitReached;
 
-        public Scan(CatalogRequest request, CancellationToken cancel, IProgress<int>? progress)
+        public Scan(CatalogRequest request, CancellationToken cancel, IProgress<int>? progress,
+            Func<IEnumerable<string>> steamInstallations)
         {
             if (request.MaxEntries is < 1 or > 100_000 || request.MaxDepth is < 0 or > 16 ||
                 request.GameRoots.Length + request.SteamLibraryRoots.Length > 128)
@@ -39,6 +63,7 @@ internal static class GameCatalogService
             _request = request;
             _cancel = cancel;
             _progress = progress;
+            _steamInstallations = steamInstallations;
             _excluded = request.ExcludedDirectories.Select(path => CatalogPaths.LocalPath(path)
                 ?? throw new ArgumentException("Excluded directories must be absolute local drive paths.", nameof(request))).ToArray();
         }
@@ -47,21 +72,24 @@ internal static class GameCatalogService
         {
             // Launcher identities take precedence when both sources name the same install folder.
             var steamRoots = new HashSet<string>(Paths);
-            foreach (var raw in _request.SteamLibraryRoots)
+            foreach (var raw in _request.SteamLibraryRoots.Concat(DiscoverSteamLibraries()).Take(128))
             {
-                if (!CanVisitMore()) break;
+                if (!WithinScanTime(raw)) break;
                 if (ApprovedRoot(raw) is { } library && steamRoots.Add(library))
-                    ScanSteam(library);
+                    Segment(() => ScanSteam(library));
             }
 
             var gameRoots = new HashSet<string>(Paths);
             foreach (var root in _request.GameRoots)
             {
-                if (!CanVisitMore()) break;
+                if (!WithinScanTime(root.Path)) break;
                 if (ApprovedRoot(root.Path) is not { } path || !gameRoots.Add(path)) continue;
                 if (_steamFolders.ContainsKey(path)) continue;
-                if (root.IsCollection) ScanCollection(path);
-                else ScanFolder(path);
+                Segment(() =>
+                {
+                    if (root.IsCollection) ScanCollection(path);
+                    else ScanFolder(path);
+                });
             }
 
             foreach (var manual in _request.ManualEntries)
@@ -78,7 +106,42 @@ internal static class GameCatalogService
                 .OrderBy(game => game.DisplayName, Paths).ThenBy(game => game.Id, StringComparer.Ordinal)
                 .ToImmutableArray();
             _cancel.ThrowIfCancellationRequested();
-            return new(entries, [.. _issues], _visited, _limitReached, DateTimeOffset.UtcNow);
+            return new(entries, [.. _issues], _visited, _limitReached, DateTimeOffset.UtcNow)
+            {
+                SteamLibraries = [.. steamRoots.Order(Paths)],
+            };
+        }
+
+        private IEnumerable<string> DiscoverSteamLibraries()
+        {
+            if (!_request.DiscoverSteam) return [];
+            var libraries = new HashSet<string>(Paths);
+            try
+            {
+                foreach (var installation in _steamInstallations().Distinct(Paths).Take(8))
+                {
+                    if (ApprovedRoot(installation) is not { } root) continue;
+                    libraries.Add(root);
+                    foreach (var parent in new[] { "config", "steamapps" })
+                    {
+                        string directory = Path.Combine(root, parent);
+                        string file = Path.Combine(directory, "libraryfolders.vdf");
+                        if (IsExcluded(file) || !File.Exists(file) || !CheckDirectory(directory) || !TryAttributes(file, out _)) continue;
+                        using var stream = File.Open(file, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+                        if (stream.Length > SteamManifestParser.MaxDocumentSize)
+                        {
+                            AddIssue(file, CatalogIssueKind.InvalidManifest);
+                            continue;
+                        }
+                        var bytes = new byte[(int)stream.Length];
+                        stream.ReadExactly(bytes);
+                        if (stream.ReadByte() == -1)
+                            libraries.UnionWith(SteamManifestParser.ParseLibraryFolders(Encoding.UTF8.GetString(bytes)));
+                    }
+                }
+            }
+            catch (Exception ex) when (IsAccessError(ex)) { AddIssue("Steam library configuration", CatalogIssueKind.Unavailable); }
+            return libraries.Order(Paths);
         }
 
         private void ScanSteam(string library)
@@ -112,9 +175,9 @@ internal static class GameCatalogService
                 if (game.InstallDirectories.Add(install))
                 {
                     _steamFolders.TryAdd(install, game);
-                    ScanExecutables(install, 0, game);
+                    Segment(() => ScanExecutables(install, 0, game));
                 }
-            });
+            }, manifests: true);
         }
 
         private SteamAppManifest? ReadManifest(string path)
@@ -147,20 +210,34 @@ internal static class GameCatalogService
             return null;
         }
 
-        private void ScanCollection(string path)
+        private void ScanCollection(string path, int depth = 0)
         {
-            var rootGame = FolderCandidate(path);
+            var directories = new List<string>();
+            var executables = new List<string>();
             VisitEntries(path, (entry, attributes) =>
             {
-                if (attributes.HasFlag(FileAttributes.Directory))
-                {
-                    if (_request.MaxDepth == 0) _limitReached = true;
-                    else if (!_steamFolders.ContainsKey(entry)) ScanFolder(entry, 1);
-                }
-                else AddExecutable(rootGame, entry);
+                if (attributes.HasFlag(FileAttributes.Directory)) directories.Add(entry);
+                else if (IsRendererCandidate(entry)) executables.Add(entry);
             });
-            RemoveEmptyFolder(rootGame);
+            if (depth > 0 && (executables.Count > 0 || directories.Any(IsBinaryDirectory)))
+            {
+                Segment(() => ScanFolder(path, depth));
+                return;
+            }
+            if (executables.Count > 0)
+            {
+                var game = FolderCandidate(path);
+                game.Executables.UnionWith(executables);
+            }
+            foreach (string directory in directories.Where(dir => !_steamFolders.ContainsKey(dir)))
+            {
+                if (depth >= Math.Min(_request.MaxDepth, 4)) { _limitReached = true; break; }
+                ScanCollection(directory, depth + 1);
+            }
         }
+
+        private static bool IsBinaryDirectory(string path) => Path.GetFileName(path).ToUpperInvariant()
+            is "BIN" or "BINARIES" or "WIN64" or "WIN32" or "X64" or "X86";
 
         private void ScanFolder(string path, int depth = 0)
         {
@@ -184,9 +261,19 @@ internal static class GameCatalogService
 
         private static void AddExecutable(Candidate game, string path)
         {
-            if (!CatalogPaths.IsExecutable(path)) return;
-            if (CatalogPaths.IsDiscordProcess(path)) return;
+            if (!IsRendererCandidate(path)) return;
             game.Executables.Add(path);
+        }
+
+        private static bool IsRendererCandidate(string path)
+        {
+            if (!CatalogPaths.IsExecutable(path) || CatalogPaths.IsDiscordProcess(path)) return false;
+            string name = Path.GetFileNameWithoutExtension(path).ToUpperInvariant();
+            return name is not ("SETUP" or "INSTALL" or "INSTALLER" or "LAUNCHER" or "GAMELAUNCHER" or "UPDATE" or "UPDATER"
+                or "CRASHPAD_HANDLER" or "UNITYCRASHHANDLER32" or "UNITYCRASHHANDLER64" or "CRASHREPORTCLIENT")
+                && !name.StartsWith("UNINS", StringComparison.Ordinal)
+                && !name.StartsWith("VC_REDIST", StringComparison.Ordinal)
+                && !name.EndsWith("CRASHREPORTER", StringComparison.Ordinal);
         }
 
         private void AddManual(ManualCatalogEntry manual)
@@ -269,24 +356,32 @@ internal static class GameCatalogService
             return true;
         }
 
-        private void VisitEntries(string directory, Action<string, FileAttributes> visit)
+        private void VisitEntries(string directory, Action<string, FileAttributes> visit, bool manifests = false)
         {
+            if (!CheckDirectory(directory)) return;
             try
             {
-                using var entries = Directory.EnumerateFileSystemEntries(directory).GetEnumerator();
-                while (CanVisitMore() && entries.MoveNext())
+                var source = new FileSystemEnumerable<(string Path, FileAttributes Attributes)>(directory,
+                    (ref FileSystemEntry entry) => (entry.ToFullPath(), entry.Attributes),
+                    new EnumerationOptions { IgnoreInaccessible = false, AttributesToSkip = FileAttributes.Hidden | FileAttributes.System });
+                using var entries = source.GetEnumerator();
+                while (CanVisitMore(directory) && entries.MoveNext())
                 {
                     _cancel.ThrowIfCancellationRequested();
+                    var (path, attributes) = entries.Current;
+                    string leaf = Path.GetFileName(path);
+                    if (manifests ? !leaf.StartsWith("appmanifest_", StringComparison.OrdinalIgnoreCase)
+                        : !attributes.HasFlag(FileAttributes.Directory) && !CatalogPaths.IsExecutable(path)) continue;
                     _visited++;
-                    if (_progress != null && (_visited == 1 || _visited % 256 == 0))
+                    _segmentEntries++;
+                    if (!CatalogPaths.SafeLeaf(leaf) || IgnoredNames.Contains(leaf) || IsExcluded(path)) continue;
+                    if (attributes.HasFlag(FileAttributes.ReparsePoint)) AddIssue(path, CatalogIssueKind.ReparsePoint);
+                    else visit(path, attributes);
+                    if (_progress != null && _reportedGames != _games.Count)
                     {
-                        _progress.Report(_visited);
+                        _progress.Report(_reportedGames = _games.Count);
                         _cancel.ThrowIfCancellationRequested();
                     }
-                    string path = entries.Current;
-                    string leaf = Path.GetFileName(path);
-                    if (!CatalogPaths.SafeLeaf(leaf) || IgnoredNames.Contains(leaf) || IsExcluded(path)) continue;
-                    if (TryAttributes(path, out var attributes)) visit(path, attributes);
                 }
             }
             catch (Exception ex) when (IsAccessError(ex)) { AddIssue(directory, CatalogIssueKind.Unavailable); }
@@ -307,12 +402,39 @@ internal static class GameCatalogService
 
         private bool IsExcluded(string path) => _excluded.Any(directory => CatalogPaths.IsWithin(path, directory));
 
-        private bool CanVisitMore()
+        private bool CanVisitMore(string directory)
         {
             _cancel.ThrowIfCancellationRequested();
-            if (_visited < _request.MaxEntries) return true;
+            if (!WithinScanTime(directory)) return false;
+            if (_segmentEntries < _request.MaxEntries && Stopwatch.GetElapsedTime(_segmentStarted) < TimeSpan.FromSeconds(8)) return true;
             _limitReached = true;
+            AddIssue(directory, CatalogIssueKind.Incomplete);
             return false;
+        }
+
+        private bool WithinScanTime(string path)
+        {
+            if (Stopwatch.GetElapsedTime(_scanStarted) < TimeSpan.FromSeconds(45)) return true;
+            _limitReached = true;
+            AddIssue(path, CatalogIssueKind.Incomplete);
+            return false;
+        }
+
+        private void Segment(Action scan)
+        {
+            int previousEntries = _segmentEntries, previousManifestBytes = _manifestBytes;
+            long previousStarted = _segmentStarted;
+            _segmentEntries = 0;
+            _manifestBytes = 0;
+            long started = Stopwatch.GetTimestamp();
+            _segmentStarted = started;
+            try { scan(); }
+            finally
+            {
+                _segmentEntries = previousEntries;
+                _manifestBytes = previousManifestBytes;
+                _segmentStarted = previousStarted + Stopwatch.GetTimestamp() - started;
+            }
         }
 
         private void AddIssue(string path, CatalogIssueKind kind)
@@ -329,8 +451,36 @@ internal static class GameCatalogService
             public HashSet<string> InstallDirectories { get; } = new(Paths);
             public HashSet<string> Executables { get; } = new(Paths);
 
-            public CatalogEntry ToEntry(CatalogRules rules) =>
-                new(Id, name, source, [.. InstallDirectories.Order(Paths)], [.. Executables.Order(Paths)], rules);
+            public CatalogEntry ToEntry(CatalogRules rules)
+            {
+                var ranked = Executables.OrderByDescending(Score).ThenBy(path => path, Paths).ToImmutableArray();
+                string displayName = source == CatalogSource.Folder
+                    ? ranked.Take(6).Select(ReadProductName).FirstOrDefault(value => value != null) ?? name
+                    : name;
+                return new(Id, displayName, source, [.. InstallDirectories.Order(Paths)], ranked, rules);
+            }
+
+            private int Score(string path)
+            {
+                string stem = Path.GetFileNameWithoutExtension(path);
+                if (stem.Equals(name, StringComparison.OrdinalIgnoreCase)) return 3;
+                if (stem.EndsWith("-Win64-Shipping", StringComparison.OrdinalIgnoreCase)) return 2;
+                return stem.EndsWith("Helper", StringComparison.OrdinalIgnoreCase) ? 0 : 1;
+            }
+
+            private static string? ReadProductName(string path)
+            {
+                try
+                {
+                    var version = FileVersionInfo.GetVersionInfo(path);
+                    return new[] { version.ProductName, version.FileDescription }.Select(value => value?.Trim())
+                        .FirstOrDefault(value => value is { Length: >= 2 and <= 100 } && value.Any(char.IsLetter) &&
+                            !value.Any(char.IsControl) && !value.EndsWith(".exe", StringComparison.OrdinalIgnoreCase) &&
+                            !new[] { "Unreal Engine", "Unity", "BootstrapPackagedGame", "Microsoft® Windows® Operating System" }
+                                .Contains(value, Paths));
+                }
+                catch (Exception ex) when (IsAccessError(ex)) { return null; }
+            }
         }
     }
 }

@@ -21,7 +21,7 @@ internal static class SteamManifestParser
             ? new(id, name.Trim(), install!) : null;
     }
 
-    /// <summary>Suggestions only. The caller must explicitly approve roots before a scan.</summary>
+    /// <summary>Reads local library locations declared by Steam.</summary>
     public static ImmutableArray<string> ParseLibraryFolders(string text)
     {
         var folders = Parse(text)?.GetValueOrDefault("libraryfolders")?.Children;

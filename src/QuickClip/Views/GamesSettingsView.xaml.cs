@@ -10,9 +10,9 @@ namespace QuickClip.Views;
 public partial class GamesSettingsView : UserControl
 {
     private static readonly TimeSpan ScanInterval = TimeSpan.FromMinutes(15);
-    private sealed record RootRow(string Path, bool Steam)
+    private sealed record RootRow(string Path, bool Steam, bool Automatic = false, bool Excluded = false)
     {
-        public override string ToString() => (Steam ? "Steam · " : "Game folder · ") + Path;
+        public override string ToString() => (Excluded ? "Excluded · " : Automatic ? "Detected Steam · " : Steam ? "Steam · " : "Game folder · ") + Path;
     }
     private sealed record GameRow(CatalogEntry Entry, string Summary, string Action);
     private readonly DispatcherTimer _timer = new() { Interval = ScanInterval };
@@ -26,6 +26,7 @@ public partial class GamesSettingsView : UserControl
     {
         InitializeComponent();
         Classification.ItemsSource = Enum.GetValues<AppClassification>();
+        Render();
         _timer.Tick += async (_, _) => await AutoScanIfDueAsync();
         IsVisibleChanged += async (_, _) =>
         {
@@ -68,8 +69,8 @@ public partial class GamesSettingsView : UserControl
     private async Task RunScanAsync()
     {
         if (_scan != null) return;
-        var request = State.Request;
-        if (request.GameRoots.IsEmpty && request.SteamLibraryRoots.IsEmpty)
+        var request = State.Request with { DiscoverSteam = State.AutoScan };
+        if (!request.DiscoverSteam && request.GameRoots.IsEmpty && request.SteamLibraryRoots.IsEmpty)
         {
             Status.Text = "Approve a Steam library or game folder to scan.";
             return;
@@ -79,17 +80,17 @@ public partial class GamesSettingsView : UserControl
         _lastStarted = TimeProvider.System.GetTimestamp();
         ScanButton.IsEnabled = false;
         CancelButton.IsEnabled = true;
-        Status.Text = "Scanning approved folders…";
+        Status.Text = "Scanning game libraries…";
         try
         {
             var progress = new Progress<int>(count =>
             {
-                if (_scan == scan && !scan.IsCancellationRequested) Status.Text = $"Scanning… {count:N0} entries checked.";
+                if (_scan == scan && !scan.IsCancellationRequested) Status.Text = $"Scanning… {count:N0} games found.";
             });
             var result = await GameCatalogService.ScanAsync(request, scan.Token, progress);
             scan.Token.ThrowIfCancellationRequested();
             SetState(GameCatalogRuntime.WithScan(State, result));
-            Status.Text = result.LimitReached ? "Scan limit reached. Some earlier entries need review."
+            Status.Text = result.LimitReached ? $"Found {result.Entries.Length:N0} games. Some sources could not finish."
                 : result.Issues.IsEmpty ? "Scan complete."
                 : $"Scan completed with {result.Issues.Length:N0} reported issue(s). Expand Approved folders to review the scan report.";
         }
@@ -112,10 +113,15 @@ public partial class GamesSettingsView : UserControl
 
     private void Steam_Click(object sender, RoutedEventArgs e) => Approve(true);
     private void Folder_Click(object sender, RoutedEventArgs e) => Approve(false);
+    private void Collection_Click(object sender, RoutedEventArgs e) => Approve(false, collection: true);
 
-    private void Approve(bool steam)
+    private void Approve(bool steam, bool collection = false)
     {
-        var dialog = new OpenFolderDialog { Title = steam ? "Approve a Steam library containing steamapps" : "Approve a single game folder" };
+        var dialog = new OpenFolderDialog
+        {
+            Title = steam ? "Approve a Steam library containing steamapps" :
+                collection ? "Choose a folder containing multiple games" : "Choose one game's install folder",
+        };
         if (dialog.ShowDialog(Window.GetWindow(this)) != true) return;
         if (CatalogPaths.LocalPath(dialog.FolderName) is not { Length: > 3 } path)
         {
@@ -132,7 +138,7 @@ public partial class GamesSettingsView : UserControl
             : request.GameRoots.Any(root => string.Equals(root.Path, path, StringComparison.OrdinalIgnoreCase))) return;
         _scan?.Cancel();
         SetState(State with { Request = steam ? request with { SteamLibraryRoots = request.SteamLibraryRoots.Add(path) }
-            : request with { GameRoots = request.GameRoots.Add(new(path)) } });
+            : request with { GameRoots = request.GameRoots.Add(new(path, collection)) } });
         Status.Text = "Folder approved. Select Scan Now to scan it.";
     }
 
@@ -141,9 +147,14 @@ public partial class GamesSettingsView : UserControl
         if (Roots.SelectedItem is not RootRow root) return;
         _scan?.Cancel();
         var request = State.Request;
-        SetState(State with { Request = root.Steam ? request with { SteamLibraryRoots = request.SteamLibraryRoots.Remove(root.Path) }
+        SetState(State with { Request = root.Excluded
+            ? request with { ExcludedDirectories = request.ExcludedDirectories.Remove(root.Path) }
+            : root.Automatic
+            ? request with { ExcludedDirectories = request.ExcludedDirectories.Add(root.Path) }
+            : root.Steam ? request with { SteamLibraryRoots = request.SteamLibraryRoots.Remove(root.Path) }
             : request with { GameRoots = request.GameRoots.RemoveAll(row => row.Path == root.Path) } });
-        Status.Text = "Approval removed.";
+        Status.Text = root.Excluded ? "Exclusion removed. Scan again to find this source."
+            : root.Automatic ? "Steam library excluded." : "Approval removed.";
     }
 
     private void Add_Click(object sender, RoutedEventArgs e) => PickExecutables(null);
@@ -241,8 +252,13 @@ public partial class GamesSettingsView : UserControl
         var state = State;
         AutoScan.IsChecked = state.AutoScan;
         Roots.ItemsSource = state.Request.SteamLibraryRoots.Select(path => new RootRow(path, true))
-            .Concat(state.Request.GameRoots.Select(root => new RootRow(root.Path, false))).ToArray();
-        LastScan.Text = state.Snapshot is { } scan ? $"Last scan {scan.CompletedAt.ToLocalTime():g} · {scan.VisitedEntries:N0} entries checked"
+            .Concat((state.Snapshot?.SteamLibraries ?? []).Where(path =>
+                !state.Request.SteamLibraryRoots.Contains(path, StringComparer.OrdinalIgnoreCase) &&
+                !state.Request.ExcludedDirectories.Contains(path, StringComparer.OrdinalIgnoreCase))
+                .Select(path => new RootRow(path, true, Automatic: true)))
+            .Concat(state.Request.GameRoots.Select(root => new RootRow(root.Path, false)))
+            .Concat(state.Request.ExcludedDirectories.Select(path => new RootRow(path, false, Excluded: true))).ToArray();
+        LastScan.Text = state.Snapshot is { } scan ? $"Last scan {scan.CompletedAt.ToLocalTime():g} · {scan.Entries.Length:N0} games found"
             : "No completed scan.";
         ScanIssues.ItemsSource = state.Snapshot?.Issues.Select(issue => $"{issue.Kind} · {issue.Location}").ToArray();
         RenderRows();
