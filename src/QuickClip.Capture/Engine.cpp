@@ -552,7 +552,14 @@ namespace qc
             int64_t sourceOffsetUs = INT64_MIN; // maps the capture source's timestamps onto the engine clock
             // Desktop Duplication falling behind the frame rate is logged with where the time went: waiting for the
             // next picture, or handing it to the encoder. (Graphics Capture sends frames only when the screen changes.)
-            int64_t paceStartUs = NowUs(), paceWaitUs = 0, paceEncodeUs = 0, paceFrames = 0, paceSkipped = 0, paceCaptured = 0, pacePackets = 0;
+            int64_t paceStartUs = NowUs(), paceWaitUs = 0, paceEncodeUs = 0, paceFrames = 0, paceSkipped = 0, paceCaptured = 0;
+            const bool diagnostics = s->videoOptions.diagnostics != 0;
+            struct
+            {
+                int64_t scaleUs = 0, scaled = 0, rejected = 0;
+                int64_t submitUs = 0, drainUs = 0, ringUs = 0, packets = 0;
+                int64_t maxWaitUs = 0, maxSubmitUs = 0;
+            } timing;
             auto current = [&] { return !s->stop && s->generation == generation; };
             auto closeCapture = [&] {
                 pipe.Close();
@@ -675,7 +682,8 @@ namespace qc
                         s->videoSample.clear();
                         s->frameTimes.clear();
                         paceStartUs = NowUs();
-                        paceWaitUs = paceEncodeUs = paceFrames = paceSkipped = paceCaptured = pacePackets = 0;
+                        paceWaitUs = paceEncodeUs = paceFrames = paceSkipped = paceCaptured = 0;
+                        timing = {};
                         Log("%s", description);
                     }
                     lastKeyIndex = -1;
@@ -702,7 +710,6 @@ namespace qc
                 int64_t waitStartUs = NowUs();
                 int ret = av_buffersink_get_frame(pipe.sink, frame);
                 int64_t gotFrameUs = NowUs();
-                paceWaitUs += gotFrameUs - waitStartUs;
                 if (!current())
                 {
                     av_frame_unref(frame);
@@ -722,6 +729,10 @@ namespace qc
                     closeCapture();
                     continue;
                 }
+                ++paceCaptured;
+                const int64_t waitUs = gotFrameUs - waitStartUs;
+                paceWaitUs += waitUs;
+                if (diagnostics) timing.maxWaitUs = std::max(timing.maxWaitUs, waitUs);
 
                 std::string scaleError;
                 if (!pipe.scaler.Apply(frame, scaleError))
@@ -735,8 +746,12 @@ namespace qc
 
                 // Place the frame on the fixed frame-rate grid by when it was captured. The source's own
                 // timestamps are exact; anchor them to the engine clock once (again if they ever drift apart).
-                if (s->videoOptions.diagnostics) ++paceCaptured;
                 int64_t now = NowUs();
+                if (diagnostics && pipe.scaler.Frames())
+                {
+                    timing.scaleUs += now - gotFrameUs;
+                    ++timing.scaled;
+                }
                 int64_t captureUs = now - s->t0;
                 if (frame->pts != AV_NOPTS_VALUE)
                 {
@@ -754,6 +769,7 @@ namespace qc
                 else index = std::llround(slot);
                 if (index < 0)
                 {
+                    if (diagnostics) ++timing.rejected;
                     av_frame_unref(frame);
                     continue;
                 }
@@ -769,7 +785,9 @@ namespace qc
                     lastKeyIndex = index;
                 }
                 else frame->pict_type = AV_PICTURE_TYPE_NONE;
+                const int64_t submitStartUs = diagnostics ? NowUs() : 0;
                 ret = avcodec_send_frame(pipe.encoder, frame);
+                const int64_t submitEndUs = diagnostics ? NowUs() : 0;
                 av_frame_unref(frame);
                 if (ret < 0)
                 {
@@ -778,39 +796,60 @@ namespace qc
                     continue;
                 }
                 bool flatPicture = false;
+                if (diagnostics)
+                {
+                    const int64_t submitUs = submitEndUs - submitStartUs;
+                    timing.submitUs += submitUs;
+                    timing.maxSubmitUs = std::max(timing.maxSubmitUs, submitUs);
+                }
                 while (avcodec_receive_packet(pipe.encoder, packet) == 0)
                 {
-                    if (s->videoOptions.diagnostics) ++pacePackets;
                     bool key = (packet->flags & AV_PKT_FLAG_KEY) != 0;
                     int flatBelow = s->testFlatBelow > 0 ? s->testFlatBelow.load() : std::max(4096, pipe.encoder->width * pipe.encoder->height / 1000);
                     if (key && flat.Keyframe(packet->size, flatBelow, now)) flatPicture = true;
                     int64_t timeUs = packet->pts * 1000000 / s->fps;
+                    const int64_t ringStartUs = diagnostics ? NowUs() : 0;
                     {
                         std::lock_guard guard(s->videoLock);
                         if (s->generation == generation) s->ring.Push(av_packet_clone(packet), 0, timeUs, key);
                     }
+                    if (diagnostics)
+                    {
+                        ++timing.packets;
+                        timing.ringUs += NowUs() - ringStartUs;
+                    }
                     av_packet_unref(packet);
                 }
                 s->lastFrameUs = now;
-                paceEncodeUs += NowUs() - gotFrameUs;
-                if (++paceFrames, NowUs() - paceStartUs >= (s->videoOptions.diagnostics ? 5'000'000 : 30'000'000))
+                const int64_t pipelineEndUs = NowUs();
+                paceEncodeUs += pipelineEndUs - gotFrameUs;
+                if (diagnostics) timing.drainUs += pipelineEndUs - submitEndUs;
+                if (++paceFrames, pipelineEndUs - paceStartUs >= (diagnostics ? 5'000'000 : 30'000'000))
                 {
-                    double seconds = (NowUs() - paceStartUs) / 1e6;
-                    if (s->videoOptions.diagnostics)
+                    double seconds = (pipelineEndUs - paceStartUs) / 1e6;
+                    if (diagnostics)
                     {
-                        char sample[256];
-                        snprintf(sample, sizeof sample, "%.1f captured / %.1f encoded FPS | %lld missing timeline slots | %.2f ms capture wait / %.2f ms encoder path",
-                            paceCaptured / seconds, pacePackets / seconds, static_cast<long long>(paceSkipped),
-                            paceWaitUs / 1000.0 / paceCaptured, paceEncodeUs / 1000.0 / paceFrames);
+                        char sample[640];
+                        snprintf(sample, sizeof sample,
+                            "%.1f source / %.1f submitted / %.1f encoded FPS | %lld same-slot rejects | %lld missing timeline slots\n"
+                            "CPU wall time in ms: source wait %.2f (max %.2f), accepted frame pipeline %.2f, "
+                            "local scale %.2f (%lld frames), submit %.2f (max %.2f), output handling %.2f, replay insertion %.2f per packet",
+                            paceCaptured / seconds, paceFrames / seconds, timing.packets / seconds,
+                            static_cast<long long>(timing.rejected), static_cast<long long>(paceSkipped),
+                            paceWaitUs / 1000.0 / paceCaptured, timing.maxWaitUs / 1000.0, paceEncodeUs / 1000.0 / paceFrames,
+                            timing.scaled ? timing.scaleUs / 1000.0 / timing.scaled : 0.0, static_cast<long long>(timing.scaled),
+                            timing.submitUs / 1000.0 / paceFrames, timing.maxSubmitUs / 1000.0,
+                            timing.drainUs / 1000.0 / paceFrames, timing.packets ? timing.ringUs / 1000.0 / timing.packets : 0.0);
                         std::lock_guard guard(s->statsLock);
                         s->videoSample = sample;
                         Log("%s", sample);
                     }
                     if (pipe.duplication && paceFrames < seconds * s->fps * 0.9)
                         Log("capture falling behind: %.1f fps of %d (%lld frames skipped); per frame %.2f ms waiting for the picture, %.2f ms encoding",
-                            paceFrames / seconds, s->fps, paceSkipped, paceWaitUs / 1000.0 / paceFrames, paceEncodeUs / 1000.0 / paceFrames);
-                    paceStartUs = NowUs();
-                    paceWaitUs = paceEncodeUs = paceFrames = paceSkipped = paceCaptured = pacePackets = 0;
+                            paceFrames / seconds, s->fps, paceSkipped, paceWaitUs / 1000.0 / paceCaptured, paceEncodeUs / 1000.0 / paceFrames);
+                    paceStartUs = pipelineEndUs;
+                    paceWaitUs = paceEncodeUs = paceFrames = paceSkipped = paceCaptured = 0;
+                    timing = {};
                 }
                 {
                     std::lock_guard guard(s->statsLock);
