@@ -20,7 +20,7 @@ Native enumeration and crop geometry use EnumDisplaySettings physical pixels; na
 
 ## Encoder options and interpretation
 
-Default NVENC settings remain **P4 / HQ**, VBR, configured target bitrate, 1.5× peak, 2× VBV buffer, no B frames, a one-second GOP and clock-forced IDR frames. Lookahead and multipass are not explicitly enabled; the bundled encoder/preset supplies their defaults. P3 and P2 keep the bitrate, tuning, GOP and frame rate settings but can reduce compression efficiency. They need moving-game quality comparisons before being preferred. These controls affect recording, not editor export presets.
+The original measurement baseline used **P4 / HQ**, VBR, configured target bitrate, 1.5× peak, 2× VBV buffer, no B frames, a one-second GOP and clock-forced IDR frames. Lookahead and multipass are not explicitly enabled; the bundled encoder/preset supplies their defaults. P3 and P2 keep the bitrate, tuning, GOP and frame rate settings but can reduce compression efficiency. New Personal profiles now recommend P2/HQ based on the subsequent user gameplay observations; saved presets and stock P4 defaults are preserved. See [the follow-up assessment](performance-handoff.md). Objective quality equivalence remains unverified. These controls affect recording, not editor export presets.
 
 Desktop Duplication repeats frames to maintain the requested cadence on static desktops. WGC can supply irregular frames; the engine maps them onto the target FPS timeline and skips repeated slots. One observed WGC sample supplied 144 frames/s but encoded about 60. Turning off duplication without redesigning tail duration/keyframe handling could break replay duration, so no static-frame suppression was added.
 
