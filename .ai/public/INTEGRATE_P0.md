@@ -38,3 +38,28 @@ Commit and push the isolated integration branch, then open a new PR explicitly *
 
 ## Rationale for retaining Chat 4
 GitHub can perform straightforward reviewed PR merges, but it does not execute the user's local Windows/native full-stack environment or reliably resolve cross-branch C++/WPF conflicts with empirical tests. Chat 4 remains the dedicated **local integrator and validator**. The GitHub reviewer can safely perform the final merge after integration CI/manual gating; Chat 4 should not duplicate that review role.
+
+## Addendum: 2026-11-11 user decisions — read before implementing
+
+**The current capture and Games PRs were written before these requirements.** Read `CAPTURE_PLATFORM_POLICY.md` and `GAME_DISCOVERY_SCOPE.md` before touching any merge resolution or settings labels. The documents override older blanket "Game First is unavailable on Personal" language **when the installed Windows version and properly authorized backend can actually suppress the border**; they do NOT override the no-border requirement on Windows 10.
+
+### PR #3 refinement: Windows capability-based default, not unconditional Personal rejection
+- On supported Windows 11 configurations, prefer a **verified, authorized, borderless WGC game-window provider** by default when available. Runtime-check the property/ABI and verify correct user consent `GraphicsCaptureAccess.RequestAccessAsync(Borderless)` and `graphicsCaptureWithoutBorder` package capability. The FFmpeg filter's default `display_border=false` does not satisfy the consent requirement on its own.
+- Because current portable builds do not have a verified package identity and permission workflow, assess a bounded capability/packaging integration or prototype honestly; don't pretend every Win11 device is automatically authorized. A supported API version with denied consent must not silently display a border under a "borderless" mode.
+- Windows 10 build 19045: explicitly identify it as a **Windows capture API limitation** and give a plain-language entire selected display (Desktop Duplication) option, with transparency that visible unrelated windows can be recorded. User-controlled default may use the monitor **only after explicit consent**. Do not silently change existing game-only intent.
+- DDA may or may not be faster than WGC; measure under identical resolution/output/FPS/preset conditions. Show prospective performance cost as unknown pending benchmarks, not invented numbers.
+- If the Win11 permission/packaging path requires another isolated milestone, keep code and UI truthful, record exact blockers, and DO NOT declare Windows 11 game-only borderless support completed.
+
+### PR #4 refinement: default launcher discovery and manual scoped roots
+- The user wants a **default visible list of recognized launcher locations/sources** (Steam, Epic, Battle.net, EA/Origin, Ubisoft, GOG, Riot, Xbox/Game Pass, as supported), not manual Steam-only setup forever. Prefer install metadata/registry/package records to guessing based on EXE name or folder name. Treat typical directories as candidate locations, not proof of a game.
+- Keep current proven Steam/folder/exact-EXE support working and display which additional launcher scanners are supported versus planned. Do not assert automatic Epic/etc detection until code and fixtures exist. For those not yet supported, add separate scoped Chat 3 tasks after integrated PR (unless safely implementable and testable now without destabilizing merge).
+- Manual additions include a precise single EXE and custom folder root (e.g. `D:/FreeWare/`). A path-scoped filename/glob pattern is a user request to track; do not offer a control unless bounded path matching, scope preview, confirmation and real persistence/recorder effects are implemented.
+- Discord can be manually selected as an **application** capture target in a future explicit app-target mode. `Update.exe` by basename must NEVER globally identify Discord: verify installed Discord path/process ancestry and explicit consent. Discord audio/focus continuity remains P0; automatic capture of Discord calls/pop-outs as extra video is not part of this merge.
+- Keep the mandatory fixes for partial scans and exclusion persistence, Game Bar-unregistered windowed Steam games, and renamed active identities. Games Enable/Disable must be enforced by real recorder policy or clearly labeled eligibility rather than falsely promising recording stops.
+- Preserve existing behavior for alternate Steam libraries, offline roots, manual entries and disabled rules. Add evidence-based tests for them.
+
+### Orchestration startup order
+The owner creates `0 — Orchestrator` and **initializes it first**. Chat 0 inventories Chats 1–4 and their worktrees, reads these docs, and establishes a dispatch plan. Only after it explicitly dispatches/instructs local execution should `4 — Integrate Branches` start this integration. If Chat 0 cannot programmatically address existing chats, use its manual dispatch output: the owner pastes the instructions into Chat 4. Do not block work by pretending automatic cross-chat commands succeeded.
+
+### Acceptance priority and stop conditions
+Do not start a broad launcher ecosystem rewrite during a time-critical capture/Games merge. Prove the core supported source and game toggles first, then schedule bounded launcher adapters through Chat 3. Test all platforms represented by code; Windows 11 no-border acceptance remains unverified without supervised test on a compatible Windows 11 device/build. No speculative graphics hook in protected games.

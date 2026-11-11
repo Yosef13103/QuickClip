@@ -7,6 +7,8 @@ The original upstream-tracking branch is `main`. All Personal feature PRs and in
 - [0 — Orchestrator operating contract](ORCHESTRATOR.md)
 - [4 — Current P0 integration handoff (PR #3 and PR #4)](INTEGRATE_P0.md)
 - [P0 sprint status and PR decisions](SPRINT_STATUS.md)
+- [Capture platform policy: Windows 11 permission and Windows 10 display fallback](CAPTURE_PLATFORM_POLICY.md)
+- [Game discovery: launcher manifests, custom folders, EXE/path patterns and Discord](GAME_DISCOVERY_SCOPE.md)
 - [Shared product, capture and Games acceptance contract](P0_SPRINT_CONTRACT.md)
 - [Numeric quality gates](QUALITY_GATES.md) · [machine-readable tracker](TRACKER.json) · `python progress.py`
 - [Application architecture](ARCHITECTURE.md)
