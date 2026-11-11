@@ -76,6 +76,7 @@ public partial class GalleryView : UserControl
         ProjectPane.EditRequested += path => OpenRequested?.Invoke(path);
         ProjectPane.ProjectChanged += QueueReload;
         Recorder.Instance.ClipSaved += OnClipSaved;
+        ClipDeletion.Current.Changed += OnDeletionChanged;
         IsVisibleChanged += (_, _) =>
         {
             if (IsVisible && (_loadedRoot != AppSettings.Current.ClipsFolder ||
@@ -89,6 +90,7 @@ public partial class GalleryView : UserControl
     {
         _released = true;
         Recorder.Instance.ClipSaved -= OnClipSaved;
+        ClipDeletion.Current.Changed -= OnDeletionChanged;
         _watcher?.Dispose();
         _watcher = null;
         _reloadTimer.Stop();
@@ -367,6 +369,8 @@ public partial class GalleryView : UserControl
 
     private void Card_PreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
     {
+        for (var node = e.OriginalSource as DependencyObject; node != null && node != sender; node = VisualTreeHelper.GetParent(node))
+            if (node is ButtonBase) { _dragStart = null; return; }
         _dragStart = e.GetPosition(this);
         _dragItem = ItemOf(sender);
         _dragged = false;
@@ -456,18 +460,36 @@ public partial class GalleryView : UserControl
         if (ItemOf(sender) is { } item) item.IsSelected = true;
     }
 
-    private void DeleteClip_Click(object sender, RoutedEventArgs e)
+    private void OnDeletionChanged() => Dispatcher.BeginInvoke(() =>
     {
+        UndoDeleteButton.IsEnabled = ClipDeletion.Current.CanUndo;
+        QueueReload();
+    });
+
+    private async void DeleteClip_Click(object sender, RoutedEventArgs e)
+    {
+        e.Handled = true;
+        _dragStart = null;
         if (ItemOf(sender) is not { } item) return;
-        if (!RecycleBin.TrySend(item.Path))
-        {
-            MessageBox.Show(Window.GetWindow(this), $"Couldn't move \"{Path.GetFileName(item.Path)}\" to the Recycle Bin.", "QuickClip",
-                MessageBoxButton.OK, MessageBoxImage.Warning);
-            return;
-        }
-        item.IsSelected = false;
-        _clips.Remove(item);
-        RebuildFolders();
+        await DeleteClipsAsync(ClipsFor(item));
+    }
+
+    private async void DeleteSelected_Click(object sender, RoutedEventArgs e) => await DeleteClipsAsync(SelectedPaths());
+
+    private async Task DeleteClipsAsync(List<string> paths)
+    {
+        var result = await ClipDeletion.Current.DeleteAsync(paths, batch => ClipDeletion.Confirm(Window.GetWindow(this), batch));
+        if (result.Cancelled) return;
+        foreach (var clip in _clips.Where(c => paths.Contains(c.Path, StringComparer.OrdinalIgnoreCase))) clip.IsSelected = false;
+        ShowStatus($"{result.Deleted} clip(s) sent to the Recycle Bin." + (result.Failed > 0 ? $" {result.Failed} could not be recycled and were left in place." : " Use Undo delete to restore."));
+        await ReloadAsync();
+    }
+
+    private async void UndoDelete_Click(object sender, RoutedEventArgs e)
+    {
+        var result = ClipDeletion.Current.Undo();
+        ShowStatus($"Restored {result.Deleted} clip(s)." + (result.Failed > 0 ? " Some could not be restored; check the Windows Recycle Bin. Existing files were preserved." : ""));
+        await ReloadAsync();
     }
 
     private void OpenFolder_Click(object sender, RoutedEventArgs e)

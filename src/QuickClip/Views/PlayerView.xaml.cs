@@ -323,24 +323,27 @@ public partial class PlayerView : UserControl
         if (Current is { } clip) Process.Start(new ProcessStartInfo("explorer.exe", $"/select,\"{clip.Path}\"") { UseShellExecute = true });
     }
 
+    private bool _deleting;
     private async void Delete_Click(object sender, RoutedEventArgs e)
     {
-        if (Current is not { } clip || _player == null) return;
-        Unload();
-        // mpv lets go of the file as it stops, which can take a moment.
-        bool deleted = false;
-        for (int attempt = 0; attempt < 20 && !(deleted = RecycleBin.TrySend(clip.Path)); attempt++)
-            await Task.Delay(100);
-        if (!deleted)
+        if (_deleting || Current is not { } clip || _player == null) return;
+        _deleting = true;
+        try
         {
-            MessageBox.Show(Window.GetWindow(this), $"Couldn't move \"{Path.GetFileName(clip.Path)}\" to the Recycle Bin.", "QuickClip",
-                MessageBoxButton.OK, MessageBoxImage.Warning);
-            _ = OpenAsync(_index);
-            return;
+            var result = await ClipDeletion.Current.DeleteAsync([clip.Path],
+                batch => ClipDeletion.Confirm(Window.GetWindow(this), batch), Unload);
+            if (result.Cancelled) return;
+            if (result.Deleted == 0)
+            {
+                MessageBox.Show(Window.GetWindow(this), "Couldn't send this clip to the Recycle Bin. It was left in place.", "QuickClip",
+                    MessageBoxButton.OK, MessageBoxImage.Warning);
+                _ = OpenAsync(_index);
+                return;
+            }
+            _clips.Clear();
+            BackRequested?.Invoke();
         }
-        _clips.RemoveAt(_index);
-        if (_clips.Count == 0) BackRequested?.Invoke();
-        else _ = OpenAsync(Math.Min(_index, _clips.Count - 1));
+        finally { _deleting = false; }
     }
 
     // ------------------------------------------------------------------------------------------
@@ -421,7 +424,7 @@ public partial class PlayerView : UserControl
             case Key.PageDown: Step(1); break;
             case Key.E: Edit_Click(this, e); break;
             case Key.S: Share_Click(this, e); break;
-            case Key.Delete: Delete_Click(this, e); break;
+            case Key.Delete: if (!e.IsRepeat) Delete_Click(this, e); break;
             default: handled = false; break;
         }
         e.Handled = handled;

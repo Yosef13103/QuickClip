@@ -16,6 +16,7 @@ public sealed class RecycleBinTests : IDisposable
     {
         Directory.CreateDirectory(_dir);
         string path = Path.Combine(_dir, name);
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
         File.WriteAllBytes(path, bytes);
         return path;
     }
@@ -46,12 +47,26 @@ public sealed class RecycleBinTests : IDisposable
     }
 
     [OptInFact("QUICKCLIP_TEST_RECYCLE_BIN")]
+    public void A_project_directory_can_be_recycled_and_restored()
+    {
+        string file = TempFile("project/clip.txt".Replace('/', Path.DirectorySeparatorChar), []);
+        string folder = Path.GetDirectoryName(file)!;
+        DateTime since = DateTime.UtcNow.AddSeconds(-1);
+        Assert.True(RecycleBin.TrySend(folder));
+        Assert.False(Directory.Exists(folder));
+        var receipt = RecycleBin.FindLatest(folder, since);
+        Assert.NotNull(receipt);
+        RecycleBin.Restore(receipt, folder);
+        Assert.True(File.Exists(file));
+    }
+
+    [OptInFact("QUICKCLIP_TEST_RECYCLE_BIN")]
     public void A_recycled_file_can_be_found_and_taken_back_out()
     {
         byte[] contents = Encoding.UTF8.GetBytes("the clip before it was edited " + Guid.NewGuid());
         string clip = TempFile("clip.mp4", contents);
         DateTime before = DateTime.UtcNow.AddSeconds(-2);
-        if (!RecycleBin.TrySend(clip)) return; // no Recycle Bin on this drive
+        Assert.True(RecycleBin.TrySend(clip), "Opt-in recovery test requires a working Recycle Bin on the temporary drive.");
 
         var recycled = RecycleBin.FindLatest(clip, before);
         Assert.NotNull(recycled);

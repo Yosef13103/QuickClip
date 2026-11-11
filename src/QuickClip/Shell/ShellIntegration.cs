@@ -131,7 +131,7 @@ internal static class RecycleBin
             if (ReadInfo(info) is not { } entry || entry.DeletedUtc < sinceUtc
                 || !string.Equals(entry.Path, originalPath, StringComparison.OrdinalIgnoreCase)) continue;
             string data = Path.Combine(bin, "$R" + Path.GetFileName(info)[2..]);
-            if (File.Exists(data) && (latest == null || entry.DeletedUtc > latest.DeletedUtc))
+            if (Path.Exists(data) && (latest == null || entry.DeletedUtc > latest.DeletedUtc))
                 latest = new RecycledFile(data, info, entry.Path, entry.DeletedUtc);
         }
         return latest;
@@ -170,43 +170,11 @@ internal static class RecycleBin
     /// <summary>Takes a file out of the Recycle Bin to <paramref name="destination"/>.</summary>
     public static void Restore(RecycledFile file, string destination)
     {
-        File.Move(file.DataPath, destination);
+        if (Directory.Exists(file.DataPath)) Directory.Move(file.DataPath, destination);
+        else File.Move(file.DataPath, destination);
         try { File.Delete(file.InfoPath); } catch { } // a leftover note is an empty entry Explorer tidies away
     }
 
     /// <summary>Moves a file or folder to the Recycle Bin. Returns false if that failed or Windows would have deleted it permanently.</summary>
-    public static bool TrySend(string path)
-    {
-        var op = new SHFILEOPSTRUCT
-        {
-            wFunc = FO_DELETE,
-            pFrom = path + '\0' + '\0',
-            fFlags = FOF_ALLOWUNDO | FOF_NOCONFIRMATION | FOF_SILENT | FOF_NOERRORUI | FOF_WANTNUKEWARNING,
-        };
-        int result = SHFileOperation(ref op);
-        return result == 0 && !op.fAnyOperationsAborted && !File.Exists(path) && !Directory.Exists(path);
-    }
-
-    private const uint FO_DELETE = 0x0003;
-    private const ushort FOF_SILENT = 0x0004;
-    private const ushort FOF_NOCONFIRMATION = 0x0010;
-    private const ushort FOF_ALLOWUNDO = 0x0040;
-    private const ushort FOF_NOERRORUI = 0x0400;
-    private const ushort FOF_WANTNUKEWARNING = 0x4000;
-
-    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
-    private struct SHFILEOPSTRUCT
-    {
-        public IntPtr hwnd;
-        public uint wFunc;
-        public string pFrom;
-        public string? pTo;
-        public ushort fFlags;
-        [MarshalAs(UnmanagedType.Bool)] public bool fAnyOperationsAborted;
-        public IntPtr hNameMappings;
-        public string? lpszProgressTitle;
-    }
-
-    [DllImport("shell32.dll", CharSet = CharSet.Unicode)]
-    private static extern int SHFileOperation(ref SHFILEOPSTRUCT lpFileOp);
+    public static bool TrySend(string path) => ShellRecycle.TrySend(path);
 }

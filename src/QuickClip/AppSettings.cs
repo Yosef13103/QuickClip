@@ -51,6 +51,7 @@ internal sealed class AppSettings
     public string ClipsFolder { get; set; } = AppProfile.ClipsDirectory;
     public string ClipFilenameTemplate { get; set; } = Gallery.ClipNaming.DefaultTemplate;
     public string[] LibraryExclusions { get; set; } = [];
+    public bool ConfirmClipDeletion { get; set; } = true;
 
     // Window behaviour
     public bool MinimizeToTray { get; set; } = true;

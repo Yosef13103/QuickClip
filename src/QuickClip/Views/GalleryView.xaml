@@ -62,6 +62,8 @@
                             </Border>
                         </Grid>
                         <StackPanel Margin="11,8,11,10">
+                            <Button Content="Delete…" Style="{StaticResource TextButton}" HorizontalAlignment="Right" Focusable="False"
+                                    Click="DeleteClip_Click" ToolTip="Send this clip (or the selected clips) to the Recycle Bin" />
                             <TextBlock Text="{Binding Folder}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
                             <TextBlock Margin="0,2,0,0" FontSize="12" Foreground="{StaticResource SubtleText}">
                                 <Run Text="{Binding Ago, Mode=OneWay}" /><Run Text="  ·  " /><Run Text="{Binding SizeText, Mode=OneWay}" />
@@ -156,6 +158,8 @@
             <DockPanel x:Name="ClipsPane" Margin="24,18,10,0">
                 <DockPanel DockPanel.Dock="Top" Margin="0,0,14,12">
                     <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
+                        <Button x:Name="UndoDeleteButton" Content="Undo delete" Style="{StaticResource TextButton}" IsEnabled="False"
+                                Click="UndoDelete_Click" ToolTip="Restore the latest deleted batch without overwriting files" />
                         <Button Style="{StaticResource TextButton}" Click="OpenFolder_Click" ToolTip="Open this folder in Explorer">
                             <StackPanel Orientation="Horizontal">
                                 <TextBlock FontFamily="{StaticResource IconFont}" Text="&#xE838;" VerticalAlignment="Center" Margin="0,0,7,0" />
@@ -180,6 +184,7 @@
                         Margin="0,0,14,14" Visibility="Collapsed">
                     <DockPanel>
                         <StackPanel x:Name="SelectionActions" DockPanel.Dock="Right" Orientation="Horizontal">
+                            <Button Content="Delete selected…" Style="{StaticResource TextButton}" Click="DeleteSelected_Click" />
                             <Button x:Name="AddToProjectButton" Style="{DynamicResource AccentButtonStyle}" Padding="12,5" Focusable="False"
                                     Click="AddToProject_Click">
                                 <StackPanel Orientation="Horizontal">

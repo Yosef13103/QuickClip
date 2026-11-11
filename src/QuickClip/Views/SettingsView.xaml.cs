@@ -201,6 +201,7 @@ public partial class SettingsView : UserControl
             MinTrayCheck.IsChecked = s.MinimizeToTray;
             CloseTrayCheck.IsChecked = s.CloseToTray;
             SoundCheck.IsChecked = s.ClipSound;
+            ConfirmDeleteCheck.IsChecked = s.ConfirmClipDeletion;
             MotionBlurCheck.IsChecked = s.ShareMotionBlur;
             ShowShareSize();
             ShellCheck.IsChecked = SafeIsRegistered();
@@ -406,6 +407,7 @@ public partial class SettingsView : UserControl
         s.MinimizeToTray = MinTrayCheck.IsChecked == true;
         s.CloseToTray = CloseTrayCheck.IsChecked == true;
         s.ClipSound = SoundCheck.IsChecked == true;
+        s.ConfirmClipDeletion = ConfirmDeleteCheck.IsChecked == true;
         s.ShareMotionBlur = MotionBlurCheck.IsChecked == true;
         s.Save();
 
@@ -417,7 +419,7 @@ public partial class SettingsView : UserControl
 
         UpdateEstimates();
         bool recordingSetting = sender != StartupCheck && sender != MinTrayCheck && sender != CloseTrayCheck && sender != SoundCheck
-                                && sender != MotionBlurCheck;
+                                && sender != MotionBlurCheck && sender != ConfirmDeleteCheck;
         if (recordingSetting) ScheduleRecorderRestart();
     }
 
