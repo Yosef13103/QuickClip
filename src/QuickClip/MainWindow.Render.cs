@@ -17,6 +17,29 @@ public partial class MainWindow
         var report = new System.Text.StringBuilder();
         await Task.Delay(5000);
         SaveVisual(Path.Combine(dir, "gallery.png"));
+        report.AppendLine($"gallery realized rows: {Gallery.RealizedRowsForRender}");
+
+        if (Gallery.OpenFirstForRender())
+        {
+            for (int i = 0; i < 60 && _editor?.CurrentFile == null; i++) await Task.Delay(100);
+            if (_editor?.CurrentFile is not { } opened || EditorNav.IsChecked != true)
+                throw new InvalidOperationException("Gallery did not open the unified editor.");
+            double originalEnd = _editor.TrimEndForRender;
+            _editor.SetTrimForRender(originalEnd * 0.75);
+            double position = _editor.PositionForRender;
+            double trim = _editor.TrimEndForRender;
+            SaveVisual(Path.Combine(dir, "unified-editor.png"));
+            _editor.ToggleModeForRender();
+            if (!_editor.ViewingForRender || _editor.CurrentFile != opened ||
+                _editor.PositionForRender != position || _editor.TrimEndForRender != trim)
+                throw new InvalidOperationException("View mode lost clip, playhead or trim state.");
+            SaveVisual(Path.Combine(dir, "unified-view.png"));
+            _editor.ToggleModeForRender();
+            _editor.SetTrimForRender(originalEnd);
+            report.AppendLine("gallery opened unified editor and mode changes preserved clip, playhead and trim");
+            report.AppendLine(await _editor.MeasureAccordionForRenderAsync());
+            ShowPage(Gallery);
+        }
 
         if (Gallery.PlayFirstForRender())
         {

@@ -10,15 +10,27 @@
             </ResourceDictionary.MergedDictionaries>
 
             <DataTemplate x:Key="ClipCard" DataType="{x:Type gallery:ClipItem}">
-                <Border x:Name="Card" Width="264" Margin="0,0,14,16" CornerRadius="8" Background="{StaticResource CardBrush}"
-                        BorderThickness="1" BorderBrush="Transparent" Cursor="Hand" ToolTip="{Binding Title}"
+                <Border x:Name="Card" Width="304" Margin="0,0,14,16" CornerRadius="8" Background="{StaticResource CardBrush}"
+                        Focusable="True" AutomationProperties.Name="{Binding Title}" KeyDown="Card_KeyDown"
+                        BorderThickness="1" BorderBrush="Transparent" Cursor="Hand"
+                        ToolTipService.InitialShowDelay="750" ToolTipService.BetweenShowDelay="0" ToolTipService.ShowDuration="3500"
+                        ToolTipService.IsEnabled="{Binding HoverPosters, RelativeSource={RelativeSource AncestorType=views:GalleryView}}"
                         MouseLeftButtonUp="Card_MouseLeftButtonUp" Loaded="Card_Loaded" DataContextChanged="Card_DataContextChanged"
                         PreviewMouseLeftButtonDown="Card_PreviewMouseLeftButtonDown" MouseMove="Card_MouseMove">
+                    <Border.ToolTip>
+                        <ToolTip DataContext="{Binding PlacementTarget.DataContext, RelativeSource={RelativeSource Self}}">
+                            <StackPanel Width="420">
+                                <Image Source="{Binding Thumbnail}" Stretch="Uniform" MaxHeight="238" />
+                                <TextBlock Text="{Binding Title}" TextWrapping="Wrap" />
+                                <TextBlock Text="{Binding Folder}" />
+                            </StackPanel>
+                        </ToolTip>
+                    </Border.ToolTip>
                     <Border.ContextMenu>
-                        <ContextMenu Opened="ClipMenu_Opened">
-                            <MenuItem Header="Play" Click="PlayClip_Click" FontWeight="SemiBold" />
+                        <ContextMenu Opened="ClipMenu_Opened" DataContext="{Binding PlacementTarget.DataContext, RelativeSource={RelativeSource Self}}">
+                            <MenuItem Header="Watch and edit" Click="OpenClip_Click" FontWeight="SemiBold" />
                             <MenuItem Header="Share (copy to clipboard)" Click="ShareClip_Click" ToolTip="Share: makes a copy under the size limit in Settings (at most 60 fps, all audio mixed into one track) and copies it to the clipboard to paste anywhere. The original stays as it is." />
-                            <MenuItem Header="Open in editor" Click="OpenClip_Click" />
+                            <MenuItem Header="Open classic player" Click="PlayClip_Click" />
                             <MenuItem Header="Set custom title…" Click="EditClipDetails_Click" Tag="title" />
                             <MenuItem Header="Change game classification…" Click="EditClipDetails_Click" Tag="game" />
                             <Separator />
@@ -37,7 +49,7 @@
                         </ContextMenu>
                     </Border.ContextMenu>
                     <StackPanel>
-                        <Grid Height="148">
+                        <Grid Height="170">
                             <Border CornerRadius="7,7,0,0" Background="#111" />
                             <Border CornerRadius="7,7,0,0">
                                 <Border.Background>
@@ -62,6 +74,10 @@
                             </Border>
                         </Grid>
                         <StackPanel Margin="11,8,11,10">
+                            <Button Content="⋯" Style="{StaticResource TextButton}" HorizontalAlignment="Right"
+                                    Tag="{Binding ElementName=Card}" Click="ClipOverflow_Click"
+                                    AutomationProperties.Name="Clip actions" ToolTip="Clip actions" />
+                            <TextBlock Text="{Binding Title}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
                             <Button Content="Delete…" Style="{StaticResource TextButton}" HorizontalAlignment="Right" Focusable="False"
                                     Click="DeleteClip_Click" ToolTip="Send this clip (or the selected clips) to the Recycle Bin" />
                             <TextBlock Text="{Binding Folder}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
@@ -207,6 +223,13 @@
                     </DockPanel>
                 </Border>
                 <TextBlock x:Name="StatusText" DockPanel.Dock="Top" Style="{StaticResource Hint}" Margin="0,-4,14,12" Visibility="Collapsed" />
+                <CheckBox DockPanel.Dock="Top" Content="Show poster previews on hover" Margin="0,0,0,10"
+                          IsChecked="{Binding HoverPosters, RelativeSource={RelativeSource AncestorType=views:GalleryView}}"
+                          ToolTip="Shows the cached thumbnail at a larger size without starting video playback." />
+                <Border x:Name="InlineDetails" DockPanel.Dock="Top" Visibility="Collapsed"
+                        Background="{StaticResource PanelBrush}" Padding="14,4" Margin="0,0,14,12">
+                    <views:ClipDetailsEditor x:Name="GalleryDetailsEditor" />
+                </Border>
 
                 <Grid x:Name="ClipArea" SizeChanged="ClipArea_SizeChanged">
                     <ItemsControl x:Name="Rows" VirtualizingPanel.IsVirtualizing="True" VirtualizingPanel.VirtualizationMode="Recycling"

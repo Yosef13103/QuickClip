@@ -18,9 +18,18 @@ namespace QuickClip.Views;
 /// </summary>
 public partial class GalleryView : UserControl
 {
+    public static readonly DependencyProperty HoverPostersProperty =
+        DependencyProperty.Register(nameof(HoverPosters), typeof(bool), typeof(GalleryView), new PropertyMetadata(false));
+
+    public bool HoverPosters
+    {
+        get => (bool)GetValue(HoverPostersProperty);
+        set => SetValue(HoverPostersProperty, value);
+    }
+
     private sealed record Folder(string Name, int Count, DateTime Latest);
 
-    private const double CardSlot = 264 + 14; // card width + right margin
+    private const double CardSlot = 304 + 14; // card width + right margin
 
     public static readonly DependencyProperty HasSelectionProperty =
         DependencyProperty.Register(nameof(HasSelection), typeof(bool), typeof(GalleryView));
@@ -58,6 +67,12 @@ public partial class GalleryView : UserControl
     public GalleryView()
     {
         InitializeComponent();
+        GalleryDetailsEditor.Cancelled += () => InlineDetails.Visibility = Visibility.Collapsed;
+        GalleryDetailsEditor.Saved += async _ =>
+        {
+            InlineDetails.Visibility = Visibility.Collapsed;
+            await ReloadAsync();
+        };
         _reloadTimer = new DispatcherTimer(TimeSpan.FromMilliseconds(800), DispatcherPriority.Background, (_, _) =>
         {
             _reloadTimer!.Stop();
@@ -288,7 +303,7 @@ public partial class GalleryView : UserControl
         if (_dragged || ItemOf(sender) is not { } item) return;
         // While clips are being picked, a click picks; Ctrl+click always does.
         if (HasSelection || Keyboard.Modifiers.HasFlag(ModifierKeys.Control)) item.IsSelected = !item.IsSelected;
-        else Play(item);
+        else OpenRequested?.Invoke(item.Path);
     }
 
     private void Play(ClipItem? item)
@@ -339,25 +354,34 @@ public partial class GalleryView : UserControl
         }
     }
 
-    private async void EditClipDetails_Click(object sender, RoutedEventArgs e)
+    private void EditClipDetails_Click(object sender, RoutedEventArgs e)
     {
         if (!AppProfile.IsPersonal || ItemOf(sender) is not { } item) return;
-        bool title = (sender as MenuItem)?.Tag as string == "title";
-        string? value = TextPrompt.Ask(Window.GetWindow(this),
-            title ? "Custom title (blank uses the filename)" : "Game classification (blank uses the folder)",
-            (title ? item.Details.Title : item.Details.Game) ?? "", "Save", allowEmpty: true);
-        if (value == null) return;
-        var details = title ? item.Details with { Title = value.Length == 0 ? null : value }
-            : item.Details with { Game = value.Length == 0 ? ClipLibrary.InitialGame(AppSettings.Current.ClipsFolder, item.Path) : value };
-        try
+        if (InlineDetails.IsVisible && GalleryDetailsEditor.HasDraft)
         {
-            ClipDetailsStore.Write(item.Path, details);
-            await ReloadAsync();
+            ShowStatus("Save or cancel the current clip details first.");
+            return;
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-        {
-            MessageBox.Show(Window.GetWindow(this), ex.Message, "Could not save clip details", MessageBoxButton.OK, MessageBoxImage.Warning);
-        }
+        InlineDetails.Visibility = Visibility.Visible;
+        GalleryDetailsEditor.Open(item.Path, item.Details, focus: true);
+    }
+
+    private void ClipOverflow_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not Button { Tag: Border { ContextMenu: { } menu } } button) return;
+        menu.PlacementTarget = button;
+        menu.Placement = PlacementMode.Bottom;
+        menu.IsOpen = true;
+        e.Handled = true;
+    }
+
+    private void Card_KeyDown(object sender, KeyEventArgs e)
+    {
+        if (e.OriginalSource != sender || ItemOf(sender) is not { } item || e.IsRepeat) return;
+        if (e.Key == Key.Enter) OpenRequested?.Invoke(item.Path);
+        else if (e.Key == Key.Space) item.IsSelected = !item.IsSelected;
+        else return;
+        e.Handled = true;
     }
 
     private async void CopyClipsToFolder_Click(object sender, RoutedEventArgs e)
@@ -478,7 +502,7 @@ public partial class GalleryView : UserControl
 
     private async Task DeleteClipsAsync(List<string> paths)
     {
-        var result = await ClipDeletion.Current.DeleteAsync(paths, batch => ClipDeletion.Confirm(Window.GetWindow(this), batch));
+        var result = await ClipDeletion.Current.DeleteAsync(paths, batch => ClipDeleteDialog.Confirm(Window.GetWindow(this), batch));
         if (result.Cancelled) return;
         foreach (var clip in _clips.Where(c => paths.Contains(c.Path, StringComparer.OrdinalIgnoreCase))) clip.IsSelected = false;
         ShowStatus($"{result.Deleted} clip(s) sent to the Recycle Bin." + (result.Failed > 0 ? $" {result.Failed} could not be recycled and were left in place." :
@@ -762,6 +786,15 @@ public partial class GalleryView : UserControl
     }
 
 #if DEBUG
+    internal bool OpenFirstForRender()
+    {
+        if (CurrentClips.FirstOrDefault() is not { } first) return false;
+        OpenRequested?.Invoke(first.Path);
+        return true;
+    }
+
+    internal string RealizedRowsForRender => $"{Enumerable.Range(0, Rows.Items.Count).Count(i => Rows.ItemContainerGenerator.ContainerFromIndex(i) != null)}/{Rows.Items.Count}";
+
     internal bool PlayFirstForRender()
     {
         if (CurrentClips.FirstOrDefault() is not { } first) return false;
