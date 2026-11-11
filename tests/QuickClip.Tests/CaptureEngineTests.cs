@@ -56,6 +56,8 @@ public sealed class CaptureEngineTests(MediaFixture media, Xunit.Abstractions.IT
     [Fact]
     public void Lists_both_endpoint_flows_and_rejects_duplicate_ids_before_starting_capture()
     {
+        if (Environment.GetEnvironmentVariable("QUICKCLIP_CI") == "1")
+            Assert.True(CaptureEngine.IsAvailable, "Strict CI requires the bundled native capture DLL.");
         if (!CaptureEngine.IsAvailable) return;
         CaptureEngine.Initialize();
         var endpoints = CaptureEngine.EnumAudioEndpoints();
