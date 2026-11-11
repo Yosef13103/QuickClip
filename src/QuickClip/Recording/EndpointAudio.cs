@@ -6,10 +6,21 @@ internal enum EndpointFlow { Playback, Microphone }
 internal sealed record AudioEndpoint(EndpointFlow Flow, string Id, string Name, bool IsDefault);
 
 internal sealed record EndpointTrack(EndpointFlow Flow, string DeviceId, string Label, bool Enabled = true);
+internal enum EndpointStage { Pending, Com, EndpointLookup, EndpointFlow, Activate, Initialize, Event, Start, Streaming, Read }
+
+internal sealed record EndpointStatus(int TrackIndex, EndpointFlow Flow, EndpointStage Stage, int HResult,
+    int MixRate, int MixChannels, int CaptureRate, long PacketCount, long? MillisecondsSincePacket, float? LastPacketPeak);
 
 internal static class EndpointAudio
 {
     public const int MaxTracks = 16;
+
+    internal static AudioEndpoint? FindEndpoint(EndpointTrack track, IEnumerable<AudioEndpoint> endpoints) =>
+        endpoints.FirstOrDefault(endpoint => endpoint.Flow == track.Flow &&
+            string.Equals(endpoint.Id, track.DeviceId, StringComparison.OrdinalIgnoreCase));
+
+    internal static IReadOnlyList<AudioEndpoint> ForFlow(IEnumerable<AudioEndpoint> endpoints, EndpointFlow flow) =>
+        endpoints.Where(endpoint => endpoint.Flow == flow).ToArray();
 
     public static List<EndpointTrack> Normalize(IEnumerable<EndpointTrack?>? tracks)
     {

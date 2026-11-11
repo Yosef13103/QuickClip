@@ -1006,7 +1006,8 @@ namespace qc
         auto captureEndpoint = [&](const Endpoint& endpoint, size_t track)
         {
             endpointSources_.push_back(std::make_unique<AudioSource>(endpoint.kind, 0, endpoint.deviceId, SampleRate,
-                std::make_unique<MixerSink>(*tracks_[track]->mixer, SampleRate)));
+                std::make_unique<MixerSink>(*tracks_[track]->mixer, SampleRate), endpointMode_ ? static_cast<int>(track) : -1,
+                endpointMode_ && shared_->videoOptions.diagnostics != 0));
         };
         if (endpointMode_)
         {
@@ -1329,6 +1330,14 @@ namespace qc
     {
         std::lock_guard guard(shared_->statsLock);
         return shared_->videoDescription + (shared_->videoSample.empty() ? "" : "\n" + shared_->videoSample);
+    }
+
+    int Engine::GetEndpointStatus(QcEndpointStatus* statuses, int capacity) const
+    {
+        if (!endpointMode_) return 0;
+        int count = std::min(capacity, static_cast<int>(endpointSources_.size()));
+        for (int i = 0; i < count; ++i) statuses[i] = endpointSources_[i]->Status();
+        return count;
     }
 
     void Engine::GetStats(QcStats& stats)
