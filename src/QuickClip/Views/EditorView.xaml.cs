@@ -160,7 +160,7 @@ public partial class EditorView : UserControl
             FileTitle = null;
             FileNameText.Text = "No file open";
             FileInfoText.Text = "";
-            FavoriteButton.IsChecked = false;
+            FavoriteButton.Tag = false;
             MetadataGroup.Visibility = Visibility.Collapsed;
             Timeline.HasMedia = false;
             Timeline.SetBookmarks([]);
@@ -418,7 +418,7 @@ public partial class EditorView : UserControl
     {
         FileTitle = details.Title ?? Path.GetFileName(CurrentFile);
         FileNameText.Text = FileTitle;
-        FavoriteButton.IsChecked = details.IsFavorite;
+        FavoriteButton.Tag = details.IsFavorite;
         TitleChanged?.Invoke();
     }
 
@@ -1065,7 +1065,6 @@ public partial class EditorView : UserControl
     private async void Favorite_Click(object sender, RoutedEventArgs e)
     {
         if (MetadataEditor.AnnotationTarget is not { } target || _media == null) return;
-        FavoriteButton.IsChecked = target.Details.IsFavorite;
         if (_favoriteSaving || _loading || MetadataEditor.IsSaving || _exportCts != null || _deletingMedia) return;
         if (MetadataEditor.HasDraft)
         {

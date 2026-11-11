@@ -598,9 +598,8 @@ public partial class GalleryView : UserControl
 
     private async void FavoriteCard_Click(object sender, RoutedEventArgs e)
     {
-        if (sender is not ToggleButton button || ItemOf(sender) is not { } item) return;
+        if (ItemOf(sender) is not { } item) return;
         bool next = !item.IsFavorite;
-        button.SetCurrentValue(ToggleButton.IsCheckedProperty, item.IsFavorite);
         await UpdateAnnotationsAsync([item], favorite: next);
     }
 

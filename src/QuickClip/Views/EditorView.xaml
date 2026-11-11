@@ -74,29 +74,14 @@
             <Button x:Name="FullscreenButton" DockPanel.Dock="Right" Content="Fullscreen" Click="ToggleFullscreen_Click"
                     Style="{StaticResource TextButton}" ToolTip="Fullscreen (F11)" />
             <Button x:Name="DeleteMediaButton" DockPanel.Dock="Right" Content="Delete…" Click="DeleteMedia_Click" Style="{StaticResource TextButton}" />
-            <ToggleButton x:Name="FavoriteButton" DockPanel.Dock="Right" Click="Favorite_Click"
-                          AutomationProperties.Name="Favorite" ToolTip="Add to or remove from favorites">
-                <ToggleButton.Style>
-                    <Style TargetType="ToggleButton">
-                        <Setter Property="Content" Value="☆" />
-                        <Setter Property="FontSize" Value="18" />
-                        <Setter Property="Padding" Value="8,3" />
-                        <Style.Triggers>
-                            <Trigger Property="IsChecked" Value="True">
-                                <Setter Property="Content" Value="★" />
-                                <Setter Property="Foreground" Value="#FFB900" />
-                            </Trigger>
-                        </Style.Triggers>
-                    </Style>
-                </ToggleButton.Style>
-            </ToggleButton>
+            <Button x:Name="FavoriteButton" DockPanel.Dock="Right" Click="Favorite_Click" VerticalAlignment="Center" Style="{StaticResource FavoriteButtonStyle}" />
             <Button DockPanel.Dock="Left" Style="{StaticResource TextButton}" Click="Open_Click" ToolTip="Open a file (Ctrl+O)">
                 <StackPanel Orientation="Horizontal">
                     <TextBlock FontFamily="{StaticResource IconFont}" Text="&#xE8E5;" VerticalAlignment="Center" Margin="0,0,8,0" />
                     <TextBlock Text="Open" />
                 </StackPanel>
             </Button>
-            <Button DockPanel.Dock="Right" Style="{StaticResource IconButton}" Content="&#xE765;" Margin="4,0,0,0"
+            <Button DockPanel.Dock="Right" Style="{StaticResource IconButton}" Content="&#xE765;" Margin="4,0" VerticalAlignment="Center"
                     Click="Shortcuts_Click" AutomationProperties.Name="Keyboard shortcuts">
                 <Button.ToolTip>
                     <TextBlock LineHeight="20">
