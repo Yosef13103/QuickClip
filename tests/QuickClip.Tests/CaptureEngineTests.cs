@@ -89,24 +89,33 @@ public sealed class CaptureEngineTests(MediaFixture media, Xunit.Abstractions.IT
         [
             new(EndpointFlow.Playback, playback.Id, "Game"),
             new(EndpointFlow.Playback, "test-device-is-unavailable", "Chat"),
+            new(EndpointFlow.Microphone, "test-mic-is-unavailable", "Mic"),
         ];
         Assert.Null(CaptureEngine.Start(monitor.DeviceName, "", 30, 0, 0, encoder.Id, 4000,
             RecordingPresets.AudioKbps, 10, false, false, false, [], false, tracks));
 
         string clip = media.Out("explicit-endpoints.mp4");
+        CaptureEngine.ReplaySpan span = default;
         try
         {
             await Task.Delay(1500);
             CaptureEngine.TestPlayNoise(2100, 0.07f);
             await Task.Delay(2600);
-            Assert.Null(await Task.Run(() => CaptureEngine.Save(clip, 2, "Endpoint test")));
+            var position = CaptureEngine.GetReplayPosition();
+            Assert.NotNull(position);
+            Assert.True(position.Value.Sequence > 0);
+            CaptureEngine.ReplayAnchor[] anchors = [new() { Sequence = position.Value.Sequence, OffsetUs = -1 }];
+            Assert.Null(await Task.Run(() => CaptureEngine.SaveReplay(clip, 2, "Endpoint test", position.Value, true, anchors, out span)));
+            Assert.InRange(anchors[0].OffsetUs, 0, span.DurationUs - 1);
         }
         finally
         {
             CaptureEngine.Stop();
         }
         var info = await MediaInfo.ProbeAsync(clip);
-        Assert.Equal(["Game", "Chat"], info.Audio.Select(a => a.DisplayName));
+        Assert.Equal(["Game", "Chat", "Mic"], info.Audio.Select(a => a.DisplayName));
+        Assert.InRange(span.DurationUs, 950_000, 2_050_000);
+        Assert.InRange(Math.Abs(info.Duration - span.DurationUs / 1e6), 0, 0.15);
         double game = await MediaFixture.BandLevel(clip, 0, 2000);
         double chat = await MediaFixture.BandLevel(clip, 1, 2000);
         Assert.True(game > -65 && game - chat > 20, $"Game {game:0.0} dB, unavailable Chat {chat:0.0} dB.");
