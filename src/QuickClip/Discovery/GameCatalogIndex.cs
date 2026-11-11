@@ -33,6 +33,7 @@ internal sealed class GameCatalogIndex
         string? path = CatalogPaths.LocalPath(executable);
         if (path == null || !CatalogPaths.IsExecutable(path)) return new(CatalogMatchKind.Unknown);
         if (CatalogPaths.IsDiscordUpdater(path)) return new(CatalogMatchKind.Ignored);
+        if (CatalogPaths.IsDiscordProcess(path)) return new(CatalogMatchKind.Companion);
         if (!_entries.TryGetValue(path, out var candidates)) return new(CatalogMatchKind.Unknown);
 
         // Explicit entries outrank discovered paths. Multiple entries of the same precedence
