@@ -18,7 +18,7 @@ The previous agent reported **365 tests passed / 18 opt-in skipped** for the v4 
 |---|---|---|---:|---:|---|
 | QC-001 | Reproducible builds, CI and protected integration | P0 | 0/3 | 0/2 | active |
 | QC-002 | Instant replay correctness, saving and memory safety | P0 | 3/4 | 0/5 | active |
-| QC-003 | Automatic game detection and per-game profiles | P0 | 2/6 | 0/5 | active |
+| QC-003 | Automatic game detection and per-game profiles | P0 | 4/6 | 0/5 | active |
 | QC-004 | Capture targeting and truthful recorded-source identity | P0 | 3/5 | 0/4 | active |
 | QC-005 | Separated audio tracks and sync | P0 | 2/3 | 0/4 | active |
 | QC-006 | Capture geometry and codec correctness | P0 | 3/3 | 0/3 | active |
@@ -72,8 +72,8 @@ Highest feature gap: catalog exists but live runtime is not connected.
 |---|---|---|---|
 | `QC-003-I01` | implementation | PASS | Approved-folder/Steam/manual EXE scanning service implemented |
 | `QC-003-I02` | implementation | PASS | Catalog path matcher and saved profile model implemented |
-| `QC-003-I03` | implementation | TODO | Live GameDetector obtains game identity from catalog, not only legacy heuristics |
-| `QC-003-I04` | implementation | TODO | Games UI: approved roots, scan, manual EXEs, include/exclude, overrides |
+| `QC-003-I03` | implementation | PASS | GameDetector polls verified process owners and applies the catalog before fallback. See commit `b13a2d3` and [synthetic evidence](../../docs/p0-games-discord.md). |
+| `QC-003-I04` | implementation | PASS | Games settings exposes approved roots, scan, manual EXEs, inclusion and supported identity overrides. See [WPF and persistence evidence](../../docs/p0-games-discord.md). |
 | `QC-003-I05` | implementation | TODO | Effective profile applied to capture at stable game/session boundaries |
 | `QC-003-I06` | implementation | TODO | Game start/exit/alt-tab session lifecycle and explicit fallback policy |
 | `QC-003-A01` | acceptance | TODO | 12/12 representative Steam and manual catalog cases correctly recognized |

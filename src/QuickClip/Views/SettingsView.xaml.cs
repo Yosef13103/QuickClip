@@ -29,6 +29,7 @@ public partial class SettingsView : UserControl
     public SettingsView()
     {
         InitializeComponent();
+        SettingsSections.Visibility = AppProfile.IsPersonal ? Visibility.Visible : Visibility.Collapsed;
         LibraryOptions.Visibility = AppProfile.IsPersonal ? Visibility.Visible : Visibility.Collapsed;
         if (AppProfile.IsPersonal)
         {
@@ -52,6 +53,14 @@ public partial class SettingsView : UserControl
             Recorder.Instance.StateChanged += OnRecorderState;
             Updater.Changed += OnUpdaterChanged;
         };
+    }
+
+    private void SettingsSection_Changed(object sender, RoutedEventArgs e)
+    {
+        if (GamesPage == null || GeneralPage == null) return;
+        bool games = sender == GamesSection;
+        GamesPage.Visibility = games ? Visibility.Visible : Visibility.Collapsed;
+        GeneralPage.Visibility = games ? Visibility.Collapsed : Visibility.Visible;
     }
 
     // ---- updates -------------------------------------------------------------------------------
