@@ -6,6 +6,7 @@ using System.Windows.Interop;
 using System.Windows.Threading;
 using QuickClip.Recording;
 using QuickClip.Updates;
+using QuickClip.Views;
 
 namespace QuickClip.Shell;
 
@@ -129,8 +130,7 @@ internal sealed class AppHost : IDisposable
         _lastSourceGuidance = guidance;
     });
 
-    private static string? SourceGuidance(string? error) => CaptureSourcePolicy.Guidance(
-        AppSettings.Current, AppProfile.IsPersonal, error, OperatingSystem.IsWindowsVersionAtLeast(10, 0, 20348));
+    private static string? SourceGuidance(string? error) => AppProfile.IsPersonal ? error : null;
 
     private void NotifySource(string title, string message)
     {
@@ -171,7 +171,8 @@ internal sealed class AppHost : IDisposable
         var r = Recorder.Instance;
         string state = r.IsRunning
             ? $"Recording · {new Hotkey(AppSettings.Current.HotkeyModifiers, AppSettings.Current.HotkeyKey)} saves a clip"
-            : r.Error != null ? "Not recording: " + r.Error : "Recording is off";
+            : r.Error != null ? "Not recording: " + r.Error
+            : r.State.Mode == RecordingMode.Armed ? "Armed · no recording active" : "Recording is off";
         var data = NewIconData();
         data.uFlags = NIF_TIP | NIF_SHOWTIP;
         data.szTip = Truncate(AppProfile.Name + " — " + state, 127);
@@ -266,10 +267,33 @@ internal sealed class AppHost : IDisposable
             s.Save();
             _ = recorder.ApplySettingsAsync();
         }));
+        if (AppProfile.IsPersonal)
+            menu.Items.Add(Item(recorder.ManualDesktopRequested ? "Stop manual desktop capture" : "Start manual desktop capture…",
+                () => ToggleManualDesktop(recorder), enabled: s.RecordingEnabled));
         menu.Items.Add(new Separator());
         menu.Items.Add(Item("Quit", () => QuitRequested?.Invoke()));
         if (_window != null) SetForegroundWindow(_window.Handle); // so the menu closes when clicking elsewhere
         menu.IsOpen = true;
+    }
+
+    private void ToggleManualDesktop(Recorder recorder)
+    {
+        if (recorder.ManualDesktopRequested)
+        {
+            _ = recorder.SetManualDesktopAsync(null);
+            return;
+        }
+        var selected = CaptureSourcePolicy.SelectMonitor(Monitors.List(), AppSettings.Current.RecordMonitor, requireSelected: true);
+        if (selected?.CaptureIdentity == null || string.IsNullOrWhiteSpace(AppSettings.Current.RecordMonitor))
+        {
+            NotifySource("Choose a display", "Select a connected display in Recording settings before starting desktop capture.");
+            RecordingSettingsRequested?.Invoke();
+            return;
+        }
+        if (ModalDialog.Show(Application.Current.MainWindow,
+            $"Record everything visible on {selected.Label} until you stop manual capture? Other apps, messages and notifications on that display can appear in clips.",
+            "Start manual desktop capture?", MessageBoxButton.YesNo, MessageBoxImage.Warning, MessageBoxResult.No) == MessageBoxResult.Yes)
+            _ = recorder.SetManualDesktopAsync(selected.CaptureIdentity);
     }
 
     private static MenuItem Item(string text, Action action, bool bold = false, bool enabled = true)

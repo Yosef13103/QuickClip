@@ -20,6 +20,7 @@ public sealed record ReplaySaveReceipt(string Path, string Game, Guid SessionId,
 {
     public ReplayDesktopSource? DesktopSource { get; init; }
     public string? GameContext { get; init; }
+    public string? GameContextId { get; init; }
     public string SourceDescription => DescribeSource(DesktopSource, SpansCaptureEpochs);
 
     internal static string DescribeSource(ReplayDesktopSource? desktop, bool spansEpochs) =>

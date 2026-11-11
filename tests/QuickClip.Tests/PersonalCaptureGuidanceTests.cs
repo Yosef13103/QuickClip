@@ -13,9 +13,9 @@ public sealed class PersonalCaptureGuidanceTests
         if (!AppProfile.IsPersonal) return;
         var settings = AppSettings.Parse(json);
         string before = settings.ToJson();
-        Assert.Contains("unavailable", CaptureSourcePolicy.Guidance(settings, true, null, false));
-        Assert.False(CaptureSourcePolicy.AcceptDisplayCapture(settings, new("display1", "", 0, 0, 1920, 1080), false));
-        Assert.False(CaptureSourcePolicy.AcceptDisplayCapture(settings, null, true));
+        Assert.Null(settings.AuthorizedGameDisplay);
+        Assert.False(CaptureSourcePolicy.AcceptGameDisplay(settings, new("display1", "", 0, 0, 1920, 1080), false));
+        Assert.False(CaptureSourcePolicy.AcceptGameDisplay(settings, null, true));
         Assert.Equal(before, settings.ToJson());
         Assert.True(AppSettings.Parse(settings.ToJson()).PreferGameWindow);
     }
@@ -24,15 +24,13 @@ public sealed class PersonalCaptureGuidanceTests
     public void Explicit_consent_persists_specific_display_and_DDA_without_enabling_recording()
     {
         var settings = AppSettings.Parse("""{"PreferGameWindow":true,"RecordingEnabled":false}""");
-        Assert.True(CaptureSourcePolicy.AcceptDisplayCapture(settings, new("display2", "", 1920, 0, 1920, 1080), true));
+        Assert.True(CaptureSourcePolicy.AcceptGameDisplay(settings, new("display2", "", 1920, 0, 1920, 1080)
+        { CaptureIdentity = "synthetic-display-identity" }, true));
         var reloaded = AppSettings.Parse(settings.ToJson());
-        Assert.False(reloaded.PreferGameWindow);
+        Assert.True(reloaded.PreferGameWindow);
         Assert.False(reloaded.RecordingEnabled);
-        Assert.Equal("display2", reloaded.RecordMonitor);
-        Assert.Equal(CaptureEngine.MonitorBackend.DesktopDuplication, reloaded.CaptureBackend);
-        Assert.Null(CaptureSourcePolicy.Guidance(reloaded, true, null, false));
-        Assert.Equal("The display is unavailable.", CaptureSourcePolicy.Guidance(reloaded, true, "The display is unavailable.", false));
-        Assert.Null(CaptureSourcePolicy.Guidance(reloaded, false, "Legacy startup", false));
+        Assert.Empty(reloaded.RecordMonitor);
+        Assert.Equal("synthetic-display-identity", reloaded.AuthorizedGameDisplay);
     }
 
     [Fact]

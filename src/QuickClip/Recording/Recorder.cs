@@ -1,4 +1,5 @@
 using Microsoft.Win32;
+using QuickClip.Discovery;
 using QuickClip.Gallery;
 using QuickClip.Media;
 using QuickClip.Shell;
@@ -8,7 +9,10 @@ namespace QuickClip.Recording;
 public sealed record SavedClip(string Path, string Folder, int Seconds);
 
 /// <summary>What the recorder is currently doing, for the UI.</summary>
-public sealed record RecorderState(bool Running, string? Error, string Summary, IReadOnlyList<string> ChatApps, IReadOnlyList<string> MusicApps);
+public sealed record RecorderState(bool Running, string? Error, string Summary, IReadOnlyList<string> ChatApps, IReadOnlyList<string> MusicApps)
+{
+    public RecordingMode Mode { get; init; }
+}
 
 /// <summary>Instant-replay service: keeps the capture engine running per the settings and saves clips on demand.</summary>
 internal sealed class Recorder
@@ -22,6 +26,15 @@ internal sealed class Recorder
     private int _replayBufferSeconds;
     private readonly GameDetector _games = new();
     private Timer? _poll;
+    private int _pollGeneration;
+    private readonly RecordingLifecycle _lifecycle;
+    private readonly Dictionary<WindowOwner, GameCaptureObservation> _observedGames = [];
+    private string? _manualDisplay;
+    private string? _sessionGameId;
+    private string? _sessionGame;
+    private string? _sessionDisplay;
+    private long _lastFreshVideo;
+    internal bool ManualDesktopRequested => Volatile.Read(ref _manualDisplay) != null;
     private IReadOnlyList<string> _chatApps = [], _musicApps = [];
     private string _summary = "";
     private string? _routingError;
@@ -45,10 +58,14 @@ internal sealed class Recorder
     public event Action<string>? SaveFailed;
 
     public RecorderState State => new(IsRunning, Error,
-        IsRunning ? $"{_summary} · {_captureTarget?.Game ?? _monitorTarget} target" : _summary, _chatApps, _musicApps);
+        IsRunning ? $"{_summary} · {_captureTarget?.Game ?? _monitorTarget}" : _summary, _chatApps, _musicApps)
+    {
+        Mode = AppProfile.IsPersonal ? _lifecycle.Mode : IsRunning ? RecordingMode.ManualDesktop : RecordingMode.Off,
+    };
 
     private Recorder()
     {
+        _lifecycle = new(StartPersonalGraph, StopGraph);
         // A display change (a resolution change, a game switching modes) or a sleep can leave the screen capture
         // stale, sending black frames or none; start it again. The replay buffer is kept.
         SystemEvents.DisplaySettingsChanged += (_, _) => RestartCapture("the display settings changed");
@@ -60,9 +77,20 @@ internal sealed class Recorder
 
     private void RestartCapture(string why)
     {
-        if (!IsRunning) return;
-        Log.Write($"Starting screen capture again: {why}");
-        CaptureEngine.RestartVideo();
+        _ = Task.Run(() =>
+        {
+            lock (_gate)
+            {
+                if (AppProfile.IsPersonal)
+                {
+                    if (_poll != null) ReconcilePersonal();
+                    if (!IsRunning) return;
+                }
+                else if (!IsRunning) return;
+                Log.Write($"Starting screen capture again: {why}");
+                CaptureEngine.RestartVideo();
+            }
+        });
     }
 
     /// <summary>(Re)starts recording from the current settings, or stops it if recording is turned off.</summary>
@@ -72,34 +100,121 @@ internal sealed class Recorder
         {
             StopCore();
             Error = null;
-            if (AppSettings.Current.RecordingEnabled) StartCore();
+            if (AppSettings.Current.RecordingEnabled)
+            {
+                if (AppProfile.IsPersonal) ReconcilePersonal();
+                else StartCore();
+                StartPolling();
+            }
+            else
+            {
+                _manualDisplay = null;
+                _observedGames.Clear();
+            }
         }
         StateChanged?.Invoke(State);
     });
 
     public Task StopAsync() => Task.Run(() =>
     {
-        lock (_gate) StopCore();
+        lock (_gate)
+        {
+            _manualDisplay = null;
+            _observedGames.Clear();
+            StopCore();
+            Error = null;
+        }
         StateChanged?.Invoke(State);
     });
 
-    private void StartCore()
+    internal Task SetManualDesktopAsync(string? confirmedDisplay) => Task.Run(() =>
+    {
+        lock (_gate)
+        {
+            if (!AppProfile.IsPersonal || !AppSettings.Current.RecordingEnabled) return;
+            var requested = string.IsNullOrWhiteSpace(confirmedDisplay) ? null : confirmedDisplay;
+            if (requested == _manualDisplay) return;
+            _manualDisplay = requested;
+            _lifecycle.Reset();
+            ReconcilePersonal();
+        }
+        StateChanged?.Invoke(State);
+    });
+
+    private void StartPolling()
+    {
+        int generation = ++_pollGeneration;
+        _poll = new Timer(_ => Poll(generation), null, 2000, 2000);
+    }
+
+    private void ReconcilePersonal()
+    {
+        var s = AppSettings.Current;
+        if (s.RecordingEnabled && s.PreferGameWindow)
+        {
+            _games.Poll();
+            foreach (var observation in new[] { _games.ActiveObservation, _games.ForegroundObservation })
+                if (observation != null && Eligible(observation))
+                    _observedGames[observation.Owner] = observation;
+            foreach (var owner in _observedGames.Keys.ToArray())
+            {
+                var observed = _observedGames[owner] with { IsForeground = owner == _games.ForegroundObservation?.Owner };
+                if (Eligible(observed)) _observedGames[owner] = observed;
+                else _observedGames.Remove(owner);
+            }
+        }
+        else _observedGames.Clear();
+
+        IReadOnlyList<MonitorInfo>? displays = null;
+        _lifecycle.Reconcile(s.RecordingEnabled, s.PreferGameWindow, s.AuthorizedGameDisplay, _manualDisplay,
+            _observedGames.Values.OrderByDescending(x => x.Owner == _games.ForegroundObservation?.Owner).ToArray(),
+            identity => FindAuthorizedDisplay(displays ??= Monitors.List(), identity) is { } monitor
+                && (!IsRunning || string.Equals(_sessionDisplay, monitor.DeviceName, StringComparison.OrdinalIgnoreCase)),
+            "No display is authorized for game replay. Use Allow selected display during games in Recording settings.");
+        Error = _lifecycle.Error;
+
+        if (!IsRunning) return;
+        if (CaptureEngine.GetReplayPosition() is { Sequence: > 0 })
+            _lastFreshVideo = Environment.TickCount64;
+        else if (Environment.TickCount64 - _lastFreshVideo >= 10_000)
+        {
+            _lifecycle.FailActive("Capture stopped because the authorized display stopped producing video.");
+            Error = _lifecycle.Error;
+        }
+    }
+
+    private static bool Eligible(GameCaptureObservation observation) =>
+        CaptureSourcePolicy.IsEligibleGame(observation, GameDetector.IsCurrent, GameCatalogRuntime.Match);
+
+    private string? StartPersonalGraph(CaptureActivation activation)
+    {
+        var game = activation.GameOwner is { } owner ? _observedGames.GetValueOrDefault(owner) : null;
+        if (activation.GameOwner != null && (game == null || !Eligible(game)))
+            return "The eligible game closed before capture could start.";
+        var monitor = FindAuthorizedDisplay(Monitors.List(), activation.Display);
+        if (monitor == null) return "The authorized display is no longer connected.";
+        StartCore(monitor.DeviceName, CaptureEngine.MonitorBackend.MonitorOnlyDuplication, activation.Display);
+        if (!IsRunning) return Error ?? "The selected display could not be recorded.";
+        if (game != null && !Eligible(game))
+        {
+            StopGraph();
+            return "The eligible game closed while capture was starting.";
+        }
+        _sessionGame = game?.Target?.Game;
+        _sessionGameId = activation.GameId;
+        _sessionDisplay = monitor.DeviceName;
+        _lastFreshVideo = Environment.TickCount64;
+        return null;
+    }
+
+    private static MonitorInfo? FindAuthorizedDisplay(IReadOnlyList<MonitorInfo> displays, string identity) =>
+        displays.FirstOrDefault(m => string.Equals(m.CaptureIdentity, identity, StringComparison.OrdinalIgnoreCase));
+
+    private void StartCore(string? display = null, CaptureEngine.MonitorBackend? fixedBackend = null, string? displayIdentity = null)
     {
         var s = AppSettings.Current;
         Error = null;
-        var backend = s.CaptureBackend;
-        if (AppProfile.IsPersonal)
-        {
-            if (s.PreferGameWindow) _games.Poll();
-            var decision = CaptureSourcePolicy.ResolvePersonal(s.PreferGameWindow, backend,
-                _games.ActiveObservation, _games.ForegroundObservation, OperatingSystem.IsWindowsVersionAtLeast(10, 0, 20348));
-            if (!decision.Allowed)
-            {
-                Error = decision.Error;
-                return;
-            }
-            backend = decision.Backend;
-        }
+        var backend = fixedBackend ?? s.CaptureBackend;
         if (!CaptureEngine.IsAvailable)
         {
             Error = "The recording engine (QuickClipCapture.dll) is missing.";
@@ -109,7 +224,7 @@ internal sealed class Recorder
         {
             CaptureEngine.Initialize();
             var monitors = Monitors.List();
-            var monitor = CaptureSourcePolicy.SelectMonitor(monitors, s.RecordMonitor, AppProfile.IsPersonal);
+            var monitor = CaptureSourcePolicy.SelectMonitor(monitors, display ?? s.RecordMonitor, AppProfile.IsPersonal);
             if (monitor == null)
             {
                 Error = "The selected monitor is unavailable. Choose a connected display to start recording.";
@@ -142,7 +257,7 @@ internal sealed class Recorder
 
             Error = CaptureEngine.Start(monitor.DeviceName, aspect, s.RecordFps, scaled ? w : 0, scaled ? h : 0, encoder, VideoKbps,
                 RecordingPresets.AudioKbps, s.BufferSeconds, s.CaptureCursor, splitChat, splitMusic, mics, separateMics, endpoints,
-                new() { Backend = backend, Preset = s.NvencPreset, Diagnostics = s.RecordingDiagnostics ? 1 : 0 });
+                new() { Backend = backend, Preset = s.NvencPreset, Diagnostics = s.RecordingDiagnostics ? 1 : 0 }, displayIdentity);
             if (Error != null) return;
             if (mics.Count > 0)
                 Log.Write($"Recording {mics.Count} microphone{(mics.Count == 1 ? "" : "s")}{(separateMics ? " on separate tracks" : "")}: " +
@@ -173,7 +288,6 @@ internal sealed class Recorder
                        (endpoints == null ? "" : endpoints.Count == 0 ? " · video only" : $" · {endpoints.Count} endpoint audio tracks");
             Log.Write($"Recording {monitor.DeviceName}{(cropped ? $" ({area.Width}x{area.Height} at {area.X},{area.Y})" : "")} at {w}x{h}@{s.RecordFps} " +
                       $"with {encoder}, {VideoKbps} kbps, {s.BufferSeconds}s buffer");
-            _poll = new Timer(_ => Poll(), null, 0, 2000);
         }
         catch (Exception ex)
         {
@@ -184,21 +298,38 @@ internal sealed class Recorder
 
     private void StopCore()
     {
+        ++_pollGeneration;
         _poll?.Dispose();
         _poll = null;
+        if (AppProfile.IsPersonal) _lifecycle.Reset();
+        else StopGraph();
+    }
+
+    private void StopGraph()
+    {
         if (IsRunning) CaptureEngine.Stop();
         IsRunning = false;
         _replayMarkers.Clear();
+        (_sessionGame, _sessionGameId, _sessionDisplay, _desktopSource) = (null, null, null, null);
+        (_chatApps, _musicApps) = ([], []);
         _summary = "";
     }
 
-    private void Poll()
+    private void Poll(int generation)
     {
+        if (!Monitor.TryEnter(_gate)) return;
+        var before = State;
         try
         {
+            if (generation != _pollGeneration) return;
             var s = AppSettings.Current;
-            _games.Poll();
-            if (!AppProfile.IsPersonal && s.PreferGameWindow) UpdateCaptureWindow(s);
+            if (AppProfile.IsPersonal) ReconcilePersonal();
+            if (!IsRunning) return;
+            if (!AppProfile.IsPersonal)
+            {
+                _games.Poll();
+                if (s.PreferGameWindow) UpdateCaptureWindow(s);
+            }
             if (s.UseAudioEndpoints) return;
 
             var processes = ProcessScan.Snapshot();
@@ -214,12 +345,22 @@ internal sealed class Recorder
             if (!chatNames.SequenceEqual(_chatApps) || !musicNames.SequenceEqual(_musicApps))
             {
                 (_chatApps, _musicApps) = (chatNames, musicNames);
-                StateChanged?.Invoke(State);
             }
         }
         catch (Exception ex)
         {
-            Log.Write("Recorder poll failed: " + ex.Message);
+            Log.Write("Recorder poll failed: " + ex.GetType().Name);
+            if (AppProfile.IsPersonal)
+            {
+                _lifecycle.FailActive("Capture stopped because the current source could not be verified.");
+                Error = _lifecycle.Error;
+            }
+        }
+        finally
+        {
+            var after = State;
+            Monitor.Exit(_gate);
+            if (after != before) StateChanged?.Invoke(after);
         }
     }
 
@@ -320,7 +461,8 @@ internal sealed class Recorder
         cancellationToken.ThrowIfCancellationRequested();
         if (!IsRunning)
         {
-            SaveFailed?.Invoke(Error ?? "Recording is turned off.");
+            SaveFailed?.Invoke(Error ?? (State.Mode == RecordingMode.Armed
+                ? "No recording is active. Start an eligible game or turn on manual desktop capture." : "Recording is turned off."));
             return null;
         }
         return await _saveGate.RunAsync(() => SaveUnderGateAsync(requestedSeconds, cancellationToken), cancellationToken,
@@ -340,6 +482,8 @@ internal sealed class Recorder
             Guid sessionId;
             int gameLookback;
             ReplayDesktopSource? desktopSource;
+            string? gameContext;
+            string? gameId;
             lock (_gate)
             {
                 if (!IsRunning || CaptureEngine.GetReplayPosition() is not { } active)
@@ -349,10 +493,10 @@ internal sealed class Recorder
                 desktopSource = _desktopSource;
                 candidates = _replayMarkers.Snapshot(position, sessionId);
                 gameLookback = requestedSeconds.HasValue ? Math.Min(seconds, _replayBufferSeconds) : seconds;
+                gameContext = AppProfile.IsPersonal ? _sessionGame : _captureTarget?.Game ?? _games.GameForClip(gameLookback);
+                gameId = _sessionGameId;
             }
             var anchors = candidates.Select(item => new CaptureEngine.ReplayAnchor { Sequence = item.Sequence, OffsetUs = -1 }).ToArray();
-            string? gameContext = desktopSource != null ? _games.VerifiedGameContext()
-                : _captureTarget?.Game ?? _games.GameForClip(gameLookback);
             string folder = gameContext ?? "Desktop";
             string mediaTitle = desktopSource != null
                 ? $"{folder} · {ReplaySaveReceipt.DescribeSource(desktopSource, false)}"
@@ -390,6 +534,7 @@ internal sealed class Recorder
             {
                 DesktopSource = desktopSource,
                 GameContext = gameContext,
+                GameContextId = gameId,
                 VideoOutput = video.Width > 0 && video.Height > 0
                     ? new(video.Width, video.Height, video.FpsNumerator > 0 && video.FpsDenominator > 0
                         ? (double)video.FpsNumerator / video.FpsDenominator : null)

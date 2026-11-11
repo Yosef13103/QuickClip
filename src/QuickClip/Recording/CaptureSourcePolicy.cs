@@ -9,6 +9,16 @@ internal readonly record struct CaptureSourceDecision(CaptureEngine.MonitorBacke
 
 internal static class CaptureSourcePolicy
 {
+    internal static bool IsEligibleGame(GameCaptureObservation observation, Func<WindowOwner, bool> current,
+        Func<string, bool, Discovery.CatalogMatch> match)
+    {
+        if (observation.Target is not { Recognized: true } target || target.Owner != observation.Owner
+            || observation.SkipAutomaticCapture || observation.Match.Entry is not { } entry || !current(target.Owner))
+            return false;
+        var latest = match(observation.Executable, observation.IsForeground);
+        return latest.Entry?.Id == entry.Id && latest.Kind is Discovery.CatalogMatchKind.Game or Discovery.CatalogMatchKind.Candidate;
+    }
+
     internal static CaptureSourceDecision Resolve(CaptureSourceMode mode, CaptureEngine.MonitorBackend monitorBackend,
         bool monitorFallbackAuthorized = false) => mode switch
     {
@@ -38,16 +48,10 @@ internal static class CaptureSourcePolicy
             : new(default, unavailable);
     }
 
-    internal static string? Guidance(AppSettings settings, bool personal, string? error, bool hasBorderApi) =>
-        !personal ? null : !string.IsNullOrWhiteSpace(error) ? error
-        : settings.PreferGameWindow ? GameWindowUnavailable(hasBorderApi) : null;
-
-    internal static bool AcceptDisplayCapture(AppSettings settings, MonitorInfo? display, bool confirmed)
+    internal static bool AcceptGameDisplay(AppSettings settings, MonitorInfo? display, bool confirmed)
     {
-        if (!confirmed || string.IsNullOrWhiteSpace(display?.DeviceName)) return false;
-        settings.RecordMonitor = display.DeviceName;
-        settings.CaptureBackend = CaptureEngine.MonitorBackend.DesktopDuplication;
-        settings.PreferGameWindow = false;
+        if (!confirmed || string.IsNullOrWhiteSpace(display?.CaptureIdentity)) return false;
+        settings.AuthorizedGameDisplay = display.CaptureIdentity;
         return true;
     }
 

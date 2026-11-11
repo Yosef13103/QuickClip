@@ -34,6 +34,8 @@ internal sealed class AppSettings
     public int BufferSeconds { get; set; } = 60;
     public bool CaptureCursor { get; set; } = true;
     public bool PreferGameWindow { get; set; } = AppProfile.IsPersonal;
+    // Only a new, explicit game-triggered whole-display confirmation populates this field.
+    public string? AuthorizedGameDisplay { get; set; }
     public bool SplitChatAudio { get; set; } = true;
     public bool SplitMusicAudio { get; set; } = true;
     public bool RecordMic { get; set; } = !AppProfile.IsPersonal;
