@@ -4,6 +4,7 @@ using QuickClip.Controls;
 
 namespace QuickClip.Tests;
 
+[Collection("WPF controls")]
 public sealed class AnimatedRevealTests
 {
     [Fact]

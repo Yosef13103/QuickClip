@@ -6,6 +6,7 @@ using QuickClip.Views;
 
 namespace QuickClip.Tests;
 
+[Collection("WPF controls")]
 public sealed class ClipDetailsTests
 {
     private static readonly DateTimeOffset Capture = new(2025, 6, 3, 18, 30, 0, TimeSpan.FromHours(3));
@@ -97,8 +98,9 @@ public sealed class ClipDetailsTests
                 string media = Path.Combine(AppProfile.LocalDirectory, Guid.NewGuid().ToString("N") + ".mp4");
                 Directory.CreateDirectory(Path.GetDirectoryName(media)!);
                 File.WriteAllText(media, "fixture");
-                var editor = new ClipDetailsEditor { BookmarkPosition = () => (1.75, 3) };
-                editor.Open(media, new ClipDetails(Capture, "Terraria"));
+                var editor = new ClipDetailsEditor { BookmarkPosition = () => (1.75, 3), KnownTags = () => ["boss", "chat"] };
+                editor.Open(media, new ClipDetails(Capture, "Terraria"), duration: 3);
+                Assert.Contains(Path.GetFileName(media), editor.MediaSummary.Text);
                 editor.AddBookmark(double.NaN, 3);
                 editor.AddBookmark(3, 3);
                 Assert.Empty(editor.BookmarkRows.Children);
@@ -106,7 +108,9 @@ public sealed class ClipDetailsTests
                 editor.AddBookmark(1.75, 3);
                 var row = Assert.IsType<DockPanel>(Assert.Single(editor.BookmarkRows.Children));
                 Assert.IsType<TextBox>(row.Children[2]).Text = "Boss arrives";
-                editor.TagBox.Text = " boss ";
+                editor.TagBox.Text = "BO";
+                var suggestion = Assert.IsType<Button>(Assert.Single(editor.TagSuggestions.Children));
+                suggestion.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
                 editor.FavoriteBox.IsChecked = true;
                 Assert.True(editor.HasDraft);
                 editor.SaveButton.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));

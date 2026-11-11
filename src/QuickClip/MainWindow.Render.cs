@@ -18,6 +18,7 @@ public partial class MainWindow
         await Task.Delay(5000);
         SaveVisual(Path.Combine(dir, "gallery.png"));
         report.AppendLine($"gallery realized rows: {Gallery.RealizedRowsForRender}");
+        report.AppendLine(await Gallery.VerifySearchForRenderAsync());
 
         if (Gallery.OpenFirstForRender())
         {

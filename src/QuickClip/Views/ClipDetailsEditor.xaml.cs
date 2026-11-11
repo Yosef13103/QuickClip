@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Windows;
 using System.Windows.Automation;
 using System.Windows.Controls;
@@ -10,7 +11,8 @@ public partial class ClipDetailsEditor : UserControl
 {
     private string? _path;
     private ClipDetails? _details;
-    private (long Length, DateTime Modified, DateTime Created) _fileStamp;
+    private ClipMediaStamp _fileStamp;
+    private double? _duration;
     private readonly List<string> _tags = [];
     private readonly List<ClipBookmark> _bookmarks = [];
     private readonly Dictionary<double, TextBox> _bookmarkLabels = [];
@@ -21,9 +23,14 @@ public partial class ClipDetailsEditor : UserControl
     internal event Action<IReadOnlyList<ClipBookmark>>? BookmarksChanged;
     internal Func<(double Position, double Duration)>? BookmarkPosition { get; set; }
     internal Action<double>? SeekBookmark { get; set; }
-    internal void ShowSaveReminder()
+    internal Func<IReadOnlyList<string>>? KnownTags { get; set; }
+    internal IClipAnnotationActions AnnotationActions { get; set; } = LegacyClipAnnotationActions.Instance;
+    internal bool IsSaving { get; private set; }
+    internal ClipAnnotationTarget? AnnotationTarget => _path != null && _details != null
+        ? new(_path, _fileStamp, _details) : null;
+    internal void ShowSaveReminder(string message = "Save or cancel your clip details before exporting.")
     {
-        Feedback.Text = "Save or cancel your clip details before exporting.";
+        Feedback.Text = message;
         Feedback.BringIntoView();
     }
     internal bool HasDraft => _details is { } details &&
@@ -31,13 +38,18 @@ public partial class ClipDetailsEditor : UserControl
          FavoriteBox.IsChecked != details.IsFavorite || !string.IsNullOrWhiteSpace(TagBox.Text) ||
          !_tags.SequenceEqual(details.Tags) || !_bookmarks.SequenceEqual(details.Bookmarks));
 
-    internal void Open(string path, ClipDetails details, bool focus = false)
+    internal void Open(string path, ClipDetails details, bool focus = false, double? duration = null)
     {
         _path = path;
         _details = details;
         var file = new FileInfo(path);
-        _fileStamp = file.Exists ? (file.Length, file.LastWriteTimeUtc, file.CreationTimeUtc) : default;
+        _fileStamp = file.Exists ? ClipMediaStamp.Read(file) : default;
+        _duration = duration;
         CaptureDate.Text = $"Captured {details.CapturedAt.LocalDateTime:g}";
+        string length = duration is { } seconds && double.IsFinite(seconds) && seconds >= 0 ? Fmt.Time(seconds) : "Unknown duration";
+        MediaSummary.Text = $"{file.Name} · {length}";
+        LocationBox.Text = path;
+        LocationBox.ToolTip = path;
         TitleBox.Text = details.Title ?? "";
         GameBox.Text = details.Game;
         FavoriteBox.IsChecked = details.IsFavorite;
@@ -51,6 +63,20 @@ public partial class ClipDetailsEditor : UserControl
         UpdateBookmarkRows();
         Feedback.Text = "";
         if (focus) TitleBox.Focus();
+    }
+
+    private void Reveal_Click(object sender, RoutedEventArgs e)
+    {
+        if (_path == null || !File.Exists(_path))
+        {
+            Feedback.Text = "The media file is unavailable.";
+            return;
+        }
+        try { Process.Start(new ProcessStartInfo("explorer.exe") { ArgumentList = { "/select," + _path } }); }
+        catch (Exception ex) when (ex is System.ComponentModel.Win32Exception or InvalidOperationException)
+        {
+            Feedback.Text = "Couldn’t reveal this clip in Explorer.";
+        }
     }
 
     private void UpdateTagChips()
@@ -72,6 +98,29 @@ public partial class ClipDetailsEditor : UserControl
                 TagBox.Focus();
             };
             TagChips.Children.Add(remove);
+        }
+        UpdateTagSuggestions();
+    }
+
+    private void TagBox_TextChanged(object sender, TextChangedEventArgs e)
+    {
+        if (IsInitialized) UpdateTagSuggestions();
+    }
+
+    private void UpdateTagSuggestions()
+    {
+        TagSuggestions.Children.Clear();
+        foreach (string tag in ClipTagChoices.Match(KnownTags?.Invoke() ?? [], TagBox.Text, _tags).Take(6))
+        {
+            var button = new Button { Content = tag, Padding = new Thickness(6, 2, 6, 2), Margin = new Thickness(0, 0, 4, 2) };
+            AutomationProperties.SetName(button, $"Add existing tag {tag}");
+            button.Click += (_, _) =>
+            {
+                TagBox.Text = tag;
+                AddTag();
+                TagBox.Focus();
+            };
+            TagSuggestions.Children.Add(button);
         }
     }
 
@@ -100,6 +149,12 @@ public partial class ClipDetailsEditor : UserControl
 
     private void TagBox_KeyDown(object sender, KeyEventArgs e)
     {
+        if (e.Key == Key.Down && TagSuggestions.Children.OfType<Button>().FirstOrDefault() is { } suggestion)
+        {
+            suggestion.Focus();
+            e.Handled = true;
+            return;
+        }
         if (e.Key != Key.Enter) return;
         e.Handled = true;
         AddTag();
@@ -149,6 +204,7 @@ public partial class ClipDetailsEditor : UserControl
 
     private void UpdateBookmarkRows()
     {
+        BookmarkCount.Text = _bookmarks.Count == 1 ? "1 bookmark" : $"{_bookmarks.Count} bookmarks";
         _bookmarkLabels.Clear();
         BookmarkRows.Children.Clear();
         if (BookmarkPosition == null) return;
@@ -184,17 +240,11 @@ public partial class ClipDetailsEditor : UserControl
         BookmarksChanged?.Invoke(_bookmarks.ToArray());
     }
 
-    private void Save_Click(object sender, RoutedEventArgs e)
+    private async void Save_Click(object sender, RoutedEventArgs e)
     {
-        if (_path == null || _details == null) return;
+        if (IsSaving || AnnotationTarget is not { } target) return;
         try
         {
-            var file = new FileInfo(_path);
-            if (!file.Exists || (file.Length, file.LastWriteTimeUtc, file.CreationTimeUtc) != _fileStamp)
-            {
-                Feedback.Text = "The file changed. Reopen it before saving details.";
-                return;
-            }
             string title = TitleBox.Text.Trim();
             string game = GameBox.Text.Trim();
             if (!AddTag()) return;
@@ -203,30 +253,44 @@ public partial class ClipDetailsEditor : UserControl
                 Feedback.Text = "Give each bookmark a label before saving.";
                 return;
             }
-            var details = _details with
+            var details = target.Details with
             {
                 Title = title.Length == 0 ? null : title,
-                Game = game.Length == 0 ? ClipLibrary.InitialGame(AppSettings.Current.ClipsFolder, _path) : game,
+                Game = game.Length == 0 ? ClipLibrary.InitialGame(AppSettings.Current.ClipsFolder, target.Path) : game,
                 Tags = _tags.ToArray(),
                 IsFavorite = FavoriteBox.IsChecked == true,
                 Bookmarks = _bookmarks.ToArray(),
             };
-            details = details.Normalize();
-            ClipDetailsStore.Write(_path, details);
-            Open(_path, details);
-            Feedback.Text = "Details saved";
-            Saved?.Invoke(_path, details);
+            IsSaving = true;
+            IsEnabled = false;
+            var result = await AnnotationActions.SaveDraftAsync(target, details, CancellationToken.None);
+            if (result.Details is not { } saved)
+            {
+                Feedback.Text = result.Error;
+                return;
+            }
+            if (_path == target.Path && ReferenceEquals(_details, target.Details))
+            {
+                Open(target.Path, saved, duration: _duration);
+                Feedback.Text = "Details saved";
+            }
+            Saved?.Invoke(target.Path, saved);
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        catch (Exception ex)
         {
             Feedback.Text = "Couldn’t save clip details.";
             Log.Write("Could not save clip details: " + ex.Message);
+        }
+        finally
+        {
+            IsSaving = false;
+            IsEnabled = true;
         }
     }
 
     private void Cancel_Click(object sender, RoutedEventArgs e)
     {
-        if (_path != null && _details != null) Open(_path, _details);
+        if (_path != null && _details != null) Open(_path, _details, duration: _duration);
         Cancelled?.Invoke();
     }
 }
