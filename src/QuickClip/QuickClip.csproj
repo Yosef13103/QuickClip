@@ -26,6 +26,7 @@
 
   <ItemGroup>
     <Resource Include="Assets\QuickClip.ico" />
+    <PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.14" />
     <EmbeddedResource Include="Assets\clip-saved.wav" LogicalName="QuickClip.clip-saved.wav" />
     <InternalsVisibleTo Include="QuickClip.Tests" />
   </ItemGroup>
