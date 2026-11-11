@@ -262,7 +262,7 @@ public partial class GamesSettingsView : UserControl
                 string source = entry.Source == CatalogSource.Folder ? "Approved folder" : entry.Source.ToString();
                 string status = disabled ? "Disabled for automatic targeting" :
                     state.OfflineIds.Contains(entry.Id) || entry.Executables.IsEmpty ? "Needs review" : "Eligible for game detection";
-                return new GameRow(entry, $"{source} · {status}", disabled ? "Enable capture" : "Disable capture");
+                return new GameRow(entry, $"{source} · {status}", disabled ? "Allow game targeting" : "Exclude from game targeting");
             }).ToArray();
         Games.ItemsSource = rows;
         Games.SelectedItem = rows.FirstOrDefault(row => row.Entry.Id == selected);

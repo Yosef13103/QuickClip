@@ -197,6 +197,8 @@ public partial class SettingsView : UserControl
             Select(NvencPresetCombo, s.NvencPreset);
             DiagnosticsCheck.IsChecked = s.RecordingDiagnostics;
             CursorCheck.IsChecked = s.CaptureCursor;
+            GameSourceItem.Content = AppProfile.IsPersonal ? "Game window only (borderless unavailable)" : "Automatic - Game First";
+            DisplaySourceItem.Content = AppProfile.IsPersonal ? "Entire selected display" : "Selected monitor";
             SourceCombo.SelectedIndex = s.PreferGameWindow ? 0 : 1;
             ShowGameWindowState();
 
@@ -286,6 +288,14 @@ public partial class SettingsView : UserControl
         bool gameWindow = SourceCombo.SelectedIndex == 0;
         var selected = (EncoderCombo.SelectedItem as Choice)?.Value as string;
         NvencPresetCombo.IsEnabled = (string.IsNullOrEmpty(selected) ? RecordingPresets.DefaultEncoder(_encoders)?.Id : selected)?.EndsWith("_nvenc", StringComparison.Ordinal) == true;
+        if (AppProfile.IsPersonal)
+        {
+            CaptureTargetHint.Text = gameWindow
+                ? CaptureSourcePolicy.GameWindowUnavailable(OperatingSystem.IsWindowsVersionAtLeast(10, 0, 20348)) +
+                    " This choice never switches to monitor recording."
+                : "Records everything visible on the selected display, including other apps. Automatic monitor backend uses Desktop Duplication. An explicit WGC choice can show the Windows capture border.";
+            return;
+        }
         CaptureTargetHint.Text = gameWindow
             ? "Automatic captures a detected game window even when another window covers it. It records the selected monitor when game capture is unavailable. On Windows 10, WGC can display a yellow border. Strict game-only capture requires a future no-monitor fallback policy."
             : "Records everything visible on the selected display, including windows covering a game. The advanced monitor backend applies to this source.";

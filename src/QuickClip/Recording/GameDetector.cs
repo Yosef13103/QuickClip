@@ -76,7 +76,11 @@ internal sealed class GameDetector
                     Recognized = KnownGames().Contains(observed.Executable) || GameFolderName(observed.Executable) != null,
                 };
         }
-        if (ForegroundObservation?.Target is not { } target) return;
+        if ((AppProfile.IsPersonal ? ActiveObservation?.Target : ForegroundGame) is not { } target)
+        {
+            if (ForegroundObservation?.SkipAutomaticCapture == true) _lastGame = null;
+            return;
+        }
         _lastGame = target.Game;
         _lastGameSeen = DateTime.UtcNow;
     }
@@ -104,7 +108,12 @@ internal sealed class GameDetector
             if (path == null) return null;
             var known = KnownGames();
             var owner = new WindowOwner(hwnd, threadId, pid, started);
-            var observed = Observe(owner, path, GameCatalogRuntime.Match(path, true), IsFullscreen(hwnd), known, () => WindowTitle(hwnd));
+            bool fullscreen = IsFullscreen(hwnd);
+            var observed = AppProfile.IsPersonal
+                ? Observe(owner, path, GameCatalogRuntime.Match(path, true), fullscreen, known, () => WindowTitle(hwnd))
+                : new GameCaptureObservation(owner, path, new(CatalogMatchKind.Unknown),
+                    Classify(path, fullscreen, known, () => WindowTitle(hwnd)) is { } name
+                        ? new(owner, name, known.Contains(path) || GameFolderName(path) != null) : null, true);
             return IsCurrent(owner) ? observed : null;
         }
         catch (Exception ex)
@@ -124,7 +133,8 @@ internal sealed class GameDetector
             match = new(CatalogMatchKind.Launcher, match.Entry);
 
         bool recognized = match.Kind == CatalogMatchKind.Game
-            || match.Kind == CatalogMatchKind.Candidate && (known.Contains(path) || fullscreen);
+            || match.Kind == CatalogMatchKind.Candidate && (known.Contains(path) || fullscreen ||
+                match.Entry?.Source == CatalogSource.Steam && GameFolderName(path) != null);
         string? name = recognized ? match.Entry?.DisplayName : null;
         if (match.Kind == CatalogMatchKind.Unknown)
         {
@@ -145,7 +155,14 @@ internal sealed class GameDetector
             var latest = match(current.Executable, foreground?.Owner == current.Owner);
             if ((latest.Kind is CatalogMatchKind.Unknown or CatalogMatchKind.Candidate or CatalogMatchKind.Game)
                 && latest.Entry?.Id == current.Match.Entry?.Id)
-                return current with { Match = latest, IsForeground = foreground?.Owner == current.Owner };
+                return current with
+                {
+                    Match = latest,
+                    Target = latest.Entry is { } entry
+                        ? current.Target with { Game = SanitizeFolderName(entry.DisplayName) }
+                        : current.Target,
+                    IsForeground = foreground?.Owner == current.Owner,
+                };
         }
         return foreground?.Target != null && isCurrent(foreground.Owner) ? foreground : null;
     }
@@ -154,7 +171,7 @@ internal sealed class GameDetector
     public static string? Classify(string exePath, bool fullscreen, IReadOnlySet<string> knownGames, Func<string>? windowTitle = null)
     {
         string exe = Path.GetFileNameWithoutExtension(exePath);
-        if (NotGames.Contains(exe) || CatalogPaths.IsDiscordProcess(exePath)) return null;
+        if (NotGames.Contains(exe) || (AppProfile.IsPersonal ? CatalogPaths.IsDiscordProcess(exePath) : CatalogPaths.IsDiscordUpdater(exePath))) return null;
         string? folderName = GameFolderName(exePath);
         bool known = knownGames.Contains(exePath);
         if (!known && folderName == null && !fullscreen) return null;

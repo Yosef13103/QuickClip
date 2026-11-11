@@ -107,6 +107,54 @@ public sealed class GameObservationTests
     }
 
     [Fact]
+    public void Partial_scan_retains_previously_approved_renderer_and_veto()
+    {
+        string root = @"C:\Steam";
+        var found = Entry with { Source = CatalogSource.Steam, InstallDirectories = [root],
+            Executables = [Renderer, @"C:\Steam\other.exe"] };
+        var settings = new GameCatalogSettings { Request = new() { SteamLibraryRoots = [root, @"C:\Games"],
+            Overrides = [new(found.Id, new(Inclusion: CatalogInclusion.Exclude))] },
+            Snapshot = new([found], [], 2, false, default) };
+        var scan = new CatalogResult([found with { Executables = [@"C:\Steam\other.exe"] }], [], 1, true, default);
+        var merged = GameCatalogRuntime.WithScan(settings, scan);
+        Assert.Contains(found.Id, merged.OfflineIds);
+        Assert.Equal(CatalogMatchKind.Ignored, new GameCatalogIndex(new(GameCatalogRuntime.Rows(merged), [], 0, false, default)).Match(Renderer, true).Kind);
+        var verified = GameCatalogRuntime.WithScan(merged, scan with { LimitReached = false });
+        Assert.Empty(verified.OfflineIds);
+        Assert.DoesNotContain(Renderer, Assert.Single(GameCatalogRuntime.Rows(verified)).Executables);
+    }
+
+    [Fact]
+    public void Windowed_steam_renderer_keeps_identity_and_rename_while_discord_has_focus()
+    {
+        string steamExe = @"C:\Steam\steamapps\common\Fixture\renderer.exe";
+        var steam = Entry with { Source = CatalogSource.Steam, Executables = [steamExe] };
+        var current = GameDetector.Observe(Original, steamExe, new(CatalogMatchKind.Candidate, steam), false, new HashSet<string>());
+        Assert.Equal("Fixture Game", current.Target?.Game);
+        var companion = GameDetector.Observe(Original with { Handle = new IntPtr(404) },
+            @"C:\Apps\Discord.exe", new(CatalogMatchKind.Unknown), false, Known);
+        var renamed = GameDetector.SelectObservation(current, companion, owner => owner == Original,
+            (_, _) => new(CatalogMatchKind.Candidate, steam with { Rules = new(DisplayName: "Renamed") }));
+        Assert.Equal(Original, renamed?.Target?.Owner);
+        Assert.Equal("Renamed", renamed?.Target?.Game);
+        Assert.Null(GameDetector.SelectObservation(renamed, companion, _ => true, (_, _) => new(CatalogMatchKind.Ignored, steam)));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Unverified_game_backend_never_switches_to_the_display(bool borderApi)
+    {
+        var denied = GameDetector.Observe(Original, Renderer, new(CatalogMatchKind.Ignored, Entry), false, Known);
+        var automatic = CaptureSourcePolicy.ResolvePersonal(true, CaptureEngine.MonitorBackend.DesktopDuplication, null, denied, borderApi);
+        Assert.False(automatic.Allowed);
+        Assert.Contains("ineligible", automatic.Error);
+        var explicitDisplay = CaptureSourcePolicy.ResolvePersonal(false, CaptureEngine.MonitorBackend.DesktopDuplication, null, denied, borderApi);
+        Assert.True(explicitDisplay.Allowed);
+        Assert.Equal(CaptureEngine.MonitorBackend.MonitorOnlyDuplication, explicitDisplay.Backend);
+    }
+
+    [Fact]
     public void Endpoint_plan_keeps_discord_and_game_playback_separate_from_the_microphone()
     {
         var settings = new AppSettings { UseAudioEndpoints = true, EndpointTracks =

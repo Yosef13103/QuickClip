@@ -24,6 +24,20 @@ internal static class CaptureSourcePolicy
         _ => new(default, "Unsupported capture source preference."),
     };
 
+    internal static string GameWindowUnavailable(bool hasBorderApi) => hasBorderApi
+        ? "Borderless game-window recording is unavailable in this build. Windows package capability and user consent have not been verified."
+        : "Borderless game-window recording is unavailable on this Windows version. Choose the entire selected display with Desktop Duplication to record without the Windows capture border.";
+
+    internal static CaptureSourceDecision ResolvePersonal(bool gameWindow, CaptureEngine.MonitorBackend backend,
+        GameCaptureObservation? active, GameCaptureObservation? foreground, bool hasBorderApi)
+    {
+        if (!gameWindow) return Resolve(CaptureSourceMode.SelectedMonitor, backend);
+        string unavailable = GameWindowUnavailable(hasBorderApi);
+        return active?.Target == null && foreground?.SkipAutomaticCapture == true
+            ? new(default, "The foreground app is ineligible for automatic game targeting. " + unavailable)
+            : new(default, unavailable);
+    }
+
     internal static MonitorInfo? SelectMonitor(IReadOnlyList<MonitorInfo> monitors, string device, bool requireSelected)
     {
         if (!string.IsNullOrEmpty(device))

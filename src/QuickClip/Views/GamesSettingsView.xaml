@@ -9,8 +9,10 @@
             <TextBlock Text="Games" FontSize="24" FontWeight="SemiBold" />
             <CheckBox x:Name="AutoScan" Content="Automatically scan for games" Click="AutoScan_Click" Margin="0,8,0,0" />
             <TextBlock Text="With Games settings open, scans run at most every 15 minutes and use only approved folders." Style="{StaticResource Hint}" />
-            <Expander Header="Approved folders" Margin="0,6,0,6">
+            <Expander Header="Game libraries and launchers" Margin="0,6,0,6">
                 <StackPanel>
+                    <TextBlock Text="Supported sources: approved Steam libraries, game folders and exact executable files." TextWrapping="Wrap" Style="{StaticResource Hint}" />
+                    <TextBlock Text="Automatic discovery for Epic, Battle.net, EA, Ubisoft, GOG, Riot and Xbox/Game Pass is unavailable." TextWrapping="Wrap" Style="{StaticResource Hint}" />
                     <ListBox x:Name="Roots" MaxHeight="105" AutomationProperties.Name="Approved folders" />
                     <WrapPanel Margin="0,5,0,0">
                         <Button Content="Approve Steam library…" Click="Steam_Click" Margin="0,0,6,0" />
@@ -27,7 +29,7 @@
             </WrapPanel>
             <TextBlock x:Name="Status" Style="{StaticResource Hint}" Margin="0,6,0,0" AutomationProperties.LiveSetting="Polite" />
             <TextBlock x:Name="LastScan" Style="{StaticResource Hint}" />
-            <TextBlock Text="Capture toggles control automatic game eligibility. Full suppression in Automatic awaits recorder integration. An explicitly selected monitor can still show any visible game." Style="{StaticResource Hint}" />
+            <TextBlock Text="These rules control game-target eligibility. Borderless game-window capture is currently unavailable. Entire-display recording can still show any visible game." Style="{StaticResource Hint}" />
             <DockPanel Margin="0,10,0,6">
                 <TextBlock x:Name="Count" DockPanel.Dock="Left" VerticalAlignment="Center" FontWeight="SemiBold" Margin="0,0,12,0" />
                 <TextBox x:Name="Search" AutomationProperties.Name="Search games by name or executable" TextChanged="Search_Changed" />

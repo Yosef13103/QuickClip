@@ -89,8 +89,9 @@ internal sealed class Recorder
         var backend = s.CaptureBackend;
         if (AppProfile.IsPersonal)
         {
-            var mode = s.PreferGameWindow ? CaptureSourceMode.GameWindowOnly : CaptureSourceMode.SelectedMonitor;
-            var decision = CaptureSourcePolicy.Resolve(mode, backend);
+            if (s.PreferGameWindow) _games.Poll();
+            var decision = CaptureSourcePolicy.ResolvePersonal(s.PreferGameWindow, backend,
+                _games.ActiveObservation, _games.ForegroundObservation, OperatingSystem.IsWindowsVersionAtLeast(10, 0, 20348));
             if (!decision.Allowed)
             {
                 Error = decision.Error;

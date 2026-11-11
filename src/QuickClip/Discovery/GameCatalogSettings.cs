@@ -22,6 +22,8 @@ internal static class GameCatalogRuntime
         if (!AppProfile.IsPersonal) return new(CatalogMatchKind.Unknown);
         var settings = AppSettings.Current.Games;
         if (settings == null) return new(CatalogMatchKind.Unknown);
+        if (settings.Request.ExcludedDirectories.Any(root => CatalogPaths.IsWithin(path, root)))
+            return new(CatalogMatchKind.Ignored);
         lock (Gate)
         {
             if (!ReferenceEquals(settings, _settings))
@@ -60,16 +62,23 @@ internal static class GameCatalogRuntime
     public static GameCatalogSettings WithScan(GameCatalogSettings settings, CatalogResult scan)
     {
         var previous = settings.Snapshot?.Entries ?? [];
-        var seen = scan.Entries.Select(x => x.Id).ToHashSet(StringComparer.Ordinal);
-        var retained = previous.Where(entry => entry.Source != CatalogSource.Manual && !seen.Contains(entry.Id)
-            && (scan.LimitReached || scan.Issues.Any(issue => entry.InstallDirectories.Any(dir =>
-                CatalogPaths.IsWithin(dir, issue.Location) || CatalogPaths.IsWithin(issue.Location, dir)
-                || entry.Source == CatalogSource.Steam && CatalogPaths.IsWithin(issue.Location,
-                    Path.GetDirectoryName(Path.GetDirectoryName(dir)!)!))))).ToArray();
+        bool Incomplete(CatalogEntry entry) => entry.Source != CatalogSource.Manual &&
+            (scan.LimitReached || scan.Issues.Any(issue => entry.InstallDirectories.Any(dir =>
+                CatalogPaths.IsWithin(dir, issue.Location) || CatalogPaths.IsWithin(issue.Location, dir) ||
+                entry.Source == CatalogSource.Steam && CatalogPaths.IsWithin(issue.Location,
+                    Path.GetDirectoryName(Path.GetDirectoryName(dir)!)!))));
+        var retained = previous.Where(Incomplete).ToDictionary(entry => entry.Id, StringComparer.Ordinal);
+        var merged = scan.Entries.Select(entry => retained.Remove(entry.Id, out var prior)
+            ? entry with
+            {
+                InstallDirectories = [.. entry.InstallDirectories.Concat(prior.InstallDirectories).Distinct(StringComparer.OrdinalIgnoreCase)],
+                Executables = [.. entry.Executables.Concat(prior.Executables).Distinct(StringComparer.OrdinalIgnoreCase)],
+            }
+            : entry).Concat(retained.Values).ToArray();
         return settings with
         {
-            Snapshot = scan with { Entries = [.. scan.Entries, .. retained] },
-            OfflineIds = [.. retained.Select(entry => entry.Id)],
+            Snapshot = scan with { Entries = [.. merged] },
+            OfflineIds = [.. merged.Where(Incomplete).Select(entry => entry.Id)],
         };
     }
 }

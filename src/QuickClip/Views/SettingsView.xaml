@@ -105,9 +105,8 @@
 
                     <TextBlock Text="Recording source" Margin="0,12,0,4" />
                     <ComboBox x:Name="SourceCombo" SelectionChanged="Changed" AutomationProperties.Name="Recording source">
-                        <ComboBoxItem Content="Automatic - Game First" />
-                        <ComboBoxItem Content="Selected monitor" />
-                        <ComboBoxItem Content="Game only — unavailable in this build" IsEnabled="False" />
+                        <ComboBoxItem x:Name="GameSourceItem" Content="Automatic - Game First" />
+                        <ComboBoxItem x:Name="DisplaySourceItem" Content="Selected monitor" />
                     </ComboBox>
                     <TextBlock x:Name="CaptureTargetHint" Style="{StaticResource Hint}" Margin="0,6,0,4" TextWrapping="Wrap" />
 
