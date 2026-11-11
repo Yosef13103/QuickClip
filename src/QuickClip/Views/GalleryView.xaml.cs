@@ -481,7 +481,8 @@ public partial class GalleryView : UserControl
         var result = await ClipDeletion.Current.DeleteAsync(paths, batch => ClipDeletion.Confirm(Window.GetWindow(this), batch));
         if (result.Cancelled) return;
         foreach (var clip in _clips.Where(c => paths.Contains(c.Path, StringComparer.OrdinalIgnoreCase))) clip.IsSelected = false;
-        ShowStatus($"{result.Deleted} clip(s) sent to the Recycle Bin." + (result.Failed > 0 ? $" {result.Failed} could not be recycled and were left in place." : " Use Undo delete to restore."));
+        ShowStatus($"{result.Deleted} clip(s) sent to the Recycle Bin." + (result.Failed > 0 ? $" {result.Failed} could not be recycled and were left in place." :
+            ClipDeletion.Current.CanUndo ? " Use Undo delete to restore." : " Restore them through the Windows Recycle Bin."));
         await ReloadAsync();
     }
 

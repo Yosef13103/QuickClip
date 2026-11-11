@@ -10,8 +10,8 @@ extern "C" {
 namespace qc
 {
     /// D3D11 video-processor scaling without CPU readback. Keeps BGRA, like ddagrab and gfxcapture.
-    /// The bundled scale_d3d11 requests VIDEO_ENCODER-bound textures, rejected by some NVIDIA drivers;
-    /// NVENC accepts ordinary render-target textures instead.
+    /// The bundled scale_d3d11's NV12 texture array fails on the tested driver; BGRA with its
+    /// VIDEO_ENCODER binding also fails. NVENC accepts ordinary BGRA render-target textures instead.
     class GpuScale
     {
     public:

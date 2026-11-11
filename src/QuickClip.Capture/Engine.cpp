@@ -660,9 +660,13 @@ namespace qc
                     s->windowMode = window != nullptr;
                     {
                         char description[512];
-                        snprintf(description, sizeof description, "%s%s | source %dx%d | output %dx%d | %s%s | %d fps target | %d kbps target | %s",
+                        RECT client{};
+                        bool hasClient = window && GetClientRect(window, &client);
+                        snprintf(description, sizeof description, "%s%s | %s %dx%d | output %dx%d | %s%s | %d fps target | %d kbps target | %s",
                             pipe.duplication ? "Desktop Duplication" : "Windows Graphics Capture", window ? " (window)" : "",
-                            window ? windowWidth : area.width, window ? windowHeight : area.height, pipe.encoder->width, pipe.encoder->height,
+                            window ? (hasClient ? "window client" : "window request") : "source",
+                            window ? (hasClient ? client.right - client.left : windowWidth) : area.width,
+                            window ? (hasClient ? client.bottom - client.top : windowHeight) : area.height, pipe.encoder->width, pipe.encoder->height,
                             s->encoder.c_str(), s->encoder.ends_with("_nvenc")
                                 ? (s->videoOptions.nvencPreset == 2 ? " p2/HQ" : s->videoOptions.nvencPreset == 1 ? " p3/HQ" : " p4/HQ") : "",
                             s->fps, kbps, VideoPipe::NeedsSystemFrames(*s) ? "CPU readback + NV12 conversion" : "D3D11 hardware frames");
