@@ -109,6 +109,8 @@
                         <ComboBoxItem x:Name="DisplaySourceItem" Content="Selected monitor" />
                     </ComboBox>
                     <TextBlock x:Name="CaptureTargetHint" Style="{StaticResource Hint}" Margin="0,6,0,4" TextWrapping="Wrap" />
+                    <Button x:Name="GameDisplayConsent" Visibility="Collapsed" HorizontalAlignment="Left"
+                            Margin="0,4,0,0" Click="GameDisplayConsent_Click" />
 
                     <Grid Style="{StaticResource Row}">
                         <Grid.ColumnDefinitions>

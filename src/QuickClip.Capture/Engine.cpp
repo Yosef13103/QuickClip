@@ -267,6 +267,18 @@ namespace qc
             return found;
         }
 
+        bool MatchesDisplayIdentity(const std::wstring& device, const std::wstring& expected)
+        {
+            if (expected.empty()) return true;
+            DISPLAY_DEVICEW monitor{};
+            monitor.cb = sizeof monitor;
+            if (!EnumDisplayDevicesW(device.c_str(), 0, &monitor, EDD_GET_DEVICE_INTERFACE_NAME)
+                || _wcsicmp(monitor.DeviceID, expected.c_str()) != 0)
+                return false;
+            // A cloned source can represent more than the authorized physical target.
+            return !EnumDisplayDevicesW(device.c_str(), 1, &monitor, EDD_GET_DEVICE_INTERFACE_NAME);
+        }
+
         struct Area
         {
             int x = 0, y = 0, width = 0, height = 0;
@@ -338,6 +350,7 @@ namespace qc
         explicit Shared(int64_t windowUs) : ring(windowUs) {}
 
         std::wstring monitorDevice;
+        std::wstring displayIdentity;
         int aspectWidth = 0, aspectHeight = 0;     // record the centered part with this shape; 0 = the whole monitor
         int fps = 60, outWidth = 0, outHeight = 0, videoKbps = 0;
         bool cursor = true;
@@ -636,8 +649,9 @@ namespace qc
                     }
                     else
                     {
-                        ok = FindMonitor(s->monitorDevice, monitor);
-                        if (!ok) error = "The selected monitor wasn't found.";
+                        ok = FindMonitor(s->monitorDevice, monitor)
+                            && MatchesDisplayIdentity(s->monitorDevice, s->displayIdentity);
+                        if (!ok) error = "The selected monitor is missing or could not be verified.";
                     }
                     if (ok)
                     {
@@ -927,13 +941,15 @@ namespace qc
     // Engine
     // ---------------------------------------------------------------------------------------------
 
-    Engine::Engine(const QcConfig& c, bool endpointMode, const QcEndpointTrack* endpoints, int endpointCount, QcVideoOptions video)
+    Engine::Engine(const QcConfig& c, bool endpointMode, const QcEndpointTrack* endpoints, int endpointCount,
+        QcVideoOptions video, const wchar_t* displayIdentity)
         : shared_(std::make_shared<Shared>(static_cast<int64_t>(c.bufferSeconds) * 1000000)),
           monitor_(c.monitorDevice ? c.monitorDevice : L""),
           splitChat_(c.splitChat != 0), splitMusic_(c.splitMusic != 0), micSeparate_(c.micSeparate != 0),
           endpointMode_(endpointMode), audioKbps_(c.audioKbps)
     {
         shared_->videoOptions = video;
+        if (displayIdentity) shared_->displayIdentity = displayIdentity;
         for (int i = 0; !endpointMode_ && i < c.micCount; i++)
         {
             const wchar_t* id = c.micDeviceIds ? c.micDeviceIds[i] : nullptr;
@@ -956,9 +972,9 @@ namespace qc
     bool Engine::Start(std::string& error)
     {
         MonitorTarget monitor;
-        if (!FindMonitor(monitor_, monitor))
+        if (!FindMonitor(monitor_, monitor) || !MatchesDisplayIdentity(monitor_, shared_->displayIdentity))
         {
-            error = "The selected monitor wasn't found.";
+            error = "The selected monitor is missing or could not be verified.";
             return false;
         }
         shared_->monitorDevice = monitor_;

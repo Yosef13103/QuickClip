@@ -143,7 +143,8 @@ namespace qc
     class Engine
     {
     public:
-        Engine(const QcConfig& config, bool endpointMode, const QcEndpointTrack* endpoints, int endpointCount, QcVideoOptions video);
+        Engine(const QcConfig& config, bool endpointMode, const QcEndpointTrack* endpoints, int endpointCount,
+            QcVideoOptions video, const wchar_t* displayIdentity);
         ~Engine();
         bool Start(std::string& error);
         /// Desktop records everything but `desktopExclude`'s process tree (nothing when that is 0) plus the trees of

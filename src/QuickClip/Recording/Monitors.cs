@@ -4,6 +4,7 @@ namespace QuickClip.Recording;
 
 public sealed record MonitorInfo(string DeviceName, string FriendlyName, int Left, int Top, int Width, int Height)
 {
+    internal string? CaptureIdentity { get; init; }
     public bool IsPrimary => Left == 0 && Top == 0;
 
     public string Label
@@ -19,7 +20,7 @@ public sealed record MonitorInfo(string DeviceName, string FriendlyName, int Lef
 /// <summary>Monitors the engine can capture, with the names Windows shows in display settings.</summary>
 internal static class Monitors
 {
-    internal sealed record DisplayMode(string Name, int SourceWidth, int SourceHeight, int SignalWidth, int SignalHeight, double Refresh);
+    internal sealed record DisplayMode(string Name, int SourceWidth, int SourceHeight, int SignalWidth, int SignalHeight, double Refresh, string? Identity);
     internal static string Diagnostics()
     {
         var modes = ReadModes();
@@ -40,7 +41,8 @@ internal static class Monitors
             {
                 var mode = names.GetValueOrDefault(o.DeviceName);
                 var size = PhysicalSize(o.Right - o.Left, o.Bottom - o.Top, mode?.SourceWidth ?? 0, mode?.SourceHeight ?? 0);
-                return new MonitorInfo(o.DeviceName, mode?.Name ?? "", o.Left, o.Top, size.Width, size.Height);
+                return new MonitorInfo(o.DeviceName, mode?.Name ?? "", o.Left, o.Top, size.Width, size.Height)
+                { CaptureIdentity = mode?.Identity };
             })
             .OrderByDescending(m => m.IsPrimary).ThenBy(m => m.Left)
             .ToList();
@@ -90,10 +92,12 @@ internal static class Monitors
                 DisplayConfigGetDeviceInfo(ref target);
                 var sm = path.sourceInfo.modeInfoIdx < modeCount ? modes[path.sourceInfo.modeInfoIdx] : default;
                 var tm = path.targetInfo.modeInfoIdx < modeCount ? modes[path.targetInfo.modeInfoIdx] : default;
+                string? identity = result.ContainsKey(source.viewGdiDeviceName) ? null : target.monitorDevicePath;
                 result[source.viewGdiDeviceName] = new(target.monitorFriendlyDeviceName ?? "",
                     sm.infoType == 1 ? (int)sm.sourceWidth : 0, sm.infoType == 1 ? (int)sm.sourceHeight : 0,
                     tm.infoType == 2 ? (int)tm.signalWidth : 0, tm.infoType == 2 ? (int)tm.signalHeight : 0,
-                    path.targetInfo.refreshDenominator == 0 ? 0 : (double)path.targetInfo.refreshNumerator / path.targetInfo.refreshDenominator);
+                    path.targetInfo.refreshDenominator == 0 ? 0 : (double)path.targetInfo.refreshNumerator / path.targetInfo.refreshDenominator,
+                    string.IsNullOrWhiteSpace(identity) ? null : identity);
             }
         }
         catch (Exception ex)

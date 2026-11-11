@@ -128,7 +128,7 @@ internal static class CaptureEngine
     /// <param name="separateMics">Each microphone on its own track, named by its title, instead of all on one Mic track.</param>
     public static string? Start(string monitorDevice, string aspect, int fps, int outWidth, int outHeight, string encoder, int videoKbps,
         int audioKbps, int bufferSeconds, bool cursor, bool splitChat, bool splitMusic, IReadOnlyList<Microphones.Input> mics,
-        bool separateMics, IReadOnlyList<EndpointTrack>? endpointTracks = null, VideoOptions video = default)
+        bool separateMics, IReadOnlyList<EndpointTrack>? endpointTracks = null, VideoOptions video = default, string? displayIdentity = null)
     {
         var strings = new List<IntPtr>();
         IntPtr Uni(string? s) { var p = s == null ? IntPtr.Zero : Marshal.StringToHGlobalUni(s); strings.Add(p); return p; }
@@ -170,8 +170,8 @@ internal static class CaptureEngine
                     DeviceId = Uni(t.DeviceId),
                     Title = Uni(t.Label),
                 }).ToArray();
-            int started = qc_start_with_video(ref config, tracks, endpointTracks == null ? -1 : tracks.Length,
-                ref video, error, error.Length);
+            int started = qc_start_with_display(ref config, tracks, endpointTracks == null ? -1 : tracks.Length,
+                ref video, displayIdentity, error, error.Length);
             return started != 0 ? null : new string(error).TrimEnd('\0');
         }
         finally
@@ -279,8 +279,8 @@ internal static class CaptureEngine
     [DllImport(Dll, CharSet = CharSet.Unicode)] private static extern int qc_start(ref Config config, [Out] char[] error, int errorLength);
     [DllImport(Dll, CharSet = CharSet.Unicode)] private static extern int qc_start_endpoints(ref Config config, [In] EndpointConfig[] endpoints,
         int count, [Out] char[] error, int errorLength);
-    [DllImport(Dll, CharSet = CharSet.Unicode)] private static extern int qc_start_with_video(ref Config config, [In] EndpointConfig[] endpoints,
-        int count, ref VideoOptions video, [Out] char[] error, int errorLength);
+    [DllImport(Dll, CharSet = CharSet.Unicode)] private static extern int qc_start_with_display(ref Config config, [In] EndpointConfig[] endpoints,
+        int count, ref VideoOptions video, string? displayIdentity, [Out] char[] error, int errorLength);
     [DllImport(Dll, CharSet = CharSet.Unicode)] private static extern void qc_video_diagnostics([Out] char[] text, int length);
     [DllImport(Dll, CharSet = CharSet.Unicode)] private static extern void qc_display_diagnostics([Out] char[] text, int length);
     [DllImport(Dll)] private static extern void qc_stop();

@@ -162,7 +162,7 @@ public partial class SettingsView : UserControl
             _monitors = await Task.Run(Monitors.List);
             MonitorCombo.ItemsSource = _monitors.Select(m => new Choice(m.Label, m.DeviceName)).ToList();
             var savedDisplay = _monitors.FirstOrDefault(m => string.Equals(m.DeviceName, s.RecordMonitor, StringComparison.OrdinalIgnoreCase));
-            var initialDisplay = savedDisplay ?? (AppProfile.IsPersonal && !string.IsNullOrEmpty(s.RecordMonitor)
+            var initialDisplay = savedDisplay ?? (AppProfile.IsPersonal
                 ? null : _monitors.FirstOrDefault(m => m.IsPrimary));
             Select(MonitorCombo, initialDisplay?.DeviceName);
             RefreshAreas(s.RecordAspect);
@@ -199,8 +199,9 @@ public partial class SettingsView : UserControl
             Select(NvencPresetCombo, s.NvencPreset);
             DiagnosticsCheck.IsChecked = s.RecordingDiagnostics;
             CursorCheck.IsChecked = s.CaptureCursor;
-            GameSourceItem.Content = AppProfile.IsPersonal ? "Game window only (borderless unavailable)" : "Automatic - Game First";
-            DisplaySourceItem.Content = AppProfile.IsPersonal ? "Entire selected display" : "Selected monitor";
+            if (AppProfile.IsPersonal) RecordingCheck.Content = "Enable QuickClip recording";
+            GameSourceItem.Content = AppProfile.IsPersonal ? "Arm automatic game replay" : "Automatic - Game First";
+            DisplaySourceItem.Content = AppProfile.IsPersonal ? "Manual desktop capture only" : "Selected monitor";
             SourceCombo.SelectedIndex = s.PreferGameWindow ? 0 : 1;
             ShowGameWindowState();
 
@@ -292,10 +293,17 @@ public partial class SettingsView : UserControl
         NvencPresetCombo.IsEnabled = (string.IsNullOrEmpty(selected) ? RecordingPresets.DefaultEncoder(_encoders)?.Id : selected)?.EndsWith("_nvenc", StringComparison.Ordinal) == true;
         if (AppProfile.IsPersonal)
         {
+            var settings = AppSettings.Current;
+            var display = _monitors.FirstOrDefault(m => Equals(m.DeviceName, (MonitorCombo.SelectedItem as Choice)?.Value));
+            bool authorized = !string.IsNullOrEmpty(settings.AuthorizedGameDisplay);
+            GameDisplayConsent.Visibility = gameWindow ? Visibility.Visible : Visibility.Collapsed;
+            GameDisplayConsent.IsEnabled = authorized || display?.CaptureIdentity != null;
+            GameDisplayConsent.Content = authorized ? "Revoke game display permission" : "Allow selected display during games…";
+            BackendCombo.IsEnabled = false;
             CaptureTargetHint.Text = gameWindow
-                ? CaptureSourcePolicy.GameWindowUnavailable(OperatingSystem.IsWindowsVersionAtLeast(10, 0, 20348)) +
-                    " Select a connected display below, then choose Entire selected display and confirm. Dismissing the prompt keeps this preference."
-                : "Records everything visible on the selected display, including other apps. Automatic monitor backend uses Desktop Duplication. An explicit WGC choice can show the Windows capture border.";
+                ? "Waits for an eligible game. With display permission, Desktop Duplication records everything visible on that display while the game is open."
+                    + (authorized ? " Permission is set for the previously confirmed display." : " No display permission has been granted.")
+                : "No automatic capture. Use Start manual desktop capture in the tray to explicitly record the selected display.";
             return;
         }
         CaptureTargetHint.Text = gameWindow
@@ -382,29 +390,27 @@ public partial class SettingsView : UserControl
         MicTracksCombo.IsEnabled = on;
     }
 
+    private void GameDisplayConsent_Click(object sender, RoutedEventArgs e)
+    {
+        var settings = AppSettings.Current;
+        if (settings.AuthorizedGameDisplay != null) settings.AuthorizedGameDisplay = null;
+        else
+        {
+            var display = _monitors.FirstOrDefault(m => Equals(m.DeviceName, (MonitorCombo.SelectedItem as Choice)?.Value));
+            if (display?.CaptureIdentity == null || ModalDialog.Show(Window.GetWindow(this),
+                $"Allow game-triggered recording of everything visible on {display.Label}? Other apps, messages and notifications on this display can appear in saved clips.",
+                "Allow entire-display game recording?", MessageBoxButton.YesNo, MessageBoxImage.Warning, MessageBoxResult.No) != MessageBoxResult.Yes) return;
+            if (!CaptureSourcePolicy.AcceptGameDisplay(settings, display, confirmed: true)) return;
+        }
+        settings.Save();
+        ShowGameWindowState();
+        _ = Recorder.Instance.ApplySettingsAsync();
+    }
+
     private void Changed(object sender, RoutedEventArgs e)
     {
         if (_loading || !IsInitialized) return;
         var s = AppSettings.Current;
-        if (AppProfile.IsPersonal && sender == SourceCombo && s.PreferGameWindow && SourceCombo.SelectedIndex == 1)
-        {
-            var display = _monitors.FirstOrDefault(m => Equals(m.DeviceName, (MonitorCombo.SelectedItem as Choice)?.Value));
-            bool accepted = false;
-            _loading = true;
-            try
-            {
-                accepted = display != null && ModalDialog.Show(Window.GetWindow(this),
-                    $"Record the entire visible display {display.Label} with Desktop Duplication? Other windows, messages and notifications on that display can appear in clips. If instant replay is on, recording starts after confirmation.",
-                    "Allow entire-display recording?", MessageBoxButton.YesNo, MessageBoxImage.Warning, MessageBoxResult.No) == MessageBoxResult.Yes;
-                if (!CaptureSourcePolicy.AcceptDisplayCapture(s, display, accepted))
-                {
-                    SourceCombo.SelectedIndex = 0;
-                    return;
-                }
-                Select(BackendCombo, s.CaptureBackend);
-            }
-            finally { _loading = false; }
-        }
         s.RecordingEnabled = RecordingCheck.IsChecked == true;
         if (!AppProfile.IsPersonal || sender == MonitorCombo)
             s.RecordMonitor = (MonitorCombo.SelectedItem as Choice)?.Value as string ?? "";
@@ -448,7 +454,12 @@ public partial class SettingsView : UserControl
         UpdateEstimates();
         bool recordingSetting = sender != StartupCheck && sender != MinTrayCheck && sender != CloseTrayCheck && sender != SoundCheck
                                 && sender != MotionBlurCheck && sender != ConfirmDeleteCheck;
-        if (recordingSetting) ScheduleRecorderRestart();
+        if (sender == RecordingCheck || sender == SourceCombo)
+        {
+            _restartTimer.Stop();
+            _ = Recorder.Instance.ApplySettingsAsync();
+        }
+        else if (recordingSetting) ScheduleRecorderRestart();
     }
 
     private void ScheduleRecorderRestart()
@@ -568,6 +579,7 @@ public partial class SettingsView : UserControl
             : "No music app is running right now.") + " Music played in a web browser stays on the Desktop track.";
         RecorderStatus.Text = state.Running ? $"Recording · {state.Summary}"
             : state.Error != null ? "Not recording: " + state.Error
+            : state.Mode == RecordingMode.Armed ? "Armed · no recording active."
             : AppSettings.Current.RecordingEnabled ? "Starting…" : "Recording is off.";
     });
 
