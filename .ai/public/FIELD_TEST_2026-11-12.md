@@ -97,3 +97,33 @@ REQUIRED:
 - At export entry, validate source file still exists and is readable BEFORE expensive processing; show an immediate actionable error rather than a late FFmpeg failure. Existing generated output and unrelated media must remain untouched.
 
 ACCEPT: reproducible automated/UI test for Editor open -> Gallery delete -> return Editor; delete canceled; delete failed; undo/restore; external delete/move; missing source before export; deletion during export; original source still present. Existing Editor own delete, Gallery reload and share flows must continue working.
+
+
+### FT-16 — P1 Gallery UX — date feed, whole-day selection, game summary and icon sharing
+Owner supplied a SteelSeries Moments screenshot showing video tiles arranged under day headings, with a circle at the left of each date to select that whole day, and a one-line game summary beside the date (e.g. "Backrooms: Escape Together +2 more"). Cards show title, recorded date, relative age, share icon and overflow. The owner explicitly wants these *interaction patterns*, without copying SteelSeries' trade dress or exact visual layout.
+
+This matches SteelSeries' documented "Video Clip Day Feed" and date-group selection behavior in official release notes:
+https://techblog.steelseries.com/2023/04/18/GG-notes-36.0.0.html
+https://techblog.steelseries.com/2023/05/03/GG-notes-37.0.0.html
+
+QuickClip already has ClipItem.Created, folder/game metadata, Ago, single-card selection, HasSelection, Select All (current visible clips), and a SelectionBar with batch operations. Current GalleryView.ApplyRows uses clips.Chunk(_columns) to render a plain grid; it does **not** implement selectable date groups. Current card uses literal text "Share", while the rest of the UI has icon controls. Reuse existing data/selection rather than adding a second selection store.
+
+REQUIRED:
+- Gallery All Clips defaults to chronological **day groups** using the clip's local captured date, with a legible date heading and optional relative day label (Today, Yesterday, etc.); show a concise list/summary of games clipped that day (e.g. "Terraria, Marvel Rivals +2 more") and compact count. Other gallery filters (game/tag/favorites/project) should retain meaningful grouping or clearly documented alternate sort.
+- Each group header has an accessible select/toggle control; click once selects all visible clips from that day, click again deselects that day's clips. A partial selection is visually distinct from none and all (tri-state/mixed), not a misleading full checkmark.
+- Allow selecting multiple different days together, plus individual clips and Select All. Clearly distinguish "Select all matching/visible clips" from the more destructive "Select every clip in library"; if latter is offered, show its scope and confirmation/count. Preserve selections across day-group navigation and non-destructive filter changes when appropriate; only prune missing/deleted files after inventory reconciliation. Do not reset other-day selections simply because a group changed.
+- Reuse existing selection toolbar for bulk delete, organize, add to projects/copy. Make destructive bulk actions use FT-08/FT-13 red hover/focus styling and exact count confirmation. Do not infer that QuickClip can share multiple files merely because the selection toolbar exists; only expose a batch share action if implemented and tested.
+- Change each clip's visible "Share" text button to an intuitive standard icon (e.g. node/share glyph), with tooltip, keyboard focus and automation name "Share clip"; preserve its existing clipboard-sharing action. Maintain the overflow menu for less common actions.
+- Keep useful game title, clip description, timestamp/relative age and duration legible. Avoid "5 MONTHS AGO" duplicated on every header when a single subtle day heading already expresses context; use hierarchy rather than repetition. Date-group summary must correctly include renamed/reassigned game labels, not merely directory basenames.
+- Preserve current hover-to-preview, thumbnail reuse, card selection, projects, favorites, drag/drop, search/filter and scroll position. Implement grouping as lightweight view models/row types with coherent WPF virtualization; do not enumerate thumbnails or recalc media lengths synchronously for each group. Thousands of clips shouldn't stall rendering. Explicitly test local-midnight/day-boundary, differing capture timezone metadata, same game across multiple days, 1/2/50 groups, 1/4-column layouts and 125/150% DPI.
+- Original QuickClip visuals should stay its own design: take lessons from the selection model, information density, and grouping—not copy the exact Moments colors, spacing, icons or layout. Coordinate with FT-07 coherent settings/design work.
+
+ACCEPT:
+1. 3 clips on day A, 2 on day B -> selecting A selects exactly 3; selecting B adds 2, then toggling A off leaves 2; partially selected group displays mixed state.
+2. Global selection bar's count/size and batch operations reflect exact selected paths; clear works; failed delete does not lose selection unexpectedly; undo restores inventory correctly.
+3. Day-group headings show correct local date and concise game summary, including two distinct games and renamed titles.
+4. Existing Share Clip icon invokes the same per-clip share path as before, with hover tooltip and keyboard accessibility.
+5. Filters, virtualization, thumbnails and 1–4-column responsive layout remain fast and accurate under a synthetic 1,000-clip fixture.
+6. No assumption that auto-clipping/highlights, batch uploading or a new sharing provider is in scope.
+
+OWNER PRIORITY: This is a valuable **P1 Gallery polish** task, not a reason to interrupt ongoing P0 game activation, Sonar audio or scan correctness. Assign to Chat 2 after FT-15 deleted-editor-source bug and its other correctness-critical UI items. Change only Gallery UI and its supporting grouping/selection helpers; avoid rewriting the Gallery storage/index layer.
