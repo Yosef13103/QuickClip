@@ -375,7 +375,7 @@ public partial class GalleryView : UserControl
     private void RefreshKnownTags()
     {
         KnownTags = ClipTagChoices.Match(_clips.SelectMany(clip => clip.Details.Tags), "", []).ToArray();
-        ExistingTagsCombo.ItemsSource = new[] { "Browse tags…" }.Concat(KnownTags);
+        ExistingTagsCombo.ItemsSource = new[] { "Tags…" }.Concat(KnownTags);
         ExistingTagsCombo.SelectedIndex = 0;
         ExistingTagsCombo.IsEnabled = KnownTags.Count > 0;
     }
