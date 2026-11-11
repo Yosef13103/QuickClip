@@ -98,6 +98,7 @@
                     <CheckBox x:Name="GameWindowCheck" Margin="160,12,0,0" Checked="Changed" Unchecked="Changed">
                         <TextBlock Text="Prefer game window capture" />
                     </CheckBox>
+                    <TextBlock x:Name="CaptureTargetHint" Style="{StaticResource Hint}" Margin="160,6,0,4" TextWrapping="Wrap" />
                     <TextBlock Style="{StaticResource Hint}" Margin="188,2,0,0" TextWrapping="Wrap"
                                Text="While a game is running, record just its window, even when you tab out: no notifications or overlay windows (Discord, Game Bar, AMD and NVIDIA) on top, and smoother when the game's frame rate is capped. Overlays a game draws into its own picture, like Steam's, stay in it." />
 
@@ -164,10 +165,10 @@
                         <StackPanel Margin="0,10,0,0">
                             <TextBlock Text="Monitor capture backend" />
                             <ComboBox x:Name="BackendCombo" SelectionChanged="Changed" Margin="0,4,0,8" />
-                            <TextBlock Style="{StaticResource Hint}" TextWrapping="Wrap" Text="Desktop Duplication avoids the monitor capture border. Auto prefers it through 60 fps and uses Graphics Capture above 60 fps. Game windows always use Graphics Capture; its indicator cannot be disabled on Windows 10." />
+                            <TextBlock Style="{StaticResource Hint}" TextWrapping="Wrap" Text="This backend applies only to monitor capture or fallback. Selecting Desktop Duplication does not override Prefer game window capture. Turn that preference off for monitor-only recording. Game windows use WGC; Windows 10 cannot disable its capture indicator." />
                             <TextBlock Text="NVENC preset" Margin="0,10,0,0" />
                             <ComboBox x:Name="NvencPresetCombo" SelectionChanged="Changed" Margin="0,4,0,0" />
-                            <TextBlock Style="{StaticResource Hint}" TextWrapping="Wrap" Text="Faster presets trade compression efficiency for lower encoder work. Bitrate, resolution and frame rate stay unchanged. Compare moving scenes before choosing. Only affects NVIDIA recording." />
+                            <TextBlock Style="{StaticResource Hint}" TextWrapping="Wrap" Text="P2 is recommended for Personal to reduce encoder work. P3/P4 may improve compression efficiency or detail at the same bitrate; equal visual quality is not guaranteed. Lower Video Encode usage does not guarantee higher game FPS. Resolution, frame rate and bitrate stay unchanged. Only affects NVIDIA recording." />
                             <CheckBox x:Name="DiagnosticsCheck" Content="Sample recording timings (every 5 seconds)" Margin="0,10,0,0" Checked="Changed" Unchecked="Changed" />
                             <TextBox x:Name="CaptureDiagnostics" IsReadOnly="True" TextWrapping="Wrap" Margin="0,10,0,0" />
                             <Button Content="Refresh diagnostics" Click="Diagnostics_Refresh" HorizontalAlignment="Left" Margin="0,8,0,0" />

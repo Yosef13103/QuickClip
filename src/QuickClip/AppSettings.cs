@@ -26,7 +26,8 @@ internal sealed class AppSettings
     public RecordingQuality RecordQuality { get; set; } = RecordingQuality.High;
     public string RecordEncoder { get; set; } = "";             // empty = newest GPU codec available
     public CaptureEngine.MonitorBackend CaptureBackend { get; set; }
-    public CaptureEngine.NvencSpeed NvencPreset { get; set; }
+    public CaptureEngine.NvencSpeed NvencPreset { get; set; } = AppProfile.IsPersonal
+        ? CaptureEngine.NvencSpeed.FastestP2 : CaptureEngine.NvencSpeed.BalancedP4;
     public bool RecordingDiagnostics { get; set; }
     public int BufferSeconds { get; set; } = 60;
     public bool CaptureCursor { get; set; } = true;

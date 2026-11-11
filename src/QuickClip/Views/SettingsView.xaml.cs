@@ -174,7 +174,12 @@ public partial class SettingsView : UserControl
             Select(EncoderCombo, s.RecordEncoder);
             BackendCombo.ItemsSource = new Choice[] { new("Automatic", CaptureEngine.MonitorBackend.Automatic), new("Desktop Duplication (borderless monitor)", CaptureEngine.MonitorBackend.DesktopDuplication), new("Windows Graphics Capture", CaptureEngine.MonitorBackend.GraphicsCapture) };
             Select(BackendCombo, s.CaptureBackend);
-            NvencPresetCombo.ItemsSource = new Choice[] { new("Balanced — P4 / HQ (default)", CaptureEngine.NvencSpeed.BalancedP4), new("Faster — P3 / HQ", CaptureEngine.NvencSpeed.FasterP3), new("Fastest — P2 / HQ", CaptureEngine.NvencSpeed.FastestP2) };
+            NvencPresetCombo.ItemsSource = new Choice[]
+            {
+                new(AppProfile.IsPersonal ? "P2 / HQ — lower encoder work (Personal default)" : "P2 / HQ — lower encoder work", CaptureEngine.NvencSpeed.FastestP2),
+                new("P3 / HQ — intermediate preset", CaptureEngine.NvencSpeed.FasterP3),
+                new(AppProfile.IsPersonal ? "P4 / HQ — more compression work" : "P4 / HQ — balanced (default)", CaptureEngine.NvencSpeed.BalancedP4),
+            };
             Select(NvencPresetCombo, s.NvencPreset);
             DiagnosticsCheck.IsChecked = s.RecordingDiagnostics;
             CursorCheck.IsChecked = s.CaptureCursor;
@@ -296,6 +301,9 @@ public partial class SettingsView : UserControl
         bool gameWindow = GameWindowCheck.IsChecked == true;
         AreaLabel.Text = gameWindow ? "Desktop aspect ratio" : "Aspect ratio";
         AreaHint.Visibility = gameWindow ? Visibility.Visible : Visibility.Collapsed;
+        CaptureTargetHint.Text = gameWindow
+            ? "Automatic target: prefer a detected game window via Windows Graphics Capture, then fall back to the selected monitor. The monitor backend choice does not override game targeting. Windows 10 may show a yellow border."
+            : "Monitor target: record the selected monitor, including windows covering the game. The monitor backend choice applies here. Desktop Duplication avoids the WGC monitor border; Auto prefers it through 60 fps and WGC above 60 fps.";
     }
 
     // ---- microphones ---------------------------------------------------------------------------
