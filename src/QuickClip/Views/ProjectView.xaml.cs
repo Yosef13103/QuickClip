@@ -478,7 +478,7 @@ public partial class ProjectView : UserControl
             await Task.Delay(100);
         if (!removed)
         {
-            MessageBox.Show(Window.GetWindow(this), $"Couldn't remove \"{clip.Title}\" from the project.", "QuickClip",
+            ModalDialog.Show(Window.GetWindow(this), $"Couldn't remove \"{clip.Title}\" from the project.", "QuickClip",
                 MessageBoxButton.OK, MessageBoxImage.Warning);
             return;
         }
@@ -504,7 +504,7 @@ public partial class ProjectView : UserControl
         var info = await ProbeAsync(dialog.FileName);
         if (info == null || info.Audio.Count == 0)
         {
-            MessageBox.Show(Window.GetWindow(this), $"\"{Path.GetFileName(dialog.FileName)}\" has no audio QuickClip can play.", "QuickClip",
+            ModalDialog.Show(Window.GetWindow(this), $"\"{Path.GetFileName(dialog.FileName)}\" has no audio QuickClip can play.", "QuickClip",
                 MessageBoxButton.OK, MessageBoxImage.Warning);
             return;
         }
@@ -527,7 +527,7 @@ public partial class ProjectView : UserControl
         catch (Exception ex)
         {
             Log.Write("Setting the music failed: " + ex);
-            MessageBox.Show(Window.GetWindow(this), "Couldn't add the music:\n\n" + ex.Message, "QuickClip", MessageBoxButton.OK, MessageBoxImage.Warning);
+            ModalDialog.Show(Window.GetWindow(this), "Couldn't add the music:\n\n" + ex.Message, "QuickClip", MessageBoxButton.OK, MessageBoxImage.Warning);
         }
         _music = _project.Music != null ? await ProbeAsync(_project.Music) : null;
         ReloadPreview(playing, offset);
@@ -543,7 +543,7 @@ public partial class ProjectView : UserControl
         var missing = _clips.FirstOrDefault(c => c.Info == null);
         if (missing != null)
         {
-            MessageBox.Show(Window.GetWindow(this), $"\"{missing.Title}\" couldn't be read, so the montage can't be made. Remove it from the project and try again.",
+            ModalDialog.Show(Window.GetWindow(this), $"\"{missing.Title}\" couldn't be read, so the montage can't be made. Remove it from the project and try again.",
                 "QuickClip", MessageBoxButton.OK, MessageBoxImage.Warning);
             return;
         }
@@ -575,7 +575,7 @@ public partial class ProjectView : UserControl
         catch (Exception ex)
         {
             Log.Write("Montage export failed: " + ex);
-            MessageBox.Show(Window.GetWindow(this), "The montage couldn't be made:\n\n" + ex.Message, "QuickClip", MessageBoxButton.OK, MessageBoxImage.Error);
+            ModalDialog.Show(Window.GetWindow(this), "The montage couldn't be made:\n\n" + ex.Message, "QuickClip", MessageBoxButton.OK, MessageBoxImage.Error);
         }
         finally
         {

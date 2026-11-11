@@ -35,12 +35,12 @@ public partial class MainWindow
                 _editor.PositionForRender != position || _editor.TrimEndForRender != trim)
                 throw new InvalidOperationException("View mode lost clip, playhead or trim state.");
             SaveVisual(Path.Combine(dir, "unified-view.png"));
-            _editor.ToggleCinemaForRender();
-            if (!_editor.CinemaForRender || _editor.CurrentFile != opened ||
+            _editor.ToggleFullscreenForRender();
+            if (!_editor.FullscreenForRender || _editor.CurrentFile != opened ||
                 _editor.PositionForRender != position || _editor.TrimEndForRender != trim)
-                throw new InvalidOperationException("Cinema mode lost clip, playhead or trim state.");
-            _editor.ToggleCinemaForRender();
-            if (!_editor.ViewingForRender) throw new InvalidOperationException("Cinema mode did not restore View mode.");
+                throw new InvalidOperationException("Fullscreen lost clip, playhead or trim state.");
+            _editor.ToggleFullscreenForRender();
+            if (!_editor.ViewingForRender) throw new InvalidOperationException("Fullscreen did not restore View mode.");
             _editor.ToggleModeForRender();
             _editor.SetTrimForRender(originalEnd);
             report.AppendLine("gallery opened unified editor and mode changes preserved clip, playhead and trim");
@@ -64,11 +64,6 @@ public partial class MainWindow
             ApplyFullScreenLayout(false);
             ShowPage(Gallery);
         }
-
-        var prompt = Views.TextPrompt.ShowForRender(this, "New project", "Montage", "Create");
-        await Task.Delay(800);
-        SaveVisual(prompt, Path.Combine(dir, "new-project-prompt.png"));
-        prompt.Close();
 
         // Projects: tick two clips, add them to a new project, add music, preview across the join, reorder, export.
         if (Gallery.SelectForRender(2) is { Count: 2 } picked)

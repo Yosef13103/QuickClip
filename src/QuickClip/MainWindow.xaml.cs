@@ -21,6 +21,7 @@ public partial class MainWindow : Window
     private SettingsView? _settings;
     private bool _closeReady;
     private WindowState _stateBeforeFullScreen;
+    private bool _windowFullScreen;
 
     public MainWindow()
     {
@@ -68,10 +69,12 @@ public partial class MainWindow : Window
             }
             e.Handled = true;
         };
+        Deactivated += (_, _) => Gallery.StopHoverPreview();
         StateChanged += (_, _) =>
         {
             if (WindowState != WindowState.Minimized) return;
             // Coming back from the taskbar or the tray then shows the ordinary window.
+            _editor?.ExitFullscreen();
             SetFullScreen(false);
             if (AppSettings.Current.MinimizeToTray) Hide();
         };
@@ -96,6 +99,11 @@ public partial class MainWindow : Window
             _editor.ClipDetailsSaved += Gallery.ApplyClipDetails;
             _editor.KnownTags = () => Gallery.KnownTags;
             _editor.AnnotationActions = Library.PersonalLibrary.Current;
+            _editor.FullscreenRequested += on =>
+            {
+                if (on && _renderOffscreenForEditor()) SetFullScreenChrome(true);
+                else SetWindowFullScreen(on);
+            };
             Pages.Children.Add(_editor);
             return _editor;
         }
@@ -138,8 +146,16 @@ public partial class MainWindow : Window
     // Clicking Gallery while the player (part of the gallery) is open goes back to the clips.
     private void GalleryNav_Click(object sender, RoutedEventArgs e) => ShowPage(Gallery);
 
+    private bool _renderOffscreenForEditor() =>
+#if DEBUG
+        !ShowActivated;
+#else
+        false;
+#endif
+
     private void ShowPage(UIElement page)
     {
+        if (page != _editor) _editor?.ExitFullscreen();
         if (page != _player && _player != null)
         {
             SetFullScreen(false);
@@ -166,6 +182,14 @@ public partial class MainWindow : Window
     {
         if (_player == null || on == _player.IsFullScreen) return;
         ApplyFullScreenLayout(on);
+        SetWindowFullScreen(on);
+    }
+
+    private void SetWindowFullScreen(bool on)
+    {
+        SetFullScreenChrome(on);
+        if (on == _windowFullScreen) return;
+        _windowFullScreen = on;
         if (on)
         {
             _stateBeforeFullScreen = WindowState;
@@ -185,9 +209,14 @@ public partial class MainWindow : Window
 
     private void ApplyFullScreenLayout(bool on)
     {
+        SetFullScreenChrome(on);
+        _player!.IsFullScreen = on;
+    }
+
+    private void SetFullScreenChrome(bool on)
+    {
         RailColumn.Width = new GridLength(on ? 0 : 80);
         Rail.Visibility = StatusBar.Visibility = on ? Visibility.Collapsed : Visibility.Visible;
-        _player!.IsFullScreen = on;
     }
 
     private void OnRecorderState(RecorderState state) => Dispatcher.BeginInvoke(UpdateStatus);

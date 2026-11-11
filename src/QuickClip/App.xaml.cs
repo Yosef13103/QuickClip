@@ -277,7 +277,7 @@ public partial class App : Application
     private void OnUnhandledException(object sender, DispatcherUnhandledExceptionEventArgs e)
     {
         Log.Write("Unhandled: " + e.Exception);
-        MessageBox.Show(e.Exception.Message, "QuickClip – unexpected error", MessageBoxButton.OK, MessageBoxImage.Error);
+        Views.ModalDialog.Show(_main, e.Exception.Message, "QuickClip – unexpected error", MessageBoxButton.OK, MessageBoxImage.Error);
         e.Handled = true;
     }
 

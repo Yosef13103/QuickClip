@@ -5,6 +5,9 @@ using System.Globalization;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
+using System.Windows.Media;
+using System.Windows.Documents;
+using System.Windows.Controls.Primitives;
 using System.Windows.Threading;
 using Microsoft.Win32;
 using QuickClip.Controls;
@@ -88,7 +91,12 @@ public partial class EditorView : UserControl
     }
     private bool _favoriteSaving;
     public string? CurrentFile => _media?.Path;
-    private bool _viewMode, _cinemaMode, _updatingViewSeek;
+    private bool _viewMode, _fullscreen, _updatingViewSeek;
+    private double _inspectorWidth = 330;
+    private double? _timelineHeight;
+    private readonly DispatcherTimer _fullscreenControlsTimer;
+    private (double Start, double End)? _appliedLoop;
+    internal event Action<bool>? FullscreenRequested;
     private bool _deletingMedia;
     private string? _openedDraft;
 
@@ -132,7 +140,7 @@ public partial class EditorView : UserControl
             if (result.Deleted == 0)
             {
                 ReloadPreview();
-                MessageBox.Show(OwnerWindow, "This clip could not be moved to the Recycle Bin.", "Delete clip",
+                ModalDialog.Show(OwnerWindow, "This clip could not be moved to the Recycle Bin.", "Delete clip",
                     MessageBoxButton.OK, MessageBoxImage.Warning);
                 return;
             }
@@ -171,34 +179,77 @@ public partial class EditorView : UserControl
 
     private void ToggleMode_Click(object sender, RoutedEventArgs e)
     {
-        _viewMode = !_cinemaMode && !_viewMode;
-        _cinemaMode = false;
+        if (_fullscreen) ExitFullscreen();
+        _viewMode = !_viewMode;
         ApplyMode();
     }
 
-    private void ToggleCinema_Click(object sender, RoutedEventArgs e)
+    private void ToggleFullscreen_Click(object sender, RoutedEventArgs e)
     {
-        _cinemaMode = !_cinemaMode;
+        if (_media?.Video == null) return;
+        SetFullscreen(!_fullscreen);
+    }
+
+    internal void ExitFullscreen() => SetFullscreen(false);
+
+    private void SetFullscreen(bool on)
+    {
+        if (_fullscreen == on) return;
+        _fullscreen = on;
+        FullscreenRequested?.Invoke(on);
         ApplyMode();
+        if (on) RevealFullscreenControls();
+        else _fullscreenControlsTimer.Stop();
+    }
+
+    private void RevealFullscreenControls()
+    {
+        if (!_fullscreen) return;
+        Transport.Visibility = ViewSeek.Visibility = Visibility.Visible;
+        _fullscreenControlsTimer.Stop();
+        _fullscreenControlsTimer.Start();
+    }
+
+    private void InspectorDivider_DragCompleted(object sender, DragCompletedEventArgs e) =>
+        _inspectorWidth = InspectorColumn.ActualWidth;
+
+    private void TimelineDivider_DragDelta(object sender, DragDeltaEventArgs e)
+    {
+        _timelineHeight = Math.Clamp(TimelineRow.ActualHeight - e.VerticalChange, 112, Math.Max(112, Root.ActualHeight - 235));
+        TimelineRow.Height = new GridLength(_timelineHeight.Value);
+    }
+
+    private void Shortcuts_Click(object sender, RoutedEventArgs e)
+    {
+        var text = (sender as Button)?.ToolTip is TextBlock help
+            ? new TextRange(help.ContentStart, help.ContentEnd).Text.Trim() : "Space plays or pauses.";
+        ModalDialog.Show(OwnerWindow, text + "\nF11 — fullscreen · Shift+F11 — view mode · Esc — exit",
+            "Keyboard shortcuts");
     }
 
     private void ApplyMode()
     {
-        bool editing = !_viewMode && !_cinemaMode;
-        Inspector.Visibility = TracksArea.Visibility = EditControls.Visibility = editing ? Visibility.Visible : Visibility.Collapsed;
-        ViewSeek.Visibility = _viewMode && !_cinemaMode ? Visibility.Visible : Visibility.Collapsed;
-        Transport.Visibility = ModeButton.Visibility = _cinemaMode ? Visibility.Collapsed : Visibility.Visible;
-        InspectorGap.Width = new GridLength(editing ? 12 : 0);
-        InspectorColumn.Width = new GridLength(editing ? 330 : 0);
+        bool editing = !_viewMode && !_fullscreen;
+        Inspector.Visibility = TracksArea.Visibility = EditControls.Visibility =
+            InspectorDivider.Visibility = TimelineDivider.Visibility = editing ? Visibility.Visible : Visibility.Collapsed;
+        EditorHeader.Visibility = _fullscreen ? Visibility.Collapsed : Visibility.Visible;
+        ExitFullscreenButton.Visibility = _fullscreen ? Visibility.Visible : Visibility.Collapsed;
+        Transport.Visibility = Visibility.Visible;
+        ViewSeek.Visibility = _viewMode || _fullscreen ? Visibility.Visible : Visibility.Collapsed;
+        InspectorGap.Width = new GridLength(editing ? 8 : 0);
+        InspectorColumn.MinWidth = editing ? 250 : 0;
+        InspectorColumn.Width = new GridLength(editing ? Math.Min(_inspectorWidth, Math.Max(250, Root.ActualWidth - 350)) : 0);
+        TimelineRow.Height = editing ? new GridLength(Math.Min(_timelineHeight ?? 220, Math.Max(112, Root.ActualHeight - 235))) : GridLength.Auto;
+        Root.Margin = new Thickness(_fullscreen ? 0 : 12);
+        Root.Background = _fullscreen ? Brushes.Black : null;
         ModeButton.Content = _viewMode ? "Edit mode" : "View mode";
-        CinemaButton.Content = _cinemaMode ? "Exit cinema" : "Cinema";
         UpdateViewSeek();
         Root.Focus();
     }
 
     private void UpdateViewSeek()
     {
-        if (!_viewMode) return;
+        if (!_viewMode && !_fullscreen) return;
         _updatingViewSeek = true;
         ViewSeek.IsEnabled = _media != null;
         ViewSeek.Maximum = Math.Max(0, _timeline.Duration);
@@ -208,7 +259,7 @@ public partial class EditorView : UserControl
 
     private void ViewSeek_Changed(object sender, RoutedPropertyChangedEventArgs<double> e)
     {
-        if (_viewMode && !_updatingViewSeek && _media != null) Seek(e.NewValue);
+        if ((_viewMode || _fullscreen) && !_updatingViewSeek && _media != null) Seek(e.NewValue);
     }
 
     public EditorView()
@@ -241,7 +292,18 @@ public partial class EditorView : UserControl
 
         Video.CursorQuery = (x, y) => _media?.Video == null ? VideoHost.IDC_ARROW : _crop.CursorAt(x, y);
         Video.VideoMouseDown += OnVideoMouseDown;
-        Video.VideoMouseMove += (x, y) => { if (_crop.Enabled) _crop.MouseMove(x, y); };
+        _fullscreenControlsTimer = new DispatcherTimer(TimeSpan.FromSeconds(2.5), DispatcherPriority.Background, (_, _) =>
+        {
+            if (Transport.IsMouseOver || ViewSeek.IsMouseOver || Transport.IsKeyboardFocusWithin || ViewSeek.IsKeyboardFocusWithin) return;
+            _fullscreenControlsTimer!.Stop();
+            if (_fullscreen) Transport.Visibility = ViewSeek.Visibility = Visibility.Hidden;
+        }, Dispatcher) { IsEnabled = false };
+        Root.MouseMove += (_, _) => RevealFullscreenControls();
+        Video.VideoMouseMove += (x, y) =>
+        {
+            RevealFullscreenControls();
+            if (!_fullscreen && _crop.Enabled) _crop.MouseMove(x, y);
+        };
         Video.VideoMouseUp += (_, _) => { if (_crop.Enabled) _crop.MouseUp(); };
 
         // mpv creates (and may recreate) its child window asynchronously; keep it disabled so clicks reach us.
@@ -288,7 +350,7 @@ public partial class EditorView : UserControl
         catch (Exception ex)
         {
             Log.Write("mpv init failed: " + ex);
-            MessageBox.Show(OwnerWindow, "The video preview could not be started:\n\n" + ex.Message, "QuickClip", MessageBoxButton.OK, MessageBoxImage.Warning);
+            ModalDialog.Show(OwnerWindow, "The video preview could not be started:\n\n" + ex.Message, "QuickClip", MessageBoxButton.OK, MessageBoxImage.Warning);
         }
         _childWindowTimer.Start();
         ShowMessage("Open a video or drop it here");
@@ -317,7 +379,7 @@ public partial class EditorView : UserControl
         if (_deletingMedia || _loading || _favoriteSaving || MetadataEditor.IsSaving) return false;
         if (_exportCts != null)
         {
-            var answer = MessageBox.Show(OwnerWindow, "An export is still running. Cancel it and close?", "QuickClip",
+            var answer = ModalDialog.Show(OwnerWindow, "An export is still running. Cancel it and close?", "QuickClip",
                 MessageBoxButton.YesNo, MessageBoxImage.Warning);
             if (answer != MessageBoxResult.Yes) return false;
             _exportCts.Cancel();
@@ -370,7 +432,7 @@ public partial class EditorView : UserControl
     {
         if (_deletingMedia) return false;
         if (_exportCts == null) return true;
-        MessageBox.Show(OwnerWindow, "Please wait for the export to finish first.", "QuickClip", MessageBoxButton.OK, MessageBoxImage.Information);
+        ModalDialog.Show(OwnerWindow, "Please wait for the export to finish first.", "QuickClip", MessageBoxButton.OK, MessageBoxImage.Information);
         return false;
     }
 
@@ -451,7 +513,7 @@ public partial class EditorView : UserControl
             }
             catch (Exception ex)
             {
-                MessageBox.Show(OwnerWindow, $"Couldn't open \"{Path.GetFileName(path)}\":\n\n{ex.Message}", "QuickClip", MessageBoxButton.OK, MessageBoxImage.Error);
+                ModalDialog.Show(OwnerWindow, $"Couldn't open \"{Path.GetFileName(path)}\":\n\n{ex.Message}", "QuickClip", MessageBoxButton.OK, MessageBoxImage.Error);
                 return;
             }
             finally
@@ -462,9 +524,10 @@ public partial class EditorView : UserControl
             _waveCts?.Cancel();
             bool differentClip = !string.Equals(_media?.Path, path, StringComparison.OrdinalIgnoreCase);
             _media = info;
-            if (differentClip && (_viewMode || _cinemaMode))
+            if (differentClip && (_viewMode || _fullscreen))
             {
-                _viewMode = _cinemaMode = false;
+                _viewMode = false;
+                ExitFullscreen();
                 ApplyMode();
             }
             _settings.LastFolder = Path.GetDirectoryName(path);
@@ -474,12 +537,17 @@ public partial class EditorView : UserControl
             UndoButton.Visibility = Visibility.Collapsed;
             StatusText.Text = "";
 
-            var details = await PersonalLibrary.Current.ReadAsync(path) ?? CurrentClipDetails();
+            var details = await PersonalLibrary.Current.ReadAsync(path) ??
+                ClipDetailsStore.Read(new FileInfo(path), ClipLibrary.InitialGame(_settings.ClipsFolder, path), info.EmbeddedCreationTime);
             ShowClipTitle(details);
             FileNameText.ToolTip = path;
             FileInfoText.Text = info.Summary;
             MetadataGroup.Visibility = AppProfile.IsPersonal ? Visibility.Visible : Visibility.Collapsed;
-            if (AppProfile.IsPersonal) MetadataEditor.Open(path, details, duration: info.Duration);
+            if (AppProfile.IsPersonal)
+            {
+                MetadataEditor.Open(path, details, duration: info.Duration);
+                if (differentClip) MetadataGroup.IsExpanded = true;
+            }
 
             _soundCts?.Cancel();
             _soundPreviewTimer.Stop();
@@ -632,7 +700,7 @@ public partial class EditorView : UserControl
             }
             catch (Exception ex)
             {
-                MessageBox.Show(OwnerWindow, $"Couldn't add \"{Path.GetFileName(path)}\":\n\n{ex.Message}", "QuickClip", MessageBoxButton.OK, MessageBoxImage.Warning);
+                ModalDialog.Show(OwnerWindow, $"Couldn't add \"{Path.GetFileName(path)}\":\n\n{ex.Message}", "QuickClip", MessageBoxButton.OK, MessageBoxImage.Warning);
                 continue;
             }
             finally
@@ -642,7 +710,7 @@ public partial class EditorView : UserControl
             if (_media != media) return; // another file was opened meanwhile
             if (info.Audio.Count == 0 || info.Duration <= 0)
             {
-                MessageBox.Show(OwnerWindow, $"\"{Path.GetFileName(path)}\" has no sound to add.", "QuickClip", MessageBoxButton.OK, MessageBoxImage.Information);
+                ModalDialog.Show(OwnerWindow, $"\"{Path.GetFileName(path)}\" has no sound to add.", "QuickClip", MessageBoxButton.OK, MessageBoxImage.Information);
                 continue;
             }
 
@@ -824,7 +892,7 @@ public partial class EditorView : UserControl
     {
         if (!_settingMerge && MergeCheck.IsChecked == true)
         {
-            var answer = MessageBox.Show(OwnerWindow,
+            var answer = ModalDialog.Show(OwnerWindow,
                 "Merge all audio tracks into one when exporting?\n\nThe exported file will have a single audio track, so its game, " +
                 "chat, mic and music can't be turned up or down separately any more.",
                 "Merge audio tracks", MessageBoxButton.OKCancel, MessageBoxImage.Question);
@@ -874,6 +942,7 @@ public partial class EditorView : UserControl
         if (_media == null || _scrubbing) return;
         double t = _mpvTimePos;
         _timeline.SetPosition(t);
+        ApplyLoop();
         if (!_paused) _timeline.Follow(t);
         UpdateTimeText();
     }
@@ -890,7 +959,7 @@ public partial class EditorView : UserControl
                 bool wasEof = _eof;
                 _eof = value is true;
                 // Loop a selection that runs to the end of the file (mpv's A-B loop can't cross EOF).
-                if (_eof && !wasEof && LoopToggle.IsChecked == true && _media != null && _timeline.Out >= _timeline.Duration - 0.05)
+                if (_eof && !wasEof && _appliedLoop.HasValue && _media != null && _timeline.Out >= _timeline.Duration - 0.05)
                 {
                     Seek(_timeline.In);
                     _player?.SetProperty("pause", false);
@@ -969,6 +1038,7 @@ public partial class EditorView : UserControl
         if (_audioSyncTimer.IsEnabled) SyncPreviewAudio();
         t = Math.Clamp(t, 0, _timeline.Duration);
         _timeline.SetPosition(t);
+        ApplyLoop();
         UpdateTimeText();
         _player.CommandAsync("seek", Fmt.Num(t, "0.######"), exact ? "absolute+exact" : "absolute+keyframes");
     }
@@ -982,9 +1052,10 @@ public partial class EditorView : UserControl
     private void Bookmark_Click(object sender, RoutedEventArgs e)
     {
         if (!AppProfile.IsPersonal || _media == null || _loading || _exportCts != null || _favoriteSaving) return;
-        if (_viewMode || _cinemaMode)
+        if (_viewMode || _fullscreen)
         {
-            _viewMode = _cinemaMode = false;
+            _viewMode = false;
+            ExitFullscreen();
             ApplyMode();
         }
         MetadataGroup.IsExpanded = true;
@@ -998,7 +1069,8 @@ public partial class EditorView : UserControl
         if (_favoriteSaving || _loading || MetadataEditor.IsSaving || _exportCts != null || _deletingMedia) return;
         if (MetadataEditor.HasDraft)
         {
-            _viewMode = _cinemaMode = false;
+            _viewMode = false;
+            ExitFullscreen();
             ApplyMode();
             MetadataGroup.IsExpanded = true;
             MetadataEditor.ShowSaveReminder("Save or cancel the open details before changing the favorite.");
@@ -1040,11 +1112,8 @@ public partial class EditorView : UserControl
         if (_paused)
         {
             double pos = _timeline.Position;
-            bool loop = LoopToggle.IsChecked == true;
-            if (loop && (pos < _timeline.In - 0.01 || pos >= _timeline.Out - 0.02))
-                Seek(_timeline.In);
-            else if (_eof || pos >= _timeline.Duration - 0.05)
-                Seek(loop ? _timeline.In : 0);
+            if (_eof || pos >= _timeline.Duration - 0.05) Seek(0);
+            ApplyLoop();
             _player.SetProperty("pause", false);
         }
         else
@@ -1077,19 +1146,15 @@ public partial class EditorView : UserControl
     private void ApplyLoop()
     {
         if (_player == null) return;
-        bool loop = LoopToggle.IsChecked == true && _media != null;
-        bool toEnd = _timeline.Out >= _timeline.Duration - 0.05;
-        if (loop && !toEnd)
-        {
-            _player.SetProperty("ab-loop-a", _timeline.In);
-            _player.SetProperty("ab-loop-b", _timeline.Out);
-        }
-        else
-        {
-            _player.SetProperty("ab-loop-a", "no");
-            _player.SetProperty("ab-loop-b", "no");
-        }
+        var loop = LoopForPosition(LoopToggle.IsChecked == true && _media != null, _timeline.Position, _timeline.In, _timeline.Out);
+        if (loop == _appliedLoop) return;
+        _appliedLoop = loop;
+        _player.SetProperty("ab-loop-a", loop is { } range ? Fmt.Num(range.Start, "0.######") : "no");
+        _player.SetProperty("ab-loop-b", loop is { } bounds ? Fmt.Num(bounds.End, "0.######") : "no");
     }
+
+    internal static (double Start, double End)? LoopForPosition(bool enabled, double position, double start, double end) =>
+        enabled && position >= start && position < end ? (start, end) : null;
 
     private void OnSelectionChanged()
     {
@@ -1163,9 +1228,9 @@ public partial class EditorView : UserControl
         bool handled = true;
         switch (e.Key)
         {
-            case Key.F11 when shift && !e.IsRepeat: ToggleCinema_Click(this, e); break;
-            case Key.F11 when !e.IsRepeat: ToggleMode_Click(this, e); break;
-            case Key.Escape when _cinemaMode: ToggleCinema_Click(this, e); break;
+            case Key.F11 when shift && !e.IsRepeat: ToggleMode_Click(this, e); break;
+            case Key.F11 when !e.IsRepeat: ToggleFullscreen_Click(this, e); break;
+            case Key.Escape when _fullscreen: ExitFullscreen(); break;
             case Key.Escape when _viewMode: ToggleMode_Click(this, e); break;
             case Key.Delete when mods == ModifierKeys.None && ReferenceEquals(Keyboard.FocusedElement, Root):
                 if (!e.IsRepeat) DeleteMedia_Click(this, e);
@@ -1607,7 +1672,7 @@ public partial class EditorView : UserControl
 
     private bool ConfirmDiscardDraft() => _media == null || _openedDraft == null ||
         (!MetadataEditor.HasDraft && _openedDraft == DraftSignature()) ||
-        MessageBox.Show(OwnerWindow, "Discard the current clip’s unsaved edit settings?", "Unsaved edits",
+        ModalDialog.Show(OwnerWindow, "Discard the current clip’s unsaved edit settings?", "Unsaved edits",
             MessageBoxButton.YesNo, MessageBoxImage.Question, MessageBoxResult.No) == MessageBoxResult.Yes;
 
     private ExportRequest CreateDraft(string outputPath, Container container)
@@ -1675,7 +1740,7 @@ public partial class EditorView : UserControl
         }
         catch (Exception ex) when (ex is IOException or ArgumentException)
         {
-            MessageBox.Show(OwnerWindow, ex.Message, "Can't name the clip", MessageBoxButton.OK, MessageBoxImage.Warning);
+            ModalDialog.Show(OwnerWindow, ex.Message, "Can't name the clip", MessageBoxButton.OK, MessageBoxImage.Warning);
             return;
         }
 
@@ -1693,7 +1758,7 @@ public partial class EditorView : UserControl
 
         if (string.Equals(Path.GetFullPath(dlg.FileName), _media.Path, StringComparison.OrdinalIgnoreCase))
         {
-            MessageBox.Show(OwnerWindow, "That's the file you're editing. Use \"Save over original\" to replace it.", "QuickClip",
+            ModalDialog.Show(OwnerWindow, "That's the file you're editing. Use \"Save over original\" to replace it.", "QuickClip",
                 MessageBoxButton.OK, MessageBoxImage.Information);
             return;
         }
@@ -1713,7 +1778,8 @@ public partial class EditorView : UserControl
     {
         if (_favoriteSaving || MetadataEditor.IsSaving) return false;
         if (!MetadataEditor.HasDraft) return true;
-        _viewMode = _cinemaMode = false;
+        _viewMode = false;
+            ExitFullscreen();
         ApplyMode();
         MetadataGroup.IsExpanded = true;
         MetadataEditor.ShowSaveReminder();
@@ -1729,11 +1795,11 @@ public partial class EditorView : UserControl
         int tracks = _tracks.Count(t => t.Include);
         bool merging = MergeCheck.IsChecked == true && tracks > 1 && !container.SingleAudioTrack;
         var answer = merging
-            ? MessageBox.Show(OwnerWindow,
+            ? ModalDialog.Show(OwnerWindow,
                 $"Merge all audio tracks is on.\n\nSaving over \"{fileName}\" mixes its {tracks} audio tracks into one, so the clip " +
                 "loses its separate game, chat, mic and music tracks. The original will be moved to the Recycle Bin.\n\nSave over it anyway?",
                 "Merge tracks and save over original?", MessageBoxButton.OKCancel, MessageBoxImage.Warning, MessageBoxResult.Cancel)
-            : MessageBox.Show(OwnerWindow,
+            : ModalDialog.Show(OwnerWindow,
                 $"Replace \"{fileName}\" with the edited clip?\n\nThe original will be moved to the Recycle Bin.",
                 "Save over original", MessageBoxButton.OKCancel, MessageBoxImage.Question);
         if (answer != MessageBoxResult.OK) return;
@@ -1765,7 +1831,7 @@ public partial class EditorView : UserControl
         catch (Exception ex) when (ex is ExportException or IOException or UnauthorizedAccessException)
         {
             if (staging != null) RemoveExportStaging(staging);
-            MessageBox.Show(OwnerWindow, ex.Message, "Can't export", MessageBoxButton.OK, MessageBoxImage.Warning);
+            ModalDialog.Show(OwnerWindow, ex.Message, "Can't export", MessageBoxButton.OK, MessageBoxImage.Warning);
             return;
         }
 
@@ -1819,7 +1885,7 @@ public partial class EditorView : UserControl
         {
             Log.Write("Export failed: " + ex);
             StatusText.Text = "Export failed.";
-            MessageBox.Show(OwnerWindow, "The export failed:\n\n" + ex.Message, "QuickClip", MessageBoxButton.OK, MessageBoxImage.Error);
+            ModalDialog.Show(OwnerWindow, "The export failed:\n\n" + ex.Message, "QuickClip", MessageBoxButton.OK, MessageBoxImage.Error);
         }
         finally
         {
@@ -1852,7 +1918,7 @@ public partial class EditorView : UserControl
         bool recycled = await RetryAsync(() => RecycleBin.TrySend(original));
         if (!recycled && File.Exists(original))
         {
-            var answer = MessageBox.Show(OwnerWindow,
+            var answer = ModalDialog.Show(OwnerWindow,
                 "The original couldn't be moved to the Recycle Bin.\n\nDelete it permanently and replace it with the edited clip?\n" +
                 "(Choose No to keep both files.)", "QuickClip", MessageBoxButton.YesNo, MessageBoxImage.Warning);
             if (answer != MessageBoxResult.Yes)
@@ -1932,7 +1998,7 @@ public partial class EditorView : UserControl
                 message += $"\n\nThe original is saved as \"{Path.GetFileName(parked)}\" next to the clip.";
             }
             StatusText.Text = "Undo failed.";
-            MessageBox.Show(OwnerWindow, message, "QuickClip", MessageBoxButton.OK, MessageBoxImage.Warning);
+            ModalDialog.Show(OwnerWindow, message, "QuickClip", MessageBoxButton.OK, MessageBoxImage.Warning);
             if (File.Exists(clip)) await OpenFileAsync(clip);
         }
         finally
@@ -1980,12 +2046,12 @@ public partial class EditorView : UserControl
 
 #if DEBUG
     internal void ToggleModeForRender() => ToggleMode_Click(this, new RoutedEventArgs());
-    internal void ToggleCinemaForRender() => ToggleCinema_Click(this, new RoutedEventArgs());
+    internal void ToggleFullscreenForRender() => ToggleFullscreen_Click(this, new RoutedEventArgs());
     internal double PositionForRender => _timeline.Position;
     internal double TrimEndForRender => _timeline.Out;
     internal void SetTrimForRender(double end) => _timeline.SetOut(end);
     internal bool ViewingForRender => _viewMode;
-    internal bool CinemaForRender => _cinemaMode && Transport.Visibility == Visibility.Collapsed;
+    internal bool FullscreenForRender => _fullscreen && EditorHeader.Visibility == Visibility.Collapsed;
 
     internal async Task<string> MeasureAccordionForRenderAsync()
     {

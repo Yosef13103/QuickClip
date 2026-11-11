@@ -335,7 +335,7 @@ public partial class PlayerView : UserControl
             if (result.Cancelled) return;
             if (result.Deleted == 0)
             {
-                MessageBox.Show(Window.GetWindow(this), "Couldn't send this clip to the Recycle Bin. It was left in place.", "QuickClip",
+                ModalDialog.Show(Window.GetWindow(this), "Couldn't send this clip to the Recycle Bin. It was left in place.", "QuickClip",
                     MessageBoxButton.OK, MessageBoxImage.Warning);
                 _ = OpenAsync(_index);
                 return;

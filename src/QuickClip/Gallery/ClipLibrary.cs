@@ -40,7 +40,7 @@ public sealed class ClipItem : INotifyPropertyChanged
     internal FileInfo File { get; }
     internal ClipDetails Details { get; private set; }
     internal ClipHeader Header { get; }
-    internal bool ThumbnailRequested { get; set; }
+    internal int ThumbnailWidth { get; set; }
 
     public string DurationText => Duration is double d ? Fmt.Time(d, millis: false) : "";
     public string SizeText => Fmt.Size(Size);
@@ -279,19 +279,28 @@ internal static class ThumbnailCache
         return image;
     }
 
-    public static string PathFor(FileInfo file)
+    internal static int WidthFor(double devicePixels) => devicePixels switch
     {
-        var key = $"{file.FullName.ToLowerInvariant()}|{file.Length}|{file.LastWriteTimeUtc.Ticks}";
+        <= 480 => 480,
+        <= 720 => 720,
+        _ => 960,
+    };
+
+    public static string PathFor(FileInfo file, int width = 480)
+    {
+        var key = $"v2|{WidthFor(width)}|{file.FullName.ToUpperInvariant()}|{file.Length}|{file.CreationTimeUtc.Ticks}|{file.LastWriteTimeUtc.Ticks}";
         var hash = Convert.ToHexString(SHA1.HashData(Encoding.UTF8.GetBytes(key)))[..20];
         return System.IO.Path.Combine(Dir, hash + ".jpg");
     }
 
-    public static async Task<string?> GetAsync(FileInfo file, double? duration)
+    public static async Task<string?> GetAsync(FileInfo file, double? duration, int width = 480)
     {
-        string thumb = PathFor(file);
+        width = WidthFor(width);
+        string thumb = PathFor(file, width);
         if (File.Exists(thumb)) return thumb;
         if (Deps.FFmpeg == null) return null;
         await Gate.WaitAsync();
+        string staging = Path.ChangeExtension(thumb, $".{Guid.NewGuid():N}.jpg");
         try
         {
             if (File.Exists(thumb)) return thumb;
@@ -303,24 +312,30 @@ internal static class ThumbnailCache
                 using var p = Process.Start(Proc.StartInfo(Deps.FFmpeg,
                 [
                     "-hide_banner", "-nostdin", "-v", "error", "-ss", Fmt.Num(seek), "-i", file.FullName,
-                    "-frames:v", "1", "-vf", "scale=480:-2", "-q:v", "5", "-y", thumb,
+                    "-frames:v", "1", "-vf", $"scale='min({width},iw)':-2:flags=lanczos", "-q:v", "3", "-y", staging,
                 ]));
                 if (p == null) return null;
                 try { p.PriorityClass = ProcessPriorityClass.BelowNormal; } catch { }
                 var drain = p.StandardError.ReadToEndAsync();
                 await p.WaitForExitAsync();
                 await drain;
-                if (p.ExitCode == 0 && File.Exists(thumb)) return thumb;
+                if (p.ExitCode == 0 && File.Exists(staging) && new FileInfo(staging).Length > 0)
+                {
+                    File.Move(staging, thumb, overwrite: true);
+                    return thumb;
+                }
             }
             return null;
         }
         catch (Exception ex)
         {
-            Log.Write("Thumbnail failed for " + file.FullName + ": " + ex.Message);
+            Log.Write("Thumbnail generation failed: " + ex.GetType().Name);
             return null;
         }
         finally
         {
+            try { File.Delete(staging); }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
             Gate.Release();
         }
     }

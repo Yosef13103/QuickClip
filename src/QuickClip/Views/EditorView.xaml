@@ -55,23 +55,24 @@
 
     <Grid x:Name="Root" Margin="12" Focusable="True" FocusVisualStyle="{x:Null}">
         <Grid.ColumnDefinitions>
-            <ColumnDefinition Width="*" />
-            <ColumnDefinition x:Name="InspectorGap" Width="12" />
+            <ColumnDefinition Width="*" MinWidth="330" />
+            <ColumnDefinition x:Name="InspectorGap" Width="8" />
             <ColumnDefinition x:Name="InspectorColumn" Width="330" />
         </Grid.ColumnDefinitions>
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
-            <RowDefinition Height="*" />
+            <RowDefinition Height="*" MinHeight="120" />
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
+            <RowDefinition x:Name="TimelineRow" Height="220" />
         </Grid.RowDefinitions>
 
         <!-- Top bar -->
-        <DockPanel Grid.Row="0" Grid.Column="0" Margin="0,0,0,10" LastChildFill="True">
+        <DockPanel x:Name="EditorHeader" Grid.Row="0" Grid.Column="0" Margin="0,0,0,10" LastChildFill="True">
             <Button DockPanel.Dock="Left" Content="Gallery" Click="Back_Click" Style="{StaticResource TextButton}" />
             <Button x:Name="ModeButton" DockPanel.Dock="Right" Content="View mode" Click="ToggleMode_Click" Style="{StaticResource TextButton}" />
-            <Button x:Name="CinemaButton" DockPanel.Dock="Right" Content="Cinema" Click="ToggleCinema_Click"
-                    Style="{StaticResource TextButton}" ToolTip="Cinema mode (Shift+F11). Space plays or pauses." />
+            <Button x:Name="FullscreenButton" DockPanel.Dock="Right" Content="Fullscreen" Click="ToggleFullscreen_Click"
+                    Style="{StaticResource TextButton}" ToolTip="Fullscreen (F11)" />
             <Button x:Name="DeleteMediaButton" DockPanel.Dock="Right" Content="Delete…" Click="DeleteMedia_Click" Style="{StaticResource TextButton}" />
             <ToggleButton x:Name="FavoriteButton" DockPanel.Dock="Right" Click="Favorite_Click"
                           AutomationProperties.Name="Favorite" ToolTip="Add to or remove from favorites">
@@ -95,7 +96,8 @@
                     <TextBlock Text="Open" />
                 </StackPanel>
             </Button>
-            <Button DockPanel.Dock="Right" Style="{StaticResource IconButton}" Content="&#xE765;" Margin="4,0,0,0">
+            <Button DockPanel.Dock="Right" Style="{StaticResource IconButton}" Content="&#xE765;" Margin="4,0,0,0"
+                    Click="Shortcuts_Click" AutomationProperties.Name="Keyboard shortcuts">
                 <Button.ToolTip>
                     <TextBlock LineHeight="20">
                         <Bold>Keyboard shortcuts</Bold><LineBreak />
@@ -146,6 +148,8 @@
                 <TextBlock x:Name="DurationText" VerticalAlignment="Center" FontFamily="Consolas" FontSize="13" Foreground="{StaticResource SubtleText}" Text=" / 0:00.000" />
                 <controls:AppVolumeControl x:Name="Volume" Margin="14,0,0,0" VerticalAlignment="Center" />
             </StackPanel>
+            <Button x:Name="ExitFullscreenButton" Grid.Column="1" Content="Exit fullscreen" Click="ToggleFullscreen_Click"
+                    Style="{StaticResource TextButton}" Visibility="Collapsed" />
             <StackPanel x:Name="EditControls" Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center" HorizontalAlignment="Right">
                 <Button Style="{StaticResource TextButton}" Click="SetIn_Click" Content="Set in" ToolTip="Start the clip at the playhead (I)" />
                 <Button Style="{StaticResource TextButton}" Click="SetOut_Click" Content="Set out" ToolTip="End the clip at the playhead (O)" />
@@ -165,11 +169,14 @@
         </Grid>
 
         <!-- Timeline + audio tracks -->
-        <Grid x:Name="TracksArea" Grid.Row="3" Grid.Column="0">
+        <Thumb x:Name="TimelineDivider" Grid.Row="3" Grid.Column="0" Height="8" Cursor="SizeNS"
+               Background="{StaticResource PanelBrush}" DragDelta="TimelineDivider_DragDelta"
+               AutomationProperties.Name="Resize timeline and video" />
+        <Grid x:Name="TracksArea" Grid.Row="4" Grid.Column="0">
             <Grid.RowDefinitions>
                 <RowDefinition Height="Auto" />
                 <RowDefinition Height="Auto" />
-                <RowDefinition Height="Auto" />
+                <RowDefinition Height="*" />
             </Grid.RowDefinitions>
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="{StaticResource TrackHeaderWidth}" />
@@ -214,7 +221,7 @@
                 </Button>
             </DockPanel>
 
-            <ScrollViewer Grid.Row="2" Grid.ColumnSpan="3" MaxHeight="250" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+            <ScrollViewer Grid.Row="2" Grid.ColumnSpan="3" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
                 <ItemsControl x:Name="TrackList">
                     <ItemsControl.ItemTemplate>
                         <DataTemplate DataType="{x:Type local:AudioTrack}">
@@ -274,12 +281,15 @@
                 <TextBlock x:Name="SoundDropText" HorizontalAlignment="Center" VerticalAlignment="Center" FontSize="13" Text="Drop to add as a sound" />
             </Grid>
         </Grid>
-        <Slider x:Name="ViewSeek" Grid.Row="3" Grid.Column="0" Margin="0,4,0,8"
+        <Slider x:Name="ViewSeek" Grid.Row="4" Grid.Column="0" Margin="0,4,0,8"
                 AutomationProperties.Name="Playback position" IsMoveToPointEnabled="True"
                 Visibility="Collapsed" ValueChanged="ViewSeek_Changed" />
 
         <!-- Side panel -->
-        <Border x:Name="Inspector" Grid.Row="0" Grid.RowSpan="4" Grid.Column="2" Background="{StaticResource PanelBrush}" CornerRadius="8" Padding="16,6,16,14">
+        <GridSplitter x:Name="InspectorDivider" Grid.Column="1" Grid.RowSpan="5" Width="8" HorizontalAlignment="Stretch"
+                      ResizeDirection="Columns" ResizeBehavior="PreviousAndNext" Background="{StaticResource PanelBrush}"
+                      DragCompleted="InspectorDivider_DragCompleted" AutomationProperties.Name="Resize video and inspector" />
+        <Border x:Name="Inspector" Grid.Row="0" Grid.RowSpan="5" Grid.Column="2" Background="{StaticResource PanelBrush}" CornerRadius="8" Padding="16,6,16,14">
             <DockPanel>
                 <StackPanel DockPanel.Dock="Bottom">
                     <TextBlock x:Name="SummaryText" FontSize="12" Foreground="{StaticResource SubtleText}" TextWrapping="Wrap" Margin="0,10,0,10" />

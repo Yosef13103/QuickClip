@@ -15,20 +15,8 @@
                         Margin="0,0,14,16" CornerRadius="8" Background="{StaticResource CardBrush}"
                         Focusable="True" AutomationProperties.Name="{Binding Title}" KeyDown="Card_KeyDown"
                         BorderThickness="1" BorderBrush="Transparent" Cursor="Hand"
-                        ToolTipService.InitialShowDelay="750" ToolTipService.BetweenShowDelay="0" ToolTipService.ShowDuration="3500"
-                        ToolTipService.IsEnabled="{Binding HoverPosters, RelativeSource={RelativeSource AncestorType=views:GalleryView}}"
                         MouseLeftButtonUp="Card_MouseLeftButtonUp" Loaded="Card_Loaded" DataContextChanged="Card_DataContextChanged"
                         PreviewMouseLeftButtonDown="Card_PreviewMouseLeftButtonDown" MouseMove="Card_MouseMove">
-                    <Border.ToolTip>
-                        <ToolTip DataContext="{Binding PlacementTarget.DataContext, RelativeSource={RelativeSource Self}}">
-                            <StackPanel MinWidth="360" MaxWidth="640"
-                                        Width="{Binding PlacementTarget.ActualWidth, RelativeSource={RelativeSource AncestorType=ToolTip}}">
-                                <Image Source="{Binding Thumbnail}" Stretch="Uniform" MaxHeight="360" />
-                                <TextBlock Text="{Binding Title}" TextWrapping="Wrap" />
-                                <TextBlock Text="{Binding Folder}" />
-                            </StackPanel>
-                        </ToolTip>
-                    </Border.ToolTip>
                     <Border.ContextMenu>
                         <ContextMenu Opened="ClipMenu_Opened" DataContext="{Binding PlacementTarget.DataContext, RelativeSource={RelativeSource Self}}">
                             <MenuItem Header="Watch and edit" Click="OpenClip_Click" FontWeight="SemiBold" />
@@ -52,7 +40,9 @@
                         </ContextMenu>
                     </Border.ContextMenu>
                     <StackPanel>
-                        <Grid Height="{Binding PosterHeight, RelativeSource={RelativeSource AncestorType=views:GalleryView}}">
+                        <Grid Height="{Binding PosterHeight, RelativeSource={RelativeSource AncestorType=views:GalleryView}}"
+                              ClipToBounds="True" MouseEnter="Poster_MouseEnter" MouseLeave="Poster_MouseLeave"
+                              Unloaded="Poster_MouseLeave" SizeChanged="Poster_SizeChanged">
                             <Border CornerRadius="7,7,0,0" Background="#111" />
                             <Border CornerRadius="7,7,0,0">
                                 <Border.Background>
@@ -63,13 +53,6 @@
                                     Background="#B0000000">
                                 <TextBlock Text="{Binding DurationText}" FontSize="11.5" Foreground="White" />
                             </Border>
-                            <Border x:Name="PlayBadge" Width="46" Height="46" CornerRadius="23" Background="#B0000000" Visibility="Collapsed">
-                                <TextBlock FontFamily="{StaticResource IconFont}" Text="&#xE768;" FontSize="18" Foreground="White"
-                                           HorizontalAlignment="Center" VerticalAlignment="Center" Margin="3,0,0,0" />
-                            </Border>
-                            <Button x:Name="ShareBadge" HorizontalAlignment="Right" VerticalAlignment="Top" Margin="6" Padding="8,6"
-                                    Style="{StaticResource IconButton}" Content="&#xE72D;" FontSize="13" Background="#B0000000" Foreground="White"
-                                    Visibility="Collapsed" Cursor="Arrow" Click="ShareClip_Click" ToolTip="Share: makes a copy under the size limit in Settings (at most 60 fps, all audio mixed into one track) and copies it to the clipboard to paste anywhere. The original stays as it is." />
                             <!-- Ticks the clip for "Add to project" / "Copy to folder" -->
                             <Border x:Name="PickBox" HorizontalAlignment="Left" VerticalAlignment="Top" Margin="6" Padding="6,2,0,2" CornerRadius="5"
                                     Background="#A0000000" Visibility="Collapsed">
@@ -104,9 +87,9 @@
                                         </ControlTemplate>
                                     </ToggleButton.Template>
                                 </ToggleButton>
-                                <Button Content="Delete…" Style="{StaticResource TextButton}" Focusable="False" Click="DeleteClip_Click"
-                                        ToolTip="Send this clip (or the selected clips) to the Recycle Bin" />
-                                <Button Content="⋮" Style="{StaticResource TextButton}" Padding="10,5" FontSize="18"
+                                <Button Content="Share" Style="{StaticResource TextButton}" Click="ShareClip_Click"
+                                        ToolTip="Create a shareable copy and put it on the clipboard" />
+                                <Button Content="⋯" Style="{StaticResource TextButton}" Padding="5,2" Width="30" FontSize="15"
                                         Tag="{Binding ElementName=Card}" Click="ClipOverflow_Click"
                                         AutomationProperties.Name="Clip actions" ToolTip="Clip actions" />
                             </StackPanel>
@@ -135,15 +118,11 @@
                 <DataTemplate.Triggers>
                     <Trigger SourceName="Card" Property="IsMouseOver" Value="True">
                         <Setter TargetName="Card" Property="BorderBrush" Value="{DynamicResource AccentFillColorDefaultBrush}" />
-                        <Setter TargetName="PlayBadge" Property="Visibility" Value="Visible" />
                         <Setter TargetName="PickBox" Property="Visibility" Value="Visible" />
-                        <Setter TargetName="ShareBadge" Property="Visibility" Value="Visible" />
                     </Trigger>
                     <!-- While anything is selected every clip shows its checkbox, and clicking a clip ticks it -->
                     <DataTrigger Binding="{Binding HasSelection, RelativeSource={RelativeSource AncestorType=views:GalleryView}}" Value="True">
                         <Setter TargetName="PickBox" Property="Visibility" Value="Visible" />
-                        <Setter TargetName="PlayBadge" Property="Visibility" Value="Collapsed" />
-                        <Setter TargetName="ShareBadge" Property="Visibility" Value="Collapsed" />
                     </DataTrigger>
                     <DataTrigger Binding="{Binding IsSelected}" Value="True">
                         <Setter TargetName="PickBox" Property="Visibility" Value="Visible" />
@@ -297,9 +276,6 @@
                                   Checked="OrganizationFilter_Changed" Unchecked="OrganizationFilter_Changed" />
                         <Button Content="Clear filters" Click="ClearFilters_Click" Style="{StaticResource TextButton}" Margin="0,0,8,4" />
                     </WrapPanel>
-                    <CheckBox Content="Show poster previews on hover" VerticalAlignment="Center"
-                              IsChecked="{Binding HoverPosters, RelativeSource={RelativeSource AncestorType=views:GalleryView}}"
-                              ToolTip="Shows the full cached image without starting video playback." />
                 </WrapPanel>
                 <Border x:Name="InlineDetails" DockPanel.Dock="Top" Visibility="Collapsed"
                         Background="{StaticResource PanelBrush}" Padding="14,4" Margin="0,0,14,12">

@@ -19,19 +19,12 @@ namespace QuickClip.Views;
 /// </summary>
 public partial class GalleryView : UserControl
 {
-    public static readonly DependencyProperty HoverPostersProperty =
-        DependencyProperty.Register(nameof(HoverPosters), typeof(bool), typeof(GalleryView), new PropertyMetadata(false));
-
-    public bool HoverPosters
-    {
-        get => (bool)GetValue(HoverPostersProperty);
-        set => SetValue(HoverPostersProperty, value);
-    }
+    private readonly GalleryHoverPreview _hoverPreview = new();
 
     private sealed record Folder(string Name, int Count, DateTime Latest);
 
     private const double CardGap = 14; // must match the card's right margin
-    private const double PreferredCardWidth = 410;
+    private const double PreferredCardWidth = 440;
 
     public static readonly DependencyProperty CardWidthProperty =
         DependencyProperty.Register(nameof(CardWidth), typeof(double), typeof(GalleryView), new PropertyMetadata(304d));
@@ -140,6 +133,7 @@ public partial class GalleryView : UserControl
         ClipDeletion.Current.Changed += OnDeletionChanged;
         IsVisibleChanged += (_, _) =>
         {
+            if (!IsVisible) _hoverPreview.Stop();
             if (IsVisible && (_loadedRoot != AppSettings.Current.ClipsFolder ||
                 _loadedIndexed != PersonalLibrary.Enabled ||
                 !_loadedExclusions.SequenceEqual(AppSettings.Current.LibraryExclusions ?? []))) _ = ReloadAsync();
@@ -152,6 +146,7 @@ public partial class GalleryView : UserControl
     {
         _released = true;
         _lifetime.Cancel();
+        _hoverPreview.Stop();
         Recorder.Instance.ClipSaved -= OnClipSaved;
         ClipDeletion.Current.Changed -= OnDeletionChanged;
         _watcher?.Dispose();
@@ -243,7 +238,7 @@ public partial class GalleryView : UserControl
                     old.File.LastWriteTimeUtc == clip.File.LastWriteTimeUtc && old.File.CreationTimeUtc == clip.File.CreationTimeUtc)
                 {
                     clip.Thumbnail = old.Thumbnail;
-                    clip.ThumbnailRequested = true;
+                    clip.ThumbnailWidth = old.ThumbnailWidth;
                 }
                 clip.IsSelected = _selected.Contains(clip.Path);
                 clip.SelectionChanged += OnClipSelectionChanged;
@@ -453,12 +448,15 @@ public partial class GalleryView : UserControl
                          $"{RecordingPresets.DurationLabel(s.BufferSeconds)}. Clips are filed by game in {s.ClipsFolder}.";
     }
 
+    internal static int ColumnsForWidth(double available) =>
+        Math.Clamp((int)(available / (PreferredCardWidth + CardGap)), 1, 4);
+
     private void ClipArea_SizeChanged(object sender, SizeChangedEventArgs e)
     {
         if (!e.WidthChanged || e.NewSize.Width <= 0) return;
         // Reserve scrollbar space even when it is hidden so filtering does not change the columns.
         double width = Math.Max(1, e.NewSize.Width - SystemParameters.VerticalScrollBarWidth);
-        int columns = Math.Clamp((int)(width / (PreferredCardWidth + CardGap)), 1, 4);
+        int columns = ColumnsForWidth(width);
         double cardWidth = Math.Max(1, Math.Floor(width / columns) - CardGap);
         SetValue(CardWidthProperty, cardWidth);
         SetValue(PosterHeightProperty, Math.Max(1, cardWidth - 2) * 9 / 16);
@@ -479,27 +477,52 @@ public partial class GalleryView : UserControl
 
     private static ClipItem? ItemOf(object sender) => (sender as FrameworkElement)?.DataContext as ClipItem;
 
-    private void Card_Loaded(object sender, RoutedEventArgs e) => RequestThumbnail(ItemOf(sender));
+    private void Card_Loaded(object sender, RoutedEventArgs e) => RequestThumbnail((FrameworkElement)sender);
+
+    private void Poster_SizeChanged(object sender, SizeChangedEventArgs e)
+    {
+        if (e.WidthChanged && sender is FrameworkElement poster && poster.IsLoaded) RequestThumbnail(poster);
+    }
+
+    private void Poster_MouseEnter(object sender, MouseEventArgs e)
+    {
+        if (Window.GetWindow(this)?.IsActive == true && sender is Grid poster && ItemOf(poster) is { } item)
+            _hoverPreview.Start(poster, item);
+    }
+
+    internal void StopHoverPreview() => _hoverPreview.Stop();
+
+    private void Poster_MouseLeave(object sender, RoutedEventArgs e)
+    {
+        if (sender is Grid poster) _hoverPreview.Stop(poster);
+    }
 
     // Scrolling reuses cards for other clips without raising Loaded again.
     private void Card_DataContextChanged(object sender, DependencyPropertyChangedEventArgs e)
     {
-        if (((FrameworkElement)sender).IsLoaded) RequestThumbnail(ItemOf(sender));
+        if (sender is FrameworkElement element && element.IsLoaded) RequestThumbnail(element);
     }
 
-    private async void RequestThumbnail(ClipItem? clip)
+    private async void RequestThumbnail(FrameworkElement card)
     {
-        if (clip is not { ThumbnailRequested: false } item) return;
-        item.ThumbnailRequested = true;
-        string? thumb = await ThumbnailCache.GetAsync(item.File, item.Duration);
-        if (thumb == null) return;
+        if (ItemOf(card) is not { } item) return;
+        int width = ThumbnailCache.WidthFor(CardWidth * VisualTreeHelper.GetDpi(card).DpiScaleX);
+        if (item.ThumbnailWidth >= width) return;
+        item.ThumbnailWidth = width;
         try
         {
-            item.Thumbnail = await Task.Run(() => ThumbnailCache.LoadImage(thumb, 480));
+            string? thumb = await Task.Run(() => ThumbnailCache.GetAsync(item.File, item.Duration, width));
+            if (thumb != null)
+            {
+                var image = await Task.Run(() => ThumbnailCache.LoadImage(thumb, width));
+                if (!_released && item.ThumbnailWidth == width) item.Thumbnail = image;
+            }
+            else if (item.ThumbnailWidth == width) item.ThumbnailWidth = 0;
         }
         catch (Exception ex)
         {
-            Log.Write("Loading thumbnail failed: " + ex.Message);
+            if (item.ThumbnailWidth == width) item.ThumbnailWidth = 0;
+            Log.Write("Loading thumbnail failed: " + ex.GetType().Name);
         }
     }
 
@@ -916,7 +939,7 @@ public partial class GalleryView : UserControl
         catch (Exception ex)
         {
             Log.Write("Adding clips to a project failed: " + ex);
-            MessageBox.Show(Window.GetWindow(this), "Couldn't add the clips to the project:\n\n" + ex.Message, "QuickClip",
+            ModalDialog.Show(Window.GetWindow(this), "Couldn't add the clips to the project:\n\n" + ex.Message, "QuickClip",
                 MessageBoxButton.OK, MessageBoxImage.Warning);
         }
     }
@@ -941,7 +964,7 @@ public partial class GalleryView : UserControl
         catch (Exception ex)
         {
             Log.Write("Copying clips failed: " + ex);
-            MessageBox.Show(Window.GetWindow(this), "Couldn't copy the clips:\n\n" + ex.Message, "QuickClip", MessageBoxButton.OK, MessageBoxImage.Warning);
+            ModalDialog.Show(Window.GetWindow(this), "Couldn't copy the clips:\n\n" + ex.Message, "QuickClip", MessageBoxButton.OK, MessageBoxImage.Warning);
         }
     }
 
@@ -1024,7 +1047,7 @@ public partial class GalleryView : UserControl
         catch (Exception ex)
         {
             Log.Write("Creating a project failed: " + ex);
-            MessageBox.Show(Window.GetWindow(this), "Couldn't create the project:\n\n" + ex.Message, "QuickClip", MessageBoxButton.OK, MessageBoxImage.Warning);
+            ModalDialog.Show(Window.GetWindow(this), "Couldn't create the project:\n\n" + ex.Message, "QuickClip", MessageBoxButton.OK, MessageBoxImage.Warning);
             return null;
         }
     }
@@ -1059,7 +1082,7 @@ public partial class GalleryView : UserControl
             }
             catch (Exception ex)
             {
-                MessageBox.Show(Window.GetWindow(this), "Couldn't rename the project:\n\n" + ex.Message, "QuickClip", MessageBoxButton.OK, MessageBoxImage.Warning);
+                ModalDialog.Show(Window.GetWindow(this), "Couldn't rename the project:\n\n" + ex.Message, "QuickClip", MessageBoxButton.OK, MessageBoxImage.Warning);
                 break;
             }
         }
@@ -1076,7 +1099,7 @@ public partial class GalleryView : UserControl
     private async void DeleteProject_Click(object sender, RoutedEventArgs e)
     {
         if (ProjectOf(sender) is not { } p) return;
-        var answer = MessageBox.Show(Window.GetWindow(this),
+        var answer = ModalDialog.Show(Window.GetWindow(this),
             $"Move the project \"{p.Name}\" to the Recycle Bin?\n\nThe clips stay in the gallery; its montages, music and order go with it.",
             "QuickClip", MessageBoxButton.YesNo, MessageBoxImage.Question);
         if (answer != MessageBoxResult.Yes) return;
@@ -1085,7 +1108,7 @@ public partial class GalleryView : UserControl
         for (int attempt = 0; attempt < 20 && !(deleted = ProjectLibrary.Delete(ProjectLibrary.Load(p.Folder))); attempt++)
             await Task.Delay(100);
         if (!deleted)
-            MessageBox.Show(Window.GetWindow(this), $"Couldn't move \"{p.Name}\" to the Recycle Bin.", "QuickClip", MessageBoxButton.OK, MessageBoxImage.Warning);
+            ModalDialog.Show(Window.GetWindow(this), $"Couldn't move \"{p.Name}\" to the Recycle Bin.", "QuickClip", MessageBoxButton.OK, MessageBoxImage.Warning);
         await ReloadAsync();
     }
 
