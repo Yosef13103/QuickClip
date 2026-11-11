@@ -72,8 +72,8 @@ Highest feature gap: catalog exists but live runtime is not connected.
 |---|---|---|---|
 | `QC-003-I01` | implementation | PASS | Approved-folder/Steam/manual EXE scanning service implemented |
 | `QC-003-I02` | implementation | PASS | Catalog path matcher and saved profile model implemented |
-| `QC-003-I03` | implementation | PASS | GameDetector polls verified process owners and applies the catalog before fallback. See commit `b13a2d3` and [synthetic evidence](../../docs/p0-games-discord.md). |
-| `QC-003-I04` | implementation | PASS | Games settings exposes approved roots, scan, manual EXEs, inclusion and supported identity overrides. See [WPF and persistence evidence](../../docs/p0-games-discord.md). |
+| `QC-003-I03` | implementation | PASS | Verified live game observation checks catalog eligibility before legacy heuristics. See [integration evidence](../../docs/p0-integration-validation.md) at `4580af7`. |
+| `QC-003-I04` | implementation | PASS | Games settings supports approved roots, scans, exact EXEs and future-target eligibility rules. See [integration evidence](../../docs/p0-integration-validation.md) at `4580af7`. |
 | `QC-003-I05` | implementation | TODO | Effective profile applied to capture at stable game/session boundaries |
 | `QC-003-I06` | implementation | TODO | Game start/exit/alt-tab session lifecycle and explicit fallback policy |
 | `QC-003-A01` | acceptance | TODO | 12/12 representative Steam and manual catalog cases correctly recognized |
@@ -90,7 +90,7 @@ Do not promise Windows 10 border-free Game Only capture by unsupported workaroun
 |---|---|---|---|
 | `QC-004-I01` | implementation | PASS | Borderless monitor capture via Desktop Duplication |
 | `QC-004-I02` | implementation | PASS | Window-only target capture via Windows Graphics Capture |
-| `QC-004-I03` | implementation | PASS | Automatic Game First mode with selected monitor fallback |
+| `QC-004-I03` | implementation | PASS | Preserve game-window intent and require explicit consent for a named whole-display DDA source. See [integration evidence](../../docs/p0-integration-validation.md) at `4580af7`. |
 | `QC-004-I04` | implementation | TODO | Strict Game Only mode with no desktop fallback |
 | `QC-004-I05` | implementation | TODO | Clip receipt captures true source/mode/display and stream geometry over saved interval |
 | `QC-004-A01` | acceptance | TODO | 20/20 alt-tab cases preserve intended target or deliberately stop without leaking desktop |

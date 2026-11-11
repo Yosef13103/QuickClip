@@ -3,6 +3,7 @@
   "repository": "Yosef13103/QuickClip",
   "target_branch": "custom/main",
   "baseline_sha": "4c31d749a81b769da438e4d1276f90888fd7a40e",
+  "integration_checkpoint": "4580af73e02c6bc1d820c5ce29b0313c20515fa2",
   "baseline_date": "2026-11-11",
   "source_of_truth": "GitHub source inspection + agent v4 handoff; no current independent Windows run",
   "prior_reported_tests": {
@@ -185,16 +186,16 @@
         },
         {
           "phase": "implementation",
-          "description": "Live GameDetector obtains game identity from catalog, not only legacy heuristics",
-          "status": "pending",
-          "evidence": "GameDetector.cs DetectForeground currently uses KnownGames/Classify.",
+          "description": "Verified live game observation checks catalog eligibility before legacy heuristics",
+          "status": "pass",
+          "evidence": "4580af73e02c6bc1d820c5ce29b0313c20515fa2: GameObservationTests and PersonalCaptureGuidanceTests cover ownership, catalog veto, windowed Steam, partial scans and retained Discord focus.",
           "id": "QC-003-I03"
         },
         {
           "phase": "implementation",
-          "description": "Games UI: approved roots, scan, manual EXEs, include/exclude, overrides",
-          "status": "pending",
-          "evidence": "No game catalog management panel in SettingsView.",
+          "description": "Games settings supports approved roots, scans, exact EXEs and future-target eligibility rules",
+          "status": "pass",
+          "evidence": "4580af73e02c6bc1d820c5ce29b0313c20515fa2: GamesSettingsViewTests and GameObservationTests cover WPF layout and persisted overrides. Rules do not control an explicitly selected display.",
           "id": "QC-003-I04"
         },
         {
@@ -272,9 +273,9 @@
         },
         {
           "phase": "implementation",
-          "description": "Automatic Game First mode with selected monitor fallback",
+          "description": "Preserve game-window intent and require explicit consent for a named whole-display DDA source",
           "status": "pass",
-          "evidence": "Source inspection: custom/main @ 4c31d749a81b (2026-11-11); does not independently validate Windows behavior. SettingsView.xaml SourceCombo",
+          "evidence": "4580af73e02c6bc1d820c5ce29b0313c20515fa2: CaptureSourcePolicyTests and PersonalCaptureGuidanceTests cover no fallback, dismissal, persistence and unavailable sources. Live capture remains pending.",
           "id": "QC-004-I03"
         },
         {
