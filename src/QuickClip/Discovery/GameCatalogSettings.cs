@@ -12,6 +12,14 @@ internal sealed record GameCatalogSettings
 
 internal static class GameCatalogRuntime
 {
+    public static GameDiscoveryCoordinator Discovery { get; } = new(
+        () => AppSettings.Current.Games ?? new(),
+        (state, persist) =>
+        {
+            AppSettings.Current.Games = state;
+            if (persist) AppSettings.Current.Save();
+        });
+
     private static readonly object Gate = new();
     private static GameCatalogSettings? _settings;
     private static GameCatalogIndex? _index;

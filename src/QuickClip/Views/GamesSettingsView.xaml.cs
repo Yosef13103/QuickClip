@@ -1,7 +1,6 @@
 using System.Collections.Immutable;
 using System.Windows;
 using System.Windows.Controls;
-using System.Windows.Threading;
 using Microsoft.Win32;
 using QuickClip.Discovery;
 
@@ -9,15 +8,12 @@ namespace QuickClip.Views;
 
 public partial class GamesSettingsView : UserControl
 {
-    private static readonly TimeSpan ScanInterval = TimeSpan.FromMinutes(15);
     private sealed record RootRow(string Path, bool Steam, bool Automatic = false, bool Excluded = false)
     {
         public override string ToString() => (Excluded ? "Excluded · " : Automatic ? "Detected Steam · " : Steam ? "Steam · " : "Game folder · ") + Path;
     }
     private sealed record GameRow(CatalogEntry Entry, string Summary, string Action);
-    private readonly DispatcherTimer _timer = new() { Interval = ScanInterval };
-    private CancellationTokenSource? _scan;
-    private long? _lastStarted;
+    private static GameDiscoveryCoordinator Discovery => GameCatalogRuntime.Discovery;
     private bool _rendering;
     private static GameCatalogSettings State => AppSettings.Current.Games ?? new();
     private CatalogEntry? Selected => (Games.SelectedItem as GameRow)?.Entry;
@@ -27,89 +23,40 @@ public partial class GamesSettingsView : UserControl
         InitializeComponent();
         Classification.ItemsSource = Enum.GetValues<AppClassification>();
         Render();
-        _timer.Tick += async (_, _) => await AutoScanIfDueAsync();
         IsVisibleChanged += async (_, _) =>
         {
-            if (!IsVisible)
-            {
-                _timer.Stop();
-                _scan?.Cancel();
-                return;
-            }
-            Render();
-            UpdateTimer();
-            await AutoScanIfDueAsync();
+            Discovery.Changed -= ShowDiscoveryStatus;
+            if (!IsVisible) return;
+            Discovery.Changed += ShowDiscoveryStatus;
+            ShowDiscoveryStatus();
+            await Discovery.RequestAsync();
         };
     }
 
-    private void UpdateTimer() => _timer.IsEnabled = IsVisible && State.AutoScan;
+    private void ShowDiscoveryStatus()
+    {
+        Render();
+        ScanButton.IsEnabled = !Discovery.IsRunning;
+        CancelButton.IsEnabled = Discovery.IsRunning;
+        if (Discovery.Status.Length != 0) Status.Text = Discovery.Status;
+    }
 
     private void SetState(GameCatalogSettings state)
     {
         AppSettings.Current.Games = state;
         AppSettings.Current.Save();
         Render();
+        _ = Discovery.SettingsChangedAsync();
     }
 
     private async void AutoScan_Click(object sender, RoutedEventArgs e)
     {
         SetState(State with { AutoScan = AutoScan.IsChecked == true });
-        UpdateTimer();
-        if (!State.AutoScan) _scan?.Cancel();
-        else await AutoScanIfDueAsync();
+        if (State.AutoScan) await Discovery.RequestAsync();
     }
 
-    private Task AutoScanIfDueAsync() =>
-        State.AutoScan && (_lastStarted is not { } last || TimeProvider.System.GetElapsedTime(last) >= ScanInterval)
-            ? RunScanAsync() : Task.CompletedTask;
-
-    private async void Scan_Click(object sender, RoutedEventArgs e) => await RunScanAsync();
-    private void Cancel_Click(object sender, RoutedEventArgs e) => _scan?.Cancel();
-
-    private async Task RunScanAsync()
-    {
-        if (_scan != null) return;
-        var request = State.Request with { DiscoverSteam = State.AutoScan };
-        if (!request.DiscoverSteam && request.GameRoots.IsEmpty && request.SteamLibraryRoots.IsEmpty)
-        {
-            Status.Text = "Approve a Steam library or game folder to scan.";
-            return;
-        }
-        using var scan = new CancellationTokenSource();
-        _scan = scan;
-        _lastStarted = TimeProvider.System.GetTimestamp();
-        ScanButton.IsEnabled = false;
-        CancelButton.IsEnabled = true;
-        Status.Text = "Scanning game libraries…";
-        try
-        {
-            var progress = new Progress<int>(count =>
-            {
-                if (_scan == scan && !scan.IsCancellationRequested) Status.Text = $"Scanning… {count:N0} games found.";
-            });
-            var result = await GameCatalogService.ScanAsync(request, scan.Token, progress);
-            scan.Token.ThrowIfCancellationRequested();
-            SetState(GameCatalogRuntime.WithScan(State, result));
-            Status.Text = result.LimitReached ? $"Found {result.Entries.Length:N0} games. Some sources could not finish."
-                : result.Issues.IsEmpty ? "Scan complete."
-                : $"Scan completed with {result.Issues.Length:N0} reported issue(s). Expand Approved folders to review the scan report.";
-        }
-        catch (OperationCanceledException) when (scan.IsCancellationRequested)
-        {
-            Status.Text = "Scan canceled. Previous results kept.";
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException)
-        {
-            Status.Text = "Scan could not finish. Previous results kept.";
-            Log.Write("Game scan failed: " + ex.GetType().Name);
-        }
-        finally
-        {
-            _scan = null;
-            ScanButton.IsEnabled = true;
-            CancelButton.IsEnabled = false;
-        }
-    }
+    private async void Scan_Click(object sender, RoutedEventArgs e) => await Discovery.RequestAsync(manual: true);
+    private void Cancel_Click(object sender, RoutedEventArgs e) => Discovery.Pause();
 
     private void Steam_Click(object sender, RoutedEventArgs e) => Approve(true);
     private void Folder_Click(object sender, RoutedEventArgs e) => Approve(false);
@@ -136,7 +83,6 @@ public partial class GamesSettingsView : UserControl
         }
         if (steam ? request.SteamLibraryRoots.Contains(path, StringComparer.OrdinalIgnoreCase)
             : request.GameRoots.Any(root => string.Equals(root.Path, path, StringComparison.OrdinalIgnoreCase))) return;
-        _scan?.Cancel();
         SetState(State with { Request = steam ? request with { SteamLibraryRoots = request.SteamLibraryRoots.Add(path) }
             : request with { GameRoots = request.GameRoots.Add(new(path, collection)) } });
         Status.Text = "Folder approved. Select Scan Now to scan it.";
@@ -145,7 +91,6 @@ public partial class GamesSettingsView : UserControl
     private void RemoveRoot_Click(object sender, RoutedEventArgs e)
     {
         if (Roots.SelectedItem is not RootRow root) return;
-        _scan?.Cancel();
         var request = State.Request;
         SetState(State with { Request = root.Excluded
             ? request with { ExcludedDirectories = request.ExcludedDirectories.Remove(root.Path) }
