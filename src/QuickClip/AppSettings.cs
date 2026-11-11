@@ -13,7 +13,7 @@ internal sealed class AppSettings
     public double TargetSizeMB { get; set; } = 25;
     public int AudioBitrate { get; set; } = 192;
     public bool MergeAudio { get; set; }                         // no longer remembered: the editor always starts unmerged
-    public bool Loop { get; set; } = true;
+    public bool Loop { get; set; } = !AppProfile.IsPersonal;
     public string? LastFolder { get; set; }
     public string? SoundFolder { get; set; }                     // where the editor last added a sound from
 
@@ -47,6 +47,8 @@ internal sealed class AppSettings
     public int HotkeyModifiers { get; set; } = 1;               // MOD_ALT
     public int HotkeyKey { get; set; } = AppProfile.IsPersonal ? 0 : 0x79; // Alt+F10 upstream
     public bool ClipSound { get; set; } = true;
+    public bool ClipWindowsNotification { get; set; } = true;
+    public Shell.ClipOverlayOptions ClipOverlay { get; set; } = new();
     public bool EnableLibraryIndex { get; set; }
     public double ShareSizeMB { get; set; } = 30;                // shared copies are made to fit under this
     public bool ShareMotionBlur { get; set; } = true;             // sharing a 120 fps clip blends it into 60 fps motion blur

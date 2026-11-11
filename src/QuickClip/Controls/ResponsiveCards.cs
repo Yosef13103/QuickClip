@@ -20,12 +20,15 @@ public sealed class ResponsiveCards : Panel
         bool twoColumns = width >= 1120;
         double cardWidth = twoColumns ? width / 2 : width;
         double left = 0, right = 0;
+        int visible = 0;
         foreach (UIElement card in InternalChildren)
         {
             if (card.Visibility == Visibility.Collapsed) continue;
             if (!arrange) card.Measure(new Size(cardWidth, double.PositiveInfinity));
 
-            bool useRight = twoColumns && right < left;
+            // Expanding a card changes its column height without moving the other cards between columns.
+            bool useRight = twoColumns && visible % 2 == 1;
+            visible++;
             double top = useRight ? right : left;
             if (arrange) card.Arrange(new Rect(useRight ? cardWidth : 0, top, cardWidth, card.DesiredSize.Height));
             if (useRight) right += card.DesiredSize.Height;

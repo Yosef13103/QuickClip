@@ -23,7 +23,7 @@
         </ResourceDictionary>
     </UserControl.Resources>
 
-    <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+    <ScrollViewer VerticalScrollBarVisibility="Visible" HorizontalScrollBarVisibility="Disabled">
         <StackPanel MaxWidth="1340" Margin="28,22,14,28" HorizontalAlignment="Center">
             <TextBlock Text="Settings" FontSize="24" FontWeight="SemiBold" Margin="0,0,0,16" />
 
@@ -98,7 +98,7 @@
 
                     <TextBlock Text="Recording source" Margin="0,12,0,4" />
                     <ComboBox x:Name="SourceCombo" SelectionChanged="Changed" AutomationProperties.Name="Recording source">
-                        <ComboBoxItem Content="Automatic — game first" />
+                        <ComboBoxItem Content="Automatic - Game First" />
                         <ComboBoxItem Content="Selected monitor" />
                         <ComboBoxItem Content="Game only — unavailable in this build" IsEnabled="False" />
                     </ComboBox>
@@ -235,7 +235,7 @@
                         <StackPanel Margin="0,8,0,0">
                             <ComboBox x:Name="BackendCombo" SelectionChanged="Changed" AutomationProperties.Name="Monitor capture backend" />
                             <TextBlock Style="{StaticResource Hint}" TextWrapping="Wrap"
-                                       Text="Applies to the selected monitor, including Automatic’s fallback. DXGI Desktop Duplication captures the visible display without the WGC indicator. Game-window capture uses WGC." />
+                                       Text="Desktop Duplication records everything visible on the selected display, including windows covering the game, and avoids the Windows capture indicator. Windows Graphics Capture may show an indicator. This preference applies to monitor capture. Game-window capture always uses Windows Graphics Capture." />
                         </StackPanel>
                     </Expander>
                     <Expander x:Name="CaptureAdvanced" Header="Advanced Recording Diagnostics" Margin="0,12,0,0" Expanded="Diagnostics_Expanded">
@@ -370,6 +370,38 @@
                         <Button Style="{StaticResource TextButton}" Content="Play" ToolTip="Hear the sound" Margin="10,0,0,0" VerticalAlignment="Center"
                                 Click="PlayClipSound_Click" />
                     </StackPanel>
+                    <CheckBox x:Name="WindowsClipNotificationCheck" Content="Show Windows clip notifications"
+                              Margin="0,8,0,0" Click="ClipFeedback_Changed" />
+                    <Expander x:Name="ClipOverlayPanel" Header="On-screen clip indicator" Margin="0,12,0,0">
+                        <StackPanel Margin="0,8,0,0">
+                            <CheckBox x:Name="ClipOverlayCheck" Content="Show the indicator when saving a clip" Click="ClipFeedback_Changed" />
+                            <Grid Margin="0,8,0,0">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="*" />
+                                </Grid.ColumnDefinitions>
+                                <StackPanel Margin="0,0,6,0">
+                                    <TextBlock Text="Display" />
+                                    <ComboBox x:Name="OverlayDisplayCombo" SelectionChanged="ClipFeedback_Changed" AutomationProperties.Name="Indicator display" />
+                                    <TextBlock Text="Position" Margin="0,8,0,0" />
+                                    <ComboBox x:Name="OverlayAnchorCombo" SelectionChanged="ClipFeedback_Changed" AutomationProperties.Name="Indicator position" />
+                                    <TextBlock Text="Animation" Margin="0,8,0,0" />
+                                    <ComboBox x:Name="OverlayAnimationCombo" SelectionChanged="ClipFeedback_Changed" AutomationProperties.Name="Indicator animation" />
+                                </StackPanel>
+                                <StackPanel Grid.Column="1" Margin="6,0,0,0">
+                                    <TextBlock Text="Size" />
+                                    <ComboBox x:Name="OverlaySizeCombo" SelectionChanged="ClipFeedback_Changed" AutomationProperties.Name="Indicator size" />
+                                    <TextBlock Text="Opacity" Margin="0,8,0,0" />
+                                    <ComboBox x:Name="OverlayOpacityCombo" SelectionChanged="ClipFeedback_Changed" AutomationProperties.Name="Indicator opacity" />
+                                    <TextBlock Text="Duration" Margin="0,8,0,0" />
+                                    <ComboBox x:Name="OverlayDurationCombo" SelectionChanged="ClipFeedback_Changed" AutomationProperties.Name="Indicator duration" />
+                                </StackPanel>
+                            </Grid>
+                            <Button Content="Test indicator" HorizontalAlignment="Left" Margin="0,10,0,0" Click="TestClipOverlay_Click" />
+                            <TextBlock Style="{StaticResource Hint}" TextWrapping="Wrap"
+                                       Text="Visible over windowed and borderless games. Exclusive fullscreen and capture exclusion depend on Windows and the capture backend." />
+                        </StackPanel>
+                    </Expander>
                     <CheckBox x:Name="ShellCheck" Margin="0,8,0,0" Checked="ShellCheck_Changed" Unchecked="ShellCheck_Changed">
                         <TextBlock Text="Add &quot;Edit with QuickClip&quot; to the right-click menu of video and audio files" TextWrapping="Wrap" />
                     </CheckBox>

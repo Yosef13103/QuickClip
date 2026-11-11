@@ -177,7 +177,7 @@ public partial class SettingsView : UserControl
             encoderGroups.GroupDescriptions.Add(new System.Windows.Data.PropertyGroupDescription(nameof(Choice.Group)));
             EncoderCombo.ItemsSource = encoderGroups;
             Select(EncoderCombo, s.RecordEncoder);
-            BackendCombo.ItemsSource = new Choice[] { new("Automatic", CaptureEngine.MonitorBackend.Automatic), new("Desktop Duplication (DXGI)", CaptureEngine.MonitorBackend.DesktopDuplication), new("Windows Graphics Capture (WGC)", CaptureEngine.MonitorBackend.GraphicsCapture) };
+            BackendCombo.ItemsSource = new Choice[] { new("Automatic", CaptureEngine.MonitorBackend.Automatic), new("Capture the visible monitor (DXGI Desktop Duplication)", CaptureEngine.MonitorBackend.DesktopDuplication), new("Capture through Windows (WGC)", CaptureEngine.MonitorBackend.GraphicsCapture) };
             Select(BackendCombo, s.CaptureBackend);
             NvencPresetCombo.ItemsSource = new Choice[]
             {
@@ -222,6 +222,7 @@ public partial class SettingsView : UserControl
             }
             FolderBox.Text = s.ClipsFolder;
             IndexLibraryCheck.IsChecked = s.EnableLibraryIndex;
+            LoadClipFeedback(s);
             FilenameTemplate.Text = s.ClipFilenameTemplate;
             ExclusionsBox.Text = string.Join(Environment.NewLine, s.LibraryExclusions ?? []);
             AutoUpdateCheck.IsChecked = s.CheckForUpdates;
@@ -466,7 +467,7 @@ public partial class SettingsView : UserControl
         string[] folders = ExclusionsBox.Text.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
         if (folders.Any(folder => Path.IsPathRooted(folder) || folder.Split('/', '\\').Any(part => part is "." or "..")))
         {
-            MessageBox.Show(Window.GetWindow(this), "Use folder paths relative to the clips folder.", "Invalid exclusion", MessageBoxButton.OK);
+            ModalDialog.Show(Window.GetWindow(this), "Use folder paths relative to the clips folder.", "Invalid exclusion", MessageBoxButton.OK);
             return;
         }
         AppSettings.Current.LibraryExclusions = folders.Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
@@ -600,7 +601,7 @@ public partial class SettingsView : UserControl
         }
         catch (Exception ex)
         {
-            MessageBox.Show(Window.GetWindow(this), "Couldn't update the Explorer menu:\n\n" + ex.Message, "QuickClip",
+            ModalDialog.Show(Window.GetWindow(this), "Couldn't update the Explorer menu:\n\n" + ex.Message, "QuickClip",
                 MessageBoxButton.OK, MessageBoxImage.Warning);
         }
     }
@@ -613,7 +614,7 @@ public partial class SettingsView : UserControl
         if (dlg.ShowDialog(Window.GetWindow(this)) != true) return;
         if (ClipLibrary.IsMomentsPath(dlg.FolderName))
         {
-            MessageBox.Show(Window.GetWindow(this), "Choose a clips folder outside the Moments archive.", "Protected archive", MessageBoxButton.OK);
+            ModalDialog.Show(Window.GetWindow(this), "Choose a clips folder outside the Moments archive.", "Protected archive", MessageBoxButton.OK);
             return;
         }
         AppSettings.Current.ClipsFolder = dlg.FolderName;

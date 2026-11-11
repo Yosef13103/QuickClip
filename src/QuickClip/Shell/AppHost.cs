@@ -27,6 +27,7 @@ internal sealed class AppHost : IDisposable
     private DispatcherTimer? _updateTimer;
     private bool _updateBalloonShown;   // the last notification was about an update
     private AppVersion? _notifiedVersion;
+    private readonly ClipNotificationOverlay _clipOverlay = new();
 
     public event Action? OpenRequested;
     /// <summary>The user clicked the "update available" notification.</summary>
@@ -50,8 +51,8 @@ internal sealed class AppHost : IDisposable
         RegisterHotkey();
 
         var recorder = Recorder.Instance;
-        recorder.ClipSaved += clip => _dispatcher.BeginInvoke(() => OnClipSaved(clip));
-        recorder.SaveFailed += error => _dispatcher.BeginInvoke(() => Notify("Clip not saved", error));
+        recorder.ReplaySaved += OnReplaySaved;
+        recorder.SaveFailed += OnSaveFailed;
         recorder.StateChanged += _ => _dispatcher.BeginInvoke(UpdateTooltip);
         _ = recorder.ApplySettingsAsync();
 
@@ -104,11 +105,34 @@ internal sealed class AppHost : IDisposable
         Shell_NotifyIcon(NIM_MODIFY, ref data);
     }
 
-    private void OnClipSaved(SavedClip clip)
+    private void OnReplaySaved(ReplaySaveReceipt receipt) => _dispatcher.BeginInvoke(() =>
     {
-        if (AppSettings.Current.ClipSound) ClipSound.Play();
-        string length = RecordingPresets.DurationLabel(clip.Seconds);
-        Notify("Clip saved", clip.Folder == "Desktop" ? $"Last {length}" : $"{clip.Folder} · last {length}");
+        string message = receipt.ActualVideoDuration is { } actual
+            ? $"{receipt.Game} · {actual.TotalSeconds:0.#} s saved" : receipt.Game;
+        if (receipt.IsShorterThanRequested == true) message += $" ({receipt.RequestedSeconds} s requested)";
+        ShowClipFeedback(success: true, message);
+    });
+
+    private void OnSaveFailed(string error) => _dispatcher.BeginInvoke(() => ShowClipFeedback(success: false, error));
+
+    internal void ShowClipFeedback(bool success, string message)
+    {
+        if (_window == null) return;
+        var settings = AppSettings.Current;
+        var feedback = ClipFeedback.From(settings, success, message);
+        if (feedback.Sound) ClipSound.Play();
+        if (feedback.Windows) Notify(feedback.Title, feedback.Message);
+        if (feedback.Overlay)
+        {
+            try { _clipOverlay.Show(settings.ClipOverlay, feedback.Success); }
+            catch (Exception ex) { Log.Write("Clip indicator unavailable: " + ex.GetType().Name); }
+        }
+    }
+
+    internal void TestClipOverlay()
+    {
+        try { _clipOverlay.Show(AppSettings.Current.ClipOverlay ?? new(), success: true); }
+        catch (Exception ex) { Log.Write("Clip indicator preview unavailable: " + ex.GetType().Name); }
     }
 
     private void UpdateTooltip()
@@ -224,6 +248,9 @@ internal sealed class AppHost : IDisposable
     public void Dispose()
     {
         _updateTimer?.Stop();
+        Recorder.Instance.ReplaySaved -= OnReplaySaved;
+        Recorder.Instance.SaveFailed -= OnSaveFailed;
+        _clipOverlay.Dispose();
         if (_window == null) return;
         UnregisterHotKey(_window.Handle, HotkeyId);
         var data = NewIconData();
