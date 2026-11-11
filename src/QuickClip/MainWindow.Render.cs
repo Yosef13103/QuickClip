@@ -34,6 +34,12 @@ public partial class MainWindow
                 _editor.PositionForRender != position || _editor.TrimEndForRender != trim)
                 throw new InvalidOperationException("View mode lost clip, playhead or trim state.");
             SaveVisual(Path.Combine(dir, "unified-view.png"));
+            _editor.ToggleCinemaForRender();
+            if (!_editor.CinemaForRender || _editor.CurrentFile != opened ||
+                _editor.PositionForRender != position || _editor.TrimEndForRender != trim)
+                throw new InvalidOperationException("Cinema mode lost clip, playhead or trim state.");
+            _editor.ToggleCinemaForRender();
+            if (!_editor.ViewingForRender) throw new InvalidOperationException("Cinema mode did not restore View mode.");
             _editor.ToggleModeForRender();
             _editor.SetTrimForRender(originalEnd);
             report.AppendLine("gallery opened unified editor and mode changes preserved clip, playhead and trim");

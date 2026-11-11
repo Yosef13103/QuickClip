@@ -70,6 +70,8 @@
         <DockPanel Grid.Row="0" Grid.Column="0" Margin="0,0,0,10" LastChildFill="True">
             <Button DockPanel.Dock="Left" Content="Gallery" Click="Back_Click" Style="{StaticResource TextButton}" />
             <Button x:Name="ModeButton" DockPanel.Dock="Right" Content="View mode" Click="ToggleMode_Click" Style="{StaticResource TextButton}" />
+            <Button x:Name="CinemaButton" DockPanel.Dock="Right" Content="Cinema" Click="ToggleCinema_Click"
+                    Style="{StaticResource TextButton}" ToolTip="Cinema mode (Shift+F11). Space plays or pauses." />
             <Button x:Name="DeleteMediaButton" DockPanel.Dock="Right" Content="Delete…" Click="DeleteMedia_Click" Style="{StaticResource TextButton}" />
             <Button DockPanel.Dock="Left" Style="{StaticResource TextButton}" Click="Open_Click" ToolTip="Open a file (Ctrl+O)">
                 <StackPanel Orientation="Horizontal">
@@ -130,6 +132,8 @@
             <StackPanel x:Name="EditControls" Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center" HorizontalAlignment="Right">
                 <Button Style="{StaticResource TextButton}" Click="SetIn_Click" Content="Set in" ToolTip="Start the clip at the playhead (I)" />
                 <Button Style="{StaticResource TextButton}" Click="SetOut_Click" Content="Set out" ToolTip="End the clip at the playhead (O)" />
+                <Button x:Name="BookmarkButton" Style="{StaticResource TextButton}" Content="Bookmark"
+                        Click="Bookmark_Click" ToolTip="Bookmark the current position in this saved clip" />
                 <ToggleButton x:Name="LoopToggle" Style="{StaticResource IconToggle}" Margin="8,0,12,0" Checked="Loop_Changed" Unchecked="Loop_Changed"
                               ToolTip="Loop the selection while previewing (L)">
                     <StackPanel Orientation="Horizontal">
