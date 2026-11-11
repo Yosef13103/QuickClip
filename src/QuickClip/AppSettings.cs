@@ -47,6 +47,7 @@ internal sealed class AppSettings
     public int HotkeyModifiers { get; set; } = 1;               // MOD_ALT
     public int HotkeyKey { get; set; } = AppProfile.IsPersonal ? 0 : 0x79; // Alt+F10 upstream
     public bool ClipSound { get; set; } = true;
+    public bool EnableLibraryIndex { get; set; }
     public double ShareSizeMB { get; set; } = 30;                // shared copies are made to fit under this
     public bool ShareMotionBlur { get; set; } = true;             // sharing a 120 fps clip blends it into 60 fps motion blur
     public string ClipsFolder { get; set; } = AppProfile.ClipsDirectory;

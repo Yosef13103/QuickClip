@@ -95,6 +95,7 @@ public partial class MainWindow : Window
             _editor.BackRequested += () => ShowPage(Gallery);
             _editor.ClipDetailsSaved += Gallery.ApplyClipDetails;
             _editor.KnownTags = () => Gallery.KnownTags;
+            _editor.AnnotationActions = Library.PersonalLibrary.Current;
             Pages.Children.Add(_editor);
             return _editor;
         }

@@ -6,7 +6,11 @@ internal enum InventoryRootState { Available, Missing, Unavailable }
 internal sealed record InventoryRoot(string Path, InventoryRootState State, long? FreeBytes);
 internal sealed record InventoryGroup(InventoryCategory Category, string Game, int Clips, long? LogicalBytes);
 internal sealed record LibraryInventorySnapshot(IReadOnlyList<InventoryRoot> Roots, IReadOnlyList<InventoryGroup> Groups,
-    IReadOnlySet<InventoryCategory> MeasuredCategories, int MissingClips, int UnavailableClips);
+    IReadOnlySet<InventoryCategory> MeasuredCategories, int MissingClips, int UnavailableClips)
+{
+    internal long? UniqueLogicalBytes { get; init; }
+    internal long UnknownIdentityBytes { get; init; }
+}
 
 /// <summary>Read the existing index. Implementations should leave scan scheduling and root registration to the library host.</summary>
 internal interface ILibraryInventorySource
@@ -21,7 +25,9 @@ internal sealed class StorageDashboardModel(LibraryInventorySnapshot snapshot)
     private IEnumerable<InventoryGroup> IndexedMedia => snapshot.Groups.Where(group => group.Category != InventoryCategory.ProjectLinked);
 
     internal string ClipCount => IndexedMedia.Sum(group => (long)group.Clips).ToString("N0");
-    internal string TotalSize => SizeOf(IndexedMedia);
+    internal string TotalSize => snapshot.UniqueLogicalBytes is long unique
+        ? snapshot.UnknownIdentityBytes == 0 ? Fmt.Size(unique) : $"{Fmt.Size(unique)} verified + {Fmt.Size(snapshot.UnknownIdentityBytes)} unverified"
+        : SizeOf(IndexedMedia);
     internal string Availability => $"{snapshot.MissingClips:N0} missing · {snapshot.UnavailableClips:N0} unavailable";
 
     internal IEnumerable<Row> Categories => Enum.GetValues<InventoryCategory>().Select(category =>

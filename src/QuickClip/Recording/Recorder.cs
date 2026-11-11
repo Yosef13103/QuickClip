@@ -350,11 +350,15 @@ internal sealed class Recorder
                 : $"{folder} {requestedAt:yyyy-MM-dd HH-mm-ss}";
             cancellationToken.ThrowIfCancellationRequested();
             string path = ClipNaming.Publish(stagingPath, dir, stem, ".mp4");
-            if (AppProfile.IsPersonal) ClipDetailsStore.TryWrite(path, new ClipDetails(capture, folder));
             TimeSpan? actual = span.DurationUs >= 0 ? ReplayMarkers.Time(span.DurationUs) : null;
             var receipt = new ReplaySaveReceipt(path, folder, sessionId, seconds, actual, ReplayMarkers.Time(span.AvailableUs),
                 ReplayMarkers.Time(span.FirstUs), ReplayMarkers.Time(span.LastUs), span.FirstSource, span.LastSource,
                 capturedAt, ReplayMarkers.Match(candidates, anchors, actual));
+            if (AppProfile.IsPersonal) ClipDetailsStore.TryWrite(path, new ClipDetails(capture, folder)
+            {
+                Bookmarks = receipt.Markers.Select(mark => new ClipBookmark(mark.Offset.TotalSeconds, mark.Marker.Label ?? "Marker")
+                { SessionId = mark.Marker.SessionId }).ToArray(),
+            });
             int displaySeconds = requestedSeconds.HasValue ? (int)(actual?.TotalSeconds ?? 0) : seconds;
             var clip = new SavedClip(path, folder, displaySeconds);
             Log.Write($"Saved clip {path}");

@@ -9,6 +9,8 @@ using System.Windows.Threading;
 using Microsoft.Win32;
 using QuickClip.Controls;
 using QuickClip.Gallery;
+using QuickClip.Library;
+using ClipBookmark = QuickClip.Gallery.ClipBookmark;
 using QuickClip.Media;
 using QuickClip.Mpv;
 using QuickClip.Shell;
@@ -99,7 +101,7 @@ public partial class EditorView : UserControl
         {
             if (AppProfile.IsPersonal && !MetadataEditor.HasDraft && File.Exists(path))
             {
-                var details = CurrentClipDetails();
+                var details = await PersonalLibrary.Current.ReadAsync(path) ?? CurrentClipDetails();
                 MetadataEditor.Open(path, details, duration: _media?.Duration);
                 ShowClipTitle(details);
             }
@@ -472,7 +474,7 @@ public partial class EditorView : UserControl
             UndoButton.Visibility = Visibility.Collapsed;
             StatusText.Text = "";
 
-            var details = CurrentClipDetails();
+            var details = await PersonalLibrary.Current.ReadAsync(path) ?? CurrentClipDetails();
             ShowClipTitle(details);
             FileNameText.ToolTip = path;
             FileInfoText.Text = info.Summary;
@@ -1700,6 +1702,9 @@ public partial class EditorView : UserControl
 
     private ClipDetails CurrentClipDetails()
     {
+        if (MetadataEditor.AnnotationTarget is { } target &&
+            string.Equals(target.Path, _media!.Path, StringComparison.OrdinalIgnoreCase))
+            return target.Details;
         var file = new FileInfo(_media!.Path);
         return ClipDetailsStore.Read(file, ClipLibrary.InitialGame(_settings.ClipsFolder, file.FullName), _media.EmbeddedCreationTime);
     }

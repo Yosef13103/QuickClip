@@ -221,6 +221,7 @@ public partial class SettingsView : UserControl
                 ShellCheck.ToolTip = "On the Windows 11 right-click menu (added with scripts\\add-win11-menu.ps1; run it with -Remove to undo).";
             }
             FolderBox.Text = s.ClipsFolder;
+            IndexLibraryCheck.IsChecked = s.EnableLibraryIndex;
             FilenameTemplate.Text = s.ClipFilenameTemplate;
             ExclusionsBox.Text = string.Join(Environment.NewLine, s.LibraryExclusions ?? []);
             AutoUpdateCheck.IsChecked = s.CheckForUpdates;
@@ -450,6 +451,13 @@ public partial class SettingsView : UserControl
             AppSettings.Current.Save();
         }
         catch (ArgumentException) { }
+    }
+
+    private void IndexLibrary_Click(object sender, RoutedEventArgs e)
+    {
+        if (!AppProfile.IsPersonal) return;
+        AppSettings.Current.EnableLibraryIndex = IndexLibraryCheck.IsChecked == true;
+        AppSettings.Current.Save();
     }
 
     private void Exclusions_Commit(object sender, KeyboardFocusChangedEventArgs e)

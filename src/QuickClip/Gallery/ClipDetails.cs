@@ -6,7 +6,9 @@ namespace QuickClip.Gallery;
 
 internal sealed record ClipBookmark(double Seconds, string Label)
 {
-    internal const int MaxLabelLength = 64;
+    internal const int MaxLabelLength = 128;
+    public Guid? Id { get; init; }
+    public Guid? SessionId { get; init; }
 
     internal string TimeText => Fmt.Time(Seconds);
 }
@@ -16,6 +18,9 @@ internal sealed record ClipDetails(DateTimeOffset CapturedAt, string Game, strin
     internal const int MaxTags = 16;
     internal const int MaxTagLength = 32;
     internal const int MaxBookmarks = 32;
+
+    internal Guid? IndexId { get; init; }
+    internal long IndexRevision { get; init; }
 
     public string[] Tags { get; init; } = [];
     public bool IsFavorite { get; init; }

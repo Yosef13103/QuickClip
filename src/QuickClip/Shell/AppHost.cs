@@ -186,6 +186,18 @@ internal sealed class AppHost : IDisposable
         var menu = new ContextMenu { Placement = PlacementMode.MousePoint };
         menu.Items.Add(Item("Open " + AppProfile.Name, () => OpenRequested?.Invoke(), bold: true));
         menu.Items.Add(Item($"Save clip ({new Hotkey(s.HotkeyModifiers, s.HotkeyKey)})", () => _ = recorder.SaveClipAsync(), enabled: recorder.IsRunning));
+        if (AppProfile.IsPersonal)
+        {
+            var durations = new MenuItem { Header = "Save a specific duration", IsEnabled = recorder.IsRunning };
+            foreach (int seconds in new[] { 15, 30, 60, 120 })
+                durations.Items.Add(Item($"{seconds} seconds", () => _ = recorder.SaveReplayAsync(seconds)));
+            menu.Items.Add(durations);
+            menu.Items.Add(Item("Add replay marker", () =>
+            {
+                if (recorder.TryAddReplayMarker(null) == null)
+                    Notify("Marker unavailable", "Wait for the recorder to capture another frame.");
+            }, enabled: recorder.IsRunning));
+        }
         menu.Items.Add(new Separator());
         menu.Items.Add(Item(s.RecordingEnabled ? "Turn recording off" : "Turn recording on", () =>
         {

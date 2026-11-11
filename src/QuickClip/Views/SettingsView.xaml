@@ -385,6 +385,8 @@
                         <Button Grid.Column="2" Style="{StaticResource TextButton}" Content="Change…" Margin="8,0,0,0" Click="ChangeFolder_Click" />
                     </Grid>
                     <StackPanel x:Name="LibraryOptions" Margin="0,16,0,0">
+                        <CheckBox x:Name="IndexLibraryCheck" Content="Index this clips folder and store annotations in SQLite"
+                                  Click="IndexLibrary_Click" Margin="0,0,0,10" />
                         <TextBlock Text="Clip filename template" />
                         <TextBox x:Name="FilenameTemplate" Margin="0,5,0,0" TextChanged="FilenameTemplate_Changed"
                                  LostKeyboardFocus="FilenameTemplate_Commit" />
