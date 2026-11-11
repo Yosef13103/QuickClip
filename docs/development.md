@@ -8,6 +8,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\dev.ps1
 
 This builds managed and native components, verifies bundled runtime dependencies, and launches the Personal identity. Use the .NET 10 x64 SDK plus Visual Studio C++ Build Tools and the pinned dependencies described in the repository README. An SDK extracted under `.quickclip-local/dotnet` also works. Missing native tools or a capture-engine compile/load failure fails the launcher visibly.
 
+Managed dependencies restore from nuget.org using the repository's NuGet.Config. The repository-local cache is .quickclip-local/nuget. A fresh cache needs access to nuget.org; subsequent builds can reuse cached packages.
+
 The development executable is `bin/quickclip-personal/dev/QuickClip.exe`; persistent settings and clips live under `bin/quickclip-personal/profile`. Keep the profile when rebuilding. Quit through the tray before rebuilding a running executable. The build does not install Explorer integration, replace stock QuickClip, run its updater, or access SteelSeries files. Stock and Personal profiles/process identities are distinct. New Personal profiles start with recording and the capture hotkey off.
 
 New filename settings default to `{game}__{yyyy-MM-dd}-{HH-mm-ss} - {custom_title}.mp4`; an empty title removes ` - `. Existing configured templates and legacy filenames are preserved. Gallery/player deletion requires confirmation by default, uses the Recycle Bin, and offers the latest batch's Undo from the gallery. After restart, use the Windows Recycle Bin to recover files.
