@@ -221,8 +221,6 @@
                     <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
                         <Button x:Name="UndoDeleteButton" Content="Undo delete" Style="{StaticResource TextButton}" IsEnabled="False"
                                 Click="UndoDelete_Click" ToolTip="Restore the latest deleted batch without overwriting files" />
-                        <Button x:Name="StorageButton" Content="Storage" Style="{StaticResource TextButton}"
-                                Click="OpenStorage_Click" ToolTip="Show indexed library storage" />
                         <Button Style="{StaticResource TextButton}" Click="OpenFolder_Click" ToolTip="Open this folder in Explorer">
                             <StackPanel Orientation="Horizontal">
                                 <TextBlock FontFamily="{StaticResource IconFont}" Text="&#xE838;" VerticalAlignment="Center" Margin="0,0,7,0" />
@@ -348,7 +346,6 @@
 
             <!-- An open project -->
             <views:ProjectView x:Name="ProjectPane" Visibility="Collapsed" />
-            <views:StorageDashboard x:Name="StoragePane" Visibility="Collapsed" />
         </Grid>
     </Grid>
 </UserControl>

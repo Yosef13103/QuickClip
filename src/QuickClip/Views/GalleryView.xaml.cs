@@ -73,10 +73,6 @@ public partial class GalleryView : UserControl
         get => GalleryDetailsEditor.AnnotationActions;
         set => GalleryDetailsEditor.AnnotationActions = value;
     }
-    internal ILibraryInventorySource? InventorySource
-    {
-        set => StoragePane.InventorySource = value;
-    }
 
     /// <summary>The user wants to edit a file.</summary>
     public event Action<string>? OpenRequested;
@@ -95,12 +91,6 @@ public partial class GalleryView : UserControl
     {
         InitializeComponent();
         GalleryDetailsEditor.KnownTags = () => KnownTags;
-        StorageButton.Visibility = PersonalAnnotations ? Visibility.Visible : Visibility.Collapsed;
-        StoragePane.BackRequested += () =>
-        {
-            CloseStorage();
-            StorageButton.Focus();
-        };
         GalleryDetailsEditor.Cancelled += () => InlineDetails.Visibility = Visibility.Collapsed;
         GalleryDetailsEditor.Saved += (path, details) =>
         {
@@ -278,7 +268,6 @@ public partial class GalleryView : UserControl
     private void FolderList_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
         if (_settingLists || FolderList.SelectedItem is not Folder f) return;
-        CloseStorage();
         if (_openProject != null) CloseProject();
         if (f.Name == _folder) return;
         _folder = f.Name;
@@ -754,20 +743,6 @@ public partial class GalleryView : UserControl
         Process.Start(new ProcessStartInfo("explorer.exe", $"\"{dir}\"") { UseShellExecute = true });
     }
 
-    private void OpenStorage_Click(object sender, RoutedEventArgs e)
-    {
-        ClipsPane.Visibility = Visibility.Collapsed;
-        StoragePane.Visibility = Visibility.Visible;
-        StoragePane.BackButton.Focus();
-    }
-
-    private void CloseStorage()
-    {
-        if (StoragePane.Visibility != Visibility.Visible) return;
-        StoragePane.Visibility = Visibility.Collapsed;
-        ClipsPane.Visibility = _openProject == null ? Visibility.Visible : Visibility.Collapsed;
-    }
-
     private void OpenFile_Click(object sender, RoutedEventArgs e)
     {
         var exts = string.Join(";", ShellIntegration.Extensions.Select(x => "*" + x));
@@ -928,7 +903,6 @@ public partial class GalleryView : UserControl
 
     private async void OpenProject(string folder)
     {
-        CloseStorage();
         _openProject = folder;
         _settingLists = true;
         FolderList.SelectedItem = null;
