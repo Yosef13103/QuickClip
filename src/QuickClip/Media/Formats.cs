@@ -81,24 +81,24 @@ internal static class VideoEncoders
 {
     public static readonly VideoEncoder[] All =
     [
-        new("h264_nvenc", "h264", "H.264 · NVIDIA GPU (fast)", true),
-        new("h264_amf", "h264", "H.264 · AMD GPU (fast)", true),
-        new("h264_qsv", "h264", "H.264 · Intel GPU (fast)", true),
-        new("libx264", "h264", "H.264 · CPU (x264)", false),
-        new("hevc_nvenc", "hevc", "H.265/HEVC · NVIDIA GPU", true),
-        new("hevc_amf", "hevc", "H.265/HEVC · AMD GPU", true),
-        new("hevc_qsv", "hevc", "H.265/HEVC · Intel GPU", true),
-        new("libx265", "hevc", "H.265/HEVC · CPU (x265)", false),
-        new("av1_nvenc", "av1", "AV1 · NVIDIA GPU", true),
-        new("av1_amf", "av1", "AV1 · AMD GPU", true),
-        new("av1_qsv", "av1", "AV1 · Intel GPU", true, Export: false),
+        new("h264_nvenc", "h264", "H.264 / AVC · NVIDIA NVENC", true),
+        new("h264_amf", "h264", "H.264 / AVC · AMD AMF", true),
+        new("h264_qsv", "h264", "H.264 / AVC · Intel Quick Sync", true),
+        new("libx264", "h264", "H.264 / AVC · CPU (x264)", false),
+        new("hevc_nvenc", "hevc", "H.265 / HEVC · NVIDIA NVENC", true),
+        new("hevc_amf", "hevc", "H.265 / HEVC · AMD AMF", true),
+        new("hevc_qsv", "hevc", "H.265 / HEVC · Intel Quick Sync", true),
+        new("libx265", "hevc", "H.265 / HEVC · CPU (x265)", false),
+        new("av1_nvenc", "av1", "AV1 · NVIDIA NVENC", true),
+        new("av1_amf", "av1", "AV1 · AMD AMF", true),
+        new("av1_qsv", "av1", "AV1 · Intel Quick Sync", true, Export: false),
         new("libsvtav1", "av1", "AV1 · CPU (SVT-AV1)", false),
         new("libvpx-vp9", "vp9", "VP9 · CPU", false),
         // The graphics card's encoder through Windows (Media Foundation), for recording when the card's own route
         // can't be used: FFmpeg's NVENC needs NVIDIA driver 610 or newer, which GTX 900 and 10 series cards never get.
-        new("av1_mf", "av1", "AV1 · graphics card, through Windows", true, Export: false),
-        new("hevc_mf", "hevc", "H.265/HEVC · graphics card, through Windows", true, Export: false),
-        new("h264_mf", "h264", "H.264 · graphics card, through Windows", true, Export: false),
+        new("av1_mf", "av1", "AV1 · Windows Media Foundation (hardware)", true, Export: false),
+        new("hevc_mf", "hevc", "H.265 / HEVC · Windows Media Foundation (hardware)", true, Export: false),
+        new("h264_mf", "h264", "H.264 / AVC · Windows Media Foundation (hardware)", true, Export: false),
     ];
 
     public static VideoEncoder? Find(string id) => All.FirstOrDefault(e => e.Id == id);
