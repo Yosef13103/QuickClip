@@ -1,0 +1,68 @@
+using QuickClip.Discovery;
+using QuickClip.Recording;
+
+namespace QuickClip.Tests;
+
+public sealed class PersonalCaptureGuidanceTests
+{
+    [Theory]
+    [InlineData("{}")]
+    [InlineData("""{"PreferGameWindow":true,"RecordingEnabled":true,"RecordMonitor":"display2"}""")]
+    public void Fresh_or_saved_game_window_intent_survives_startup_and_dismissal(string json)
+    {
+        if (!AppProfile.IsPersonal) return;
+        var settings = AppSettings.Parse(json);
+        string before = settings.ToJson();
+        Assert.Contains("unavailable", CaptureSourcePolicy.Guidance(settings, true, null, false));
+        Assert.False(CaptureSourcePolicy.AcceptDisplayCapture(settings, new("display1", "", 0, 0, 1920, 1080), false));
+        Assert.False(CaptureSourcePolicy.AcceptDisplayCapture(settings, null, true));
+        Assert.Equal(before, settings.ToJson());
+        Assert.True(AppSettings.Parse(settings.ToJson()).PreferGameWindow);
+    }
+
+    [Fact]
+    public void Explicit_consent_persists_specific_display_and_DDA_without_enabling_recording()
+    {
+        var settings = AppSettings.Parse("""{"PreferGameWindow":true,"RecordingEnabled":false}""");
+        Assert.True(CaptureSourcePolicy.AcceptDisplayCapture(settings, new("display2", "", 1920, 0, 1920, 1080), true));
+        var reloaded = AppSettings.Parse(settings.ToJson());
+        Assert.False(reloaded.PreferGameWindow);
+        Assert.False(reloaded.RecordingEnabled);
+        Assert.Equal("display2", reloaded.RecordMonitor);
+        Assert.Equal(CaptureEngine.MonitorBackend.DesktopDuplication, reloaded.CaptureBackend);
+        Assert.Null(CaptureSourcePolicy.Guidance(reloaded, true, null, false));
+        Assert.Equal("The display is unavailable.", CaptureSourcePolicy.Guidance(reloaded, true, "The display is unavailable.", false));
+        Assert.Null(CaptureSourcePolicy.Guidance(reloaded, false, "Legacy startup", false));
+    }
+
+    [Fact]
+    public void Verified_context_survives_Discord_focus_but_not_lost_ownership_or_exclusion()
+    {
+        var owner = new WindowOwner((IntPtr)101, 10, 20, 30);
+        string path = @"C:\Steam\steamapps\common\Fixture\game.exe";
+        var entry = new CatalogEntry("steam:12", "Fixture", CatalogSource.Steam, [], [path], new());
+        var match = new CatalogMatch(CatalogMatchKind.Candidate, entry);
+        var game = GameDetector.Observe(owner, path, match, false, new HashSet<string>());
+        var discord = GameDetector.Observe(owner with { Handle = (IntPtr)202 }, @"C:\Apps\Discord.exe",
+            new(CatalogMatchKind.Unknown), false, new HashSet<string>());
+        Assert.Equal("Fixture", GameDetector.VerifiedGameContext(null, game, candidate => candidate == owner));
+        Assert.Equal("Fixture", GameDetector.VerifiedGameContext(game, discord, candidate => candidate == owner, (_, _) => match));
+        Assert.Null(GameDetector.VerifiedGameContext(game, discord, _ => false));
+        Assert.Null(GameDetector.VerifiedGameContext(game, discord, _ => true, (_, _) => new(CatalogMatchKind.Ignored, entry)));
+        Assert.Null(GameDetector.VerifiedGameContext(null, discord, _ => true));
+    }
+
+    [Fact]
+    public void Context_does_not_imply_a_game_source_and_fixed_display_survives_an_epoch_change()
+    {
+        var receipt = new ReplaySaveReceipt("fixture.mp4", "Fixture", Guid.Empty, 15, TimeSpan.FromSeconds(12),
+            default, default, default, 10, 11, null, []) { GameContext = "Fixture" };
+        Assert.True(receipt.SpansCaptureEpochs);
+        Assert.Equal("Mixed or unverified sources", receipt.SourceDescription);
+        Assert.Equal("Entire display (Desktop Duplication)", (receipt with
+        {
+            DesktopSource = new("display2", ReplayCaptureBackend.DesktopDuplication),
+        }).SourceDescription);
+        Assert.Equal("Unverified source", (receipt with { LastSourceId = 10, GameContext = null }).SourceDescription);
+    }
+}

@@ -95,6 +95,15 @@ internal sealed class GameDetector
         return _lastGame != null && DateTime.UtcNow - _lastGameSeen <= TimeSpan.FromSeconds(clipSeconds + 5) ? _lastGame : null;
     }
 
+    internal string? VerifiedGameContext() =>
+        VerifiedGameContext(ActiveObservation, DetectForeground(), IsCurrent);
+
+    internal static string? VerifiedGameContext(GameCaptureObservation? current,
+        GameCaptureObservation? foreground, Func<WindowOwner, bool> isCurrent,
+        Func<string, bool, CatalogMatch>? match = null) =>
+        SelectObservation(current, foreground, isCurrent, match)?.Target is { Recognized: true } target
+            ? target.Game : null;
+
     private GameCaptureObservation? DetectForeground()
     {
         try

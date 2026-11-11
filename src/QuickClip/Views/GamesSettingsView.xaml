@@ -29,7 +29,7 @@
             </WrapPanel>
             <TextBlock x:Name="Status" Style="{StaticResource Hint}" Margin="0,6,0,0" AutomationProperties.LiveSetting="Polite" />
             <TextBlock x:Name="LastScan" Style="{StaticResource Hint}" />
-            <TextBlock Text="These rules control game-target eligibility. Borderless game-window capture is currently unavailable. Entire-display recording can still show any visible game." Style="{StaticResource Hint}" />
+            <TextBlock Text="Eligibility for future automatic game capture. To record now, use an approved entire-display source in Recording Settings. It records any visible game regardless of these rules." Style="{StaticResource Hint}" />
             <DockPanel Margin="0,10,0,6">
                 <TextBlock x:Name="Count" DockPanel.Dock="Left" VerticalAlignment="Center" FontWeight="SemiBold" Margin="0,0,12,0" />
                 <TextBox x:Name="Search" AutomationProperties.Name="Search games by name or executable" TextChanged="Search_Changed" />

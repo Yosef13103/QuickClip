@@ -19,6 +19,13 @@ public sealed record ReplaySaveReceipt(string Path, string Game, Guid SessionId,
     long FirstSourceId, long LastSourceId, DateTimeOffset? CapturedAt, IReadOnlyList<SavedReplayMarker> Markers)
 {
     public ReplayDesktopSource? DesktopSource { get; init; }
+    public string? GameContext { get; init; }
+    public string SourceDescription => DescribeSource(DesktopSource, SpansCaptureEpochs);
+
+    internal static string DescribeSource(ReplayDesktopSource? desktop, bool spansEpochs) =>
+        desktop != null ? desktop.Backend == ReplayCaptureBackend.DesktopDuplication
+            ? "Entire display (Desktop Duplication)" : "Entire display (Windows Graphics Capture)"
+        : spansEpochs ? "Mixed or unverified sources" : "Unverified source";
     public ReplayVideoOutput? VideoOutput { get; init; }
     public bool SpansCaptureEpochs => FirstSourceId != LastSourceId;
     public bool? IsShorterThanRequested => ActualVideoDuration is TimeSpan duration ? duration < TimeSpan.FromSeconds(RequestedSeconds) : null;

@@ -38,6 +38,19 @@ internal static class CaptureSourcePolicy
             : new(default, unavailable);
     }
 
+    internal static string? Guidance(AppSettings settings, bool personal, string? error, bool hasBorderApi) =>
+        !personal ? null : !string.IsNullOrWhiteSpace(error) ? error
+        : settings.PreferGameWindow ? GameWindowUnavailable(hasBorderApi) : null;
+
+    internal static bool AcceptDisplayCapture(AppSettings settings, MonitorInfo? display, bool confirmed)
+    {
+        if (!confirmed || string.IsNullOrWhiteSpace(display?.DeviceName)) return false;
+        settings.RecordMonitor = display.DeviceName;
+        settings.CaptureBackend = CaptureEngine.MonitorBackend.DesktopDuplication;
+        settings.PreferGameWindow = false;
+        return true;
+    }
+
     internal static MonitorInfo? SelectMonitor(IReadOnlyList<MonitorInfo> monitors, string device, bool requireSelected)
     {
         if (!string.IsNullOrEmpty(device))

@@ -161,8 +161,10 @@ public partial class SettingsView : UserControl
 
             _monitors = await Task.Run(Monitors.List);
             MonitorCombo.ItemsSource = _monitors.Select(m => new Choice(m.Label, m.DeviceName)).ToList();
-            Select(MonitorCombo, (_monitors.FirstOrDefault(m => string.Equals(m.DeviceName, s.RecordMonitor, StringComparison.OrdinalIgnoreCase))
-                                  ?? _monitors.FirstOrDefault(m => m.IsPrimary))?.DeviceName);
+            var savedDisplay = _monitors.FirstOrDefault(m => string.Equals(m.DeviceName, s.RecordMonitor, StringComparison.OrdinalIgnoreCase));
+            var initialDisplay = savedDisplay ?? (AppProfile.IsPersonal && !string.IsNullOrEmpty(s.RecordMonitor)
+                ? null : _monitors.FirstOrDefault(m => m.IsPrimary));
+            Select(MonitorCombo, initialDisplay?.DeviceName);
             RefreshAreas(s.RecordAspect);
 
             int stepIndex = Array.FindIndex(RecordingPresets.BufferSteps, v => v >= s.BufferSeconds);
@@ -292,7 +294,7 @@ public partial class SettingsView : UserControl
         {
             CaptureTargetHint.Text = gameWindow
                 ? CaptureSourcePolicy.GameWindowUnavailable(OperatingSystem.IsWindowsVersionAtLeast(10, 0, 20348)) +
-                    " This choice never switches to monitor recording."
+                    " Select a connected display below, then choose Entire selected display and confirm. Dismissing the prompt keeps this preference."
                 : "Records everything visible on the selected display, including other apps. Automatic monitor backend uses Desktop Duplication. An explicit WGC choice can show the Windows capture border.";
             return;
         }
@@ -384,8 +386,28 @@ public partial class SettingsView : UserControl
     {
         if (_loading || !IsInitialized) return;
         var s = AppSettings.Current;
+        if (AppProfile.IsPersonal && sender == SourceCombo && s.PreferGameWindow && SourceCombo.SelectedIndex == 1)
+        {
+            var display = _monitors.FirstOrDefault(m => Equals(m.DeviceName, (MonitorCombo.SelectedItem as Choice)?.Value));
+            bool accepted = false;
+            _loading = true;
+            try
+            {
+                accepted = display != null && ModalDialog.Show(Window.GetWindow(this),
+                    $"Record the entire visible display {display.Label} with Desktop Duplication? Other windows, messages and notifications on that display can appear in clips. If instant replay is on, recording starts after confirmation.",
+                    "Allow entire-display recording?", MessageBoxButton.YesNo, MessageBoxImage.Warning, MessageBoxResult.No) == MessageBoxResult.Yes;
+                if (!CaptureSourcePolicy.AcceptDisplayCapture(s, display, accepted))
+                {
+                    SourceCombo.SelectedIndex = 0;
+                    return;
+                }
+                Select(BackendCombo, s.CaptureBackend);
+            }
+            finally { _loading = false; }
+        }
         s.RecordingEnabled = RecordingCheck.IsChecked == true;
-        s.RecordMonitor = (MonitorCombo.SelectedItem as Choice)?.Value as string ?? "";
+        if (!AppProfile.IsPersonal || sender == MonitorCombo)
+            s.RecordMonitor = (MonitorCombo.SelectedItem as Choice)?.Value as string ?? "";
         if (sender == AreaCombo) s.RecordAspect = SelectedAspect;
         if (sender == MonitorCombo) RefreshAreas(s.RecordAspect);
         if (sender == MonitorCombo || sender == AreaCombo)

@@ -247,7 +247,10 @@ public partial class MainWindow : Window
         else
         {
             RecDot.Fill = IdleDot;
-            RecStatus.Text = recorder.Error != null ? "Not recording: " + recorder.Error
+            var guidance = CaptureSourcePolicy.Guidance(s, AppProfile.IsPersonal, recorder.Error,
+                OperatingSystem.IsWindowsVersionAtLeast(10, 0, 20348));
+            RecStatus.Text = guidance != null ? "Not recording: " + guidance
+                : recorder.Error != null ? "Not recording: " + recorder.Error
                 : s.RecordingEnabled ? "Starting…" : "Recording is off — turn on instant replay in Settings";
         }
         SaveClipButton.IsEnabled = recorder.IsRunning;

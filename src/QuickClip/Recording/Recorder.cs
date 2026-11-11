@@ -71,6 +71,7 @@ internal sealed class Recorder
         lock (_gate)
         {
             StopCore();
+            Error = null;
             if (AppSettings.Current.RecordingEnabled) StartCore();
         }
         StateChanged?.Invoke(State);
@@ -350,7 +351,12 @@ internal sealed class Recorder
                 gameLookback = requestedSeconds.HasValue ? Math.Min(seconds, _replayBufferSeconds) : seconds;
             }
             var anchors = candidates.Select(item => new CaptureEngine.ReplayAnchor { Sequence = item.Sequence, OffsetUs = -1 }).ToArray();
-            string folder = desktopSource != null ? "Desktop" : _captureTarget?.Game ?? _games.GameForClip(gameLookback) ?? "Desktop";
+            string? gameContext = desktopSource != null ? _games.VerifiedGameContext()
+                : _captureTarget?.Game ?? _games.GameForClip(gameLookback);
+            string folder = gameContext ?? "Desktop";
+            string mediaTitle = desktopSource != null
+                ? $"{folder} · {ReplaySaveReceipt.DescribeSource(desktopSource, false)}"
+                : folder;
             string folderName = ClipNaming.SafeComponent(folder, 64);
             if (ClipLibrary.IsExcluded(folderName, null)) folderName += " (game)";
             string dir = Path.Combine(s.ClipsFolder, folderName);
@@ -361,7 +367,7 @@ internal sealed class Recorder
             string stagingPath = staged = ClipNaming.ReserveStagingPath(dir, ".mp4");
             CaptureEngine.ReplaySpan span = default;
             CaptureEngine.ReplayVideo video = default;
-            string? error = await Task.Run(() => CaptureEngine.SaveReplay(stagingPath, seconds, folder, position,
+            string? error = await Task.Run(() => CaptureEngine.SaveReplay(stagingPath, seconds, mediaTitle, position,
                 requestedSeconds.HasValue, anchors, out span, out video), cancellationToken);
             cancellationToken.ThrowIfCancellationRequested();
             if (error != null)
@@ -383,6 +389,7 @@ internal sealed class Recorder
                 capturedAt, ReplayMarkers.Match(candidates, anchors, actual))
             {
                 DesktopSource = desktopSource,
+                GameContext = gameContext,
                 VideoOutput = video.Width > 0 && video.Height > 0
                     ? new(video.Width, video.Height, video.FpsNumerator > 0 && video.FpsDenominator > 0
                         ? (double)video.FpsNumerator / video.FpsDenominator : null)

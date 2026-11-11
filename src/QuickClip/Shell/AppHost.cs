@@ -25,6 +25,8 @@ internal sealed class AppHost : IDisposable
     private IntPtr _icon;
     private bool _iconAdded;
     private DispatcherTimer? _updateTimer;
+    private bool _sourceBalloonShown;
+    private string? _lastSourceGuidance;
     private bool _updateBalloonShown;   // the last notification was about an update
     private AppVersion? _notifiedVersion;
     private readonly ClipNotificationOverlay _clipOverlay = new();
@@ -32,6 +34,7 @@ internal sealed class AppHost : IDisposable
     public event Action? OpenRequested;
     /// <summary>The user clicked the "update available" notification.</summary>
     public event Action? UpdateRequested;
+    public event Action? RecordingSettingsRequested;
     public event Action? QuitRequested;
 
     /// <summary>True if the configured shortcut is registered (false if another app already uses it).</summary>
@@ -53,7 +56,7 @@ internal sealed class AppHost : IDisposable
         var recorder = Recorder.Instance;
         recorder.ReplaySaved += OnReplaySaved;
         recorder.SaveFailed += OnSaveFailed;
-        recorder.StateChanged += _ => _dispatcher.BeginInvoke(UpdateTooltip);
+        recorder.StateChanged += OnRecorderState;
         _ = recorder.ApplySettingsAsync();
 
         if (!Updater.IsEnabled) return;
@@ -96,24 +99,51 @@ internal sealed class AppHost : IDisposable
 
     public void Notify(string title, string text)
     {
-        _updateBalloonShown = false;
+        _updateBalloonShown = _sourceBalloonShown = false;
         var data = NewIconData();
         data.uFlags = NIF_INFO;
-        data.szInfoTitle = title;
-        data.szInfo = text;
+        data.szInfoTitle = Truncate(title, 63);
+        data.szInfo = Truncate(text, 255);
         data.dwInfoFlags = NIIF_INFO | NIIF_NOSOUND;
         Shell_NotifyIcon(NIM_MODIFY, ref data);
     }
 
     private void OnReplaySaved(ReplaySaveReceipt receipt) => _dispatcher.BeginInvoke(() =>
     {
+        string label = AppProfile.IsPersonal
+            ? receipt.GameContext is { } game ? $"{game} · {receipt.SourceDescription}" : receipt.SourceDescription
+            : receipt.Game;
         string message = receipt.ActualVideoDuration is { } actual
-            ? $"{receipt.Game} · {actual.TotalSeconds:0.#} s saved" : receipt.Game;
+            ? $"{label} · {actual.TotalSeconds:0.#} s saved" : label;
         if (receipt.IsShorterThanRequested == true) message += $" ({receipt.RequestedSeconds} s requested)";
         ShowClipFeedback(success: true, message);
     });
 
-    private void OnSaveFailed(string error) => _dispatcher.BeginInvoke(() => ShowClipFeedback(success: false, error));
+    private void OnRecorderState(RecorderState state) => _dispatcher.BeginInvoke(() =>
+    {
+        if (_window == null) return;
+        UpdateTooltip();
+        string? guidance = state.Running ? null : SourceGuidance(state.Error);
+        if (guidance != null && guidance != _lastSourceGuidance)
+            NotifySource("Recording source unavailable", guidance);
+        _lastSourceGuidance = guidance;
+    });
+
+    private static string? SourceGuidance(string? error) => CaptureSourcePolicy.Guidance(
+        AppSettings.Current, AppProfile.IsPersonal, error, OperatingSystem.IsWindowsVersionAtLeast(10, 0, 20348));
+
+    private void NotifySource(string title, string message)
+    {
+        Notify(title, message);
+        _sourceBalloonShown = true;
+    }
+
+    private void OnSaveFailed(string error) => _dispatcher.BeginInvoke(() =>
+    {
+        if (AppProfile.IsPersonal && !Recorder.Instance.IsRunning)
+            NotifySource("Clip not saved", SourceGuidance(Recorder.Instance.Error) ?? error);
+        else ShowClipFeedback(success: false, error);
+    });
 
     internal void ShowClipFeedback(bool success, string message)
     {
@@ -186,7 +216,8 @@ internal sealed class AppHost : IDisposable
                     OpenRequested?.Invoke();
                     break;
                 case 0x0405: // NIN_BALLOONUSERCLICK
-                    if (_updateBalloonShown) UpdateRequested?.Invoke();
+                    if (_sourceBalloonShown) RecordingSettingsRequested?.Invoke();
+                    else if (_updateBalloonShown) UpdateRequested?.Invoke();
                     else OpenRequested?.Invoke();
                     break;
                 case 0x007B: // WM_CONTEXTMENU
@@ -209,6 +240,12 @@ internal sealed class AppHost : IDisposable
         var s = AppSettings.Current;
         var menu = new ContextMenu { Placement = PlacementMode.MousePoint };
         menu.Items.Add(Item("Open " + AppProfile.Name, () => OpenRequested?.Invoke(), bold: true));
+        if (!recorder.IsRunning && SourceGuidance(recorder.Error) is { } guidance)
+        {
+            var sourceItem = Item("Recording source unavailable · Settings…", () => RecordingSettingsRequested?.Invoke());
+            sourceItem.ToolTip = guidance;
+            menu.Items.Add(sourceItem);
+        }
         menu.Items.Add(Item($"Save clip ({new Hotkey(s.HotkeyModifiers, s.HotkeyKey)})", () => _ = recorder.SaveClipAsync(), enabled: recorder.IsRunning));
         if (AppProfile.IsPersonal)
         {
@@ -250,6 +287,7 @@ internal sealed class AppHost : IDisposable
         _updateTimer?.Stop();
         Recorder.Instance.ReplaySaved -= OnReplaySaved;
         Recorder.Instance.SaveFailed -= OnSaveFailed;
+        Recorder.Instance.StateChanged -= OnRecorderState;
         _clipOverlay.Dispose();
         if (_window == null) return;
         UnregisterHotKey(_window.Handle, HotkeyId);
