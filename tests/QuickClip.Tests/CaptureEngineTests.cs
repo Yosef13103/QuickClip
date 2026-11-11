@@ -12,6 +12,44 @@ namespace QuickClip.Tests;
 public sealed class CaptureEngineTests(MediaFixture media, Xunit.Abstractions.ITestOutputHelper output)
 {
     [Fact]
+    public void Display_dimensions_use_physical_source_modes_and_report_all_apis()
+    {
+        Assert.Equal((1920, 1080), Monitors.PhysicalSize(2400, 1350, 1920, 1080));
+        Assert.Equal((3440, 1440), Monitors.PhysicalSize(3440, 1440, 0, 0));
+        Assert.Equal((1080, 1920), Monitors.PhysicalSize(1350, 2400, 1080, 1920));
+        if (!CaptureEngine.IsAvailable) return;
+        CaptureEngine.Initialize();
+        output.WriteLine(Monitors.Diagnostics());
+        Assert.All(Monitors.List(), m => Assert.True(m.Width > 0 && m.Height > 0));
+    }
+
+    [OptInFact("QUICKCLIP_TEST_CAPTURE")]
+    public async Task Duplication_scales_on_GPU_and_saves_valid_video_only_clip()
+    {
+        CaptureEngine.Initialize();
+        var monitor = Monitors.List().First(m => m.IsPrimary);
+        var size = RecordingPresets.OutputSize(monitor.Width, monitor.Height, 720);
+        Assert.Null(CaptureEngine.Start(monitor.DeviceName, "", 60, size.Width, size.Height, "hevc_nvenc", 6000,
+            192, 5, false, false, false, [], false, [], new() { Backend = CaptureEngine.MonitorBackend.DesktopDuplication, Diagnostics = 1 }));
+        var path = media.Out("gpu-scaled.mp4");
+        try
+        {
+            await Task.Delay(5500);
+            output.WriteLine(CaptureEngine.VideoDiagnostics());
+            Assert.Contains("Desktop Duplication", CaptureEngine.VideoDiagnostics());
+            Assert.InRange(CaptureEngine.GetStats().Fps, 50, 65);
+            Assert.Null(CaptureEngine.Save(path, 2, "GPU scaling smoke"));
+        }
+        finally { CaptureEngine.Stop(); }
+        var info = await MediaInfo.ProbeAsync(path);
+        Assert.Equal((size.Width, size.Height), (info.Video!.Width, info.Video.Height));
+        Assert.Empty(info.Audio);
+        Assert.InRange(info.Duration, 1.8, 3.5);
+        // Decode all frames, catching invalid stream parameters and bad NVENC surfaces.
+        await MediaFixture.Run(["-v", "error", "-i", path, "-f", "null", "-"]);
+    }
+
+    [Fact]
     public void Lists_both_endpoint_flows_and_rejects_duplicate_ids_before_starting_capture()
     {
         if (!CaptureEngine.IsAvailable) return;

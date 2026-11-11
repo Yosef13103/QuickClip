@@ -19,27 +19,51 @@ public sealed record MonitorInfo(string DeviceName, string FriendlyName, int Lef
 /// <summary>Monitors the engine can capture, with the names Windows shows in display settings.</summary>
 internal static class Monitors
 {
+    internal sealed record DisplayMode(string Name, int SourceWidth, int SourceHeight, int SignalWidth, int SignalHeight, double Refresh);
+    internal static string Diagnostics()
+    {
+        var modes = ReadModes();
+        return CaptureEngine.DisplayDiagnostics() + string.Join("\n", modes.Select(p =>
+            $"{p.Key} {p.Value.Name} | QueryDisplayConfig source {p.Value.SourceWidth}×{p.Value.SourceHeight}; signal {p.Value.SignalWidth}×{p.Value.SignalHeight} @ {p.Value.Refresh:0.##} Hz"));
+    }
+
+    internal static (int Width, int Height) PhysicalSize(int nativeWidth, int nativeHeight, int sourceWidth, int sourceHeight) =>
+        sourceWidth > 0 && sourceHeight > 0 ? (sourceWidth, sourceHeight) : (nativeWidth, nativeHeight);
+
     public static IReadOnlyList<MonitorInfo> List()
     {
         if (!CaptureEngine.IsAvailable) return [];
         CaptureEngine.Initialize();
-        var names = FriendlyNames();
+        var names = ReadModes();
         return CaptureEngine.EnumOutputs()
-            .Select(o => new MonitorInfo(o.DeviceName, names.GetValueOrDefault(o.DeviceName, ""), o.Left, o.Top, o.Right - o.Left, o.Bottom - o.Top))
+            .Select(o =>
+            {
+                var mode = names.GetValueOrDefault(o.DeviceName);
+                var size = PhysicalSize(o.Right - o.Left, o.Bottom - o.Top, mode?.SourceWidth ?? 0, mode?.SourceHeight ?? 0);
+                return new MonitorInfo(o.DeviceName, mode?.Name ?? "", o.Left, o.Top, size.Width, size.Height);
+            })
             .OrderByDescending(m => m.IsPrimary).ThenBy(m => m.Left)
             .ToList();
     }
 
     /// <summary>GDI device name (\\.\DISPLAY1) → monitor's friendly name, via the display configuration API.</summary>
-    private static Dictionary<string, string> FriendlyNames()
+    private static Dictionary<string, DisplayMode> ReadModes()
     {
-        var result = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        var result = new Dictionary<string, DisplayMode>(StringComparer.OrdinalIgnoreCase);
         try
         {
-            if (GetDisplayConfigBufferSizes(QDC_ONLY_ACTIVE_PATHS, out uint pathCount, out uint modeCount) != 0) return result;
-            var paths = new DISPLAYCONFIG_PATH_INFO[pathCount];
-            var modes = new DISPLAYCONFIG_MODE_INFO[modeCount];
-            if (QueryDisplayConfig(QDC_ONLY_ACTIVE_PATHS, ref pathCount, paths, ref modeCount, modes, IntPtr.Zero) != 0) return result;
+            DISPLAYCONFIG_PATH_INFO[] paths = [];
+            DISPLAYCONFIG_MODE_INFO[] modes = [];
+            uint pathCount = 0, modeCount = 0;
+            int status = 122;
+            for (int retry = 0; retry < 3 && status == 122; retry++)
+            {
+                if (GetDisplayConfigBufferSizes(QDC_ONLY_ACTIVE_PATHS, out pathCount, out modeCount) != 0) return result;
+                paths = new DISPLAYCONFIG_PATH_INFO[pathCount];
+                modes = new DISPLAYCONFIG_MODE_INFO[modeCount];
+                status = QueryDisplayConfig(QDC_ONLY_ACTIVE_PATHS, ref pathCount, paths, ref modeCount, modes, IntPtr.Zero);
+            }
+            if (status != 0) return result;
             foreach (var path in paths.Take((int)pathCount))
             {
                 var source = new DISPLAYCONFIG_SOURCE_DEVICE_NAME
@@ -62,9 +86,14 @@ internal static class Monitors
                         id = path.targetInfo.id,
                     },
                 };
-                if (DisplayConfigGetDeviceInfo(ref source) == 0 && DisplayConfigGetDeviceInfo(ref target) == 0
-                    && !string.IsNullOrWhiteSpace(target.monitorFriendlyDeviceName))
-                    result[source.viewGdiDeviceName] = target.monitorFriendlyDeviceName;
+                if (DisplayConfigGetDeviceInfo(ref source) != 0) continue;
+                DisplayConfigGetDeviceInfo(ref target);
+                var sm = path.sourceInfo.modeInfoIdx < modeCount ? modes[path.sourceInfo.modeInfoIdx] : default;
+                var tm = path.targetInfo.modeInfoIdx < modeCount ? modes[path.targetInfo.modeInfoIdx] : default;
+                result[source.viewGdiDeviceName] = new(target.monitorFriendlyDeviceName ?? "",
+                    sm.infoType == 1 ? (int)sm.sourceWidth : 0, sm.infoType == 1 ? (int)sm.sourceHeight : 0,
+                    tm.infoType == 2 ? (int)tm.signalWidth : 0, tm.infoType == 2 ? (int)tm.signalHeight : 0,
+                    path.targetInfo.refreshDenominator == 0 ? 0 : (double)path.targetInfo.refreshNumerator / path.targetInfo.refreshDenominator);
             }
         }
         catch (Exception ex)
@@ -92,9 +121,16 @@ internal static class Monitors
     [StructLayout(LayoutKind.Sequential)]
     private struct DISPLAYCONFIG_PATH_INFO { public DISPLAYCONFIG_PATH_SOURCE_INFO sourceInfo; public DISPLAYCONFIG_PATH_TARGET_INFO targetInfo; public uint flags; }
 
-    // The mode union is 48 bytes after its 16-byte header; only its size matters here.
-    [StructLayout(LayoutKind.Sequential, Size = 64)]
-    private struct DISPLAYCONFIG_MODE_INFO { public uint infoType; public uint id; public LUID adapterId; }
+    // 48-byte union after a 16-byte header: source mode and target VIDEO_SIGNAL_INFO overlap.
+    [StructLayout(LayoutKind.Explicit, Size = 64)]
+    private struct DISPLAYCONFIG_MODE_INFO
+    {
+        [FieldOffset(0)] public uint infoType;
+        [FieldOffset(16)] public uint sourceWidth;
+        [FieldOffset(20)] public uint sourceHeight;
+        [FieldOffset(40)] public uint signalWidth;
+        [FieldOffset(44)] public uint signalHeight;
+    }
 
     [StructLayout(LayoutKind.Sequential)]
     private struct DISPLAYCONFIG_DEVICE_INFO_HEADER { public uint type; public uint size; public LUID adapterId; public uint id; }

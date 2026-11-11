@@ -1,4 +1,5 @@
 #include "Engine.h"
+#include "GpuScale.h"
 
 #include <dxgi1_2.h>
 #include <timeapi.h>
@@ -79,6 +80,25 @@ namespace qc
     // Monitors
     // ---------------------------------------------------------------------------------------------
 
+    namespace
+    {
+        struct PhysicalDpi
+        {
+            DPI_AWARENESS_CONTEXT previous = SetThreadDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
+            ~PhysicalDpi() { if (previous) SetThreadDpiAwarenessContext(previous); }
+        };
+
+        RECT PhysicalBounds(const DXGI_OUTPUT_DESC& output)
+        {
+            DEVMODEW mode{};
+            mode.dmSize = sizeof mode;
+            if (EnumDisplaySettingsW(output.DeviceName, ENUM_CURRENT_SETTINGS, &mode) && mode.dmPelsWidth && mode.dmPelsHeight)
+                return { mode.dmPosition.x, mode.dmPosition.y,
+                    mode.dmPosition.x + static_cast<LONG>(mode.dmPelsWidth), mode.dmPosition.y + static_cast<LONG>(mode.dmPelsHeight) };
+            return output.DesktopCoordinates;
+        }
+    }
+
     int EnumOutputs(QcOutput* outputs, int max)
     {
         IDXGIFactory1* factory = nullptr;
@@ -93,18 +113,19 @@ namespace qc
             for (UINT o = 0; adapter->EnumOutputs(o, &output) != DXGI_ERROR_NOT_FOUND; o++)
             {
                 DXGI_OUTPUT_DESC od{};
-                output->GetDesc(&od);
+                HRESULT result = output->GetDesc(&od);
                 output->Release();
-                if (!od.AttachedToDesktop) continue;
+                if (FAILED(result) || !od.AttachedToDesktop) continue;
+                RECT bounds = PhysicalBounds(od);
                 if (count < max && outputs)
                 {
                     QcOutput& q = outputs[count];
                     q.adapter = static_cast<int>(a);
                     q.output = static_cast<int>(o);
-                    q.left = od.DesktopCoordinates.left;
-                    q.top = od.DesktopCoordinates.top;
-                    q.right = od.DesktopCoordinates.right;
-                    q.bottom = od.DesktopCoordinates.bottom;
+                    q.left = bounds.left;
+                    q.top = bounds.top;
+                    q.right = bounds.right;
+                    q.bottom = bounds.bottom;
                     wcsncpy_s(q.deviceName, od.DeviceName, _TRUNCATE);
                     wcsncpy_s(q.adapterName, ad.Description, _TRUNCATE);
                 }
@@ -114,6 +135,41 @@ namespace qc
         }
         factory->Release();
         return count;
+    }
+
+    std::string DisplayDiagnostics()
+    {
+        std::string result;
+        IDXGIFactory1* factory = nullptr;
+        if (FAILED(CreateDXGIFactory1(IID_PPV_ARGS(&factory)))) return "DXGI unavailable";
+        IDXGIAdapter1* adapter = nullptr;
+        for (UINT a = 0; factory->EnumAdapters1(a, &adapter) == S_OK; a++)
+        {
+            IDXGIOutput* output = nullptr;
+            for (UINT o = 0; adapter->EnumOutputs(o, &output) == S_OK; o++)
+            {
+                DXGI_OUTPUT_DESC raw{};
+                HRESULT hr = output->GetDesc(&raw);
+                output->Release();
+                if (FAILED(hr) || !raw.AttachedToDesktop) continue;
+                RECT bounds = PhysicalBounds(raw);
+                int scale = 0;
+                if (HMODULE shcore = LoadLibraryExW(L"shcore.dll", nullptr, LOAD_LIBRARY_SEARCH_SYSTEM32))
+                {
+                    using GetScale = HRESULT(WINAPI*)(HMONITOR, int*);
+                    if (auto getScale = reinterpret_cast<GetScale>(GetProcAddress(shcore, "GetScaleFactorForMonitor"))) getScale(raw.Monitor, &scale);
+                    FreeLibrary(shcore);
+                }
+                char line[256];
+                snprintf(line, sizeof line, " | DXGI caller %ldx%ld; EnumDisplaySettings %ldx%ld at %ld,%ld; monitor scale %d%%; system DPI %u\n",
+                    raw.DesktopCoordinates.right - raw.DesktopCoordinates.left, raw.DesktopCoordinates.bottom - raw.DesktopCoordinates.top,
+                    bounds.right - bounds.left, bounds.bottom - bounds.top, bounds.left, bounds.top, scale, GetDpiForSystem());
+                result += Narrow(raw.DeviceName) + line;
+            }
+            adapter->Release();
+        }
+        factory->Release();
+        return result;
     }
 
     namespace
@@ -140,6 +196,7 @@ namespace qc
 
         bool FindMonitor(const std::wstring& device, MonitorTarget& target)
         {
+            PhysicalDpi dpi;
             IDXGIFactory1* factory = nullptr;
             if (FAILED(CreateDXGIFactory1(__uuidof(IDXGIFactory1), reinterpret_cast<void**>(&factory)))) return false;
             bool found = false;
@@ -150,17 +207,19 @@ namespace qc
                 for (UINT o = 0; !found && adapter->EnumOutputs(o, &output) != DXGI_ERROR_NOT_FOUND; o++)
                 {
                     DXGI_OUTPUT_DESC od{};
-                    output->GetDesc(&od);
+                    HRESULT result = output->GetDesc(&od);
                     output->Release();
-                    bool primary = od.DesktopCoordinates.left == 0 && od.DesktopCoordinates.top == 0;
+                    if (FAILED(result) || !od.AttachedToDesktop) continue;
+                    RECT bounds = PhysicalBounds(od);
+                    bool primary = bounds.left == 0 && bounds.top == 0;
                     bool match = device.empty() ? primary : _wcsicmp(device.c_str(), od.DeviceName) == 0;
                     if (od.AttachedToDesktop && match)
                     {
                         target.adapter = static_cast<int>(a);
                         target.output = static_cast<int>(o);
                         target.hmonitor = reinterpret_cast<uint64_t>(od.Monitor);
-                        target.width = od.DesktopCoordinates.right - od.DesktopCoordinates.left;
-                        target.height = od.DesktopCoordinates.bottom - od.DesktopCoordinates.top;
+                        target.width = bounds.right - bounds.left;
+                        target.height = bounds.bottom - bounds.top;
                         found = true;
                     }
                 }
@@ -245,6 +304,7 @@ namespace qc
         int fps = 60, outWidth = 0, outHeight = 0, videoKbps = 0;
         bool cursor = true;
         std::string encoder;
+        QcVideoOptions videoOptions{};
         int64_t t0 = 0;
         int64_t startedUtcUs = 0;
 
@@ -277,6 +337,7 @@ namespace qc
         std::atomic<int64_t> dropped{ 0 };
         std::mutex statsLock;
         std::deque<int64_t> frameTimes;
+        std::string videoDescription, videoSample;
 
         ~Shared() { CloseHandle(videoStarted); }
     };
@@ -288,6 +349,7 @@ namespace qc
             AVFilterGraph* graph = nullptr;
             AVFilterContext* sink = nullptr;
             AVCodecContext* encoder = nullptr;
+            GpuScale scaler;
             bool duplication = false;
             bool fallback = false; // Graphics Capture only because Desktop Duplication wasn't available
 
@@ -296,6 +358,7 @@ namespace qc
             void Close()
             {
                 avcodec_free_context(&encoder);
+                scaler.Close();
                 avfilter_graph_free(&graph);
                 sink = nullptr;
             }
@@ -346,7 +409,7 @@ namespace qc
                 return true;
             }
 
-            bool Build(const Engine::Shared& s, const MonitorTarget& m, const Area& a, AVBufferRef* device, std::string& error)
+            bool Build(const Engine::Shared& s, const MonitorTarget& m, const Area& a, AVBufferRef* device, int kbps, std::string& error)
             {
                 bool scaled = s.outWidth > 0 && (s.outWidth != a.width || s.outHeight != a.height);
                 // Both sources crop on the GPU: Desktop Duplication copies just that rectangle, Graphics Capture
@@ -359,29 +422,30 @@ namespace qc
                     static_cast<unsigned long long>(m.hmonitor), s.fps, s.cursor ? 1 : 0, scaled ? s.outWidth : 0, scaled ? s.outHeight : 0,
                     a.x, a.y, m.width - a.x - a.width, m.height - a.y - a.height);
 
-                // Desktop Duplication is cheapest and keeps a constant frame rate, but can't scale, and on some PCs it
-                // can't hand frames over much faster than 60 fps (about 75 of 120). Windows Graphics Capture scales on
-                // the GPU and keeps up at 120 fps and more. Each is the other's fallback.
-                bool preferGraphics = scaled || s.fps > 60;
+                // High-rate Auto retains Graphics Capture first. Explicit choices keep their selected backend.
+                bool preferGraphics = s.videoOptions.backend == 2 || (s.videoOptions.backend == 0 && s.fps > 60);
                 bool system = NeedsSystemFrames(s);
-                std::string first, second;
+                std::string ddaError, wgcError;
+                auto tryBackend = [&](bool useDuplication) {
+                    Close();
+                    duplication = useDuplication;
+                    return useDuplication
+                        ? TryBuild("ddagrab", dda, device, system, ddaError) &&
+                            (!scaled || scaler.Open(av_buffersink_get_hw_frames_ctx(sink), s.outWidth, s.outHeight, ddaError)) && OpenEncoder(s, kbps, ddaError)
+                        : TryBuild("gfxcapture", wgc, device, system, wgcError) && OpenEncoder(s, kbps, wgcError);
+                };
                 fallback = false;
-                if (!preferGraphics && TryBuild("ddagrab", dda, device, system, first)) { duplication = true; return true; }
-                if (TryBuild("gfxcapture", wgc, device, system, second))
+                if (tryBackend(!preferGraphics)) return true;
+                error = preferGraphics ? wgcError : ddaError;
+                if (s.videoOptions.backend == 0 && tryBackend(preferGraphics))
                 {
-                    duplication = false;
-                    fallback = !preferGraphics;
-                    if (fallback) Log("desktop duplication unavailable (%s); using graphics capture for now", first.c_str());
+                    // A persistent GPU-scaler incompatibility should not restart a healthy WGC graph every few seconds.
+                    fallback = !preferGraphics && !scaled;
+                    Log("preferred monitor backend unavailable (%s); using %s", error.c_str(),
+                        duplication ? "desktop duplication" : "graphics capture");
                     return true;
                 }
-                if (preferGraphics && TryBuild("ddagrab", dda, device, system, first))
-                {
-                    if (scaled) Log("scaling unavailable (%s); recording at the area's native size", second.c_str());
-                    else Log("graphics capture unavailable (%s); using desktop duplication", second.c_str());
-                    duplication = true;
-                    return true;
-                }
-                error = first.empty() ? second : first;
+                if (s.videoOptions.backend == 0) error += "; fallback failed: " + (preferGraphics ? ddaError : wgcError);
                 return false;
             }
 
@@ -405,7 +469,13 @@ namespace qc
                 encoder->width = av_buffersink_get_w(sink);
                 encoder->height = av_buffersink_get_h(sink);
                 encoder->pix_fmt = static_cast<AVPixelFormat>(av_buffersink_get_format(sink));
-                if (AVBufferRef* frames = av_buffersink_get_hw_frames_ctx(sink)) encoder->hw_frames_ctx = av_buffer_ref(frames);
+                if (AVBufferRef* frames = scaler.Frames() ? scaler.Frames() : av_buffersink_get_hw_frames_ctx(sink))
+                {
+                    encoder->hw_frames_ctx = av_buffer_ref(frames);
+                    auto* context = reinterpret_cast<AVHWFramesContext*>(frames->data);
+                    encoder->width = context->width;
+                    encoder->height = context->height;
+                }
                 encoder->time_base = AVRational{ 1, s.fps };
                 encoder->framerate = AVRational{ s.fps, 1 };
                 encoder->gop_size = s.fps; // a keyframe every second: clips start close to the requested length
@@ -431,7 +501,7 @@ namespace qc
                 }
                 else if (name.find("_nvenc") != std::string::npos)
                 {
-                    av_dict_set(&options, "preset", "p4", 0);
+                    av_dict_set(&options, "preset", s.videoOptions.nvencPreset == 2 ? "p2" : s.videoOptions.nvencPreset == 1 ? "p3" : "p4", 0);
                     av_dict_set(&options, "tune", "hq", 0);
                     av_dict_set(&options, "rc", "vbr", 0);
                 }
@@ -462,6 +532,7 @@ namespace qc
         /// move, resize or invalidate the old ones.
         void VideoLoop(std::shared_ptr<Engine::Shared> s, int generation)
         {
+            PhysicalDpi dpi;
             s->runningVideoThreads++;
             CoInitializeEx(nullptr, COINIT_MULTITHREADED);
             // The capture source paces frames with short sleeps; at the default 15.6 ms timer granularity
@@ -481,7 +552,7 @@ namespace qc
             int64_t sourceOffsetUs = INT64_MIN; // maps the capture source's timestamps onto the engine clock
             // Desktop Duplication falling behind the frame rate is logged with where the time went: waiting for the
             // next picture, or handing it to the encoder. (Graphics Capture sends frames only when the screen changes.)
-            int64_t paceStartUs = NowUs(), paceWaitUs = 0, paceEncodeUs = 0, paceFrames = 0, paceSkipped = 0;
+            int64_t paceStartUs = NowUs(), paceWaitUs = 0, paceEncodeUs = 0, paceFrames = 0, paceSkipped = 0, paceCaptured = 0, pacePackets = 0;
             auto current = [&] { return !s->stop && s->generation == generation; };
             auto closeCapture = [&] {
                 pipe.Close();
@@ -540,7 +611,7 @@ namespace qc
                         closeCapture();
                         continue;
                     }
-                    if (!window) ok = ok && pipe.Build(*s, monitor, area, device, error);
+                    if (!window) ok = ok && pipe.Build(*s, monitor, area, device, kbps, error);
                     // Desktop Duplication is refused while an older capture thread still holds it; that one usually
                     // lets go within moments, so try again briefly before settling for Graphics Capture.
                     if (ok && pipe.fallback && duplicationBusy < 3 && current())
@@ -551,7 +622,7 @@ namespace qc
                         continue;
                     }
                     duplicationBusy = 0;
-                    ok = ok && pipe.OpenEncoder(*s, kbps, error);
+                    if (window) ok = ok && pipe.OpenEncoder(*s, kbps, error);
                     if (!ok)
                     {
                         closeCapture();
@@ -587,6 +658,22 @@ namespace qc
                     s->usingDuplication = pipe.duplication;
                     s->usingFallback = pipe.fallback;
                     s->windowMode = window != nullptr;
+                    {
+                        char description[512];
+                        snprintf(description, sizeof description, "%s%s | source %dx%d | output %dx%d | %s%s | %d fps target | %d kbps target | %s",
+                            pipe.duplication ? "Desktop Duplication" : "Windows Graphics Capture", window ? " (window)" : "",
+                            window ? windowWidth : area.width, window ? windowHeight : area.height, pipe.encoder->width, pipe.encoder->height,
+                            s->encoder.c_str(), s->encoder.ends_with("_nvenc")
+                                ? (s->videoOptions.nvencPreset == 2 ? " p2/HQ" : s->videoOptions.nvencPreset == 1 ? " p3/HQ" : " p4/HQ") : "",
+                            s->fps, kbps, VideoPipe::NeedsSystemFrames(*s) ? "CPU readback + NV12 conversion" : "D3D11 hardware frames");
+                        std::lock_guard guard(s->statsLock);
+                        s->videoDescription = description;
+                        s->videoSample.clear();
+                        s->frameTimes.clear();
+                        paceStartUs = NowUs();
+                        paceWaitUs = paceEncodeUs = paceFrames = paceSkipped = paceCaptured = pacePackets = 0;
+                        Log("%s", description);
+                    }
                     lastKeyIndex = -1;
                     if (pipe.fallback) retryDuplicationUs = NowUs() + retryDuplicationWait;
                     else retryDuplicationWait = 5'000'000;
@@ -632,8 +719,19 @@ namespace qc
                     continue;
                 }
 
+                std::string scaleError;
+                if (!pipe.scaler.Apply(frame, scaleError))
+                {
+                    av_frame_unref(frame);
+                    Log("%s; restarting capture", scaleError.c_str());
+                    closeCapture();
+                    Sleep(500);
+                    continue;
+                }
+
                 // Place the frame on the fixed frame-rate grid by when it was captured. The source's own
                 // timestamps are exact; anchor them to the engine clock once (again if they ever drift apart).
+                if (s->videoOptions.diagnostics) ++paceCaptured;
                 int64_t now = NowUs();
                 int64_t captureUs = now - s->t0;
                 if (frame->pts != AV_NOPTS_VALUE)
@@ -678,6 +776,7 @@ namespace qc
                 bool flatPicture = false;
                 while (avcodec_receive_packet(pipe.encoder, packet) == 0)
                 {
+                    if (s->videoOptions.diagnostics) ++pacePackets;
                     bool key = (packet->flags & AV_PKT_FLAG_KEY) != 0;
                     int flatBelow = s->testFlatBelow > 0 ? s->testFlatBelow.load() : std::max(4096, pipe.encoder->width * pipe.encoder->height / 1000);
                     if (key && flat.Keyframe(packet->size, flatBelow, now)) flatPicture = true;
@@ -690,14 +789,24 @@ namespace qc
                 }
                 s->lastFrameUs = now;
                 paceEncodeUs += NowUs() - gotFrameUs;
-                if (++paceFrames, NowUs() - paceStartUs >= 30'000'000)
+                if (++paceFrames, NowUs() - paceStartUs >= (s->videoOptions.diagnostics ? 5'000'000 : 30'000'000))
                 {
                     double seconds = (NowUs() - paceStartUs) / 1e6;
+                    if (s->videoOptions.diagnostics)
+                    {
+                        char sample[256];
+                        snprintf(sample, sizeof sample, "%.1f captured / %.1f encoded FPS | %lld missing timeline slots | %.2f ms capture wait / %.2f ms encoder path",
+                            paceCaptured / seconds, pacePackets / seconds, static_cast<long long>(paceSkipped),
+                            paceWaitUs / 1000.0 / paceCaptured, paceEncodeUs / 1000.0 / paceFrames);
+                        std::lock_guard guard(s->statsLock);
+                        s->videoSample = sample;
+                        Log("%s", sample);
+                    }
                     if (pipe.duplication && paceFrames < seconds * s->fps * 0.9)
                         Log("capture falling behind: %.1f fps of %d (%lld frames skipped); per frame %.2f ms waiting for the picture, %.2f ms encoding",
                             paceFrames / seconds, s->fps, paceSkipped, paceWaitUs / 1000.0 / paceFrames, paceEncodeUs / 1000.0 / paceFrames);
                     paceStartUs = NowUs();
-                    paceWaitUs = paceEncodeUs = paceFrames = paceSkipped = 0;
+                    paceWaitUs = paceEncodeUs = paceFrames = paceSkipped = paceCaptured = pacePackets = 0;
                 }
                 {
                     std::lock_guard guard(s->statsLock);
@@ -732,12 +841,13 @@ namespace qc
     // Engine
     // ---------------------------------------------------------------------------------------------
 
-    Engine::Engine(const QcConfig& c, bool endpointMode, const QcEndpointTrack* endpoints, int endpointCount)
+    Engine::Engine(const QcConfig& c, bool endpointMode, const QcEndpointTrack* endpoints, int endpointCount, QcVideoOptions video)
         : shared_(std::make_shared<Shared>(static_cast<int64_t>(c.bufferSeconds) * 1000000)),
           monitor_(c.monitorDevice ? c.monitorDevice : L""),
           splitChat_(c.splitChat != 0), splitMusic_(c.splitMusic != 0), micSeparate_(c.micSeparate != 0),
           endpointMode_(endpointMode), audioKbps_(c.audioKbps)
     {
+        shared_->videoOptions = video;
         for (int i = 0; !endpointMode_ && i < c.micCount; i++)
         {
             const wchar_t* id = c.micDeviceIds ? c.micDeviceIds[i] : nullptr;
@@ -1086,6 +1196,12 @@ namespace qc
         return true;
     }
 
+    std::string Engine::VideoDiagnostics()
+    {
+        std::lock_guard guard(shared_->statsLock);
+        return shared_->videoDescription + (shared_->videoSample.empty() ? "" : "\n" + shared_->videoSample);
+    }
+
     void Engine::GetStats(QcStats& stats)
     {
         stats.running = 1;
@@ -1093,6 +1209,8 @@ namespace qc
         stats.height = shared_->height;
         {
             std::lock_guard guard(shared_->statsLock);
+            int64_t cutoff = NowUs() - 1000000;
+            while (!shared_->frameTimes.empty() && shared_->frameTimes.front() < cutoff) shared_->frameTimes.pop_front();
             stats.fps = static_cast<double>(shared_->frameTimes.size());
         }
         shared_->ring.Stats(stats.bufferBytes, stats.bufferSeconds);

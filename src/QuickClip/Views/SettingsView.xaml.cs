@@ -172,6 +172,11 @@ public partial class SettingsView : UserControl
                 .Select(id => new Choice(VideoEncoders.Find(id)?.Label ?? id, id)));
             EncoderCombo.ItemsSource = encoders;
             Select(EncoderCombo, s.RecordEncoder);
+            BackendCombo.ItemsSource = new Choice[] { new("Automatic", CaptureEngine.MonitorBackend.Automatic), new("Desktop Duplication (borderless monitor)", CaptureEngine.MonitorBackend.DesktopDuplication), new("Windows Graphics Capture", CaptureEngine.MonitorBackend.GraphicsCapture) };
+            Select(BackendCombo, s.CaptureBackend);
+            NvencPresetCombo.ItemsSource = new Choice[] { new("Balanced — P4 / HQ (default)", CaptureEngine.NvencSpeed.BalancedP4), new("Faster — P3 / HQ", CaptureEngine.NvencSpeed.FasterP3), new("Fastest — P2 / HQ", CaptureEngine.NvencSpeed.FastestP2) };
+            Select(NvencPresetCombo, s.NvencPreset);
+            DiagnosticsCheck.IsChecked = s.RecordingDiagnostics;
             CursorCheck.IsChecked = s.CaptureCursor;
             GameWindowCheck.IsChecked = s.PreferGameWindow;
             ShowGameWindowState();
@@ -386,6 +391,9 @@ public partial class SettingsView : UserControl
         if (FpsCombo.SelectedItem is Choice { Value: int fps }) s.RecordFps = fps;
         if (ResolutionCombo.SelectedItem is Choice { Value: int res }) s.RecordResolution = res;
         s.RecordEncoder = (EncoderCombo.SelectedItem as Choice)?.Value as string ?? "";
+        if (BackendCombo.SelectedItem is Choice { Value: CaptureEngine.MonitorBackend backend }) s.CaptureBackend = backend;
+        if (NvencPresetCombo.SelectedItem is Choice { Value: CaptureEngine.NvencSpeed preset }) s.NvencPreset = preset;
+        s.RecordingDiagnostics = DiagnosticsCheck.IsChecked == true;
         s.CaptureCursor = CursorCheck.IsChecked == true;
         s.PreferGameWindow = GameWindowCheck.IsChecked == true;
         ShowGameWindowState();
@@ -417,6 +425,19 @@ public partial class SettingsView : UserControl
     {
         _restartTimer.Stop();
         _restartTimer.Start();
+    }
+
+    private void Diagnostics_Expanded(object sender, RoutedEventArgs e) => RefreshDiagnostics();
+    private void Diagnostics_Refresh(object sender, RoutedEventArgs e) => RefreshDiagnostics();
+    private void RefreshDiagnostics()
+    {
+        if (!CaptureEngine.IsAvailable || CaptureDiagnostics == null) return;
+        try
+        {
+            CaptureEngine.Initialize();
+            CaptureDiagnostics.Text = (Recorder.Instance.IsRunning ? CaptureEngine.VideoDiagnostics() : "Recorder off") + "\n\n" + Monitors.Diagnostics();
+        }
+        catch (Exception ex) { CaptureDiagnostics.Text = ex.Message; }
     }
 
     private void FilenameTemplate_Changed(object sender, TextChangedEventArgs e)

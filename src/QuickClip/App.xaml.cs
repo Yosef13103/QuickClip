@@ -24,6 +24,11 @@ public partial class App : Application
         ShutdownMode = ShutdownMode.OnExplicitShutdown;
 
         var args = e.Args;
+        if (args.Length == 3 && args[0] == "--benchmark-video" && AppProfile.IsPersonal)
+        {
+            _ = BenchmarkAndQuitAsync(args[1], args[2]);
+            return;
+        }
         if (args.Length == 1 && args[0] == "--check-personal-runtime")
         {
             Shutdown(CheckPersonalRuntime());
@@ -172,6 +177,12 @@ public partial class App : Application
     }
 
     private bool _renderOffscreen;
+
+    private async Task BenchmarkAndQuitAsync(string input, string output)
+    {
+        try { Shutdown(await VideoBenchmark.RunAsync(input, output)); }
+        catch (Exception ex) { Console.Error.WriteLine(ex.Message); Shutdown(1); }
+    }
 
     private static int CheckPersonalRuntime()
     {

@@ -1,5 +1,6 @@
 // C API used by the QuickClip app (see QuickClip/Recording/CaptureEngine.cs).
 #include "Engine.h"
+#include <algorithm>
 
 #include <condition_variable>
 #include <cstdarg>
@@ -41,13 +42,14 @@ namespace
         wcsncpy_s(error, static_cast<size_t>(length), qc::Widen(message).c_str(), _TRUNCATE);
     }
 
-    int StartEngine(const QcConfig& config, bool endpointMode, const QcEndpointTrack* endpoints, int count, wchar_t* error, int length)
+    int StartEngine(const QcConfig& config, bool endpointMode, const QcEndpointTrack* endpoints, int count, wchar_t* error, int length,
+        QcVideoOptions video = {})
     {
         std::unique_lock guard(g_engineLock);
         g_engine.reset();
         try
         {
-            auto engine = std::make_unique<qc::Engine>(config, endpointMode, endpoints, count);
+            auto engine = std::make_unique<qc::Engine>(config, endpointMode, endpoints, count, video);
             std::string message;
             if (engine->Start(message))
             {
@@ -150,16 +152,22 @@ extern "C"
         if (callback) qc::EnumAudioEndpoints(callback);
     }
 
+    __declspec(dllexport) void qc_display_diagnostics(wchar_t* text, int length)
+    {
+        CopyError(qc::DisplayDiagnostics(), text, length);
+    }
+
     __declspec(dllexport) int qc_start(const QcConfig* config, wchar_t* error, int errorLength)
     {
         if (!config) return 0;
         return StartEngine(*config, false, nullptr, 0, error, errorLength);
     }
 
-    __declspec(dllexport) int qc_start_endpoints(const QcConfig* config, const QcEndpointTrack* endpoints, int count,
-        wchar_t* error, int errorLength)
+    __declspec(dllexport) int qc_start_with_video(const QcConfig* config, const QcEndpointTrack* endpoints, int count,
+        const QcVideoOptions* video, wchar_t* error, int errorLength)
     {
-        if (!config || count < 0 || count > 16 || (count > 0 && !endpoints))
+        if (!config || !video || count < -1 || count > 16 || (count > 0 && !endpoints) ||
+            video->backend < 0 || video->backend > 2 || video->nvencPreset < 0 || video->nvencPreset > 2)
         {
             CopyError("Invalid endpoint audio configuration.", error, errorLength);
             return 0;
@@ -179,7 +187,21 @@ extern "C"
                     return 0;
                 }
         }
-        return StartEngine(*config, true, endpoints, count, error, errorLength);
+        return StartEngine(*config, count >= 0, endpoints, std::max(0, count), error, errorLength, *video);
+    }
+
+    __declspec(dllexport) int qc_start_endpoints(const QcConfig* config, const QcEndpointTrack* endpoints, int count,
+        wchar_t* error, int errorLength)
+    {
+        if (count < 0) return 0;
+        QcVideoOptions video{};
+        return qc_start_with_video(config, endpoints, count, &video, error, errorLength);
+    }
+
+    __declspec(dllexport) void qc_video_diagnostics(wchar_t* text, int length)
+    {
+        std::shared_lock guard(g_engineLock);
+        CopyError(g_engine ? g_engine->VideoDiagnostics() : "", text, length);
     }
 
     __declspec(dllexport) void qc_stop()
