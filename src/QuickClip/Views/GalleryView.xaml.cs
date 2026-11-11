@@ -29,7 +29,16 @@ public partial class GalleryView : UserControl
 
     private sealed record Folder(string Name, int Count, DateTime Latest);
 
-    private const double CardSlot = 304 + 14; // card width + right margin
+    private const double CardGap = 14; // must match the card's right margin
+    private const double PreferredCardWidth = 410;
+
+    public static readonly DependencyProperty CardWidthProperty =
+        DependencyProperty.Register(nameof(CardWidth), typeof(double), typeof(GalleryView), new PropertyMetadata(304d));
+    public static readonly DependencyProperty PosterHeightProperty =
+        DependencyProperty.Register(nameof(PosterHeight), typeof(double), typeof(GalleryView), new PropertyMetadata(170d));
+
+    public double CardWidth => (double)GetValue(CardWidthProperty);
+    public double PosterHeight => (double)GetValue(PosterHeightProperty);
 
     public static readonly DependencyProperty HasSelectionProperty =
         DependencyProperty.Register(nameof(HasSelection), typeof(bool), typeof(GalleryView));
@@ -302,7 +311,13 @@ public partial class GalleryView : UserControl
 
     private void ClipArea_SizeChanged(object sender, SizeChangedEventArgs e)
     {
-        int columns = Math.Max(1, (int)((ClipArea.ActualWidth - 18) / CardSlot));
+        if (!e.WidthChanged || e.NewSize.Width <= 0) return;
+        // Reserve scrollbar space even when it is hidden so filtering does not change the columns.
+        double width = Math.Max(1, e.NewSize.Width - SystemParameters.VerticalScrollBarWidth);
+        int columns = Math.Clamp((int)(width / (PreferredCardWidth + CardGap)), 1, 4);
+        double cardWidth = Math.Max(1, Math.Floor(width / columns) - CardGap);
+        SetValue(CardWidthProperty, cardWidth);
+        SetValue(PosterHeightProperty, Math.Max(1, cardWidth - 2) * 9 / 16);
         if (columns == _columns) return;
         _columns = columns;
         if (_clips.Count > 0) ShowFolder();

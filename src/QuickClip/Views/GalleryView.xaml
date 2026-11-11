@@ -11,7 +11,8 @@
             <BooleanToVisibilityConverter x:Key="ShowIf" />
 
             <DataTemplate x:Key="ClipCard" DataType="{x:Type gallery:ClipItem}">
-                <Border x:Name="Card" Width="304" Margin="0,0,14,16" CornerRadius="8" Background="{StaticResource CardBrush}"
+                <Border x:Name="Card" Width="{Binding CardWidth, RelativeSource={RelativeSource AncestorType=views:GalleryView}}"
+                        Margin="0,0,14,16" CornerRadius="8" Background="{StaticResource CardBrush}"
                         Focusable="True" AutomationProperties.Name="{Binding Title}" KeyDown="Card_KeyDown"
                         BorderThickness="1" BorderBrush="Transparent" Cursor="Hand"
                         ToolTipService.InitialShowDelay="750" ToolTipService.BetweenShowDelay="0" ToolTipService.ShowDuration="3500"
@@ -20,8 +21,9 @@
                         PreviewMouseLeftButtonDown="Card_PreviewMouseLeftButtonDown" MouseMove="Card_MouseMove">
                     <Border.ToolTip>
                         <ToolTip DataContext="{Binding PlacementTarget.DataContext, RelativeSource={RelativeSource Self}}">
-                            <StackPanel Width="420">
-                                <Image Source="{Binding Thumbnail}" Stretch="Uniform" MaxHeight="238" />
+                            <StackPanel MinWidth="360" MaxWidth="640"
+                                        Width="{Binding PlacementTarget.ActualWidth, RelativeSource={RelativeSource AncestorType=ToolTip}}">
+                                <Image Source="{Binding Thumbnail}" Stretch="Uniform" MaxHeight="360" />
                                 <TextBlock Text="{Binding Title}" TextWrapping="Wrap" />
                                 <TextBlock Text="{Binding Folder}" />
                             </StackPanel>
@@ -49,7 +51,7 @@
                         </ContextMenu>
                     </Border.ContextMenu>
                     <StackPanel>
-                        <Grid Height="170">
+                        <Grid Height="{Binding PosterHeight, RelativeSource={RelativeSource AncestorType=views:GalleryView}}">
                             <Border CornerRadius="7,7,0,0" Background="#111" />
                             <Border CornerRadius="7,7,0,0">
                                 <Border.Background>
@@ -73,34 +75,38 @@
                                 <CheckBox IsChecked="{Binding IsSelected}" MinHeight="0" ToolTip="Select (Ctrl+click a clip also selects it)" />
                             </Border>
                         </Grid>
-                        <StackPanel Margin="11,8,11,10">
-                            <Button Content="⋯" Style="{StaticResource TextButton}" HorizontalAlignment="Right"
-                                    Tag="{Binding ElementName=Card}" Click="ClipOverflow_Click"
-                                    AutomationProperties.Name="Clip actions" ToolTip="Clip actions" />
-                            <DockPanel>
-                                <TextBlock DockPanel.Dock="Left" Text="★" AutomationProperties.Name="Favorite" Foreground="#FFB900"
-                                           Margin="0,0,6,0" Visibility="{Binding IsFavorite, Converter={StaticResource ShowIf}}" />
-                                <TextBlock Text="{Binding Title}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
-                            </DockPanel>
-                            <Button Content="Delete…" Style="{StaticResource TextButton}" HorizontalAlignment="Right" Focusable="False"
-                                    Click="DeleteClip_Click" ToolTip="Send this clip (or the selected clips) to the Recycle Bin" />
-                            <TextBlock Text="{Binding Folder}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
-                            <TextBlock Text="{Binding TagText}" ToolTip="{Binding TagText}" FontSize="12"
-                                       Foreground="{StaticResource SubtleText}" TextTrimming="CharacterEllipsis">
-                                <TextBlock.Style>
-                                    <Style TargetType="TextBlock">
-                                        <Style.Triggers>
-                                            <DataTrigger Binding="{Binding TagText}" Value="">
-                                                <Setter Property="Visibility" Value="Collapsed" />
-                                            </DataTrigger>
-                                        </Style.Triggers>
-                                    </Style>
-                                </TextBlock.Style>
-                            </TextBlock>
-                            <TextBlock Margin="0,2,0,0" FontSize="12" Foreground="{StaticResource SubtleText}">
-                                <Run Text="{Binding Ago, Mode=OneWay}" /><Run Text="  ·  " /><Run Text="{Binding SizeText, Mode=OneWay}" />
-                            </TextBlock>
-                        </StackPanel>
+                        <DockPanel Margin="11,8,11,10">
+                            <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Top" Margin="8,0,0,0">
+                                <Button Content="Delete…" Style="{StaticResource TextButton}" Focusable="False" Click="DeleteClip_Click"
+                                        ToolTip="Send this clip (or the selected clips) to the Recycle Bin" />
+                                <Button Content="⋮" Style="{StaticResource TextButton}" Padding="10,5" FontSize="18"
+                                        Tag="{Binding ElementName=Card}" Click="ClipOverflow_Click"
+                                        AutomationProperties.Name="Clip actions" ToolTip="Clip actions" />
+                            </StackPanel>
+                            <StackPanel>
+                                <DockPanel>
+                                    <TextBlock DockPanel.Dock="Left" Text="★" AutomationProperties.Name="Favorite" Foreground="#FFB900"
+                                               Margin="0,0,6,0" Visibility="{Binding IsFavorite, Converter={StaticResource ShowIf}}" />
+                                    <TextBlock Text="{Binding Title}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
+                                </DockPanel>
+                                <TextBlock Text="{Binding Folder}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
+                                <TextBlock Text="{Binding TagText}" ToolTip="{Binding TagText}" FontSize="12"
+                                           Foreground="{StaticResource SubtleText}" TextTrimming="CharacterEllipsis">
+                                    <TextBlock.Style>
+                                        <Style TargetType="TextBlock">
+                                            <Style.Triggers>
+                                                <DataTrigger Binding="{Binding TagText}" Value="">
+                                                    <Setter Property="Visibility" Value="Collapsed" />
+                                                </DataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </TextBlock.Style>
+                                </TextBlock>
+                                <TextBlock Margin="0,2,0,0" FontSize="12" Foreground="{StaticResource SubtleText}">
+                                    <Run Text="{Binding Ago, Mode=OneWay}" /><Run Text="  ·  " /><Run Text="{Binding SizeText, Mode=OneWay}" />
+                                </TextBlock>
+                            </StackPanel>
+                        </DockPanel>
                     </StackPanel>
                 </Border>
                 <DataTemplate.Triggers>
@@ -249,7 +255,7 @@
                     </StackPanel>
                     <CheckBox Content="Show poster previews on hover" VerticalAlignment="Center"
                               IsChecked="{Binding HoverPosters, RelativeSource={RelativeSource AncestorType=views:GalleryView}}"
-                              ToolTip="Shows the cached thumbnail at a larger size without starting video playback." />
+                              ToolTip="Shows the full cached image without starting video playback." />
                 </WrapPanel>
                 <Border x:Name="InlineDetails" DockPanel.Dock="Top" Visibility="Collapsed"
                         Background="{StaticResource PanelBrush}" Padding="14,4" Margin="0,0,14,12">
