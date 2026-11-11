@@ -2,10 +2,26 @@
 Usage: python progress.py [TRACKER.json]
 Update a gate status to 'pass' only after providing explicit evidence in TRACKER.json.
 """
-import json, pathlib, sys
+import json, pathlib, re, sys
 file=pathlib.Path(sys.argv[1]) if len(sys.argv)>1 else pathlib.Path(__file__).with_name('TRACKER.json')
 data=json.loads(file.read_text(encoding='utf-8'))
 valid={'pass','pending','reported','failed'}
+if data['schema_version'] != 1 or not re.fullmatch(r'[0-9a-f]{40}', data['baseline_sha']):
+    raise ValueError('Invalid tracker version or baseline SHA')
+seen = set()
+for feature in data['features']:
+    feature_id = feature['id']
+    if not re.fullmatch(r'QC-\d{3}', feature_id) or feature_id in seen:
+        raise ValueError(f'Invalid or duplicate feature: {feature_id}')
+    seen.add(feature_id)
+    for gate in feature['gates']:
+        gate_id = gate['id']
+        phase = {'implementation': 'I', 'acceptance': 'A'}[gate['phase']]
+        if not re.fullmatch(rf'{feature_id}-{phase}\d{{2}}', gate_id) or gate_id in seen:
+            raise ValueError(f'Invalid or duplicate gate: {gate_id}')
+        if gate['status'] not in valid or (gate['status'] == 'pass' and not gate['evidence'].strip()):
+            raise ValueError(f'Invalid state or missing pass evidence: {gate_id}')
+        seen.add(gate_id)
 print('QuickClip quality gates —',data['baseline_sha'][:12])
 print('Gate completion is evidence-based; pending/reported do NOT count as passed.\n')
 print(f"{'Feature':<9} {'Tier':<4} {'Code':>7} {'Accept':>7}  {'Status':<8} Name")

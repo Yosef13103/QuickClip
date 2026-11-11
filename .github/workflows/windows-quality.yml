@@ -1,0 +1,77 @@
+name: Windows quality
+on:
+  pull_request:
+    branches: [custom/main]
+  push:
+    branches: [custom/main]
+permissions:
+  contents: read
+jobs:
+  windows:
+    name: Windows x64 (${{ matrix.profile }})
+    runs-on: windows-2025
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        profile: [Personal, Upstream]
+    defaults:
+      run:
+        shell: pwsh
+    env:
+      QUICKCLIP_CI: '1'
+      QUICKCLIP_TEST_CAPTURE: '0'
+      QUICKCLIP_TEST_RECYCLE_BIN: '0'
+      QUICKCLIP_TEST_DISCOVERY_SYMLINK: '0'
+      PYTHONUTF8: '1'
+      PROFILE: ${{ matrix.profile }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.403'
+      - name: Record checkpoint and isolate scratch
+        run: |
+          "Tested checkout $(git rev-parse HEAD)" >> $env:GITHUB_STEP_SUMMARY
+          $scratch = Join-Path $env:RUNNER_TEMP 'quickclip-ci'
+          New-Item -ItemType Directory -Force $scratch | Out-Null
+          "TEMP=$scratch" >> $env:GITHUB_ENV
+          "TMP=$scratch" >> $env:GITHUB_ENV
+          dotnet --info
+          python .ai/public/progress.py
+      - name: Provision hash-verified dependencies
+        run: |
+          ./scripts/get-deps.ps1 -Force
+          foreach ($file in 'deps/ffmpeg/ffmpeg.exe','deps/ffmpeg/ffprobe.exe','deps/ffmpeg-dev/lib/avcodec.lib','deps/libmpv-2.dll') {
+            if (!(Test-Path -LiteralPath $file -PathType Leaf)) { throw "Missing dependency: $file" }
+          }
+      - name: Restore
+        run: dotnet restore QuickClip.slnx
+      - name: Strict Release build
+        run: |
+          dotnet build QuickClip.slnx -c Release --no-restore "-p:QuickClipProfile=$env:PROFILE" -p:RequireCaptureEngine=true
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          if (!(Test-Path -LiteralPath src/QuickClip.Capture/bin/QuickClipCapture.dll -PathType Leaf)) {
+            throw 'Strict build did not produce QuickClipCapture.dll'
+          }
+      - name: Headless tests
+        run: |
+          $testArgs = @('test','QuickClip.slnx','-c','Release','--no-build','--no-restore',
+            '--logger','trx;LogFileName=results.trx','--results-directory','TestResults',
+            '--blame-hang-timeout','3m',"-p:QuickClipProfile=$env:PROFILE")
+          if ($env:PROFILE -eq 'Upstream') {
+            $testArgs += @('--filter','FullyQualifiedName~ProfileTests|FullyQualifiedName~RecordingDefaultsTests|FullyQualifiedName~MenuPackageTests|FullyQualifiedName~CaptureEngineTests')
+          }
+          dotnet @testArgs
+      - name: Report results
+        if: always()
+        run: ./scripts/summarize-ci-tests.ps1 -Path TestResults/results.trx
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: windows-trx-${{ matrix.profile }}-${{ github.sha }}
+          path: TestResults/*.trx
+          if-no-files-found: warn
+          retention-days: 14

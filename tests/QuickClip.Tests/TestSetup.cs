@@ -10,5 +10,11 @@ internal static class TestSetup
     {
         AppProfile.TestRoot = Path.Combine(Path.GetTempPath(), $"quickclip-test-profile-{Guid.NewGuid():N}");
         AppSettings.SaveDisabled = true;
+        if (Environment.GetEnvironmentVariable("QUICKCLIP_CI") == "1")
+        {
+            var culture = System.Globalization.CultureInfo.GetCultureInfo("en-US");
+            System.Globalization.CultureInfo.DefaultThreadCurrentCulture = culture;
+            System.Globalization.CultureInfo.DefaultThreadCurrentUICulture = culture;
+        }
     }
 }

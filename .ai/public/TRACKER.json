@@ -18,6 +18,30 @@
     "failed": "Observed failure; excluded from pass count"
   },
   "completion_rule": "Each active P0 gate must be pass with evidence, no failed and no blocking issues. Code presence and acceptance evidence are separate.",
+  "checkpoints": [
+    {
+      "gates": ["QC-001-I01", "QC-001-I02", "QC-001-I03", "QC-001-A01", "QC-001-A02"],
+      "source_sha": "95a86565e0611bf19109ae24260113114e8456cd",
+      "base_sha": "5348c6ad2dc0f51391ba26a9299a1c3461f21e21",
+      "pull_request": "https://github.com/Yosef13103/QuickClip/pull/2",
+      "commands": "docs/p0-windows-acceptance.md",
+      "local_windows_x64": {
+        "sdk": "10.0.403",
+        "build": "Release with RequireCaptureEngine=true; existing pinned native assets and cached NuGet packages; no fresh dependency restore",
+        "personal": {"passed": 366, "failed": 0, "skipped": 18},
+        "upstream_focused": {"passed": 27, "failed": 0, "skipped": 14}
+      },
+      "github_actions": {
+        "run": "https://github.com/Yosef13103/QuickClip/actions/runs/43071338005",
+        "tested_merge_sha": "54921b7db1b30e9a3b72597636e70ed4f97150c6",
+        "observed": "Both Windows jobs completed hash-verified provisioning, restore, strict Release build and headless tests. Counts come from VSTest output because the first run's summary undercounted skipped tests.",
+        "personal": {"passed": 366, "failed": 0, "skipped": 18},
+        "upstream_focused": {"passed": 27, "failed": 0, "skipped": 14}
+      },
+      "manual_acceptance": "Not executed. Prior game recognition observations remain smoke only. See the supervised handoff.",
+      "limitations": "Latest custom/main push CI and enforcement of branch protection remain unverified."
+    }
+  ],
   "features": [
     {
       "id": "QC-001",
@@ -30,15 +54,15 @@
         {
           "phase": "implementation",
           "description": "Windows GitHub Actions builds and deterministic dependency restore",
-          "status": "pending",
-          "evidence": "No .github/workflows directory in current repository tree.",
+          "status": "pass",
+          "evidence": "PR Windows runner checkpoint 43071338005: SDK 10.0.403, hash-verified native assets, NuGet restore and strict x64 Release build in both profiles. This supersedes the source-audit observation that no workflow existed. NuGet transitive restore is not lock-file enforced.",
           "id": "QC-001-I01"
         },
         {
           "phase": "implementation",
           "description": "Test job runs synthetic managed and relevant native tests on PR",
-          "status": "pending",
-          "evidence": "",
+          "status": "pass",
+          "evidence": "PR Windows runner checkpoint 43071338005: Personal 366 passed / 0 failed / 18 skipped; Upstream focused 27 passed / 0 failed / 14 skipped. Includes native interop preflight with capture disabled.",
           "id": "QC-001-I02"
         },
         {
