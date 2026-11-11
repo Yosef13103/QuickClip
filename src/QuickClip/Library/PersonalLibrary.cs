@@ -15,11 +15,12 @@ internal sealed class PersonalLibrary : IClipAnnotationActions, ILibraryInventor
         string root, string[] exclusions, string[]? scopes, CancellationToken token)
     {
         var index = _index.Value;
-        Guid id = await index.RegisterRootAsync(root, exclusions: exclusions, cancellationToken: token);
         await _scanGate.WaitAsync(token);
+        Guid id;
         LibraryScanResult scan;
         try
         {
+            id = await index.RegisterRootAsync(root, exclusions: exclusions, cancellationToken: token, updateExclusions: true);
             scan = await index.ReconcileAsync(id, new(RelativeDirectory: scopes is { Length: > 0 } ? scopes[0] : null), token);
             if (scopes != null)
                 foreach (string scope in scopes.Skip(1))
@@ -73,7 +74,7 @@ internal sealed class PersonalLibrary : IClipAnnotationActions, ILibraryInventor
     {
         string root = AppSettings.Current.ClipsFolder;
         return !ClipLibrary.IsMomentsPath(path) && LibraryFiles.Within(path, root) &&
-            !ClipLibrary.IsExcluded(Path.GetRelativePath(root, path), AppSettings.Current.LibraryExclusions);
+            !LibraryFiles.IsExcluded(root, path, [.. AppSettings.Current.LibraryExclusions ?? []]);
     }
 
     public async Task<ClipAnnotationResult> SaveDraftAsync(ClipAnnotationTarget target, ClipDetails draft, CancellationToken token)

@@ -30,7 +30,7 @@ internal sealed partial class LibraryIndex
     }
 
     public Task<Guid> RegisterRootAsync(string directory, MediaCategory category = MediaCategory.ImportedFinished,
-        IEnumerable<string>? exclusions = null, CancellationToken cancellationToken = default) =>
+        IEnumerable<string>? exclusions = null, CancellationToken cancellationToken = default, bool updateExclusions = false) =>
         Run(cancellationToken, token =>
         {
             if (!Enum.IsDefined(category)) throw new ArgumentOutOfRangeException(nameof(category));
@@ -39,17 +39,29 @@ internal sealed partial class LibraryIndex
             if (excluded.Length > 128) throw new ArgumentException("Too many directory exclusions.", nameof(exclusions));
             using var connection = _database.Open();
             using var transaction = connection.BeginTransaction();
+            LibraryRoot? matching = null;
             foreach (var existing in ReadRoots(connection, transaction))
             {
                 if (path.Equals(existing.Directory, StringComparison.OrdinalIgnoreCase))
                 {
-                    if (category != existing.Category || !excluded.SequenceEqual(existing.ExcludedDirectories, StringComparer.OrdinalIgnoreCase))
-                        throw new LibraryConflictException("The directory is already registered with different settings.");
-                    return existing.Id;
+                    if (category != existing.Category)
+                        throw new LibraryConflictException("The directory is already registered with another category.");
+                    if (excluded.SequenceEqual(existing.ExcludedDirectories, StringComparer.OrdinalIgnoreCase)) return existing.Id;
+                    if (!updateExclusions) throw new LibraryConflictException("The directory is already registered with different exclusions.");
+                    matching = existing;
+                    continue;
                 }
                 if (LibraryFiles.Within(path, existing.Directory) && !LibraryFiles.IsExcluded(existing.Directory, path, existing.ExcludedDirectories) ||
                     LibraryFiles.Within(existing.Directory, path) && !LibraryFiles.IsExcluded(path, existing.Directory, excluded))
                     throw new ArgumentException("Library roots must not index overlapping directories.", nameof(directory));
+            }
+            if (matching != null)
+            {
+                Execute(connection, transaction, "UPDATE roots SET exclusions=$exclusions,scan_revision=scan_revision+1 WHERE id=$id;",
+                    ("$exclusions", JsonSerializer.Serialize(excluded)), ("$id", Id(matching.Id)));
+                token.ThrowIfCancellationRequested();
+                transaction.Commit();
+                return matching.Id;
             }
             var id = Guid.NewGuid();
             Execute(connection, transaction, """

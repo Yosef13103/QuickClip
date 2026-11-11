@@ -33,7 +33,7 @@ public partial class StorageDashboard : UserControl
         if (InventorySource is not { } source)
         {
             _refresh = null;
-            Status.Text = "Indexed storage inventory becomes available after the library index is connected.";
+            Status.Text = "Enable indexing for your clips folder in Settings to see storage inventory.";
             return;
         }
 
