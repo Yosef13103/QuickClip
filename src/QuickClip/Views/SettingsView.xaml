@@ -104,17 +104,71 @@
                     </ComboBox>
                     <TextBlock x:Name="CaptureTargetHint" Style="{StaticResource Hint}" Margin="0,6,0,4" TextWrapping="Wrap" />
 
-                    <Grid x:Name="AreaRow" Style="{StaticResource Row}">
+                    <Grid Style="{StaticResource Row}">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="160" />
                             <ColumnDefinition Width="*" />
                         </Grid.ColumnDefinitions>
-                        <TextBlock x:Name="AreaLabel" Text="Aspect ratio" VerticalAlignment="Center" />
+                        <TextBlock Text="Capture area" VerticalAlignment="Center" />
                         <ComboBox x:Name="AreaCombo" Grid.Column="1" SelectionChanged="Changed"
-                                  ToolTip="Record only the middle of a wider (or taller) monitor, like the 16:9 center of an ultrawide" />
+                                  AutomationProperties.Name="Capture area" />
                     </Grid>
-                    <TextBlock x:Name="AreaHint" Style="{StaticResource Hint}" Margin="160,4,0,0" TextWrapping="Wrap" Visibility="Collapsed"
-                               Text="Only for the desktop, when no game is running. A game's window is recorded as it is." />
+                    <Expander Header="Custom aspect ratio" Margin="0,4,0,0">
+                        <StackPanel Margin="0,4,0,6">
+                            <DockPanel>
+                                <Button DockPanel.Dock="Right" Content="Apply ratio" Click="ApplyAspect_Click" Margin="8,0,0,0" />
+                                <TextBox x:Name="CustomAspectBox" MaxLength="24" ToolTip="Enter a ratio like 32:9"
+                                         AutomationProperties.Name="Custom aspect ratio" TextChanged="CustomAspect_Changed" />
+                            </DockPanel>
+                            <TextBlock x:Name="CustomAspectHint" Style="{StaticResource Hint}" TextWrapping="Wrap" Margin="0,4,0,0" />
+                        </StackPanel>
+                    </Expander>
+
+                    <Grid Style="{StaticResource Row}">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="160" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Text="Output resolution" VerticalAlignment="Center" />
+                        <ComboBox x:Name="ResolutionCombo" Grid.Column="1" SelectionChanged="Changed"
+                                  AutomationProperties.Name="Output resolution" />
+                    </Grid>
+                    <Expander Header="Custom output size" Margin="0,4,0,0">
+                        <StackPanel Margin="0,4,0,6">
+                            <TextBlock Text="Width × height in pixels" Margin="0,0,0,4" />
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                    <ColumnDefinition Width="*" />
+                                </Grid.ColumnDefinitions>
+                                <TextBox x:Name="CustomWidthBox" MaxLength="10" ToolTip="Output width in pixels"
+                                         AutomationProperties.Name="Output width" TextChanged="CustomDimension_Changed" />
+                                <TextBlock Grid.Column="1" Text="×" VerticalAlignment="Center" Margin="8,0" />
+                                <TextBox x:Name="CustomHeightBox" Grid.Column="2" MaxLength="10" ToolTip="Output height in pixels"
+                                         AutomationProperties.Name="Output height" TextChanged="CustomDimension_Changed" />
+                            </Grid>
+                            <CheckBox x:Name="LockOutputRatio" IsChecked="True" Margin="0,6,0,0">
+                                <TextBlock Text="Match capture area when editing one dimension" TextWrapping="Wrap" />
+                            </CheckBox>
+                            <TextBlock x:Name="CustomSizeHint" Style="{StaticResource Hint}" TextWrapping="Wrap" Margin="0,4,0,0" />
+                            <WrapPanel Margin="0,4,0,0">
+                                <Button x:Name="ApplySizeButton" Content="Apply size" Click="ApplySize_Click" Margin="0,0,8,0" />
+                                <Button x:Name="CropToFitButton" Content="Crop to fit" Click="CropToFit_Click" Margin="0,0,8,0" />
+                                <Button Content="Reset fields" Click="ResetSize_Click" />
+                            </WrapPanel>
+                        </StackPanel>
+                    </Expander>
+                    <Border Background="#14171C" CornerRadius="6" Padding="10" Margin="0,10,0,0">
+                        <StackPanel>
+                            <TextBlock x:Name="PreviewHeading" Text="Selected monitor preview" FontWeight="SemiBold" />
+                            <controls:RecordingAreaPreview x:Name="CropPreview" Height="100" Margin="4,8" Focusable="False" />
+                            <TextBlock x:Name="PreviewDimensions" TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite" />
+                            <TextBlock x:Name="PreviewHint" Style="{StaticResource Hint}" TextWrapping="Wrap" Margin="0,4,0,0" />
+                            <Button x:Name="UseNativeButton" Content="Use Native for every source" Click="UseNative_Click"
+                                    HorizontalAlignment="Left" Margin="0,6,0,0" Visibility="Collapsed" />
+                        </StackPanel>
+                    </Border>
 
                     <Grid Style="{StaticResource Row}">
                         <Grid.ColumnDefinitions>
@@ -144,12 +198,9 @@
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="160" />
                             <ColumnDefinition Width="*" />
-                            <ColumnDefinition Width="12" />
-                            <ColumnDefinition Width="*" />
                         </Grid.ColumnDefinitions>
-                        <TextBlock Text="Frame rate / resolution" VerticalAlignment="Center" />
+                        <TextBlock Text="Frame rate" VerticalAlignment="Center" />
                         <ComboBox x:Name="FpsCombo" Grid.Column="1" SelectionChanged="Changed" />
-                        <ComboBox x:Name="ResolutionCombo" Grid.Column="3" SelectionChanged="Changed" />
                     </Grid>
 
                     <Grid Style="{StaticResource Row}">

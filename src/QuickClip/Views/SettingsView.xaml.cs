@@ -164,6 +164,7 @@ public partial class SettingsView : UserControl
             FpsCombo.ItemsSource = RecordingPresets.FrameRates.Select(f => new Choice($"{f} fps", f)).ToList();
             Select(FpsCombo, RecordingPresets.FrameRates.OrderBy(f => Math.Abs(f - s.RecordFps)).First());
             RefreshResolutions(s.RecordResolution);
+            ResetDimensionFields();
 
             _encoders = await VideoEncoders.GetAvailableAsync();
             var auto = RecordingPresets.DefaultEncoder(_encoders);
@@ -236,6 +237,7 @@ public partial class SettingsView : UserControl
             _loading = false;
         }
         ShowUpdateState();
+        UpdateCropPreview();
         UpdateEstimates();
         OnRecorderState(Recorder.Instance.State);
     }
@@ -268,43 +270,9 @@ public partial class SettingsView : UserControl
     }
 #endif
 
-    private void RefreshAreas(string value)
-    {
-        var m = SelectedMonitor;
-        var items = RecordingPresets.Aspects
-            .Select(a => new Choice(m != null ? RecordingPresets.AreaLabel(a, RecordingPresets.Area(m.Width, m.Height, a), m.Width, m.Height)
-                : a == "" ? "Whole monitor" : a, a))
-            .ToList();
-        bool was = _loading;
-        _loading = true;
-        AreaCombo.ItemsSource = items;
-        Select(AreaCombo, value);
-        _loading = was;
-    }
-
-    private void RefreshResolutions(int value)
-    {
-        var area = SelectedArea;
-        var items = new List<Choice> { new(area is { } n ? $"Native ({n.Width}×{n.Height})" : "Native", 0) };
-        if (area is { } a)
-            foreach (int r in RecordingPresets.Resolutions.Where(r => r > 0 && r < Math.Min(a.Width, a.Height)))
-            {
-                var (w, h) = RecordingPresets.OutputSize(a.Width, a.Height, r);
-                items.Add(new Choice($"{r}p ({w}×{h})", r));
-            }
-        bool was = _loading;
-        _loading = true;
-        ResolutionCombo.ItemsSource = items;
-        Select(ResolutionCombo, value);
-        _loading = was;
-    }
-
-    /// <summary>A game recorded by its window is taken as it is, so the aspect ratio is then only for the desktop.</summary>
     private void ShowGameWindowState()
     {
         bool gameWindow = SourceCombo.SelectedIndex == 0;
-        AreaLabel.Text = gameWindow ? "Desktop aspect ratio" : "Aspect ratio";
-        AreaHint.Visibility = gameWindow ? Visibility.Visible : Visibility.Collapsed;
         var selected = (EncoderCombo.SelectedItem as Choice)?.Value as string;
         NvencPresetCombo.IsEnabled = (string.IsNullOrEmpty(selected) ? RecordingPresets.DefaultEncoder(_encoders)?.Id : selected)?.EndsWith("_nvenc", StringComparison.Ordinal) == true;
         CaptureTargetHint.Text = gameWindow
@@ -395,16 +363,18 @@ public partial class SettingsView : UserControl
     {
         if (_loading || !IsInitialized) return;
         var s = AppSettings.Current;
-        if (sender == MonitorCombo) RefreshAreas(SelectedAspect);
-        if (sender == MonitorCombo || sender == AreaCombo) RefreshResolutions((ResolutionCombo.SelectedItem as Choice)?.Value as int? ?? 0);
-
         s.RecordingEnabled = RecordingCheck.IsChecked == true;
         s.RecordMonitor = (MonitorCombo.SelectedItem as Choice)?.Value as string ?? "";
-        s.RecordAspect = SelectedAspect;
+        if (sender == AreaCombo) s.RecordAspect = SelectedAspect;
+        if (sender == MonitorCombo) RefreshAreas(s.RecordAspect);
+        if (sender == MonitorCombo || sender == AreaCombo)
+            RefreshResolutions(s.RecordResolution);
         s.BufferSeconds = RecordingPresets.BufferSteps[(int)Math.Round(BufferSlider.Value)];
         if (QualityCombo.SelectedItem is Choice { Value: RecordingQuality q }) s.RecordQuality = q;
         if (FpsCombo.SelectedItem is Choice { Value: int fps }) s.RecordFps = fps;
-        if (ResolutionCombo.SelectedItem is Choice { Value: int res }) s.RecordResolution = res;
+        if (sender == ResolutionCombo && ResolutionCombo.SelectedItem is Choice { Value: int res }) s.RecordResolution = res;
+        if (sender == MonitorCombo || sender == AreaCombo || sender == ResolutionCombo)
+            ResetDimensionFields();
         if (sender == EncoderCombo && EncoderCombo.SelectedItem is Choice { Enabled: true, Value: string encoder }) s.RecordEncoder = encoder;
         if (BackendCombo.SelectedItem is Choice { Value: CaptureEngine.MonitorBackend backend }) s.CaptureBackend = backend;
         if (NvencPresetCombo.SelectedItem is Choice { Value: CaptureEngine.NvencSpeed preset }) s.NvencPreset = preset;
@@ -412,6 +382,7 @@ public partial class SettingsView : UserControl
         s.CaptureCursor = CursorCheck.IsChecked == true;
         s.PreferGameWindow = SourceCombo.SelectedIndex == 0;
         ShowGameWindowState();
+        UpdateCropPreview();
         s.SplitChatAudio = SplitChatCheck.IsChecked == true;
         s.SplitMusicAudio = SplitMusicCheck.IsChecked == true;
         s.RecordMic = MicCheck.IsChecked == true;

@@ -30,6 +30,16 @@ Encoder labels distinguish AVC, HEVC and AV1, and identify NVENC, AMF, Quick Syn
 
 The AV1 encoder IDs and export flags are preserved. The RTX 3070 returned “No capable devices found” for AV1 NVENC in the synthetic probe and the picker excluded it. The available hardware could not verify AV1 recording/export on capable NVIDIA, AMD or Intel devices. Intel AV1 QSV entered the source with `Export: false`. The export builder has explicit QSV tuning for AVC and HEVC, and the source history does not establish an AV1 export qualification result. Keep the gate until an actual AV1 QSV export, re-probe, playback and audio-track test passes on a supported Intel GPU.
 
+### Capture area and output size
+
+**Capture area** selects the whole monitor or a centered aspect, including square and custom ratios. **Output resolution** selects the aligned native area or a short-side preset that fits it. The schematic shows the monitor and centered crop in proportion, with separate pixel dimensions for the source, capture area and output. It draws from settings and display dimensions. It uses no capture session or refresh timer.
+
+On a 3440 × 1440 source, Original preserves 3440 × 1440, 16:9 captures 2560 × 1440, and 21:9 captures 3360 × 1440. Selecting 1080p after 16:9 produces 1920 × 1080 from the same crop. The recorder keeps the whole source when the ratio is within 1% of the monitor and aligns width to eight pixels and height to two. In Automatic, the schematic represents the monitor fallback. Game windows keep their own aspect and are subject to the same short-side limit.
+
+Custom width and height use the existing `RecordResolution` short-side setting when the recorder can produce the exact requested pair. Ratio lock fills the paired field while only one dimension has been edited. After both fields are edited, validation preserves both values. **Crop to fit** appears when changing the monitor aspect can produce that exact size. Invalid drafts stay unapplied. Custom entry requires at least 256 pixels on each side. Actual encoder and driver limits still apply, and this UI does not probe each size.
+
+For arbitrary output pairs or letterbox, integration needs an optional width/height pair and a fit policy alongside the legacy short-side setting. A shared resolver should accept source kind and active pixel bounds, return the exact source rectangle, aligned output dimensions or a validation error, and run for both monitor changes and game-window transitions. The recorder must pass that plan to the native backend and verify encoder support before applying it. Until then, the UI only saves requests expressible by the existing settings.
+
 ## Verification and integration
 
 - Personal full suite passed 248 tests with 16 opt-in skips. Targeted tests covered layout displacement in the immediate path, delete batches and Undo collisions, naming and preset compatibility. Final UI cleanups were followed by the targeted suite and a Personal Release build/runtime check.
