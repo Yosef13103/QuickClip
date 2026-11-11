@@ -11,6 +11,8 @@ public readonly record struct RecordingArea(int X, int Y, int Width, int Height)
 internal static class RecordingPresets
 {
     public const int AudioKbps = 160;
+    public const int MinTargetVideoKbps = 500;
+    public const int MaxTargetVideoKbps = 250_000;
 
     public static readonly int[] BufferSteps = [10, 15, 20, 30, 45, 60, 90, 120, 180, 240, 300];
     public static readonly int[] FrameRates = [30, 60, 90, 120, 144, 165, 240];
@@ -62,11 +64,15 @@ internal static class RecordingPresets
     };
 
     /// <summary>
-    /// Video bitrate for a quality preset. Anchored on AV1 at 1080p60 and scaled sub-linearly with the pixel
+    /// Explicit target bitrate, or the automatic bitrate for a quality preset. Auto is anchored on AV1
+    /// at 1080p60 and scaled sub-linearly with the pixel
     /// rate (bigger frames compress better per pixel); HEVC and H.264 need more bits for the same quality.
     /// </summary>
-    public static int VideoKbps(RecordingQuality quality, int width, int height, int fps, string family)
+    public static int VideoKbps(RecordingQuality quality, int width, int height, int fps, string family, int? targetKbps = null)
     {
+        ValidateTargetVideoKbps(targetKbps);
+        if (targetKbps is int requested) return requested;
+
         double av1Mbps1080p60 = quality switch
         {
             RecordingQuality.Low => 6,
@@ -78,7 +84,14 @@ internal static class RecordingPresets
         double pixelRate = (double)Math.Max(width, 16) * Math.Max(height, 16) * Math.Max(fps, 1);
         double scale = Math.Pow(pixelRate / (1920.0 * 1080 * 60), 0.75);
         double codec = family switch { "av1" => 1.0, "hevc" => 1.25, _ => 1.6 };
-        return (int)Math.Clamp(av1Mbps1080p60 * scale * codec * 1000, 1500, 250_000);
+        return (int)Math.Clamp(av1Mbps1080p60 * scale * codec * 1000, 1500, MaxTargetVideoKbps);
+    }
+
+    internal static void ValidateTargetVideoKbps(int? targetKbps)
+    {
+        if (targetKbps is < MinTargetVideoKbps or > MaxTargetVideoKbps)
+            throw new ArgumentOutOfRangeException(nameof(targetKbps), targetKbps,
+                $"Choose a target between {MinTargetVideoKbps} and {MaxTargetVideoKbps} kbps, or Auto.");
     }
 
     /// <summary>Output size for a short-side limit, keeping the recorded area's aspect ratio (a width that's a

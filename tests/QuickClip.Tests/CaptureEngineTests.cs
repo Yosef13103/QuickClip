@@ -35,8 +35,12 @@ public sealed class CaptureEngineTests(MediaFixture media, Xunit.Abstractions.IT
         try
         {
             await Task.Delay(5500);
-            output.WriteLine(CaptureEngine.VideoDiagnostics());
-            Assert.Contains("Desktop Duplication", CaptureEngine.VideoDiagnostics());
+            string diagnostics = CaptureEngine.VideoDiagnostics();
+            output.WriteLine(diagnostics);
+            Assert.Contains("Desktop Duplication", diagnostics);
+            Assert.Contains("6000 kbps target", diagnostics);
+            Assert.Contains("same-slot rejects", diagnostics);
+            Assert.Contains("replay insertion", diagnostics);
             Assert.InRange(CaptureEngine.GetStats().Fps, 50, 65);
             Assert.Null(CaptureEngine.Save(path, 2, "GPU scaling smoke"));
         }
