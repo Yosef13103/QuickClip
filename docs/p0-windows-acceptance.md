@@ -6,6 +6,8 @@ The workflow runs on PRs targeting `custom/main` and pushes to that branch. The 
 
 CI installs .NET SDK 10.0.403. The Windows runner must supply MSVC x64 and the Windows SDK. The existing `scripts/get-deps.ps1 -Force` downloads the pinned GPL shared FFmpeg build and corresponding headers/import libraries, libmpv development archive and Inno Setup NuGet package. It verifies SHA-256 before extraction. No dependency cache or binary release is uploaded. Deleted assets, hash mismatches, unavailable compiler/SDK or extraction tools must fail the job. Pin updates need source and license review. Redistributing a portable build has separate license and corresponding-source obligations.
 
+The workflow records the installed SDK and tested commit. The hosted image's MSVC and Windows SDK can change as GitHub refreshes that image. NuGet uses the repository's declared package versions and ordinary restore. There is no lock-file or bit-for-bit build guarantee.
+
 To reproduce on Windows x64 from a clean checkout with those prerequisites:
 
 ```powershell
@@ -39,6 +41,15 @@ Performance row template:
 | SHA / mode / run | Scene and output | Duration | Game FPS / p50 / p95 / p99 ms | CPU / Encode / total GPU % | Working set / VRAM | Queue peak / dropped frames | Notes |
 |---|---|---|---|---|---|---|---|
 | | | | | | | | |
+
+For each synthetic save, inspect the stream metadata and decode all video and audio. Set `$clip` to the verified synthetic output in the scratch directory:
+
+```powershell
+./deps/ffmpeg/ffprobe.exe -v error -show_format -show_streams -of json $clip
+./deps/ffmpeg/ffmpeg.exe -v error -xerror -i $clip -map '0:v' -map '0:a?' -f null -
+```
+
+Use visible source labels in the saved frames to verify target identity. Container metadata alone cannot prove which window or display was captured.
 
 ## PR checklist
 
