@@ -185,7 +185,7 @@ internal static class GameCatalogService
         private static void AddExecutable(Candidate game, string path)
         {
             if (!CatalogPaths.IsExecutable(path)) return;
-            if (CatalogPaths.IsDiscord(Path.GetFileNameWithoutExtension(path)) || CatalogPaths.IsDiscordUpdater(path)) return;
+            if (CatalogPaths.IsDiscordProcess(path)) return;
             game.Executables.Add(path);
         }
 

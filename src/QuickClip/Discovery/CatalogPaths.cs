@@ -49,4 +49,16 @@ internal static class CatalogPaths
         name.Equals("Discord", StringComparison.OrdinalIgnoreCase) ||
         name.Equals("DiscordPTB", StringComparison.OrdinalIgnoreCase) ||
         name.Equals("DiscordCanary", StringComparison.OrdinalIgnoreCase);
+
+    public static bool IsDiscordProcess(string path)
+    {
+        string name = Path.GetFileNameWithoutExtension(path);
+        if (IsDiscord(name) || name.Equals("DiscordDevelopment", StringComparison.OrdinalIgnoreCase) ||
+            name.Equals("DiscordOverlay", StringComparison.OrdinalIgnoreCase) ||
+            name.Equals("DiscordHookHelper", StringComparison.OrdinalIgnoreCase) ||
+            name.Equals("DiscordHookHelper64", StringComparison.OrdinalIgnoreCase)) return true;
+        if (IsDiscordUpdater(path)) return true;
+        return path.Split('\\', '/').SkipLast(1).Any(part =>
+            IsDiscord(part) || part.Equals("DiscordDevelopment", StringComparison.OrdinalIgnoreCase));
+    }
 }

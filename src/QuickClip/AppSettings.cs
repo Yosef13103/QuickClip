@@ -1,12 +1,14 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using QuickClip.Recording;
+using QuickClip.Discovery;
 
 namespace QuickClip;
 
 /// <summary>User preferences persisted in the active application profile.</summary>
 internal sealed class AppSettings
 {
+    public GameCatalogSettings Games { get; set; } = new();
     // The editor's encoder, quality, size and frame rate start at "same as original" for every clip.
     public string Format { get; set; } = "source";
     public string Encoder { get; set; } = "";                    // the last one picked, used for the original's codec
