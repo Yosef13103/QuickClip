@@ -109,7 +109,17 @@
 
         <!-- Video -->
         <Border Grid.Row="1" Grid.Column="0" Background="Black">
-            <controls:VideoHost x:Name="Video" />
+            <Grid>
+                <controls:VideoHost x:Name="Video" />
+                <StackPanel x:Name="UnavailableSource" Visibility="Collapsed" MaxWidth="460"
+                            HorizontalAlignment="Center" VerticalAlignment="Center" Margin="16">
+                    <TextBlock x:Name="UnavailableSourceText" TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite" />
+                    <WrapPanel Margin="0,10,0,0">
+                        <Button Content="Retry source" Click="RetrySource_Click" Margin="0,0,8,0" />
+                        <Button Content="Open another video…" Click="Open_Click" />
+                    </WrapPanel>
+                </StackPanel>
+            </Grid>
         </Border>
 
         <!-- Transport (the editing controls move to a second line when the window is too narrow for one) -->
