@@ -16,3 +16,6 @@ AGENTS.md
 !/.ai/public/README.md
 !/.ai/public/ARCHITECTURE.md
 !/.ai/public/VALIDATION.md
+!/.ai/public/QUALITY_GATES.md
+!/.ai/public/TRACKER.json
+!/.ai/public/progress.py

@@ -1,0 +1,910 @@
+{
+  "schema_version": 1,
+  "repository": "Yosef13103/QuickClip",
+  "target_branch": "custom/main",
+  "baseline_sha": "4c31d749a81b769da438e4d1276f90888fd7a40e",
+  "baseline_date": "2026-11-11",
+  "source_of_truth": "GitHub source inspection + agent v4 handoff; no current independent Windows run",
+  "prior_reported_tests": {
+    "passed": 365,
+    "skipped_opt_in": 18,
+    "source": "docs/personal-v4-integration.md @ 07c5334950",
+    "note": "Not a current-HEAD CI run"
+  },
+  "status_definitions": {
+    "pass": "Directly established by source audit or evidence referenced in gate; for acceptance require a reproducible artifact",
+    "reported": "Agent-reported success; not independently verified on current HEAD; excluded from pass count",
+    "pending": "Not completed or not yet verified; excluded from pass count",
+    "failed": "Observed failure; excluded from pass count"
+  },
+  "completion_rule": "Each active P0 gate must be pass with evidence, no failed and no blocking issues. Code presence and acceptance evidence are separate.",
+  "features": [
+    {
+      "id": "QC-001",
+      "title": "Reproducible builds, CI and protected integration",
+      "priority": "P0",
+      "owner": "Quality agent",
+      "lifecycle": "active",
+      "note": "First milestone. A passing local report is not the same as required CI.",
+      "gates": [
+        {
+          "phase": "implementation",
+          "description": "Windows GitHub Actions builds and deterministic dependency restore",
+          "status": "pending",
+          "evidence": "No .github/workflows directory in current repository tree.",
+          "id": "QC-001-I01"
+        },
+        {
+          "phase": "implementation",
+          "description": "Test job runs synthetic managed and relevant native tests on PR",
+          "status": "pending",
+          "evidence": "",
+          "id": "QC-001-I02"
+        },
+        {
+          "phase": "implementation",
+          "description": "PRs target custom/main with change/evidence handoff and protected main",
+          "status": "pending",
+          "evidence": "",
+          "id": "QC-001-I03"
+        },
+        {
+          "phase": "acceptance",
+          "description": "Latest custom/main passes Windows CI (0 failing; skips explicitly reported)",
+          "status": "pending",
+          "evidence": "",
+          "id": "QC-001-A01"
+        },
+        {
+          "phase": "acceptance",
+          "description": "Every new P0 PR has traceable acceptance IDs and reproducible commands",
+          "status": "pending",
+          "evidence": "",
+          "id": "QC-001-A02"
+        }
+      ]
+    },
+    {
+      "id": "QC-002",
+      "title": "Instant replay correctness, saving and memory safety",
+      "priority": "P0",
+      "owner": "Capture agent",
+      "lifecycle": "active",
+      "note": "User chooses one save-whole-buffer command and trims in editor.",
+      "gates": [
+        {
+          "phase": "implementation",
+          "description": "Native capture -> encoded replay ring and save-to-file path exist",
+          "status": "pass",
+          "evidence": "Source inspection: custom/main @ 4c31d749a81b (2026-11-11); does not independently validate Windows behavior. Recorder.cs / CaptureEngine.cs",
+          "id": "QC-002-I01"
+        },
+        {
+          "phase": "implementation",
+          "description": "One normal hotkey saves the configured available replay; no separate duration action needed",
+          "status": "pass",
+          "evidence": "Source inspection: custom/main @ 4c31d749a81b (2026-11-11); does not independently validate Windows behavior. AppHost.cs SaveClipAsync",
+          "id": "QC-002-I02"
+        },
+        {
+          "phase": "implementation",
+          "description": "Saved clip receipt exposes actual duration and successful publication",
+          "status": "pass",
+          "evidence": "Source inspection: custom/main @ 4c31d749a81b (2026-11-11); does not independently validate Windows behavior. Recorder.cs SaveUnderGateAsync",
+          "id": "QC-002-I03"
+        },
+        {
+          "phase": "implementation",
+          "description": "Bounded replay memory policy, including high bitrate and stalled video input",
+          "status": "pending",
+          "evidence": "Time-based replay ring is not a byte cap (capture-frame-pacing.md).",
+          "id": "QC-002-I04"
+        },
+        {
+          "phase": "acceptance",
+          "description": "100/100 supervised replay saves produce readable media with expected codecs/tracks",
+          "status": "pending",
+          "evidence": "",
+          "id": "QC-002-A01"
+        },
+        {
+          "phase": "acceptance",
+          "description": "60-minute replay soak: no crash, uncontrolled RAM growth, or corrupt save",
+          "status": "pending",
+          "evidence": "",
+          "id": "QC-002-A02"
+        },
+        {
+          "phase": "acceptance",
+          "description": "Save near warm-up, encoder restart, sleep/wake, resolution/source changes passes 20/20 cases",
+          "status": "pending",
+          "evidence": "",
+          "id": "QC-002-A03"
+        },
+        {
+          "phase": "acceptance",
+          "description": "Saved media durations match actual available span within documented keyframe tolerance",
+          "status": "pending",
+          "evidence": "",
+          "id": "QC-002-A04"
+        },
+        {
+          "phase": "acceptance",
+          "description": "Failure, disk-full and permission-denied paths preserve existing media and show accurate errors",
+          "status": "pending",
+          "evidence": "",
+          "id": "QC-002-A05"
+        }
+      ]
+    },
+    {
+      "id": "QC-003",
+      "title": "Automatic game detection and per-game profiles",
+      "priority": "P0",
+      "owner": "Game agent",
+      "lifecycle": "active",
+      "note": "Highest feature gap: catalog exists but live runtime is not connected.",
+      "gates": [
+        {
+          "phase": "implementation",
+          "description": "Approved-folder/Steam/manual EXE scanning service implemented",
+          "status": "pass",
+          "evidence": "Source inspection: custom/main @ 4c31d749a81b (2026-11-11); does not independently validate Windows behavior. Discovery/GameCatalogService.cs",
+          "id": "QC-003-I01"
+        },
+        {
+          "phase": "implementation",
+          "description": "Catalog path matcher and saved profile model implemented",
+          "status": "pass",
+          "evidence": "Source inspection: custom/main @ 4c31d749a81b (2026-11-11); does not independently validate Windows behavior. Discovery/GameCatalogIndex.cs / GameProfileStore.cs",
+          "id": "QC-003-I02"
+        },
+        {
+          "phase": "implementation",
+          "description": "Live GameDetector obtains game identity from catalog, not only legacy heuristics",
+          "status": "pending",
+          "evidence": "GameDetector.cs DetectForeground currently uses KnownGames/Classify.",
+          "id": "QC-003-I03"
+        },
+        {
+          "phase": "implementation",
+          "description": "Games UI: approved roots, scan, manual EXEs, include/exclude, overrides",
+          "status": "pending",
+          "evidence": "No game catalog management panel in SettingsView.",
+          "id": "QC-003-I04"
+        },
+        {
+          "phase": "implementation",
+          "description": "Effective profile applied to capture at stable game/session boundaries",
+          "status": "pending",
+          "evidence": "Recorder.cs currently reads global AppSettings.",
+          "id": "QC-003-I05"
+        },
+        {
+          "phase": "implementation",
+          "description": "Game start/exit/alt-tab session lifecycle and explicit fallback policy",
+          "status": "pending",
+          "evidence": "",
+          "id": "QC-003-I06"
+        },
+        {
+          "phase": "acceptance",
+          "description": "12/12 representative Steam and manual catalog cases correctly recognized",
+          "status": "pending",
+          "evidence": "",
+          "id": "QC-003-A01"
+        },
+        {
+          "phase": "acceptance",
+          "description": "30/30 supervised launch/alt-tab/restart/exit transitions match expected identity",
+          "status": "pending",
+          "evidence": "",
+          "id": "QC-003-A02"
+        },
+        {
+          "phase": "acceptance",
+          "description": "0 false positives across 10 chosen non-game applications, including Discord updater",
+          "status": "pending",
+          "evidence": "",
+          "id": "QC-003-A03"
+        },
+        {
+          "phase": "acceptance",
+          "description": "10/10 excluded apps never promoted to game capture",
+          "status": "pending",
+          "evidence": "",
+          "id": "QC-003-A04"
+        },
+        {
+          "phase": "acceptance",
+          "description": "Profile inheritance and persistence passes 12/12 transition/restart tests",
+          "status": "pending",
+          "evidence": "",
+          "id": "QC-003-A05"
+        }
+      ]
+    },
+    {
+      "id": "QC-004",
+      "title": "Capture targeting and truthful recorded-source identity",
+      "priority": "P0",
+      "owner": "Capture + Game integration",
+      "lifecycle": "active",
+      "note": "Do not promise Windows 10 border-free Game Only capture by unsupported workarounds.",
+      "gates": [
+        {
+          "phase": "implementation",
+          "description": "Borderless monitor capture via Desktop Duplication",
+          "status": "pass",
+          "evidence": "Source inspection: custom/main @ 4c31d749a81b (2026-11-11); does not independently validate Windows behavior. capture-frame-pacing.md",
+          "id": "QC-004-I01"
+        },
+        {
+          "phase": "implementation",
+          "description": "Window-only target capture via Windows Graphics Capture",
+          "status": "pass",
+          "evidence": "Source inspection: custom/main @ 4c31d749a81b (2026-11-11); does not independently validate Windows behavior. Recorder.UpdateCaptureWindow",
+          "id": "QC-004-I02"
+        },
+        {
+          "phase": "implementation",
+          "description": "Automatic Game First mode with selected monitor fallback",
+          "status": "pass",
+          "evidence": "Source inspection: custom/main @ 4c31d749a81b (2026-11-11); does not independently validate Windows behavior. SettingsView.xaml SourceCombo",
+          "id": "QC-004-I03"
+        },
+        {
+          "phase": "implementation",
+          "description": "Strict Game Only mode with no desktop fallback",
+          "status": "pending",
+          "evidence": "SettingsView.xaml option is disabled.",
+          "id": "QC-004-I04"
+        },
+        {
+          "phase": "implementation",
+          "description": "Clip receipt captures true source/mode/display and stream geometry over saved interval",
+          "status": "pending",
+          "evidence": "ReplaySaveReceipt currently has game/duration, not verified active-display and encoding details.",
+          "id": "QC-004-I05"
+        },
+        {
+          "phase": "acceptance",
+          "description": "20/20 alt-tab cases preserve intended target or deliberately stop without leaking desktop",
+          "status": "pending",
+          "evidence": "",
+          "id": "QC-004-A01"
+        },
+        {
+          "phase": "acceptance",
+          "description": "10/10 fallback cases visibly report the actual monitor and application source",
+          "status": "pending",
+          "evidence": "",
+          "id": "QC-004-A02"
+        },
+        {
+          "phase": "acceptance",
+          "description": "10/10 source switch/restart scenarios retain valid clips and accurate labeling",
+          "status": "pending",
+          "evidence": "",
+          "id": "QC-004-A03"
+        },
+        {
+          "phase": "acceptance",
+          "description": "Windows 10 WGC border/exclusive fullscreen limitations tested and explained",
+          "status": "pending",
+          "evidence": "",
+          "id": "QC-004-A04"
+        }
+      ]
+    },
+    {
+      "id": "QC-005",
+      "title": "Separated audio tracks and sync",
+      "priority": "P0",
+      "owner": "Capture agent",
+      "lifecycle": "active",
+      "note": "Audio is a recording feature, not a postproduction nice-to-have.",
+      "gates": [
+        {
+          "phase": "implementation",
+          "description": "Endpoint-based audio route planner exists",
+          "status": "pass",
+          "evidence": "Source inspection: custom/main @ 4c31d749a81b (2026-11-11); does not independently validate Windows behavior. Recording/EndpointAudio.cs",
+          "id": "QC-005-I01"
+        },
+        {
+          "phase": "implementation",
+          "description": "Multi-stream video container recording and track naming exists",
+          "status": "pass",
+          "evidence": "Agent report: docs/personal-v4-integration.md @ 07c5334950; requires new validation on current HEAD.",
+          "id": "QC-005-I02"
+        },
+        {
+          "phase": "implementation",
+          "description": "Loss/reconnect handling and visible warnings are adequately bounded",
+          "status": "pending",
+          "evidence": "",
+          "id": "QC-005-I03"
+        },
+        {
+          "phase": "acceptance",
+          "description": "20/20 supervised recordings isolate Game, Chat and Mic using known test tones",
+          "status": "pending",
+          "evidence": "",
+          "id": "QC-005-A01"
+        },
+        {
+          "phase": "acceptance",
+          "description": "A/V sync drift <= 100 ms in 10 timed test clips at target FPS",
+          "status": "pending",
+          "evidence": "",
+          "id": "QC-005-A02"
+        },
+        {
+          "phase": "acceptance",
+          "description": "10/10 device disconnect/reconnect cases degrade or recover as documented",
+          "status": "pending",
+          "evidence": "",
+          "id": "QC-005-A03"
+        },
+        {
+          "phase": "acceptance",
+          "description": "No silent audio-track merging or misnaming across profile switches",
+          "status": "pending",
+          "evidence": "",
+          "id": "QC-005-A04"
+        }
+      ]
+    },
+    {
+      "id": "QC-006",
+      "title": "Capture geometry and codec correctness",
+      "priority": "P0",
+      "owner": "Capture agent",
+      "lifecycle": "active",
+      "note": "",
+      "gates": [
+        {
+          "phase": "implementation",
+          "description": "Native resolution/aspect selection and center crop",
+          "status": "pass",
+          "evidence": "Source inspection: custom/main @ 4c31d749a81b (2026-11-11); does not independently validate Windows behavior. RecordingPresets.cs",
+          "id": "QC-006-I01"
+        },
+        {
+          "phase": "implementation",
+          "description": "Custom ratio/dimensions with no automatic 4K upscale on 1440p",
+          "status": "pass",
+          "evidence": "Source inspection: custom/main @ 4c31d749a81b (2026-11-11); does not independently validate Windows behavior. SettingsView.RecordingDimensions.cs",
+          "id": "QC-006-I02"
+        },
+        {
+          "phase": "implementation",
+          "description": "Visual source/crop/output preview is implemented",
+          "status": "pass",
+          "evidence": "Source inspection: custom/main @ 4c31d749a81b (2026-11-11); does not independently validate Windows behavior. RecordingAreaPreview.cs",
+          "id": "QC-006-I03"
+        },
+        {
+          "phase": "acceptance",
+          "description": "Probe 20/20 real output cases across native/16:9/custom and resolutions",
+          "status": "pending",
+          "evidence": "",
+          "id": "QC-006-A01"
+        },
+        {
+          "phase": "acceptance",
+          "description": "10/10 source changes preserve correct output size and no unexpected stretch",
+          "status": "pending",
+          "evidence": "",
+          "id": "QC-006-A02"
+        },
+        {
+          "phase": "acceptance",
+          "description": "NVENC H.264/HEVC + available HW AV1 options probe and decode correctly",
+          "status": "pending",
+          "evidence": "",
+          "id": "QC-006-A03"
+        }
+      ]
+    },
+    {
+      "id": "QC-007",
+      "title": "Recording performance and resource stability",
+      "priority": "P0",
+      "owner": "Capture + Quality agents",
+      "lifecycle": "active",
+      "note": "Informal 160 FPS off vs 133-140 on is history, NOT a verified performance acceptance result.",
+      "gates": [
+        {
+          "phase": "implementation",
+          "description": "Capture/submit/encode-path diagnostic counters exist",
+          "status": "pass",
+          "evidence": "Source inspection: custom/main @ 4c31d749a81b (2026-11-11); does not independently validate Windows behavior. capture-frame-pacing.md",
+          "id": "QC-007-I01"
+        },
+        {
+          "phase": "implementation",
+          "description": "Bounded opt-in benchmark runner exists",
+          "status": "pass",
+          "evidence": "Source inspection: custom/main @ 4c31d749a81b (2026-11-11); does not independently validate Windows behavior. scripts/benchmark-video.ps1",
+          "id": "QC-007-I02"
+        },
+        {
+          "phase": "implementation",
+          "description": "A repeatable exported performance baseline with script, hardware/settings and frame times",
+          "status": "pending",
+          "evidence": "",
+          "id": "QC-007-I03"
+        },
+        {
+          "phase": "acceptance",
+          "description": "At least 3 controlled runs each recorder-off/DDA/WGC with game frametimes and 1% lows",
+          "status": "pending",
+          "evidence": "",
+          "id": "QC-007-A01"
+        },
+        {
+          "phase": "acceptance",
+          "description": "60-minute soak: CPU/GPU/RAM and buffers bounded with saved media verified",
+          "status": "pending",
+          "evidence": "",
+          "id": "QC-007-A02"
+        },
+        {
+          "phase": "acceptance",
+          "description": "No feature regression exceeds agreed frame-time budget vs measured baseline",
+          "status": "pending",
+          "evidence": "",
+          "id": "QC-007-A03"
+        }
+      ]
+    },
+    {
+      "id": "QC-008",
+      "title": "Unified gallery/editor and export reliability",
+      "priority": "P1",
+      "owner": "UI + Quality agents",
+      "lifecycle": "active",
+      "note": "User reports these workflows working well; record reproducible checks before calling release-ready.",
+      "gates": [
+        {
+          "phase": "implementation",
+          "description": "Larger cached thumbnails and single muted hover preview",
+          "status": "pass",
+          "evidence": "Source inspection: custom/main @ 4c31d749a81b (2026-11-11); does not independently validate Windows behavior. GalleryHoverPreview.cs",
+          "id": "QC-008-I01"
+        },
+        {
+          "phase": "implementation",
+          "description": "Unified editor with resizable workspace and fullscreen",
+          "status": "pass",
+          "evidence": "Source inspection: custom/main @ 4c31d749a81b (2026-11-11); does not independently validate Windows behavior. EditorView.xaml.cs / MainWindow.xaml.cs",
+          "id": "QC-008-I02"
+        },
+        {
+          "phase": "implementation",
+          "description": "In-app confirmation modals and safe delete/Undo",
+          "status": "pass",
+          "evidence": "Source inspection: custom/main @ 4c31d749a81b (2026-11-11); does not independently validate Windows behavior. ModalDialog.cs / ClipDeletion.cs",
+          "id": "QC-008-I03"
+        },
+        {
+          "phase": "implementation",
+          "description": "FFmpeg export/share and audio track selection are implemented",
+          "status": "pass",
+          "evidence": "Source inspection: custom/main @ 4c31d749a81b (2026-11-11); does not independently validate Windows behavior. Media/Export.cs / ClipSharing.cs",
+          "id": "QC-008-I04"
+        },
+        {
+          "phase": "acceptance",
+          "description": "30/30 manual gallery/play/edit/share/delete operations on disposable clips",
+          "status": "pending",
+          "evidence": "",
+          "id": "QC-008-A01"
+        },
+        {
+          "phase": "acceptance",
+          "description": "10/10 mixed-DPI/fullscreen/editor-resize scenarios pass",
+          "status": "pending",
+          "evidence": "",
+          "id": "QC-008-A02"
+        },
+        {
+          "phase": "acceptance",
+          "description": "5/5 1000+ clip library navigation benchmarks satisfy agreed latency target",
+          "status": "pending",
+          "evidence": "",
+          "id": "QC-008-A03"
+        }
+      ]
+    },
+    {
+      "id": "QC-009",
+      "title": "SQLite metadata, storage and recovery",
+      "priority": "P1",
+      "owner": "Library + Quality agents",
+      "lifecycle": "active",
+      "note": "Do not implement automatic deleting, dedup, or retention until explicitly approved.",
+      "gates": [
+        {
+          "phase": "implementation",
+          "description": "SQLite catalog + migrations and guarded legacy JSON import",
+          "status": "pass",
+          "evidence": "Source inspection: custom/main @ 4c31d749a81b (2026-11-11); does not independently validate Windows behavior. Library/LibraryDatabase.cs / sqlite-library-integration.md",
+          "id": "QC-009-I01"
+        },
+        {
+          "phase": "implementation",
+          "description": "Tags, favorites, clip metadata and library filtering integrated",
+          "status": "pass",
+          "evidence": "Source inspection: custom/main @ 4c31d749a81b (2026-11-11); does not independently validate Windows behavior. Library/PersonalLibrary.cs / GalleryView.xaml.cs",
+          "id": "QC-009-I02"
+        },
+        {
+          "phase": "implementation",
+          "description": "Read-only indexed inventory exists",
+          "status": "pass",
+          "evidence": "Source inspection: custom/main @ 4c31d749a81b (2026-11-11); does not independently validate Windows behavior. Views/StorageDashboard.xaml",
+          "id": "QC-009-I03"
+        },
+        {
+          "phase": "acceptance",
+          "description": "10/10 legacy/synthetic migration and restart cases preserve annotations",
+          "status": "pending",
+          "evidence": "Agent report documents synthetic migration tests but not 10/10 discrete manual acceptance cases.",
+          "id": "QC-009-A01"
+        },
+        {
+          "phase": "acceptance",
+          "description": "10/10 offline/rename/cross-volume/locked-file cases never lose source media",
+          "status": "pending",
+          "evidence": "",
+          "id": "QC-009-A02"
+        },
+        {
+          "phase": "acceptance",
+          "description": "Verified backup, corruption recovery and 1000+ actual clips UI latency",
+          "status": "pending",
+          "evidence": "",
+          "id": "QC-009-A03"
+        }
+      ]
+    },
+    {
+      "id": "QC-010",
+      "title": "Clip notification: short truthful information banner",
+      "priority": "P1",
+      "owner": "Feedback/UI agent",
+      "lifecycle": "active",
+      "note": "No false source label from stale GameForClip heuristics. Use save-time capture/stream facts.",
+      "gates": [
+        {
+          "phase": "implementation",
+          "description": "Independent sound, Windows and overlay channels exist",
+          "status": "pass",
+          "evidence": "Source inspection: custom/main @ 4c31d749a81b (2026-11-11); does not independently validate Windows behavior. Shell/ClipFeedback.cs",
+          "id": "QC-010-I01"
+        },
+        {
+          "phase": "implementation",
+          "description": "Success notification triggers after save receipt rather than hotkey",
+          "status": "pass",
+          "evidence": "Source inspection: custom/main @ 4c31d749a81b (2026-11-11); does not independently validate Windows behavior. Shell/AppHost.cs",
+          "id": "QC-010-I02"
+        },
+        {
+          "phase": "implementation",
+          "description": "Small banner shows exact game OR Desktop + display identity",
+          "status": "pending",
+          "evidence": "",
+          "id": "QC-010-I03"
+        },
+        {
+          "phase": "implementation",
+          "description": "Banner shows verified resolution, output FPS and actual saved duration",
+          "status": "pending",
+          "evidence": "",
+          "id": "QC-010-I04"
+        },
+        {
+          "phase": "implementation",
+          "description": "Subtle edge/corner ripple and optional local PNG style with user controls",
+          "status": "pending",
+          "evidence": "",
+          "id": "QC-010-I05"
+        },
+        {
+          "phase": "acceptance",
+          "description": "10/10 game + desktop saves show truthful source/monitor and stream facts",
+          "status": "pending",
+          "evidence": "",
+          "id": "QC-010-A01"
+        },
+        {
+          "phase": "acceptance",
+          "description": "20/20 saves preserve focus, avoid capture of overlay where supported, and restore idle state",
+          "status": "pending",
+          "evidence": "",
+          "id": "QC-010-A02"
+        },
+        {
+          "phase": "acceptance",
+          "description": "Mixed DPI, focus, 9 anchors and failure states pass 20/20 manual checks",
+          "status": "pending",
+          "evidence": "",
+          "id": "QC-010-A03"
+        }
+      ]
+    },
+    {
+      "id": "QC-011",
+      "title": "Advanced encoding control with safe limits",
+      "priority": "P1",
+      "owner": "Capture agent",
+      "lifecycle": "active",
+      "note": "Do NOT ship CQP as a toggle before bounded memory accounting.",
+      "gates": [
+        {
+          "phase": "implementation",
+          "description": "Automatic bitrate and quality presets",
+          "status": "pass",
+          "evidence": "Source inspection: custom/main @ 4c31d749a81b (2026-11-11); does not independently validate Windows behavior. RecordingPresets.VideoKbps",
+          "id": "QC-011-I01"
+        },
+        {
+          "phase": "implementation",
+          "description": "Explicit custom target bitrate persisted and applied to Recorder",
+          "status": "pending",
+          "evidence": "Helper supports optional target; Recorder.cs still invokes Auto.",
+          "id": "QC-011-I02"
+        },
+        {
+          "phase": "implementation",
+          "description": "Supported rate-control modes CBR/VBR/CQP exposed conditionally and applied",
+          "status": "pending",
+          "evidence": "",
+          "id": "QC-011-I03"
+        },
+        {
+          "phase": "implementation",
+          "description": "Byte-bounded replay budget, warnings and codec capability validation",
+          "status": "pending",
+          "evidence": "",
+          "id": "QC-011-I04"
+        },
+        {
+          "phase": "acceptance",
+          "description": "20/20 bitrate/rate-control settings survive restart with correct FFmpeg output",
+          "status": "pending",
+          "evidence": "",
+          "id": "QC-011-A01"
+        },
+        {
+          "phase": "acceptance",
+          "description": "Long-buffer/high-bitrate and CQP cases stay within configured memory cap",
+          "status": "pending",
+          "evidence": "",
+          "id": "QC-011-A02"
+        },
+        {
+          "phase": "acceptance",
+          "description": "Encoder-fallback & invalid-param handling tested on available GPUs",
+          "status": "pending",
+          "evidence": "",
+          "id": "QC-011-A03"
+        }
+      ]
+    },
+    {
+      "id": "QC-012",
+      "title": "Production Personal installer and Windows shell integration",
+      "priority": "P1",
+      "owner": "Release agent",
+      "lifecycle": "active",
+      "note": "Must be complete BEFORE labeling a production release; keep dev protections.",
+      "gates": [
+        {
+          "phase": "implementation",
+          "description": "Separate Personal dev/portable identity and bundled runtime",
+          "status": "pass",
+          "evidence": "Source inspection: custom/main @ 4c31d749a81b (2026-11-11); does not independently validate Windows behavior. AppProfile.cs / docs/development.md",
+          "id": "QC-012-I01"
+        },
+        {
+          "phase": "implementation",
+          "description": "Production Personal installer AppId/install path distinct from upstream",
+          "status": "pending",
+          "evidence": "",
+          "id": "QC-012-I02"
+        },
+        {
+          "phase": "implementation",
+          "description": "Personal-owned Startup Run registration and user opt-in",
+          "status": "pending",
+          "evidence": "",
+          "id": "QC-012-I03"
+        },
+        {
+          "phase": "implementation",
+          "description": "Personal-owned Explorer verb registration/cleanup",
+          "status": "pending",
+          "evidence": "",
+          "id": "QC-012-I04"
+        },
+        {
+          "phase": "implementation",
+          "description": "Signed/updater provenance and safe upgrade/uninstall design",
+          "status": "pending",
+          "evidence": "",
+          "id": "QC-012-I05"
+        },
+        {
+          "phase": "acceptance",
+          "description": "Side-by-side stock+Personal installation passes 12/12 disposable-VM tests",
+          "status": "pending",
+          "evidence": "",
+          "id": "QC-012-A01"
+        },
+        {
+          "phase": "acceptance",
+          "description": "Startup + file association enable/disable/relocation pass 12/12 tests",
+          "status": "pending",
+          "evidence": "",
+          "id": "QC-012-A02"
+        },
+        {
+          "phase": "acceptance",
+          "description": "Upgrade/uninstall leave stock registry and media untouched 10/10 cases",
+          "status": "pending",
+          "evidence": "",
+          "id": "QC-012-A03"
+        },
+        {
+          "phase": "acceptance",
+          "description": "Portable starts with no Windows registry changes",
+          "status": "reported",
+          "evidence": "Agent report: docs/personal-v4-integration.md @ 07c5334950; requires new validation on current HEAD.",
+          "id": "QC-012-A04"
+        }
+      ]
+    },
+    {
+      "id": "QC-013",
+      "title": "Visual themes and custom Windows title bar",
+      "priority": "P2",
+      "owner": "Appearance agent",
+      "lifecycle": "active",
+      "note": "Do after P0 capture/identity is stable.",
+      "gates": [
+        {
+          "phase": "implementation",
+          "description": "Semantic theme resources support runtime switching",
+          "status": "pending",
+          "evidence": "App.xaml ThemeMode=Dark and Styles.xaml dark hardcoded brushes.",
+          "id": "QC-013-I01"
+        },
+        {
+          "phase": "implementation",
+          "description": "AMOLED, blue-gray Slate, Midnight, Light presets",
+          "status": "pending",
+          "evidence": "",
+          "id": "QC-013-I02"
+        },
+        {
+          "phase": "implementation",
+          "description": "Custom WindowChrome title bar with correct native window semantics",
+          "status": "pending",
+          "evidence": "",
+          "id": "QC-013-I03"
+        },
+        {
+          "phase": "acceptance",
+          "description": "4/4 themes checked across app, overlays and modals for contrast/readability",
+          "status": "pending",
+          "evidence": "",
+          "id": "QC-013-A01"
+        },
+        {
+          "phase": "acceptance",
+          "description": "10/10 move/maximize/snap/fullscreen/mixed-DPI restore cases",
+          "status": "pending",
+          "evidence": "",
+          "id": "QC-013-A02"
+        },
+        {
+          "phase": "acceptance",
+          "description": "Theme persists across restart; reduced-motion/high-contrast checked",
+          "status": "pending",
+          "evidence": "",
+          "id": "QC-013-A03"
+        }
+      ]
+    },
+    {
+      "id": "QC-014",
+      "title": "Optional OpenRGB and OLED event adapters",
+      "priority": "P2",
+      "owner": "Optional integrations",
+      "lifecycle": "parked",
+      "note": "Fun feature, intentionally parked until core accepted.",
+      "gates": [
+        {
+          "phase": "implementation",
+          "description": "Tiny clip-saved event adapter interface, local-only and opt-in",
+          "status": "pending",
+          "evidence": "",
+          "id": "QC-014-I01"
+        },
+        {
+          "phase": "implementation",
+          "description": "OpenRGB / supported OLED drivers plugged in without blocking saves",
+          "status": "pending",
+          "evidence": "",
+          "id": "QC-014-I02"
+        },
+        {
+          "phase": "acceptance",
+          "description": "20/20 save notifications emit without delaying file publication",
+          "status": "pending",
+          "evidence": "",
+          "id": "QC-014-A01"
+        },
+        {
+          "phase": "acceptance",
+          "description": "Disconnect/timeout/restore state tested for each supported device",
+          "status": "pending",
+          "evidence": "",
+          "id": "QC-014-A02"
+        }
+      ]
+    },
+    {
+      "id": "QC-015",
+      "title": "Optional full-session recording",
+      "priority": "P2",
+      "owner": "Capture agent",
+      "lifecycle": "parked",
+      "note": "Not required for single replay-save-and-trim workflow.",
+      "gates": [
+        {
+          "phase": "implementation",
+          "description": "Crash-safe, segmented writer with disk quota and explicit opt-in",
+          "status": "pending",
+          "evidence": "",
+          "id": "QC-015-I01"
+        },
+        {
+          "phase": "implementation",
+          "description": "Playback/export from finalized recovered segments",
+          "status": "pending",
+          "evidence": "",
+          "id": "QC-015-I02"
+        },
+        {
+          "phase": "acceptance",
+          "description": "60-minute controlled session survives intentional crash and disk-full",
+          "status": "pending",
+          "evidence": "",
+          "id": "QC-015-A01"
+        },
+        {
+          "phase": "acceptance",
+          "description": "Instant replay still works with bounded overhead during session recording",
+          "status": "pending",
+          "evidence": "",
+          "id": "QC-015-A02"
+        }
+      ]
+    },
+    {
+      "id": "QC-016",
+      "title": "Replay duration selector and bookmark UI",
+      "priority": "—",
+      "owner": "None",
+      "lifecycle": "retired",
+      "note": "User explicitly removed from roadmap. Hide redundant controls; preserve pre-existing bookmark metadata non-destructively.",
+      "gates": []
+    }
+  ]
+}
