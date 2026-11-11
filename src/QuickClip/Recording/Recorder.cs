@@ -16,7 +16,10 @@ internal sealed class Recorder
     public static Recorder Instance { get; } = new();
 
     private readonly object _gate = new();
-    private readonly SemaphoreSlim _saveGate = new(1, 1);
+    private readonly ReplaySaveGate _saveGate = new();
+    private readonly ReplayMarkers _replayMarkers = new();
+    private Guid _replaySession;
+    private int _replayBufferSeconds;
     private readonly GameDetector _games = new();
     private Timer? _poll;
     private IReadOnlyList<string> _chatApps = [], _musicApps = [];
@@ -37,6 +40,7 @@ internal sealed class Recorder
     /// <summary>Raised (on a worker thread) when recording starts, stops, fails or chat or music apps change.</summary>
     public event Action<RecorderState>? StateChanged;
     public event Action<SavedClip>? ClipSaved;
+    public event Action<ReplaySaveReceipt>? ReplaySaved;
     public event Action<string>? SaveFailed;
 
     public RecorderState State => new(IsRunning, Error,
@@ -131,6 +135,8 @@ internal sealed class Recorder
                           string.Join(", ", mics.Select(m => m.DeviceId == "" ? $"{m.Title} (Windows default)" : m.Title)));
 
             IsRunning = true;
+            _replaySession = Guid.NewGuid();
+            _replayBufferSeconds = s.BufferSeconds;
             _family = family;
             _captureTarget = null;
             _monitorTarget = monitor.Label;
@@ -157,6 +163,7 @@ internal sealed class Recorder
         _poll = null;
         if (IsRunning) CaptureEngine.Stop();
         IsRunning = false;
+        _replayMarkers.Clear();
         _summary = "";
     }
 
@@ -262,22 +269,62 @@ internal sealed class Recorder
 
     public CaptureEngine.Stats Stats() => IsRunning ? CaptureEngine.GetStats() : default;
 
-    /// <summary>Saves the buffer to the clips folder, under the game being played.</summary>
-    public async Task<SavedClip?> SaveClipAsync()
+    /// <summary>Marks the most recent encoded frame. A marker alone does not keep footage in the replay buffer.</summary>
+    public LiveReplayMarker? TryAddReplayMarker(string? label = null)
     {
+        lock (_gate)
+        {
+            if (!IsRunning || CaptureEngine.GetReplayPosition() is not { } position) return null;
+            var game = _captureTarget?.Game;
+            return _replayMarkers.Add(position, _replaySession, game ?? "Desktop", game ?? _monitorTarget, label);
+        }
+    }
+
+    /// <summary>Saves the buffer to the clips folder, under the game being played.</summary>
+    public async Task<SavedClip?> SaveClipAsync() => (await SaveCoreAsync(null, CancellationToken.None))?.Clip;
+
+    /// <summary>Saves the available portion of a requested replay. Cancellation is honored until publication.</summary>
+    public async Task<ReplaySaveReceipt?> SaveReplayAsync(int requestedSeconds, CancellationToken cancellationToken = default)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(requestedSeconds);
+        return (await SaveCoreAsync(requestedSeconds, cancellationToken))?.Receipt;
+    }
+
+    private async Task<(SavedClip Clip, ReplaySaveReceipt Receipt)?> SaveCoreAsync(int? requestedSeconds, CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
         if (!IsRunning)
         {
             SaveFailed?.Invoke(Error ?? "Recording is turned off.");
             return null;
         }
-        if (!await _saveGate.WaitAsync(0)) return null; // a save is already in progress
+        return await _saveGate.RunAsync(() => SaveUnderGateAsync(requestedSeconds, cancellationToken), cancellationToken,
+            requestedSeconds.HasValue ? () => SaveFailed?.Invoke("A replay save is already in progress.") : null);
+    }
+
+    private async Task<(SavedClip Clip, ReplaySaveReceipt Receipt)?> SaveUnderGateAsync(int? requestedSeconds, CancellationToken cancellationToken)
+    {
         string? staged = null;
         bool complete = false;
         try
         {
             var s = AppSettings.Current;
-            int seconds = s.BufferSeconds;
-            string folder = _captureTarget?.Game ?? _games.GameForClip(seconds) ?? "Desktop";
+            int seconds = requestedSeconds ?? s.BufferSeconds;
+            CaptureEngine.ReplayPosition position;
+            ReplayMarkers.Candidate[] candidates;
+            Guid sessionId;
+            int gameLookback;
+            lock (_gate)
+            {
+                if (!IsRunning || CaptureEngine.GetReplayPosition() is not { } active)
+                    throw new IOException("The recording session has ended.");
+                position = active;
+                sessionId = _replaySession;
+                candidates = _replayMarkers.Snapshot(position, sessionId);
+                gameLookback = requestedSeconds.HasValue ? Math.Min(seconds, _replayBufferSeconds) : seconds;
+            }
+            var anchors = candidates.Select(item => new CaptureEngine.ReplayAnchor { Sequence = item.Sequence, OffsetUs = -1 }).ToArray();
+            string folder = _captureTarget?.Game ?? _games.GameForClip(gameLookback) ?? "Desktop";
             string folderName = ClipNaming.SafeComponent(folder, 64);
             if (ClipLibrary.IsExcluded(folderName, null)) folderName += " (game)";
             string dir = Path.Combine(s.ClipsFolder, folderName);
@@ -286,7 +333,10 @@ internal sealed class Recorder
             DateTimeOffset requestedAt = DateTimeOffset.Now;
             if (AppProfile.IsPersonal) _ = ClipNaming.Stem(s.ClipFilenameTemplate, folder, requestedAt, null);
             string stagingPath = staged = ClipNaming.ReserveStagingPath(dir, ".mp4");
-            string? error = await Task.Run(() => CaptureEngine.Save(stagingPath, seconds, folder));
+            CaptureEngine.ReplaySpan span = default;
+            string? error = await Task.Run(() => CaptureEngine.SaveReplay(stagingPath, seconds, folder, position,
+                requestedSeconds.HasValue, anchors, out span), cancellationToken);
+            cancellationToken.ThrowIfCancellationRequested();
             if (error != null)
             {
                 Log.Write("Saving a clip failed: " + error);
@@ -294,15 +344,30 @@ internal sealed class Recorder
                 return null;
             }
             complete = true;
-            DateTimeOffset capture = Mp4Info.Read(stagingPath).CaptureTime?.ToLocalTime() ?? requestedAt;
+            DateTimeOffset? capturedAt = Mp4Info.Read(stagingPath).CaptureTime?.ToLocalTime();
+            DateTimeOffset capture = capturedAt ?? requestedAt;
             string stem = AppProfile.IsPersonal ? ClipNaming.Stem(s.ClipFilenameTemplate, folder, capture, null)
                 : $"{folder} {requestedAt:yyyy-MM-dd HH-mm-ss}";
+            cancellationToken.ThrowIfCancellationRequested();
             string path = ClipNaming.Publish(stagingPath, dir, stem, ".mp4");
             if (AppProfile.IsPersonal) ClipDetailsStore.TryWrite(path, new ClipDetails(capture, folder));
-            var clip = new SavedClip(path, folder, seconds);
+            TimeSpan? actual = span.DurationUs >= 0 ? ReplayMarkers.Time(span.DurationUs) : null;
+            var receipt = new ReplaySaveReceipt(path, folder, sessionId, seconds, actual, ReplayMarkers.Time(span.AvailableUs),
+                ReplayMarkers.Time(span.FirstUs), ReplayMarkers.Time(span.LastUs), span.FirstSource, span.LastSource,
+                capturedAt, ReplayMarkers.Match(candidates, anchors, actual));
+            int displaySeconds = requestedSeconds.HasValue ? (int)(actual?.TotalSeconds ?? 0) : seconds;
+            var clip = new SavedClip(path, folder, displaySeconds);
             Log.Write($"Saved clip {path}");
-            ClipSaved?.Invoke(clip);
-            return clip;
+            try { ClipSaved?.Invoke(clip); }
+            catch (Exception ex) { Log.Write("Clip saved notification failed: " + ex.Message); }
+            try { ReplaySaved?.Invoke(receipt); }
+            catch (Exception ex) { Log.Write("Replay receipt notification failed: " + ex.Message); }
+            return (clip, receipt);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            complete = false;
+            throw;
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException)
         {
@@ -313,7 +378,6 @@ internal sealed class Recorder
         finally
         {
             try { if (!complete && staged != null) File.Delete(staged); } catch (IOException) { } catch (UnauthorizedAccessException) { }
-            _saveGate.Release();
         }
     }
 }

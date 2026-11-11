@@ -48,6 +48,21 @@ extern "C"
         int diagnostics;
     };
 
+    struct QcReplayPosition
+    {
+        int64_t session, eventUs, frameUs, sequence, firstSequence, source;
+    };
+
+    struct QcReplaySpan
+    {
+        int64_t firstUs, lastUs, availableUs, durationUs, firstSource, lastSource;
+    };
+
+    struct QcReplayAnchor
+    {
+        int64_t sequence, offsetUs;
+    };
+
     struct QcOutput
     {
         int adapter;
@@ -87,14 +102,18 @@ namespace qc
             int stream;
             int64_t timeUs;
             bool key;
+            int64_t sequence;
+            int64_t source;
         };
 
         explicit PacketRing(int64_t windowUs) : windowUs_(windowUs) {}
         ~PacketRing() { Clear(); }
 
-        void Push(AVPacket* packet, int stream, int64_t timeUs, bool key);
-        /// Packets from the last video keyframe at or before `fromUs` up to `toUs` (new references).
-        std::vector<Entry> Snapshot(int64_t fromUs, int64_t toUs, int64_t& startUs);
+        void Push(AVPacket* packet, int stream, int64_t timeUs, bool key, int64_t source = 0);
+        /// New packet references, aligned to a keyframe. Bounded requests round the start forward.
+        std::vector<Entry> Snapshot(int64_t fromUs, int64_t toUs, int64_t& startUs,
+            QcReplaySpan* span = nullptr, QcReplayAnchor* anchors = nullptr, int count = 0, int64_t boundedFrameUs = 0);
+        void Position(QcReplayPosition& position);
         void Stats(int64_t& bytes, double& seconds);
         void Clear();
 
@@ -104,6 +123,7 @@ namespace qc
         int64_t bytes_ = 0;
         int64_t windowUs_;
         int64_t newestVideoUs_ = -1;
+        int64_t sequence_ = 0; // keep increasing even when incompatible video clears the ring
     };
 
     /// Codec parameters of one output stream, captured once its encoder is open.
@@ -126,7 +146,9 @@ namespace qc
         /// out sample for sample. Chat and Music record their processes' trees.
         void SetAudioProcesses(DWORD desktopExclude, const std::vector<DWORD>& desktopInclude,
             const std::vector<DWORD>& chat, const std::vector<DWORD>& music, const std::vector<DWORD>& desktopSubtract);
-        bool Save(const std::wstring& path, int seconds, const std::wstring& title, std::string& error);
+        bool Save(const std::wstring& path, int seconds, const std::wstring& title, std::string& error,
+            QcReplaySpan* span = nullptr, QcReplayAnchor* anchors = nullptr, int count = 0, int64_t requestUs = -1);
+        void GetReplayPosition(QcReplayPosition& position);
         void GetStats(QcStats& stats);
         std::string VideoDiagnostics();
         /// Starts capture again on the next frame (the display changed; the old capture may be stale).
