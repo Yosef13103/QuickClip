@@ -82,3 +82,18 @@ User requests default storage location for the saved video files displayed in Ga
 
 ## Scope and gate rule
 These are owner observations, NOT evidence all features pass. Update canonical TRACKER.json and QUALITY_GATES.md only in a dedicated gate-schema/acceptance PR with preserved history and new gate IDs, not vague 90% percentages. Source-level fixes and synthetic tests cannot close supervised hardware gates. Keep PR #7 and original PRs #3/#4 open until authorized; avoid stuffing all 14 items into the existing integration PR. Split by owner/area after a stable, reviewed integration baseline. Preserve upstream main and personal clip library. Avoid making the settings unnecessarily complicated; defaults should be simple and advanced controls opt-in.
+
+### FT-15 — P1 correctness — Editor retains a source recording after Gallery deletes it
+Owner reproduction: open a gallery video in Editor, leave Editor open, switch to Gallery, delete that same recording to Recycle Bin, return to Editor. The editor still shows the old title, time range, audio waveform/tracks and export actions. Playback fails with "Preview not available for this file (export may still work)"; exporting then fails because the source video no longer exists. The owner confirms this on the PR #7 field-test build.
+
+Repository cause: GalleryView.DeleteClipsAsync calls ClipDeletion.Current.DeleteAsync then reloads Gallery. Gallery subscribes to ClipDeletion.Current.Changed, but EditorView currently does not subscribe. EditorView.IsVisibleChanged only pauses mpv when hidden, and still keeps stale _media and _tracks; its own DeleteMedia_Click handles cleanup only when deletion starts inside Editor. ExportNew_Click/RunExportAsync rely on stale MediaInfo and start the export without a fresh source-exists check.
+
+REQUIRED:
+- Synchronize active Editor source with Gallery delete / undo events and also verify source existence upon Editor reactivation (cover external moves/deletes).
+- If source is gone, stop stale preview, cancel stale waveform loading, disable Save Over / Export / play controls, show a clear nontechnical message such as "This recording was moved to the Recycle Bin. Restore it or open another video." Don't leave a ghost editable clip or suggest export can work when the original is missing. Provide Restored/Open Another actions only where appropriate and safe.
+- If the user has unsaved editing work or metadata changes, do NOT silently destroy it on missing file; show that edits cannot be exported until source is restored. No imaginary recovery of pixels from an mpv cache.
+- After an Undo that actually restores the original path, re-probe the source and offer to resume editing, preserving safe draft state as feasible.
+- Do not accidentally tear down editor just because Gallery refreshes; check exact path identity and actual file existence. Handle rename/move, path case, file lock, ongoing export, and failure-to-recycle separately.
+- At export entry, validate source file still exists and is readable BEFORE expensive processing; show an immediate actionable error rather than a late FFmpeg failure. Existing generated output and unrelated media must remain untouched.
+
+ACCEPT: reproducible automated/UI test for Editor open -> Gallery delete -> return Editor; delete canceled; delete failed; undo/restore; external delete/move; missing source before export; deletion during export; original source still present. Existing Editor own delete, Gallery reload and share flows must continue working.
