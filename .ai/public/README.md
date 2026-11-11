@@ -7,6 +7,9 @@ The original upstream-tracking branch is `main`. All Personal feature PRs and in
 - [0 — Orchestrator operating contract](ORCHESTRATOR.md)
 - [4 — Current P0 integration handoff (PR #3 and PR #4)](INTEGRATE_P0.md)
 - [P0 sprint status and PR decisions](SPRINT_STATUS.md)
+
+- [Owner field test (Nov 12): game scanning, capture states, Sonar input, Gallery/Editor delete bug and settings UX](FIELD_TEST_2026-11-12.md)
+- [Chat 0: bounded ownership and dispatch plan for field-test fixes](FIELD_TEST_DISPATCH.md)
 - [Capture platform policy: Windows 11 permission and Windows 10 display fallback](CAPTURE_PLATFORM_POLICY.md)
 - [Game discovery: launcher manifests, custom folders, EXE/path patterns and Discord](GAME_DISCOVERY_SCOPE.md)
 - [Shared product, capture and Games acceptance contract](P0_SPRINT_CONTRACT.md)
