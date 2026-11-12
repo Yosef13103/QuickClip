@@ -156,7 +156,7 @@
                     <TextBlock Text="Instant replay" Style="{StaticResource CardTitle}" />
                     <TextBlock Style="{StaticResource Hint}"
                                Text="QuickClip keeps the last few minutes of your screen in memory; press the hotkey to save them as a clip. Nothing is written to disk until you do." />
-                    <CheckBox x:Name="RecordingCheck" Content="Keep recording in the background" Margin="0,10,0,0" Checked="Changed" Unchecked="Changed" />
+                    <CheckBox x:Name="RecordingCheck" Content="Enable instant replay" Margin="0,10,0,0" Checked="Changed" Unchecked="Changed" />
 
                     <Grid Style="{StaticResource Row}">
                         <Grid.ColumnDefinitions>
