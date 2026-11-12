@@ -28,6 +28,7 @@ Do NOT dispatch two concurrent tasks touching the same worktree. Chat 0 may send
 | Inline expandable game details, on/off monitor icons, simpler status/tooltips | Chat 2 | P1 UX | FT-03, FT-04, FT-05 | Wait for Chat 3's stable list model to avoid duplicate UI work. Advanced classifications hidden by default |
 | Audio compact tracks, resize visibility, Ctrl+wheel zoom | Chat 2 | P1 UX | FT-12 | Existing TimelineDivider should be enhanced, not rebuilt |
 | Human-friendly saved duration SS / MM:SS | Chat 2 | P1 UX | FT-10 | Formatting ONLY; do not claim actual video duration fixed |
+| Gallery selectable day feed, day-level/game summary, cross-day batch selection and share icon | Chat 2 | P1 Gallery UX | FT-16 | Reuse existing selection state, grouping metadata and sharing; after FT-15 deleted-Editor-source correctness; preserve virtualization and accessible group toggles |
 
 ## Phase C — engine precision and keyboard workflows
 | Work | Owner | Priority | FT IDs | Notes |
