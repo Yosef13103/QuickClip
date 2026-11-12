@@ -35,6 +35,19 @@ namespace
 
     std::shared_mutex g_engineLock;   // Save holds it shared; start/stop exclusively
     std::unique_ptr<qc::Engine> g_engine;
+    std::mutex g_micTestLock;
+    std::unique_ptr<qc::AudioSource> g_micTest;
+    int64_t g_micTestToken = 0;
+
+    // Called with the engine lock held. Release the test lock before joining its worker.
+    void DrainMicrophoneTest()
+    {
+        std::unique_ptr<qc::AudioSource> test;
+        {
+            std::lock_guard guard(g_micTestLock);
+            test = std::move(g_micTest);
+        }
+    }
 
     void CopyError(const std::string& message, wchar_t* error, int length)
     {
@@ -46,6 +59,7 @@ namespace
         QcVideoOptions video = {}, const wchar_t* displayIdentity = nullptr)
     {
         std::unique_lock guard(g_engineLock);
+        DrainMicrophoneTest();
         g_engine.reset();
         try
         {
@@ -159,10 +173,71 @@ extern "C"
         return g_engine ? g_engine->GetEndpointStatus(statuses, capacity) : 0;
     }
 
+    __declspec(dllexport) int qc_read_audio_signals(QcAudioSignal* signals, int capacity, int size)
+    {
+        if (!signals || capacity <= 0 || size != sizeof(QcAudioSignal)) return 0;
+        std::shared_lock guard(g_engineLock, std::try_to_lock);
+        return guard.owns_lock() && g_engine ? g_engine->GetAudioSignals(signals, capacity) : 0;
+    }
+
+    __declspec(dllexport) HRESULT qc_start_mic_test(const wchar_t* id, int milliseconds, int64_t* token)
+    {
+        if (!id || wcsnlen_s(id, 512) >= 512 || milliseconds <= 0 || milliseconds > 10000 || !token)
+            return E_INVALIDARG;
+        std::shared_lock engineGuard(g_engineLock, std::try_to_lock);
+        if (!engineGuard.owns_lock() || g_engine) return HRESULT_FROM_WIN32(ERROR_BUSY);
+        std::lock_guard guard(g_micTestLock);
+        if (g_micTest && !g_micTest->TestFinished()) return HRESULT_FROM_WIN32(ERROR_BUSY);
+        try
+        {
+            g_micTest = std::make_unique<qc::AudioSource>(qc::SourceKind::Microphone, 0, id, qc::SampleRate, nullptr,
+                -1, false, static_cast<DWORD>(milliseconds));
+            *token = ++g_micTestToken;
+            return S_OK;
+        }
+        catch (const std::bad_alloc&) { return E_OUTOFMEMORY; }
+        catch (...) { return E_FAIL; }
+    }
+
+    __declspec(dllexport) int qc_read_mic_test(int64_t token, QcAudioSignal* signal, int size)
+    {
+        if (!signal || size != sizeof(QcAudioSignal)) return 0;
+        std::lock_guard guard(g_micTestLock);
+        if (!g_micTest || g_micTestToken != token) return 0;
+        *signal = g_micTest->SignalStatus();
+        return 1;
+    }
+
+    __declspec(dllexport) void qc_stop_mic_test(int64_t token)
+    {
+        std::lock_guard guard(g_micTestLock);
+        if (g_micTest && g_micTestToken == token)
+        {
+            g_micTest->RequestStop();
+            ++g_micTestToken;
+        }
+    }
+
     // Synthetic float fixture only. Does not open an endpoint.
     __declspec(dllexport) float qc_test_audio_packet_peak(const float* samples, int count)
     {
         return count >= 0 && count <= 48000 ? qc::AudioPacketPeak(samples, static_cast<size_t>(count)) : -1;
+    }
+
+    // Synthetic float fixture only. Does not open an endpoint.
+    __declspec(dllexport) int qc_test_audio_levels(const float* samples, int count, float* peak, float* rms, int64_t* mixerBlocks)
+    {
+        if (count < 0 || count > 48000 || count % qc::Channels != 0 || !peak || !rms || !mixerBlocks) return 0;
+        auto levels = qc::MeasureAudioLevels(samples, static_cast<size_t>(count));
+        *peak = levels.peak;
+        *rms = levels.rms;
+        qc::TrackMixer mixer(0, true);
+        qc::MixerSink sink(mixer, qc::SampleRate);
+        sink.Push(samples, static_cast<uint32_t>(count / qc::Channels), 0, true);
+        std::vector<float> mixed;
+        mixer.Take(count / qc::Channels, mixed);
+        *mixerBlocks = mixer.NonzeroBlocks();
+        return 1;
     }
 
     __declspec(dllexport) void qc_display_diagnostics(wchar_t* text, int length)
@@ -231,6 +306,7 @@ extern "C"
     __declspec(dllexport) void qc_stop()
     {
         std::unique_lock guard(g_engineLock);
+        DrainMicrophoneTest();
         g_engine.reset();
     }
 

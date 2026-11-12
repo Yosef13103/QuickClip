@@ -3,7 +3,7 @@ using System.Runtime.InteropServices;
 namespace QuickClip.Recording;
 
 /// <summary>P/Invoke surface of QuickClipCapture.dll (src/QuickClip.Capture). Struct layouts mirror Engine.h.</summary>
-internal static class CaptureEngine
+internal static partial class CaptureEngine
 {
     internal enum MonitorBackend { Automatic, DesktopDuplication, GraphicsCapture, MonitorOnlyDuplication, MonitorOnlyGraphics }
     internal enum NvencSpeed { BalancedP4, FasterP3, FastestP2 }

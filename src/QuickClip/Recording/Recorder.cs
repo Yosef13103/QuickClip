@@ -159,6 +159,7 @@ internal sealed class Recorder
             _manualDisplay = null;
             _manualAuthorized.Clear();
             _observedGame = null;
+            if (AppProfile.IsPersonal && !IsRunning && CaptureEngine.IsAvailable) CaptureEngine.Stop();
             StopCore();
             Error = null;
         }

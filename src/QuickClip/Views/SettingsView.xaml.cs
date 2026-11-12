@@ -28,6 +28,7 @@ public partial class SettingsView : UserControl
     public SettingsView()
     {
         InitializeComponent();
+        InitializeMicrophoneMeters();
         BuildHotkeyRows();
         SettingsSections.Visibility = AppProfile.IsPersonal ? Visibility.Visible : Visibility.Collapsed;
         SectionsColumn.Width = AppProfile.IsPersonal ? new GridLength(176) : new GridLength(0);
@@ -340,6 +341,7 @@ public partial class SettingsView : UserControl
     {
         bool was = _loading;
         _loading = true;
+        ClearMicrophoneMeters(_legacyMeters);
         MicList.Children.Clear();
         _micRows.Clear();
         string defaultMic = _mics.FirstOrDefault(m => m.IsDefault != 0).Name ?? "";
@@ -372,11 +374,29 @@ public partial class SettingsView : UserControl
             Grid.SetColumn(remove, 1);
             row.Children.Add(combo);
             row.Children.Add(remove);
-            MicList.Children.Add(row);
+            if (AppProfile.IsPersonal)
+            {
+                var input = new StackPanel();
+                input.Children.Add(row);
+                var meter = AddMicrophoneMeter(_legacyMeters,
+                    () => (combo.SelectedItem as Choice)?.Value as string ?? "", $"microphone {index + 1}");
+                input.Children.Add(meter.Panel);
+                combo.SelectionChanged += (_, _) =>
+                {
+                    if (meter == _testingMeter) StopMicrophoneTest();
+                    meter.TestResult = null;
+                    meter.TestMessage = null;
+                    RefreshMicrophoneMeters();
+                };
+                MicList.Children.Add(input);
+            }
+            else
+                MicList.Children.Add(row);
             _micRows.Add((combo, remove));
         }
         _loading = was;
         UpdateMicControls();
+        UpdateMicrophoneMonitoring();
     }
 
     /// <summary>The first connected microphone that isn't chosen yet (the default counts as whichever it is now).</summary>

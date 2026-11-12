@@ -5,6 +5,7 @@
 #include <audioclient.h>
 #include <audioclientactivationparams.h>
 #include <avrt.h>
+#include <endpointvolume.h>
 #include <mmdeviceapi.h>
 #include <wrl/client.h>
 #include <wrl/implements.h>
@@ -31,7 +32,8 @@ namespace qc
     // TrackMixer
     // ---------------------------------------------------------------------------------------------
 
-    TrackMixer::TrackMixer(int64_t t0Us) : ring_(static_cast<size_t>(Capacity * Channels)), t0Us_(t0Us) {}
+    TrackMixer::TrackMixer(int64_t t0Us, bool measureSignal)
+        : ring_(static_cast<size_t>(Capacity * Channels)), measureSignal_(measureSignal), t0Us_(t0Us) {}
 
     void TrackMixer::Add(Cursor& cursor, const float* data, uint32_t frames, int64_t timeUs)
     {
@@ -58,7 +60,7 @@ namespace qc
     void TrackMixer::Take(int64_t upTo, std::vector<float>& out)
     {
         out.clear();
-        std::lock_guard guard(lock_);
+        std::unique_lock guard(lock_);
         if (upTo <= base_) return;
         int64_t count = upTo - base_;
         out.resize(static_cast<size_t>(count * Channels));
@@ -70,6 +72,9 @@ namespace qc
             ring_[slot] = ring_[slot + 1] = 0;
         }
         base_ = upTo;
+        guard.unlock();
+        if (measureSignal_ && AudioPacketPeak(out.data(), out.size()) > 0)
+            nonzeroBlocks_.fetch_add(1, std::memory_order_relaxed);
     }
 
     // ---------------------------------------------------------------------------------------------
@@ -495,28 +500,54 @@ namespace qc
         }
 
         HRESULT ActivateEndpoint(EDataFlow flow, const std::wstring& deviceId, ComPtr<IAudioClient>& client,
-            AudioStage* stage = nullptr)
+            std::atomic<AudioStage>* stage = nullptr, QcAudioSignal* signal = nullptr,
+            ComPtr<IAudioMeterInformation>* meter = nullptr)
         {
             if (stage) *stage = AudioStage::EndpointLookup;
             ComPtr<IMMDeviceEnumerator> enumerator;
             HRESULT hr = CoCreateInstance(__uuidof(MMDeviceEnumerator), nullptr, CLSCTX_ALL, IID_PPV_ARGS(&enumerator));
             if (FAILED(hr)) return hr;
+            if (signal)
+            {
+                ComPtr<IMMDevice> defaultCapture;
+                LPWSTR id = nullptr;
+                if (SUCCEEDED(enumerator->GetDefaultAudioEndpoint(eCapture, eConsole, &defaultCapture))
+                    && SUCCEEDED(defaultCapture->GetId(&id)))
+                    wcsncpy_s(signal->defaultCaptureId, id, _TRUNCATE);
+                CoTaskMemFree(id);
+            }
             ComPtr<IMMDevice> device;
             hr = deviceId.empty()
                 ? enumerator->GetDefaultAudioEndpoint(flow, eConsole, &device)
                 : enumerator->GetDevice(deviceId.c_str(), &device);
             if (FAILED(hr)) return hr;
-            if (!deviceId.empty())
+            if (!deviceId.empty() || signal)
             {
                 if (stage) *stage = AudioStage::EndpointFlow;
+                if (signal)
+                {
+                    LPWSTR id = nullptr;
+                    hr = device->GetId(&id);
+                    if (SUCCEEDED(hr))
+                    {
+                        wcsncpy_s(signal->resolvedId, id, _TRUNCATE);
+                        if (!deviceId.empty() && _wcsicmp(id, deviceId.c_str()) != 0) hr = E_INVALIDARG;
+                    }
+                    CoTaskMemFree(id);
+                    if (FAILED(hr)) return hr;
+                }
                 ComPtr<IMMEndpoint> endpoint;
                 EDataFlow actual = eAll;
                 hr = device.As(&endpoint);
                 if (SUCCEEDED(hr)) hr = endpoint->GetDataFlow(&actual);
                 if (FAILED(hr)) return hr;
+                if (signal) signal->actualFlow = actual;
                 if (actual != flow) return E_INVALIDARG;
             }
             if (stage) *stage = AudioStage::Activate;
+            if (meter)
+                signal->meterError = device->Activate(__uuidof(IAudioMeterInformation), CLSCTX_ALL, nullptr,
+                    reinterpret_cast<void**>(meter->GetAddressOf()));
             return device->Activate(__uuidof(IAudioClient), CLSCTX_ALL, nullptr, &client);
         }
 
@@ -565,29 +596,63 @@ namespace qc
         return peak;
     }
 
+    AudioLevels MeasureAudioLevels(const float* samples, size_t count)
+    {
+        if (!samples || count == 0) return {};
+        float peak = 0;
+        double squares = 0;
+        for (size_t i = 0; i < count; ++i)
+        {
+            const float sample = samples[i];
+            if (!std::isfinite(sample)) continue;
+            peak = std::max(peak, std::abs(sample));
+            squares += static_cast<double>(sample) * sample;
+        }
+        return { peak, static_cast<float>(std::sqrt(squares / static_cast<double>(count))) };
+    }
+
     AudioSource::AudioSource(SourceKind kind, DWORD pid, std::wstring deviceId, int rate, std::unique_ptr<AudioSink> sink,
-        int track, bool measureSignal)
+        int track, bool logSignal, DWORD testDurationMs)
         : kind_(kind), pid_(pid), deviceId_(std::move(deviceId)), rate_(rate), sink_(std::move(sink)),
-          track_(track), measureSignal_(measureSignal),
+          track_(track), logSignal_(logSignal), testDurationMs_(testDurationMs),
           stop_(CreateEventW(nullptr, TRUE, FALSE, nullptr))
     {
         if (!stop_) throw std::runtime_error("Could not create the audio stop event.");
+        signal_.actualFlow = eAll;
+        signal_.mixError = signal_.meterError = E_PENDING;
+        signal_.windowsPeak = signal_.maxWindowsPeak = -1;
         try { thread_ = std::thread([this] { Run(); }); }
         catch (...) { CloseHandle(stop_); throw; }
     }
 
     QcEndpointStatus AudioSource::Status() const
     {
-        const int64_t lastPacket = lastPacketUs_.load(std::memory_order_relaxed);
-        return { kind_ == SourceKind::Microphone ? 1 : 0, static_cast<int>(stage_.load()), static_cast<int>(error_.load()),
-            mixRate_.load(), mixChannels_.load(), rate_, packets_.load(std::memory_order_relaxed),
-            lastPacket == 0 ? -1 : std::max<int64_t>(0, NowUs() - lastPacket) / 1000,
-            lastPacketPeak_.load(std::memory_order_relaxed) };
+        const auto signal = SignalStatus();
+        return { signal.flow, signal.stage, signal.error, signal.mixRate, signal.mixChannels, rate_, signal.packets,
+            signal.millisecondsSincePacket, logSignal_ ? signal.lastPeak : -1.f };
+    }
+
+    QcAudioSignal AudioSource::SignalStatus() const
+    {
+        std::lock_guard guard(signalLock_);
+        auto result = signal_;
+        result.flow = kind_ == SourceKind::Microphone ? eCapture : eRender;
+        result.stage = static_cast<int>(stage_.load());
+        result.error = error_.load();
+        result.trackIndex = track_;
+        result.requestedRate = rate_;
+        result.requestedChannels = Channels;
+        const int64_t now = NowUs();
+        result.millisecondsSincePacket = lastPacketUs_ == 0 ? -1 : std::max<int64_t>(0, now - lastPacketUs_) / 1000;
+        if (result.millisecondsSincePacket < 0) result.lastPeak = result.lastRms = -1.f;
+        if (now - recentPeakUs_ > 200'000) result.recentPeak = 0;
+        wcsncpy_s(result.selectedId, deviceId_.c_str(), _TRUNCATE);
+        return result;
     }
 
     AudioSource::~AudioSource()
     {
-        SetEvent(stop_);
+        RequestStop();
         if (thread_.joinable()) thread_.join();
         CloseHandle(stop_);
     }
@@ -600,6 +665,7 @@ namespace qc
         {
             error_ = init;
             Log("could not initialize COM for audio capture: 0x%08lx", static_cast<unsigned long>(init));
+            testFinished_ = true;
             return;
         }
         DWORD taskIndex = 0;
@@ -608,10 +674,17 @@ namespace qc
         // while it keeps failing.
         DWORD retryMs = 2000;
         HRESULT lastError = S_OK;
+        const ULONGLONG deadline = testDurationMs_ ? GetTickCount64() + testDurationMs_ : 0;
         while (WaitForSingleObject(stop_, 0) != WAIT_OBJECT_0)
         {
-            HRESULT hr = CaptureOnce();
+            error_ = S_OK;
+            HRESULT hr = CaptureOnce(deadline);
             error_ = hr;
+            if (testDurationMs_)
+            {
+                if (SUCCEEDED(hr)) stage_ = AudioStage::Complete;
+                break;
+            }
             if (FAILED(hr) && hr != lastError && track_ >= 0)
                 Log("audio track %d (%s) failed at stage %d: 0x%08lx", track_ + 1,
                     kind_ == SourceKind::Microphone ? "microphone input" : "playback loopback",
@@ -626,17 +699,36 @@ namespace qc
         }
         if (task) AvRevertMmThreadCharacteristics(task);
         CoUninitialize();
+        testFinished_ = true;
     }
 
-    HRESULT AudioSource::CaptureOnce()
+    HRESULT AudioSource::CaptureOnce(ULONGLONG deadline)
     {
         ComPtr<IAudioClient> client;
+        ComPtr<IAudioMeterInformation> meter;
+        const bool inspect = track_ >= 0 || deadline != 0;
+        const auto stopped = [&] { return (deadline && GetTickCount64() >= deadline) ||
+            WaitForSingleObject(stop_, 0) == WAIT_OBJECT_0; };
+        QcAudioSignal info{};
+        info.actualFlow = eAll;
+        info.mixError = info.meterError = E_PENDING;
+        info.windowsPeak = info.maxWindowsPeak = -1;
+        if (inspect)
+        {
+            std::lock_guard guard(signalLock_);
+            signal_ = info;
+            lastPacketUs_ = recentPeakUs_ = 0;
+        }
         HRESULT hr;
         if (kind_ == SourceKind::Microphone || kind_ == SourceKind::RenderLoopback)
         {
-            AudioStage stage{};
-            hr = ActivateEndpoint(kind_ == SourceKind::Microphone ? eCapture : eRender, deviceId_, client, &stage);
-            stage_ = stage;
+            hr = ActivateEndpoint(kind_ == SourceKind::Microphone ? eCapture : eRender, deviceId_, client, &stage_,
+                inspect ? &info : nullptr, inspect ? &meter : nullptr);
+            if (inspect)
+            {
+                std::lock_guard guard(signalLock_);
+                signal_ = info;
+            }
         }
         else
         {
@@ -654,15 +746,27 @@ namespace qc
         }
         if (FAILED(hr)) return hr;
 
-        if (track_ >= 0)
+        if (inspect)
         {
             WAVEFORMATEX* mix = nullptr;
-            if (SUCCEEDED(client->GetMixFormat(&mix)) && mix)
+            info.mixError = client->GetMixFormat(&mix);
+            if (SUCCEEDED(info.mixError) && mix)
             {
-                mixRate_ = static_cast<int>(mix->nSamplesPerSec);
-                mixChannels_ = mix->nChannels;
-                CoTaskMemFree(mix);
+                info.mixRate = static_cast<int>(mix->nSamplesPerSec);
+                info.mixChannels = mix->nChannels;
+                info.mixTag = info.mixSubtype = mix->wFormatTag;
+                info.mixBits = info.mixValidBits = mix->wBitsPerSample;
+                if (mix->wFormatTag == WAVE_FORMAT_EXTENSIBLE && mix->cbSize >= 22)
+                {
+                    const auto& ext = *reinterpret_cast<const WAVEFORMATEXTENSIBLE*>(mix);
+                    info.mixValidBits = ext.Samples.wValidBitsPerSample;
+                    info.mixChannelMask = static_cast<int>(ext.dwChannelMask);
+                    info.mixSubtype = static_cast<int>(ext.SubFormat.Data1);
+                }
             }
+            CoTaskMemFree(mix);
+            std::lock_guard guard(signalLock_);
+            signal_ = info;
         }
 
         WAVEFORMATEX format{};
@@ -676,8 +780,15 @@ namespace qc
         DWORD flags = AUDCLNT_STREAMFLAGS_EVENTCALLBACK | AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM | AUDCLNT_STREAMFLAGS_SRC_DEFAULT_QUALITY;
         if (kind_ != SourceKind::Microphone) flags |= AUDCLNT_STREAMFLAGS_LOOPBACK;
         stage_ = AudioStage::Initialize;
+        if (stopped()) return S_OK;
         hr = client->Initialize(AUDCLNT_SHAREMODE_SHARED, flags, 2000000 /* 200 ms */, 0, &format, nullptr);
         if (FAILED(hr)) return hr;
+        if (inspect)
+        {
+            std::lock_guard guard(signalLock_);
+            signal_.captureRate = format.nSamplesPerSec;
+            signal_.captureChannels = format.nChannels;
+        }
 
         stage_ = AudioStage::Event;
         ComPtr<IAudioCaptureClient> capture;
@@ -686,38 +797,37 @@ namespace qc
         HANDLE ready = CreateEventW(nullptr, FALSE, FALSE, nullptr);
         if (!ready) return HRESULT_FROM_WIN32(GetLastError());
         hr = client->SetEventHandle(ready);
-        if (SUCCEEDED(hr))
+        if (SUCCEEDED(hr) && !stopped())
         {
             stage_ = AudioStage::Start;
             hr = client->Start();
         }
-        if (FAILED(hr))
+        if (FAILED(hr) || stopped())
         {
+            if (SUCCEEDED(hr) && stage_ == AudioStage::Start) client->Stop();
             CloseHandle(ready);
             return hr;
         }
-        packets_ = 0;
-        lastPacketUs_ = 0;
-        lastPacketPeak_ = -1;
         error_ = S_OK;
         stage_ = AudioStage::Streaming;
-        int64_t sampleStarted = measureSignal_ ? NowUs() : 0;
+        int64_t sampleStarted = logSignal_ ? NowUs() : 0;
+        int64_t nextMeterUs = 0;
         int samplePackets = 0;
         float samplePeak = 0;
-        if (measureSignal_)
+        if (logSignal_)
             Log("audio track %d (%s) started; endpoint mix %d Hz/%d ch, capture %d Hz/%d ch", track_ + 1,
                 kind_ == SourceKind::Microphone ? "microphone input" : "playback loopback",
-                mixRate_.load(), mixChannels_.load(), rate_, Channels);
+                info.mixRate, info.mixChannels, rate_, Channels);
         bool first = true; // a new stream, which doesn't follow on from the last
 
         HANDLE waits[] = { stop_, ready };
-        while (true)
+        while (!stopped())
         {
-            DWORD signaled = WaitForMultipleObjects(2, waits, FALSE, 500);
+            DWORD signaled = WaitForMultipleObjects(2, waits, FALSE, inspect ? 100 : 500);
             if (signaled == WAIT_OBJECT_0) break;
             if (signaled == WAIT_FAILED) { hr = HRESULT_FROM_WIN32(GetLastError()); break; }
             UINT32 packetFrames = 0;
-            while (SUCCEEDED(hr = capture->GetNextPacketSize(&packetFrames)) && packetFrames > 0)
+            while ((!deadline || !stopped()) && SUCCEEDED(hr = capture->GetNextPacketSize(&packetFrames)) && packetFrames > 0)
             {
                 BYTE* data = nullptr;
                 UINT32 frames = 0;
@@ -726,33 +836,58 @@ namespace qc
                 hr = capture->GetBuffer(&data, &frames, &bufferFlags, &devicePosition, &qpcPosition);
                 if (FAILED(hr)) break;
                 // qpcPosition is the performance counter in 100 ns units: same clock as NowUs().
-                int64_t timeUs = (qpcPosition == 0 || (bufferFlags & AUDCLNT_BUFFERFLAGS_TIMESTAMP_ERROR))
+                const bool fallback = qpcPosition == 0 || (bufferFlags & AUDCLNT_BUFFERFLAGS_TIMESTAMP_ERROR);
+                int64_t timeUs = fallback
                     ? NowUs() - static_cast<int64_t>(frames) * 1000000 / rate_
                     : static_cast<int64_t>(qpcPosition / 10);
-                bool silent = (bufferFlags & AUDCLNT_BUFFERFLAGS_SILENT) != 0;
-                if (track_ >= 0)
+                const bool silent = (bufferFlags & AUDCLNT_BUFFERFLAGS_SILENT) != 0;
+                const auto* samples = silent ? nullptr : reinterpret_cast<const float*>(data);
+                const bool discontinuity = (bufferFlags & AUDCLNT_BUFFERFLAGS_DATA_DISCONTINUITY) != 0;
+                if (inspect && frames > 0)
                 {
-                    if (measureSignal_)
+                    const auto levels = MeasureAudioLevels(samples, static_cast<size_t>(frames) * format.nChannels);
+                    const int64_t now = NowUs();
+                    std::lock_guard guard(signalLock_);
+                    ++signal_.packets;
+                    signal_.silentPackets += silent;
+                    signal_.nonzeroPackets += levels.peak > 0;
+                    signal_.timestampFallbacks += fallback;
+                    signal_.discontinuities += discontinuity;
+                    signal_.lastPeak = levels.peak;
+                    signal_.lastRms = levels.rms;
+                    signal_.maxPeak = std::max(signal_.maxPeak, levels.peak);
+                    signal_.maxRms = std::max(signal_.maxRms, levels.rms);
+                    lastPacketUs_ = now;
+                    if (levels.peak >= signal_.recentPeak || now - recentPeakUs_ > 150'000)
                     {
-                        float peak = AudioPacketPeak(silent ? nullptr : reinterpret_cast<const float*>(data),
-                            static_cast<size_t>(frames) * Channels);
-                        lastPacketPeak_.store(peak, std::memory_order_relaxed);
-                        samplePeak = std::max(samplePeak, peak);
+                        signal_.recentPeak = levels.peak;
+                        recentPeakUs_ = now;
+                    }
+                    if (logSignal_)
+                    {
+                        samplePeak = std::max(samplePeak, levels.peak);
                         ++samplePackets;
                     }
-                    packets_.fetch_add(1, std::memory_order_relaxed);
-                    lastPacketUs_.store(NowUs(), std::memory_order_relaxed);
                 }
-                bool restart = first || (bufferFlags & AUDCLNT_BUFFERFLAGS_DATA_DISCONTINUITY) != 0;
-                sink_->Push(silent ? nullptr : reinterpret_cast<const float*>(data), frames, timeUs, restart);
+                if (sink_) sink_->Push(samples, frames, timeUs, first || discontinuity);
                 first = false;
                 hr = capture->ReleaseBuffer(frames);
                 if (FAILED(hr)) break;
             }
             if (FAILED(hr)) break;
-            if (measureSignal_)
+            const int64_t now = inspect ? NowUs() : 0;
+            if (meter && now >= nextMeterUs)
             {
-                int64_t now = NowUs();
+                float peak = -1;
+                HRESULT meterResult = meter->GetPeakValue(&peak);
+                std::lock_guard guard(signalLock_);
+                signal_.windowsPeak = SUCCEEDED(meterResult) ? peak : -1.f;
+                signal_.maxWindowsPeak = std::max(signal_.maxWindowsPeak, signal_.windowsPeak);
+                signal_.meterError = meterResult;
+                nextMeterUs = now + 100'000;
+            }
+            if (logSignal_)
+            {
                 if (now - sampleStarted >= 5'000'000)
                 {
                     Log("audio track %d (%s): %d packets, peak %.4f", track_ + 1,

@@ -6,7 +6,7 @@ internal enum EndpointFlow { Playback, Microphone }
 internal sealed record AudioEndpoint(EndpointFlow Flow, string Id, string Name, bool IsDefault);
 
 internal sealed record EndpointTrack(EndpointFlow Flow, string DeviceId, string Label, bool Enabled = true);
-internal enum EndpointStage { Pending, Com, EndpointLookup, EndpointFlow, Activate, Initialize, Event, Start, Streaming, Read }
+internal enum EndpointStage { Pending, Com, EndpointLookup, EndpointFlow, Activate, Initialize, Event, Start, Streaming, Read, Complete }
 
 internal sealed record EndpointStatus(int TrackIndex, EndpointFlow Flow, EndpointStage Stage, int HResult,
     int MixRate, int MixChannels, int CaptureRate, long PacketCount, long? MillisecondsSincePacket, float? LastPacketPeak);
