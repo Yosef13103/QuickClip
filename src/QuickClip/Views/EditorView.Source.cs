@@ -66,10 +66,16 @@ public partial class EditorView
             UnavailableSourceText.Text = EditorSource.Message(state) +
                 "\n\nYour edits are kept in this editor. Restore the original source to export them.";
         }
+        bool showBlockingPrompt = AppProfile.IsPersonal && !ready && _media != null;
+        MissingSourceOverlay.Visibility = showBlockingPrompt ? Visibility.Visible : Visibility.Collapsed;
+        if (showBlockingPrompt)
+            MissingSourceOverlayMessage.Text = EditorSource.Message(state) +
+                "\n\nYou can restore the recording, open something else, or clear this view.";
         Video.Visibility = ready ? Visibility.Visible : Visibility.Hidden;
-        UnavailableSource.Visibility = ready ? Visibility.Collapsed : Visibility.Visible;
+        UnavailableSource.Visibility = ready || showBlockingPrompt ? Visibility.Collapsed : Visibility.Visible;
         Timeline.HasMedia = ready && _media != null;
         UpdateUiState();
+        if (AppProfile.IsPersonal) ClearMissingSourceButton.IsEnabled = _media != null && _exportCts == null;
         UpdateViewSeek();
     }
 
@@ -82,6 +88,57 @@ public partial class EditorView
     }
 
     private async void RetrySource_Click(object sender, RoutedEventArgs e) => await RefreshSourceAsync();
+
+    private void ClearUnavailableSource_Click(object sender, RoutedEventArgs e)
+    {
+        if (!AppProfile.IsPersonal || SourceReady || _media == null || _closed || _loading ||
+            _deletingMedia || _exportCts != null || _recheckingSource || MetadataEditor.IsSaving)
+            return;
+        if (!ConfirmDiscardDraft()) return;
+
+        // Forget the unavailable source in this editor only. Never delete media or Gallery entries.
+        StopSourcePreview();
+        _keyframeCts?.Cancel();
+        _stalePreviews.AddRange(_tracks.Select(t => t.PreviewFile).OfType<string>());
+        foreach (var track in _tracks)
+        {
+            track.Changed -= OnTrackChanged;
+            track.Moved -= OnSoundMoved;
+            track.RemoveRequested -= RemoveSound;
+        }
+        _tracks.Clear();
+        DeleteStalePreviews();
+        MetadataEditor.Clear();
+        _media = null;
+        _sourceStamp = null;
+        _openedDraft = null;
+        _undo = null;
+        _lastExport = null;
+        _sourceState = EditorSourceState.Ready;
+        _sourceSuspended = false;
+
+        MissingSourceOverlay.Visibility = UnavailableSource.Visibility = Visibility.Collapsed;
+        Video.Visibility = Visibility.Visible;
+        RevealButton.Visibility = UndoButton.Visibility = Visibility.Collapsed;
+        StatusText.Text = "";
+        FileTitle = null;
+        FileNameText.Text = "No file open";
+        FileInfoText.Text = "Open a video or audio file, or drop one onto this window.";
+        FileNameText.ToolTip = null;
+        FavoriteButton.Tag = false;
+        MetadataGroup.Visibility = Visibility.Collapsed;
+        _timeline.Reset(0);
+        Timeline.HasMedia = false;
+        Timeline.SetBookmarks([]);
+        _crop.Reset(0, 0);
+        LoopToggle.IsChecked = false;
+        UpdateTrackHeader();
+        UpdateUiState();
+        UpdateViewSeek();
+        ShowMessage("Open a video or drop it here");
+        TitleChanged?.Invoke();
+        Root.Focus();
+    }
 
     private async Task RefreshSourceAsync()
     {
