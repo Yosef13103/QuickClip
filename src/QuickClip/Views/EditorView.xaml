@@ -108,7 +108,7 @@
         </DockPanel>
 
         <!-- Video -->
-        <Border Grid.Row="1" Grid.Column="0" Background="Black">
+        <Border Grid.Row="1" Grid.Column="0" Background="#282828">
             <Grid>
                 <controls:VideoHost x:Name="Video" />
                 <StackPanel x:Name="UnavailableSource" Visibility="Collapsed" MaxWidth="460"
