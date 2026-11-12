@@ -17,6 +17,56 @@
                 <Setter Property="FontWeight" Value="SemiBold" />
                 <Setter Property="Margin" Value="0,10,0,4" />
             </Style>
+            <!-- Clear visual hierarchy: master switch lives in Recording, never beside Save Clip. -->
+            <Style x:Key="ReplayMasterControl" TargetType="CheckBox">
+                <Setter Property="Focusable" Value="True" />
+                <Setter Property="Cursor" Value="Hand" />
+                <Setter Property="AutomationProperties.Name" Value="Enable instant replay" />
+                <Setter Property="Template">
+                    <Setter.Value>
+                        <ControlTemplate TargetType="CheckBox">
+                            <Border x:Name="MasterCard" Background="#25272B" BorderBrush="#454A51"
+                                    BorderThickness="1" CornerRadius="9" Padding="15,13">
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+                                    <StackPanel VerticalAlignment="Center">
+                                        <TextBlock Text="Game and desktop capture" FontWeight="SemiBold" FontSize="15"
+                                                   Foreground="#F3F4F6" />
+                                        <TextBlock Text="Enable instant replay for recognized games"
+                                                   FontSize="12" Foreground="#AEB4BC" Margin="0,5,10,0"
+                                                   TextWrapping="Wrap" />
+                                    </StackPanel>
+                                    <Grid Grid.Column="1" Width="48" Height="26" VerticalAlignment="Center">
+                                        <Border x:Name="SwitchTrack" CornerRadius="13" Background="#4D5561" />
+                                        <Ellipse x:Name="SwitchThumb" HorizontalAlignment="Left" Margin="4,0,0,0"
+                                                 VerticalAlignment="Center" Width="18" Height="18" Fill="#F5F6F8" />
+                                    </Grid>
+                                </Grid>
+                            </Border>
+                            <ControlTemplate.Triggers>
+                                <Trigger Property="IsChecked" Value="True">
+                                    <Setter TargetName="SwitchTrack" Property="Background" Value="#168F87" />
+                                    <Setter TargetName="SwitchThumb" Property="HorizontalAlignment" Value="Right" />
+                                    <Setter TargetName="SwitchThumb" Property="Margin" Value="0,0,4,0" />
+                                    <Setter TargetName="MasterCard" Property="BorderBrush" Value="#287E79" />
+                                </Trigger>
+                                <Trigger Property="IsMouseOver" Value="True">
+                                    <Setter TargetName="MasterCard" Property="Background" Value="#2C3035" />
+                                </Trigger>
+                                <Trigger Property="IsKeyboardFocused" Value="True">
+                                    <Setter TargetName="MasterCard" Property="BorderBrush" Value="#81CAC3" />
+                                </Trigger>
+                                <Trigger Property="IsEnabled" Value="False">
+                                    <Setter TargetName="MasterCard" Property="Opacity" Value="0.5" />
+                                </Trigger>
+                            </ControlTemplate.Triggers>
+                        </ControlTemplate>
+                    </Setter.Value>
+                </Setter>
+            </Style>
             <Style x:Key="Row" TargetType="Grid">
                 <Setter Property="Margin" Value="0,10,0,0" />
             </Style>
@@ -156,7 +206,7 @@
                     <TextBlock Text="Instant replay" Style="{StaticResource CardTitle}" />
                     <TextBlock Style="{StaticResource Hint}"
                                Text="QuickClip keeps the last few minutes of your screen in memory; press the hotkey to save them as a clip. Nothing is written to disk until you do." />
-                    <CheckBox x:Name="RecordingCheck" Content="Enable instant replay" Margin="0,10,0,0" Checked="Changed" Unchecked="Changed" />
+                    <CheckBox x:Name="RecordingCheck" Style="{StaticResource ReplayMasterControl}" Margin="0,14,0,2" Checked="Changed" Unchecked="Changed" />
 
                     <Grid Style="{StaticResource Row}">
                         <Grid.ColumnDefinitions>
