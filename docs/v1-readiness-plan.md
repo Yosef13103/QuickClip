@@ -1,0 +1,38 @@
+# QuickClip Personal — v1 acceptance and owner UX feedback
+
+This plan tracks the owner’s November 13 post-field-test feedback. The working consolidated code was merged to `custom/main` in PR #18 (`52972f6`), with Gallery test documentation in PR #9 (`5511272`). This is **not** evidence of full v1 hardware acceptance. Duration timing investigation #21 is separate and unresolved.
+
+## P0 — recording behavior and privacy
+
+- [ ] **Master Instant Replay switch and onboarding (request 1).** Clear master On/Off at a prominent location. Fresh Personal profiles offer a one-time *Enable instant replay?* action; never capture a private desktop before informed opt-in. Once enabled, wait for an eligible game without starting the capture/encoder graph while idle. State persists across restart.
+- [ ] **Two independent concepts, not a source-mode drop-down (request 2).** Master On continuously monitors for eligible games. A temporary *Manual desktop recording* On/Off override takes priority; switching it Off returns to game-triggered behavior without changing the master. Source-specific settings: automatic game capture follows the game, manual capture lets the user pick one or multiple displays, area, crop and output.
+- [ ] **Game-following across monitors (requests 5, 12).** Track verified HWND/process identity and the actual physical display on every lifecycle tick. Follow a game from DISPLAY1 to DISPLAY2 without recording the now-unrelated old display. Discord alt-tab must not change game association. User-facing scope/consent should be one understandable initial authorization, without a separate *Allow selected display during games* workflow that strands games on another monitor. **OS caveat:** Windows 10 game-window WGC may require explicit consent and a capture border; DDA records the whole monitor, not game-only pixels. Never silently broaden recording to unrelated windows or bypass OS security. If no authorized capture backend exists, report a user-friendly unavailable state.
+- [ ] **Multiple manual desktop displays (request 2 extension).** Read Windows’ current monitor topology, actual relative positions, physical mode/scale, and render a read-only click-to-select diagram (one/some/all monitors). Explicitly define whether output is one stitched canvas or independent files/streams. Ensure display-specific output sizing/crop, mixed-DPI, alignment, negative coordinates, hotplug and GPU cost. Prioritize single-display reliability, then multi-display.
+- [ ] **Human-readable recording state (request 4).** Replace user-facing `Armed` with `Waiting for a game`, `Recording [game]`, `Recording desktop`, `Off`, or `Needs attention`. Internal enum may remain.
+- [ ] **Catalog roles and blacklist (request 10).** Games, companion apps (Discord, Zoom, Steam launchers), utilities and ignored executables need distinct comprehensible roles and management UI. Exact executable/block rules with user override. Don’t classify embedded helper EXEs such as `Cyberpunk 2077/bin/x64/CrashReporter/7za.exe` as games merely because of their parent game folder. Safe partial scan and user-approved scan roots remain necessary. No fixed 32-file manual game entry limit (initial fix in #26).
+
+## P1 — settings, notifications, editing
+
+- [ ] **Vertical icon Settings rail (request 3).** Replace horizontal top tabs with accessible secondary left navigation, distinct from app primary rail. Scale across DPI (initial implementation in #26; visual acceptance pending).
+- [ ] **UI scaling (request 6).** General page provides coupled and separate *Interface scale* and *Text size*. Responsive layout, DPI/keyboard accessibility, persistent user choices and sane minimums/maximums.
+- [ ] **Notification choice (request 7).** A top-level *Notify when clip saved* On/Off, with an obvious Windows vs QuickClip overlay selector. Make overlay enabled state visible rather than hiding it in an Expander (initial fix in #26). Optional *both* mode must be explicit.
+- [ ] **Rich customizable QuickClip overlay (request 8).** Show clip/game/title, outcome, length and source with per-field toggles. Directional slide-in or other restrained high-quality WPF animations; reduced-motion support. Optional user-supplied image replacement with safe decoding, file-size/dimension bounds, fallback on invalid or missing image. Allow display/position/timeout. Standard Windows notifications are OS placed: do **not** promise a custom display picker for system toasts if Windows does not expose one.
+- [ ] **Notification sound endpoint (related feedback).** Default output: current Windows system default. Optional picker of any Windows render device (physical or virtual, **no Sonar dependency or driver installation**). Output only the chime to that device; keep recorded tracks unchanged. Warn if the chosen output is captured and handle missing endpoint without silent redirection.
+- [ ] **Quiet idle clip hotkey (request 11).** Default Personal to suppress repeated expected *Clip not saved* feedback while master Off or waiting for a game, with a Settings toggle to opt into warnings. Never suppress real errors while capture should be active (initial fix in #26).
+- [ ] **Marker precision and interaction (request 13).** The original save request can precede the successful completion chime by mux latency. Define visually whether marker means *save hotkey pressed* or *save completed*; don't silently move the marker to sound time. Tooltip `Previous clip saved`; optionally link to the previous clip by stable identity and verify file still exists at click time. Missing/deleted media must fail gracefully.
+- [ ] **Editor Loop off by default (request 14).** Reset for each Personal media open, do not revive a sticky preference (initial fix in #26).
+- [ ] **Missing-source blocking prompt (request 15).** Dim/disable remaining editor interactions, show a centered `Recording is missing` prompt with *Retry*, *Open another file*, and *Clear editor*. Clearing only removes in-memory source/draft state; warn if edits would be lost; never delete a file as part of clearing. Handle WPF native video child-window layering and export cancellation.
+- [ ] **Manual game picker capacity (request 9).** No arbitrary count cap; safety limits should be incremental scan time/memory/path validation rather than rejecting legitimate large selections (initial fix in #26).
+
+## Release readiness
+
+- [ ] Each merged PR has strict Personal and Upstream CI at the exact commit.
+- [ ] Owner-supervised game launch/exit, idle-zero-capture, Discord focus, DISPLAY1→DISPLAY2 move, consent boundary, and manual override tests on real Windows 10/11 hardware.
+- [ ] Real playback device and mic isolation, notification tone routing, and replay A/V synchronization tests.
+- [ ] Replay 15/30/60/120-second duration and decoder first-frame seek tests (#21 is evidence, **not** a production fix).
+- [ ] WPF layout, keyboard and scaling acceptance at 100/125/150% DPI; missing-source/Recycle Bin/regression checks.
+- [ ] Separate Personal packaging/startup/Explorer registration from Upstream; verify install/uninstall/side-by-side ownership and defaults. Existing development-profile startup/Explorer controls remain disabled.
+- [ ] Cut v1 only after actual field acceptance. Keep `main` upstream-compatible; use small reviewed PRs to `custom/main`, and do not delete remote branches still tied to Codex worktrees.
+
+### Source of truth
+Owner feedback: post-PR #18 local field-test notes on November 13, 2026. Exact behavior and consent restrictions take priority over UI copy.
