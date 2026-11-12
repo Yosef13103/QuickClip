@@ -583,11 +583,21 @@ internal sealed class Recorder
                         ? (double)video.FpsNumerator / video.FpsDenominator : null)
                     : null,
             };
-            if (AppProfile.IsPersonal) ClipDetailsStore.TryWrite(path, new ClipDetails(capture, folder)
+            if (AppProfile.IsPersonal)
             {
-                Bookmarks = receipt.Markers.Select(mark => new ClipBookmark(mark.Offset.TotalSeconds, mark.Marker.Label ?? "Marker")
-                { SessionId = mark.Marker.SessionId }).ToArray(),
-            });
+                ClipDetailsStore.TryWrite(path, new ClipDetails(capture, folder)
+                {
+                    Bookmarks = receipt.Markers.Select(mark => new ClipBookmark(mark.Offset.TotalSeconds, mark.Marker.Label ?? "Marker")
+                    { SessionId = mark.Marker.SessionId }).ToArray(),
+                });
+                // The successful save is a marker for later clips, not this clip's own timeline.
+                // Anchor it to the original request frame so slow muxing cannot move the marker.
+                lock (_gate)
+                {
+                    if (IsRunning && _replaySession == sessionId && CaptureEngine.GetReplayPosition() is { } active)
+                        _replayMarkers.AddSavedClip(position, active, sessionId, folder, mediaTitle);
+                }
+            }
             int displaySeconds = requestedSeconds.HasValue ? (int)(actual?.TotalSeconds ?? 0) : seconds;
             var clip = new SavedClip(path, folder, displaySeconds);
             Log.Write($"Saved clip {path}");

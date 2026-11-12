@@ -57,6 +57,18 @@ internal sealed class ReplayMarkers
         return marker;
     }
 
+    /// <summary>Only a successfully published clip creates a marker for future overlapping saves.
+    /// Its position is the original save request, not the later completion sound.</summary>
+    internal LiveReplayMarker? AddSavedClip(CaptureEngine.ReplayPosition savedAt,
+        CaptureEngine.ReplayPosition active, Guid sessionId, string game, string source)
+    {
+        if (savedAt.Sequence == 0 || savedAt.Session != active.Session ||
+            savedAt.Sequence < active.FirstSequence || savedAt.Sequence > active.Sequence)
+            return null;
+        Prune(active, sessionId);
+        return Add(savedAt, sessionId, game, source, "Clip saved");
+    }
+
     public Candidate[] Snapshot(CaptureEngine.ReplayPosition position, Guid sessionId)
     {
         Prune(position, sessionId);
