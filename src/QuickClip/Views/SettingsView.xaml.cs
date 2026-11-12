@@ -616,12 +616,17 @@ public partial class SettingsView : UserControl
         }
         if (Hotkey.IsModifierKey(key)) return;
 
-        var s = AppSettings.Current;
         var hotkey = key is Key.Back or Key.Delete ? new Hotkey(0, 0) : Hotkey.FromWpf(Keyboard.Modifiers, key);
-        s.HotkeyModifiers = hotkey.Modifiers;
-        s.HotkeyKey = hotkey.VirtualKey;
-        s.Save();
+        var result = App.Host?.SetHotkey(RecordingCommand.SaveClip, hotkey);
+        if (result == null)
+        {
+            RecordingHotkeys.Write(AppSettings.Current, RecordingCommand.SaveClip, hotkey);
+            AppSettings.Current.Save();
+        }
         EndHotkeyCapture();
+        if (result is HotkeyRegistration.Duplicate or HotkeyRegistration.Unavailable or HotkeyRegistration.Invalid)
+            HotkeyStatus.Text = result == HotkeyRegistration.Duplicate ? "QuickClip already uses this shortcut."
+                : "Windows could not register this shortcut. The previous binding was kept.";
     }
 
     private void HotkeyButton_LostFocus(object sender, KeyboardFocusChangedEventArgs e)
