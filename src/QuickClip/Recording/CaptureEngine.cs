@@ -122,7 +122,7 @@ internal static partial class CaptureEngine
             if (_initialized) return;
             SetDllDirectory(Path.Combine(AppContext.BaseDirectory, "ffmpeg"));
             qc_set_log(LogDelegate);
-            _initialized = true;
+            Volatile.Write(ref _initialized, true);
         }
     }
 

@@ -30,7 +30,7 @@ public partial class SettingsView
     }
 
     private readonly List<MicrophoneMeter> _endpointMeters = [], _legacyMeters = [];
-    private readonly NativeAudioSignal[] _signalBuffer = new NativeAudioSignal[EndpointAudio.MaxTracks];
+    private NativeAudioSignal[] _signalBuffer = new NativeAudioSignal[EndpointAudio.MaxTracks];
     private DispatcherTimer? _microphoneTimer;
     private MicrophoneMeter? _testingMeter;
     private long _microphoneToken;
@@ -49,6 +49,8 @@ public partial class SettingsView
     private void UpdateMicrophoneMonitoring()
     {
         if (_microphoneTimer == null) return;
+        if (_legacyMeters.Count > _signalBuffer.Length)
+            _signalBuffer = new NativeAudioSignal[_legacyMeters.Count];
         if (_testingMeter is { Panel.IsVisible: false }) StopMicrophoneTest("Test stopped.");
         if (AudioCard.IsVisible && _endpointMeters.Concat(_legacyMeters).Any(row => row.Panel.IsVisible))
             _microphoneTimer.Start();

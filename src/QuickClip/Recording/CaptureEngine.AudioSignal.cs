@@ -26,15 +26,23 @@ internal static partial class CaptureEngine
     private static readonly int AudioSignalSize = Marshal.SizeOf<NativeAudioSignal>();
 
     internal static int ReadAudioSignals(NativeAudioSignal[] buffer) =>
-        qc_read_audio_signals(buffer, buffer.Length, AudioSignalSize);
+        Volatile.Read(ref _initialized) ? qc_read_audio_signals(buffer, buffer.Length, AudioSignalSize) : 0;
 
-    internal static int StartMicrophoneTest(string endpointId, out long token, int durationMs = MicrophoneTestDurationMs) =>
-        qc_start_mic_test(endpointId, durationMs, out token);
+    internal static int StartMicrophoneTest(string endpointId, out long token, int durationMs = MicrophoneTestDurationMs)
+    {
+        Initialize();
+        return qc_start_mic_test(endpointId, durationMs, out token);
+    }
 
     internal static NativeAudioSignal? ReadMicrophoneTest(long token) =>
         qc_read_mic_test(token, out var signal, AudioSignalSize) == 1 ? signal : null;
 
     internal static void StopMicrophoneTest(long token) => qc_stop_mic_test(token);
+
+    internal static void DrainAudioOnShutdown()
+    {
+        if (Volatile.Read(ref _initialized)) Stop();
+    }
 
     [DllImport(Dll)] private static extern int qc_read_audio_signals([Out] NativeAudioSignal[] signals, int capacity, int size);
     [DllImport(Dll, CharSet = CharSet.Unicode, ExactSpelling = true)]
