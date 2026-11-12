@@ -218,7 +218,7 @@ public partial class SettingsView : UserControl
             Select(NvencPresetCombo, s.NvencPreset);
             DiagnosticsCheck.IsChecked = s.RecordingDiagnostics;
             CursorCheck.IsChecked = s.CaptureCursor;
-            if (AppProfile.IsPersonal) RecordingCheck.Content = "Enable QuickClip recording";
+            if (!AppProfile.IsPersonal) RecordingCheck.Content = "Enable QuickClip recording";
             GameSourceItem.Content = AppProfile.IsPersonal ? "Record eligible games automatically" : "Automatic - Game First";
             DisplaySourceItem.Content = AppProfile.IsPersonal ? "Manual desktop capture only" : "Selected monitor";
             SourceCombo.SelectedIndex = s.PreferGameWindow ? 0 : 1;
