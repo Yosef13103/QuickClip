@@ -114,6 +114,15 @@ public partial class GamesSettingsView : UserControl
             PickExecutables(entry);
     }
 
+    internal static string? ValidateManualGameExecutables(IReadOnlyList<string> paths)
+    {
+        if (paths.Count == 0 || paths.Any(path => CatalogPaths.LocalPath(path) == null || !CatalogPaths.IsExecutable(path)))
+            return "Choose one or more local Windows game executable files (.exe).";
+        if (paths.Any(CatalogPaths.IsDiscordProcess))
+            return "Discord is a companion app, not a game. It cannot trigger automatic game recording.";
+        return null; // No arbitrary count limit: large collections of manually associated executables are valid.
+    }
+
     private void PickExecutables(CatalogEntry? entry)
     {
         var dialog = new OpenFileDialog { Filter = "Windows executables|*.exe", Multiselect = true,
@@ -122,9 +131,10 @@ public partial class GamesSettingsView : UserControl
         Guid id = entry == null ? Guid.NewGuid() : Guid.ParseExact(entry.Id[7..], "N");
         var paths = dialog.FileNames.Select(CatalogPaths.LocalPath).OfType<string>()
             .Distinct(StringComparer.OrdinalIgnoreCase).ToImmutableArray();
-        if (paths.Length == 0 || paths.Length > 32 || paths.Any(path => !CatalogPaths.IsExecutable(path) || CatalogPaths.IsDiscordProcess(path)))
+        string? selectionError = ValidateManualGameExecutables(paths);
+        if (selectionError != null)
         {
-            Status.Text = "Choose up to 32 local game executables. Discord is a companion app.";
+            Status.Text = selectionError;
             return;
         }
         var request = State.Request;

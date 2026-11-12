@@ -71,8 +71,30 @@ internal sealed class Recorder
         }
     }
 
+    /// <summary>The active source and its actual capture scope, not merely the native DDA label.</summary>
+    internal static string CaptureStatusLabel(RecordingMode mode, string? game, string? display, string fallback) =>
+        mode switch
+        {
+            RecordingMode.GameTriggered when !string.IsNullOrWhiteSpace(game) =>
+                $"Game: {game} · Entire display {DisplayLabel(display)}",
+            RecordingMode.ManualDesktop => $"Desktop recording · {DisplayLabel(display)}",
+            _ => fallback,
+        };
+
+    private static string DisplayLabel(string? display)
+    {
+        if (string.IsNullOrWhiteSpace(display)) return "(unknown display)";
+        int pos = display.LastIndexOf("DISPLAY", StringComparison.OrdinalIgnoreCase);
+        return pos >= 0 ? "Display " + display[(pos + "DISPLAY".Length)..] : display;
+    }
+
     public RecorderState State => new(IsRunning, Error,
-        IsRunning ? $"{_summary} · {_captureTarget?.Game ?? _monitorTarget}" : _summary, _chatApps, _musicApps)
+        IsRunning
+            ? AppProfile.IsPersonal
+                ? CaptureStatusLabel(_lifecycle.Mode, _sessionGame, _sessionDisplay,
+                    $"{_summary} · {_captureTarget?.Game ?? _monitorTarget}")
+                : $"{_summary} · {_captureTarget?.Game ?? _monitorTarget}"
+            : _summary, _chatApps, _musicApps)
     {
         Mode = AppProfile.IsPersonal ? _lifecycle.Mode : IsRunning ? RecordingMode.ManualDesktop : RecordingMode.Off,
     };

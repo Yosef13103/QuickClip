@@ -30,6 +30,7 @@ public partial class SettingsView : UserControl
         InitializeComponent();
         BuildHotkeyRows();
         SettingsSections.Visibility = AppProfile.IsPersonal ? Visibility.Visible : Visibility.Collapsed;
+        SectionsColumn.Width = AppProfile.IsPersonal ? new GridLength(176) : new GridLength(0);
         LibraryOptions.Visibility = AppProfile.IsPersonal ? Visibility.Visible : Visibility.Collapsed;
         if (AppProfile.IsPersonal)
         {
@@ -217,8 +218,8 @@ public partial class SettingsView : UserControl
             Select(NvencPresetCombo, s.NvencPreset);
             DiagnosticsCheck.IsChecked = s.RecordingDiagnostics;
             CursorCheck.IsChecked = s.CaptureCursor;
-            if (AppProfile.IsPersonal) RecordingCheck.Content = "Enable QuickClip recording";
-            GameSourceItem.Content = AppProfile.IsPersonal ? "Arm automatic game replay" : "Automatic - Game First";
+            if (!AppProfile.IsPersonal) RecordingCheck.Content = "Enable QuickClip recording";
+            GameSourceItem.Content = AppProfile.IsPersonal ? "Record eligible games automatically" : "Automatic - Game First";
             DisplaySourceItem.Content = AppProfile.IsPersonal ? "Manual desktop capture only" : "Selected monitor";
             SourceCombo.SelectedIndex = s.PreferGameWindow ? 0 : 1;
             ShowGameWindowState();
@@ -243,6 +244,7 @@ public partial class SettingsView : UserControl
             MinTrayCheck.IsChecked = s.MinimizeToTray;
             CloseTrayCheck.IsChecked = s.CloseToTray;
             SoundCheck.IsChecked = s.ClipSound;
+            IdleSaveNotificationCheck.IsChecked = s.ShowInactiveSaveNotifications;
             ConfirmDeleteCheck.IsChecked = s.ConfirmClipDeletion;
             MotionBlurCheck.IsChecked = s.ShareMotionBlur;
             ShowShareSize();
@@ -459,6 +461,7 @@ public partial class SettingsView : UserControl
         s.MinimizeToTray = MinTrayCheck.IsChecked == true;
         s.CloseToTray = CloseTrayCheck.IsChecked == true;
         s.ClipSound = SoundCheck.IsChecked == true;
+        s.ShowInactiveSaveNotifications = IdleSaveNotificationCheck.IsChecked == true;
         s.ConfirmClipDeletion = ConfirmDeleteCheck.IsChecked == true;
         s.ShareMotionBlur = MotionBlurCheck.IsChecked == true;
         s.Save();
@@ -471,7 +474,7 @@ public partial class SettingsView : UserControl
 
         UpdateEstimates();
         bool recordingSetting = sender != StartupCheck && sender != MinTrayCheck && sender != CloseTrayCheck && sender != SoundCheck
-                                && sender != MotionBlurCheck && sender != ConfirmDeleteCheck;
+                                && sender != MotionBlurCheck && sender != ConfirmDeleteCheck && sender != IdleSaveNotificationCheck;
         if (sender == RecordingCheck || sender == SourceCombo)
         {
             _restartTimer.Stop();
@@ -605,7 +608,7 @@ public partial class SettingsView : UserControl
             : "No music app is running right now.") + " Music played in a web browser stays on the Desktop track.";
         RecorderStatus.Text = state.Running ? $"Recording · {state.Summary}"
             : state.Error != null ? "Not recording: " + state.Error
-            : state.Mode == RecordingMode.Armed ? "Armed · no recording active."
+            : state.Mode == RecordingMode.Armed ? "Waiting for a game · no capture running."
             : recordingEnabled ? "Starting…" : "Recording is off.";
     });
 

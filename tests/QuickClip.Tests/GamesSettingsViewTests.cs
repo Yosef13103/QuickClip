@@ -83,6 +83,17 @@ public sealed class GamesSettingsViewTests
         Assert.Contains("manifest", GamesSettingsView.ScanIssueText(new("Test manifest", CatalogIssueKind.InvalidManifest)));
     });
 
+    [Fact]
+    public void Manual_game_file_selection_accepts_large_collections_but_not_companion_apps()
+    {
+        var collection = Enumerable.Range(0, 128)
+            .Select(i => $@"C:\TestLibrary\Game{i:000}.exe").ToArray();
+        Assert.Null(GamesSettingsView.ValidateManualGameExecutables(collection));
+        Assert.Contains("companion", GamesSettingsView.ValidateManualGameExecutables([@"C:\Apps\Discord.exe"])!,
+            StringComparison.OrdinalIgnoreCase);
+        Assert.NotNull(GamesSettingsView.ValidateManualGameExecutables([@"C:\Apps\not-video.txt"]));
+    }
+
     private static GameCatalogSettings Fixture(int count) => new()
     {
         Request = new()

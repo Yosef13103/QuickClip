@@ -52,6 +52,9 @@ public partial class MainWindow : Window
             UpdateStatus();
             _statusTimer.Start();
             _ = ShowWhatsNewAfterUpdateAsync();
+            if (AppProfile.IsPersonal && !AppSettings.SaveDisabled && !AppSettings.Current.LoadedFromFile
+                && !AppSettings.Current.ReplayOnboardingCompleted)
+                Dispatcher.BeginInvoke(ShowFirstRunReplayChoice, DispatcherPriority.ApplicationIdle);
         };
         WhatsNew.Closed += () =>
         {
@@ -230,6 +233,25 @@ public partial class MainWindow : Window
 
     private void UpdateButton_Click(object sender, RoutedEventArgs e) => ShowSettings();
 
+    private async void ShowFirstRunReplayChoice()
+    {
+        var settings = AppSettings.Current;
+        if (!IsVisible || settings.LoadedFromFile || settings.ReplayOnboardingCompleted || AppSettings.SaveDisabled) return;
+        bool enable = ModalDialog.ConfirmAction(this,
+            "QuickClip can save the last minute of gameplay when you press the hotkey. " +
+            "While waiting for a recognized game, it does not start the video or audio capture engine.\n\n" +
+            "While a game is active, this build records an authorized display, so other visible windows " +
+            "on that display can appear in clips. Display access is configured in Recording settings.\n\n" +
+            "Enable instant replay now?",
+            "Welcome to QuickClip Personal", "Enable instant replay", "Not now", destructive: false);
+        settings.ReplayOnboardingCompleted = true;
+        if (enable) settings.RecordingEnabled = true;
+        settings.Save();
+        await Recorder.Instance.ApplySettingsAsync();
+        UpdateStatus();
+        if (enable) ShowSettings();
+    }
+
     private void UpdateStatus()
     {
         var recorder = Recorder.Instance;
@@ -248,7 +270,7 @@ public partial class MainWindow : Window
         {
             RecDot.Fill = IdleDot;
             RecStatus.Text = recorder.Error != null ? "Not recording: " + recorder.Error
-                : recorder.State.Mode == RecordingMode.Armed ? "Armed · no recording active"
+                : recorder.State.Mode == RecordingMode.Armed ? "Waiting for a game · not capturing"
                 : s.RecordingEnabled ? "Starting…" : "Recording is off — turn on instant replay in Settings";
         }
         SaveClipButton.IsEnabled = recorder.IsRunning;
