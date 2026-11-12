@@ -28,6 +28,20 @@ public sealed class PersonalCaptureGuidanceTests
         Assert.True(AppSettings.Parse(settings.ToJson()).ShowInactiveSaveNotifications);
     }
 
+    [Fact]
+    public void First_run_replay_choice_is_opt_in_and_persists()
+    {
+        if (!AppProfile.IsPersonal) return;
+        var settings = AppSettings.Parse("{}");
+        Assert.False(settings.RecordingEnabled);
+        Assert.False(settings.ReplayOnboardingCompleted);
+        settings.ReplayOnboardingCompleted = true;
+        settings.RecordingEnabled = true;
+        var persisted = AppSettings.Parse(settings.ToJson());
+        Assert.True(persisted.RecordingEnabled);
+        Assert.True(persisted.ReplayOnboardingCompleted);
+    }
+
     [Theory]
     [InlineData("{}")]
     [InlineData("""{"PreferGameWindow":true,"RecordingEnabled":true,"RecordMonitor":"display2"}""")]
