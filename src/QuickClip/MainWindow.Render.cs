@@ -19,6 +19,14 @@ public partial class MainWindow
         SaveVisual(Path.Combine(dir, "gallery.png"));
         report.AppendLine($"gallery realized rows: {Gallery.RealizedRowsForRender}");
         report.AppendLine(await Gallery.VerifySearchForRenderAsync());
+        if (Environment.GetCommandLineArgs().Contains("--gallery-smoke-only"))
+        {
+            Gallery.SelectForRender(2);
+            await Task.Delay(300);
+            SaveVisual(Path.Combine(dir, "gallery-selected.png"));
+            File.WriteAllText(Path.Combine(dir, "report.txt"), report.ToString());
+            return;
+        }
 
         if (Gallery.OpenFirstForRender())
         {
