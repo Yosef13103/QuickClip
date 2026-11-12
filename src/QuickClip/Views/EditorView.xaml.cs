@@ -93,7 +93,15 @@ public partial class EditorView : UserControl
     public string? CurrentFile => _media?.Path;
     private bool _viewMode, _fullscreen, _updatingViewSeek;
     private double _inspectorWidth = 330;
+    private const double DefaultTimelineHeight = 260;
     private double? _timelineHeight;
+    public static readonly DependencyProperty ExpandedTracksProperty =
+        DependencyProperty.Register(nameof(ExpandedTracks), typeof(bool), typeof(EditorView));
+    public bool ExpandedTracks
+    {
+        get => (bool)GetValue(ExpandedTracksProperty);
+        set => SetValue(ExpandedTracksProperty, value);
+    }
     private readonly DispatcherTimer _fullscreenControlsTimer;
     private (double Start, double End)? _appliedLoop;
     internal event Action<bool>? FullscreenRequested;
@@ -215,8 +223,40 @@ public partial class EditorView : UserControl
 
     private void TimelineDivider_DragDelta(object sender, DragDeltaEventArgs e)
     {
-        _timelineHeight = Math.Clamp(TimelineRow.ActualHeight - e.VerticalChange, 112, Math.Max(112, Root.ActualHeight - 235));
-        TimelineRow.Height = new GridLength(_timelineHeight.Value);
+        ResizeTimeline(-e.VerticalChange);
+    }
+
+    private void TimelineDivider_KeyDown(object sender, KeyEventArgs e)
+    {
+        if (e.Key is not (Key.Up or Key.Down)) return;
+        ResizeTimeline(e.Key == Key.Up ? 16 : -16);
+        e.Handled = true;
+    }
+
+    private void ResizeTimeline(double change)
+    {
+        _timelineHeight = TimelineState.ClampEditorHeight(TimelineSpace, TimelineRow.ActualHeight + change);
+        UpdateTimelineHeight();
+    }
+
+    private double TimelineSpace => Math.Max(0, Root.ActualHeight - EditorHeader.ActualHeight -
+        Transport.ActualHeight - TimelineDivider.ActualHeight);
+
+    private void UpdateTimelineHeight()
+    {
+        if (TimelineRow == null || TimelineDivider == null || EditorHeader == null || Transport == null) return;
+        TimelineRow.Height = _viewMode || _fullscreen ? GridLength.Auto :
+            new GridLength(Root.ActualHeight > 0
+                ? TimelineState.ClampEditorHeight(TimelineSpace, _timelineHeight ?? DefaultTimelineHeight)
+                : DefaultTimelineHeight);
+    }
+
+    private void EditorLayout_SizeChanged(object sender, SizeChangedEventArgs e) => UpdateTimelineHeight();
+
+    private void Tracks_PreviewMouseWheel(object sender, MouseWheelEventArgs e)
+    {
+        var lane = e.OriginalSource is DependencyObject source ? FindParent<WaveformLane>(source) : null;
+        TimelineBar.HandleWheel(lane ?? (FrameworkElement)Timeline, _timeline, e);
     }
 
     private void Shortcuts_Click(object sender, RoutedEventArgs e)
@@ -239,7 +279,7 @@ public partial class EditorView : UserControl
         InspectorGap.Width = new GridLength(editing ? 8 : 0);
         InspectorColumn.MinWidth = editing ? 250 : 0;
         InspectorColumn.Width = new GridLength(editing ? Math.Min(_inspectorWidth, Math.Max(250, Root.ActualWidth - 350)) : 0);
-        TimelineRow.Height = editing ? new GridLength(Math.Min(_timelineHeight ?? 220, Math.Max(112, Root.ActualHeight - 235))) : GridLength.Auto;
+        UpdateTimelineHeight();
         Root.Margin = new Thickness(_fullscreen ? 0 : 12);
         Root.Background = _fullscreen ? Brushes.Black : null;
         ModeButton.Content = _viewMode ? "Edit mode" : "View mode";
@@ -917,6 +957,7 @@ public partial class EditorView : UserControl
         Grid.SetColumn(EditControls, oneLine ? 1 : 0);
         Grid.SetColumnSpan(EditControls, oneLine ? 1 : 2);
         EditControls.Margin = new Thickness(0, oneLine ? 0 : 8, 0, 0);
+        UpdateTimelineHeight();
     }
 
     // ------------------------------------------------------------------------------------------
@@ -1211,6 +1252,7 @@ public partial class EditorView : UserControl
 
     private void OnPreviewKeyDown(object sender, KeyEventArgs e)
     {
+        if (TimelineDivider.IsKeyboardFocused && e.Key is Key.Up or Key.Down) return;
         if (MetadataEditor.IsKeyboardFocusWithin || FavoriteButton.IsKeyboardFocused && e.Key == Key.Space) return;
         if (Keyboard.FocusedElement is TextBox)
         {
@@ -1671,8 +1713,8 @@ public partial class EditorView : UserControl
 
     private bool ConfirmDiscardDraft() => _media == null || _openedDraft == null ||
         (!MetadataEditor.HasDraft && _openedDraft == DraftSignature()) ||
-        ModalDialog.Show(OwnerWindow, "Discard the current clip’s unsaved edit settings?", "Unsaved edits",
-            MessageBoxButton.YesNo, MessageBoxImage.Question, MessageBoxResult.No) == MessageBoxResult.Yes;
+        ModalDialog.ConfirmAction(OwnerWindow, "Discard the current clip’s unsaved edit settings?", "Unsaved edits",
+            "Discard changes", "Keep editing", destructive: true);
 
     private ExportRequest CreateDraft(string outputPath, Container container)
     {
@@ -1793,15 +1835,13 @@ public partial class EditorView : UserControl
         string fileName = Path.GetFileName(_media.Path);
         int tracks = _tracks.Count(t => t.Include);
         bool merging = MergeCheck.IsChecked == true && tracks > 1 && !container.SingleAudioTrack;
-        var answer = merging
-            ? ModalDialog.Show(OwnerWindow,
+        string warning = merging
+            ?
                 $"Merge all audio tracks is on.\n\nSaving over \"{fileName}\" mixes its {tracks} audio tracks into one, so the clip " +
-                "loses its separate game, chat, mic and music tracks. The original will be moved to the Recycle Bin.\n\nSave over it anyway?",
-                "Merge tracks and save over original?", MessageBoxButton.OKCancel, MessageBoxImage.Warning, MessageBoxResult.Cancel)
-            : ModalDialog.Show(OwnerWindow,
-                $"Replace \"{fileName}\" with the edited clip?\n\nThe original will be moved to the Recycle Bin.",
-                "Save over original", MessageBoxButton.OKCancel, MessageBoxImage.Question);
-        if (answer != MessageBoxResult.OK) return;
+                "loses its separate game, chat, mic and music tracks. The original will be moved to the Recycle Bin."
+            : $"Replace \"{fileName}\" with the edited clip?\n\nThe original will be moved to the Recycle Bin.";
+        if (!ModalDialog.ConfirmAction(OwnerWindow, warning, "Save over original",
+            merging ? "Merge tracks and replace" : "Replace original", "Keep original", destructive: true)) return;
 
         string dir = Path.GetDirectoryName(_media.Path)!;
         string temp = UniquePath(dir, Path.GetFileNameWithoutExtension(_media.Path) + ".quickclip-tmp", Path.GetExtension(_media.Path));
@@ -1917,10 +1957,10 @@ public partial class EditorView : UserControl
         bool recycled = await RetryAsync(() => RecycleBin.TrySend(original));
         if (!recycled && File.Exists(original))
         {
-            var answer = ModalDialog.Show(OwnerWindow,
-                "The original couldn't be moved to the Recycle Bin.\n\nDelete it permanently and replace it with the edited clip?\n" +
-                "(Choose No to keep both files.)", "QuickClip", MessageBoxButton.YesNo, MessageBoxImage.Warning);
-            if (answer != MessageBoxResult.Yes)
+            bool replace = ModalDialog.ConfirmAction(OwnerWindow,
+                "The original couldn’t be moved to the Recycle Bin. You can keep both files or permanently delete the original and replace it with the edited clip.",
+                "Recycle Bin unavailable", "Delete and replace", "Keep both files", destructive: true);
+            if (!replace)
             {
                 string dir = Path.GetDirectoryName(original)!;
                 string keep = UniquePath(dir, Path.GetFileNameWithoutExtension(original) + " (edited)", Path.GetExtension(original));

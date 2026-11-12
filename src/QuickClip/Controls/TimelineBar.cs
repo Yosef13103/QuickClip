@@ -235,12 +235,20 @@ public sealed class TimelineBar : FrameworkElement
     /// <summary>Shared wheel behaviour for the ruler and the waveform lanes.</summary>
     public static void HandleWheel(FrameworkElement el, TimelineState? s, MouseWheelEventArgs e)
     {
-        if (s == null || s.Duration <= 0) return;
-        if (Keyboard.Modifiers.HasFlag(ModifierKeys.Shift))
-            s.Pan(-e.Delta / 120.0 * s.ViewSpan * 0.15);
-        else
-            s.ZoomAt(s.XToTime(e.GetPosition(el).X, el.ActualWidth), e.Delta > 0 ? 0.8 : 1.25);
-        e.Handled = true;
+        if (s != null && ApplyWheel(s, Keyboard.Modifiers, e.Delta, e.GetPosition(el).X, el.ActualWidth))
+            e.Handled = true;
+    }
+
+    internal static bool ApplyWheel(TimelineState state, ModifierKeys modifiers, int delta, double x, double width)
+    {
+        if (state.Duration <= 0 || width <= 0 || delta == 0) return false;
+        double steps = delta / 120.0;
+        if ((modifiers & ModifierKeys.Control) != 0)
+            state.ZoomAt(state.XToTime(Math.Clamp(x, 0, width), width), Math.Pow(0.8, steps));
+        else if ((modifiers & ModifierKeys.Shift) != 0)
+            state.Pan(-steps * state.ViewSpan * 0.15);
+        else return false; // leave ordinary wheel input to the containing ScrollViewer
+        return true;
     }
 
     private static T Freeze<T>(T f) where T : Freezable { f.Freeze(); return f; }

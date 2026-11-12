@@ -11,7 +11,7 @@
             <ResourceDictionary.MergedDictionaries>
                 <ResourceDictionary Source="/QuickClip;component/Themes/Styles.xaml" />
             </ResourceDictionary.MergedDictionaries>
-            <GridLength x:Key="TrackHeaderWidth">260</GridLength>
+            <GridLength x:Key="TrackHeaderWidth">224</GridLength>
             <BooleanToVisibilityConverter x:Key="ShowIf" />
             <Style x:Key="OptionsGroup" TargetType="Expander" BasedOn="{StaticResource {x:Type Expander}}">
                 <Setter Property="IsExpanded" Value="False" />
@@ -53,7 +53,7 @@
         </ResourceDictionary>
     </UserControl.Resources>
 
-    <Grid x:Name="Root" Margin="12" Focusable="True" FocusVisualStyle="{x:Null}">
+    <Grid x:Name="Root" Margin="12" Focusable="True" FocusVisualStyle="{x:Null}" SizeChanged="EditorLayout_SizeChanged">
         <Grid.ColumnDefinitions>
             <ColumnDefinition Width="*" MinWidth="330" />
             <ColumnDefinition x:Name="InspectorGap" Width="8" />
@@ -64,7 +64,7 @@
             <RowDefinition Height="*" MinHeight="120" />
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
-            <RowDefinition x:Name="TimelineRow" Height="220" />
+            <RowDefinition x:Name="TimelineRow" Height="260" />
         </Grid.RowDefinitions>
 
         <!-- Top bar -->
@@ -95,7 +95,7 @@
                         Ctrl+B — bookmark the playhead<LineBreak />
                         L — loop selection · C — crop on/off · M — mute<LineBreak />
                         + / − / 0 — zoom timeline in / out / fit<LineBreak />
-                        Mouse wheel on timeline — zoom · Shift+wheel — scroll<LineBreak />
+                        Wheel over tracks — scroll · Ctrl+wheel — zoom · Shift+wheel — pan<LineBreak />
                         Ctrl+E — export as new file · Ctrl+S — save over original
                     </TextBlock>
                 </Button.ToolTip>
@@ -154,9 +154,31 @@
         </Grid>
 
         <!-- Timeline + audio tracks -->
-        <Thumb x:Name="TimelineDivider" Grid.Row="3" Grid.Column="0" Height="8" Cursor="SizeNS"
-               Background="{StaticResource PanelBrush}" DragDelta="TimelineDivider_DragDelta"
-               AutomationProperties.Name="Resize timeline and video" />
+        <Thumb x:Name="TimelineDivider" Grid.Row="3" Grid.Column="0" Height="14" Cursor="SizeNS"
+               Focusable="True" DragDelta="TimelineDivider_DragDelta" KeyDown="TimelineDivider_KeyDown"
+               ToolTip="Drag to resize the video and tracks. Use Up or Down when focused."
+               AutomationProperties.Name="Resize timeline and video">
+            <Thumb.Template>
+                <ControlTemplate TargetType="Thumb">
+                    <Grid Background="Transparent">
+                        <Border Height="1" VerticalAlignment="Center" Background="{StaticResource PanelBrush}" />
+                        <Border x:Name="Grip" Width="44" Height="4" CornerRadius="2"
+                                Background="{StaticResource SubtleText}" />
+                    </Grid>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter TargetName="Grip" Property="Background" Value="{DynamicResource AccentFillColorDefaultBrush}" />
+                        </Trigger>
+                        <Trigger Property="IsKeyboardFocused" Value="True">
+                            <Setter TargetName="Grip" Property="Background" Value="{DynamicResource AccentFillColorDefaultBrush}" />
+                        </Trigger>
+                        <Trigger Property="IsDragging" Value="True">
+                            <Setter TargetName="Grip" Property="Height" Value="6" />
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Thumb.Template>
+        </Thumb>
         <Grid x:Name="TracksArea" Grid.Row="4" Grid.Column="0">
             <Grid.RowDefinitions>
                 <RowDefinition Height="Auto" />
@@ -192,7 +214,7 @@
                                Foreground="{StaticResource SubtleText}" Text="Clip length 0:00.000" />
                 </Grid>
             </Border>
-            <controls:TimelineBar x:Name="Timeline" Grid.Row="0" Grid.Column="2" Height="56" />
+            <controls:TimelineBar x:Name="Timeline" Grid.Row="0" Grid.Column="2" Height="44" />
 
             <!-- Audio header -->
             <DockPanel Grid.Row="1" Grid.ColumnSpan="3" Margin="0,10,0,2" LastChildFill="False">
@@ -204,19 +226,32 @@
                         <TextBlock Text="Add sound" FontSize="12" />
                     </StackPanel>
                 </Button>
+                <CheckBox Content="Taller tracks" IsChecked="{Binding ExpandedTracks, RelativeSource={RelativeSource AncestorType=views:EditorView}}"
+                          Margin="10,0,0,0" VerticalAlignment="Center" ToolTip="Show more waveform detail" />
             </DockPanel>
 
-            <ScrollViewer Grid.Row="2" Grid.ColumnSpan="3" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+            <ScrollViewer Grid.Row="2" Grid.ColumnSpan="3" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled"
+                          PreviewMouseWheel="Tracks_PreviewMouseWheel">
                 <ItemsControl x:Name="TrackList">
                     <ItemsControl.ItemTemplate>
                         <DataTemplate DataType="{x:Type local:AudioTrack}">
-                            <Grid Height="74" Margin="0,4,0,0">
+                            <Grid Margin="0,3,0,0">
+                                <Grid.Style>
+                                    <Style TargetType="Grid">
+                                        <Setter Property="Height" Value="54" />
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding ExpandedTracks, RelativeSource={RelativeSource AncestorType=views:EditorView}}" Value="True">
+                                                <Setter Property="Height" Value="74" />
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </Grid.Style>
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="{StaticResource TrackHeaderWidth}" />
                                     <ColumnDefinition Width="8" />
                                     <ColumnDefinition Width="*" />
                                 </Grid.ColumnDefinitions>
-                                <Border Background="{StaticResource PanelBrush}" CornerRadius="4" BorderThickness="3,0,0,0" BorderBrush="{Binding Brush}" Padding="6,4,6,2">
+                                <Border Background="{StaticResource PanelBrush}" CornerRadius="4" BorderThickness="3,0,0,0" BorderBrush="{Binding Brush}" Padding="5,2,5,1">
                                     <Grid>
                                         <Grid.RowDefinitions>
                                             <RowDefinition Height="Auto" />
@@ -242,7 +277,7 @@
                                         <Grid Grid.Row="1" Grid.ColumnSpan="3" VerticalAlignment="Center">
                                             <Grid.ColumnDefinitions>
                                                 <ColumnDefinition Width="*" />
-                                                <ColumnDefinition Width="92" />
+                                                <ColumnDefinition Width="82" />
                                             </Grid.ColumnDefinitions>
                                             <Slider Minimum="0" Maximum="200" Value="{Binding VolumePercent}" SmallChange="1" LargeChange="10"
                                                     Focusable="False" VerticalAlignment="Center" IsMoveToPointEnabled="True"
