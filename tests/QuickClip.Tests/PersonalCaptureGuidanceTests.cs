@@ -6,6 +6,29 @@ namespace QuickClip.Tests;
 public sealed class PersonalCaptureGuidanceTests
 {
     [Theory]
+    [InlineData(RecordingMode.Off, true)]
+    [InlineData(RecordingMode.Armed, true)]
+    [InlineData(RecordingMode.Unavailable, false)]
+    [InlineData(RecordingMode.GameTriggered, false)]
+    [InlineData(RecordingMode.ManualDesktop, false)]
+    public void Inactive_hotkey_notification_does_not_hide_recording_errors(RecordingMode mode, bool expected)
+    {
+        Assert.Equal(expected, QuickClip.Shell.AppHost.SuppressIdleClipWarning(true, false, mode));
+        Assert.False(QuickClip.Shell.AppHost.SuppressIdleClipWarning(true, true, mode));
+        Assert.False(QuickClip.Shell.AppHost.SuppressIdleClipWarning(false, false, mode));
+    }
+
+    [Fact]
+    public void Personal_defaults_to_quiet_save_without_an_active_game()
+    {
+        if (!AppProfile.IsPersonal) return;
+        var settings = AppSettings.Parse("{}");
+        Assert.False(settings.ShowInactiveSaveNotifications);
+        settings.ShowInactiveSaveNotifications = true;
+        Assert.True(AppSettings.Parse(settings.ToJson()).ShowInactiveSaveNotifications);
+    }
+
+    [Theory]
     [InlineData("{}")]
     [InlineData("""{"PreferGameWindow":true,"RecordingEnabled":true,"RecordMonitor":"display2"}""")]
     public void Fresh_or_saved_game_window_intent_survives_startup_and_dismissal(string json)
