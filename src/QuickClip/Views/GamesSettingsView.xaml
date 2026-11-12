@@ -1,8 +1,19 @@
 <UserControl x:Class="QuickClip.Views.GamesSettingsView"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
-             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:controls="clr-namespace:QuickClip.Controls">
     <UserControl.Resources>
-        <ResourceDictionary Source="/QuickClip;component/Themes/Styles.xaml" />
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <ResourceDictionary Source="/QuickClip;component/Themes/Styles.xaml" />
+            </ResourceDictionary.MergedDictionaries>
+            <Style x:Key="GameHeadingButton" TargetType="ToggleButton" BasedOn="{StaticResource {x:Type ToggleButton}}">
+                <Setter Property="Background" Value="Transparent" />
+                <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                <Setter Property="Padding" Value="10,7" />
+            </Style>
+            <BooleanToVisibilityConverter x:Key="ShowManualActions" />
+        </ResourceDictionary>
     </UserControl.Resources>
     <DockPanel Margin="28,16,24,16" MaxWidth="1340">
         <StackPanel DockPanel.Dock="Top">
@@ -30,31 +41,16 @@
             </WrapPanel>
             <TextBlock x:Name="Status" Style="{StaticResource Hint}" Margin="0,6,0,0" AutomationProperties.LiveSetting="Polite" />
             <TextBlock x:Name="LastScan" Style="{StaticResource Hint}" />
-            <TextBlock Text="Eligibility for future automatic game capture. To record now, use an approved entire-display source in Recording Settings. It records any visible game regardless of these rules." Style="{StaticResource Hint}" />
+            <TextBlock Text="Targeting rules apply to game detection. Manual entire-display capture includes anything visible on the approved display, including games disabled here." Style="{StaticResource Hint}" />
             <DockPanel Margin="0,10,0,6">
                 <TextBlock x:Name="Count" DockPanel.Dock="Left" VerticalAlignment="Center" FontWeight="SemiBold" Margin="0,0,12,0" />
                 <TextBox x:Name="Search" AutomationProperties.Name="Search games by name or executable" TextChanged="Search_Changed" />
             </DockPanel>
         </StackPanel>
-        <Expander DockPanel.Dock="Bottom" Header="Game details" IsExpanded="True" Margin="0,8,0,0">
-            <ScrollViewer MaxHeight="200" VerticalScrollBarVisibility="Auto">
-                <StackPanel x:Name="Details" Margin="0,4,0,4">
-                    <TextBlock x:Name="Identity" TextWrapping="Wrap" />
-                    <TextBlock x:Name="Policy" Style="{StaticResource Hint}" Margin="0,4,0,0" />
-                    <ListBox x:Name="Executables" MaxHeight="68" AutomationProperties.Name="Associated executables" />
-                    <WrapPanel Margin="0,4,0,0">
-                        <ComboBox x:Name="Classification" MinWidth="120" AutomationProperties.Name="Classification" SelectionChanged="Classification_Changed" Margin="0,0,6,4" />
-                        <Button x:Name="LauncherButton" Content="Toggle launcher role" Click="Launcher_Click" Margin="0,0,6,4" />
-                        <Button x:Name="RenameButton" Content="Rename…" Click="Rename_Click" Margin="0,0,6,4" />
-                        <Button x:Name="EditButton" Content="Edit executables…" Click="Edit_Click" Margin="0,0,6,4" />
-                        <Button x:Name="RemoveButton" Content="Remove manual entry" Click="Remove_Click" Margin="0,0,6,4" />
-                    </WrapPanel>
-                </StackPanel>
-            </ScrollViewer>
-        </Expander>
-        <ListBox x:Name="Games" SelectionChanged="Game_Changed" AutomationProperties.Name="Detected games"
+        <ListBox x:Name="Games" AutomationProperties.Name="Detected games"
                  ScrollViewer.CanContentScroll="True" ScrollViewer.HorizontalScrollBarVisibility="Disabled"
-                 VirtualizingPanel.IsVirtualizing="True" VirtualizingPanel.VirtualizationMode="Recycling">
+                 VirtualizingPanel.IsVirtualizing="True" VirtualizingPanel.VirtualizationMode="Recycling"
+                 VirtualizingPanel.ScrollUnit="Pixel">
             <ListBox.ItemContainerStyle>
                 <Style TargetType="ListBoxItem" BasedOn="{StaticResource {x:Type ListBoxItem}}">
                     <Setter Property="HorizontalContentAlignment" Value="Stretch" />
@@ -62,13 +58,78 @@
             </ListBox.ItemContainerStyle>
             <ListBox.ItemTemplate>
                 <DataTemplate>
-                    <DockPanel Margin="6,4">
-                        <Button DockPanel.Dock="Right" Content="{Binding Action}" Click="Capture_Click" Margin="10,0,0,0" />
-                        <StackPanel>
-                            <TextBlock Text="{Binding Entry.DisplayName}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
-                            <TextBlock Text="{Binding Summary}" TextTrimming="CharacterEllipsis" />
-                        </StackPanel>
-                    </DockPanel>
+                    <StackPanel Margin="2,3">
+                        <DockPanel>
+                            <Button DockPanel.Dock="Right" Click="Capture_Click" Width="36" Height="32"
+                                    VerticalAlignment="Center" Margin="8,0,4,0"
+                                    AutomationProperties.Name="{Binding CaptureAction}"
+                                    ToolTip="{Binding CaptureAction}">
+                                <Button.Style>
+                                    <Style TargetType="Button" BasedOn="{StaticResource IconButton}">
+                                        <Setter Property="Focusable" Value="True" />
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding IsExcluded}" Value="True">
+                                                <Setter Property="Foreground" Value="{StaticResource RecordingRed}" />
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </Button.Style>
+                                <Path Width="16" Height="16" Stretch="Uniform" StrokeThickness="1.5"
+                                      Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"
+                                      Data="{Binding CaptureIcon}" />
+                            </Button>
+                            <ToggleButton Style="{StaticResource GameHeadingButton}" IsChecked="{Binding IsExpanded, Mode=OneWay}"
+                                          Click="Details_Click" AutomationProperties.Name="{Binding DetailsAction}"
+                                          AutomationProperties.HelpText="{Binding Summary}">
+                                <DockPanel>
+                                    <TextBlock DockPanel.Dock="Right" Text="{Binding Chevron}" Margin="10,0,0,0"
+                                               VerticalAlignment="Center" FontFamily="{StaticResource IconFont}" />
+                                    <StackPanel>
+                                        <TextBlock Text="{Binding Entry.DisplayName}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
+                                        <TextBlock Text="{Binding Summary}" TextTrimming="CharacterEllipsis" Style="{StaticResource Hint}" TextWrapping="NoWrap" />
+                                    </StackPanel>
+                                </DockPanel>
+                            </ToggleButton>
+                        </DockPanel>
+                        <controls:AnimatedReveal IsExpanded="{Binding IsExpanded}">
+                            <StackPanel Margin="12,6,12,8">
+                                <WrapPanel>
+                                    <Button Content="Rename…" Click="Rename_Click" Margin="0,0,6,4" />
+                                    <Button Content="Edit executables…" Click="Edit_Click" Margin="0,0,6,4"
+                                            Visibility="{Binding IsManual, Converter={StaticResource ShowManualActions}}" />
+                                    <Button Content="Remove manual entry" Click="Remove_Click" Margin="0,0,6,4"
+                                            Visibility="{Binding IsManual, Converter={StaticResource ShowManualActions}}" />
+                                </WrapPanel>
+                                <TextBlock Text="{Binding Inheritance}" Style="{StaticResource Hint}" Margin="0,4" />
+                                <Expander Header="Advanced game detection" IsExpanded="{Binding IsAdvancedExpanded}">
+                                    <StackPanel Margin="0,4,0,2">
+                                        <TextBlock Text="{Binding Diagnostics}" Style="{StaticResource Hint}" />
+                                        <TextBlock Text="How QuickClip treats this app for game detection. Choose Non-game app or Companion app to keep it out of automatic game targeting." Style="{StaticResource Hint}" Margin="0,4" />
+                                        <ComboBox ItemsSource="{Binding Classifications}" DisplayMemberPath="Label" SelectedValuePath="Value"
+                                                  SelectedValue="{Binding Entry.Rules.Classification, Mode=OneWay}"
+                                                  AutomationProperties.Name="How QuickClip treats this app"
+                                                  HorizontalAlignment="Left" SelectionChanged="Classification_Changed" />
+                                        <TextBlock Text="Mark a launcher so its window cannot take the game's place. Select an executable below first." Style="{StaticResource Hint}" Margin="0,6,0,4" />
+                                        <ListBox x:Name="ExecutableList" ItemsSource="{Binding Executables}" DisplayMemberPath="Label" SelectedValuePath="Path"
+                                                 MaxHeight="105" AutomationProperties.Name="Associated executables" />
+                                        <Button Content="Change selected executable’s launcher role" Click="Launcher_Click"
+                                                CommandParameter="{Binding SelectedValue, ElementName=ExecutableList}"
+                                                HorizontalAlignment="Left" Margin="0,4,0,0">
+                                            <Button.Style>
+                                                <Style TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
+                                                    <Style.Triggers>
+                                                        <DataTrigger Binding="{Binding SelectedValue, ElementName=ExecutableList}" Value="{x:Null}">
+                                                            <Setter Property="IsEnabled" Value="False" />
+                                                        </DataTrigger>
+                                                    </Style.Triggers>
+                                                </Style>
+                                            </Button.Style>
+                                        </Button>
+                                    </StackPanel>
+                                </Expander>
+                            </StackPanel>
+                        </controls:AnimatedReveal>
+                    </StackPanel>
                 </DataTemplate>
             </ListBox.ItemTemplate>
         </ListBox>
