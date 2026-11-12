@@ -63,3 +63,19 @@ Code tested at `40925902cb5c4e8dd15eb04f6093f4f0998827d9` on Windows 10 build 19
 The offscreen Editor smoke used 120 generated three-track clips across 12 days. The Gallery realized 7 of 72 rows at first paint, found one search match and passed day selection. The Editor retained the clip, playhead and trim across mode changes, restored the accordion layout, and rendered the compact and taller track layouts. No screen or audio source was captured and no personal media was used.
 
 FT-07/14 Settings and Library changes, broader P1 Games, Audio and Hotkeys UI, precise replay duration, and supervised Windows, real launcher, mixed-DPI, gameplay and Sonar checks remain pending. No acceptance gates were advanced.
+
+
+## Settings, retained recording folders and Games presentation
+
+[PR #22](https://github.com/Yosef13103/QuickClip/pull/22) at `a4a8deb39aff78f25ffd2f1eb4e40983fa9f17b6` and [PR #23](https://github.com/Yosef13103/QuickClip/pull/23) at `2677c2da8d4e5c4e4f2dd09eed62dceb323244e5` merged without conflicts. The merge retains FT-16 day selection and visible batch scope, shared destructive styles and the master-off consent fix in `47e8e23`. New saves still use `ClipsFolder`. Additional sources expand Gallery visibility and leave media in place. The Games monitor toggle uses the existing automatic targeting override. Recorder lifecycle, native capture and production replay duration policy remain at the prior candidate.
+
+Code tested at `41ea84d7494d05182c8535a9b08ad922b33ae59c` on Windows 10 build 19045 with SDK 10.0.403. Strict Personal and Upstream Release and Personal Debug builds passed with zero warnings and errors. The local restore used the pinned cache and `-p:NuGetAudit=false`. The focused pass at the #22 merge `61b5477` returned 39 passed and one reparse-point opt-in skip.
+
+| Suite | Passed | Failed | Skipped |
+| --- | ---: | ---: | ---: |
+| Personal | 501 | 0 | 18 |
+| Upstream compatibility filter | 27 | 0 | 14 |
+
+The destination-change fixture verifies settings round-trip, rollback, a missing source returning, existing clip identity and favorites, and projects from both roots. Two isolated offscreen profiles exercised SQLite on and off with four generated clips across the active and retained folders and two capture days. Both profiles showed both folders, found one filtered match with selection preserved, and passed mixed and multiple day selection. The configured active destination stayed selected. Fixture files, their timestamps and the settings file were unchanged. The unavailable retained folder stayed absent. Only the SQLite-enabled profile created the index. The headless WPF Games fixtures covered 8, 50 and 200 rows, inline expansion, filtered identity, virtualization and accessible targeting labels. No live screen or audio capture ran.
+
+This is the integration base for the final Audio and Hotkeys WPF work. Supervised Windows display consent, mixed DPI, screen reader, real launchers, gameplay and Sonar checks remain pending. PR #21 remains duration evidence only. Precise saved duration remains open, and no acceptance gates were advanced.
