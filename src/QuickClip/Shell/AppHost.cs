@@ -358,13 +358,14 @@ internal sealed class AppHost : IDisposable
     private void ConfirmManualDisplay(Recorder recorder, MonitorInfo selected)
     {
         if (selected.CaptureIdentity == null || !AppSettings.Current.RecordingEnabled || _confirmingDesktop) return;
+        int consentRevision = AppSettings.Current.RecordingDisableRevision;
         _confirmingDesktop = true;
         try
         {
             if (ModalDialog.Show(Application.Current.MainWindow,
                 $"Record everything visible on {selected.Label} until you stop manual capture? Other apps, messages and notifications on that display can appear in clips.",
                 "Allow manual desktop capture?", MessageBoxButton.YesNo, MessageBoxImage.Warning, MessageBoxResult.No) == MessageBoxResult.Yes)
-                _ = recorder.SetManualDesktopAsync(selected.CaptureIdentity);
+                _ = recorder.SetManualDesktopAsync(selected.CaptureIdentity, consentRevision);
         }
         finally { _confirmingDesktop = false; }
     }

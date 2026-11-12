@@ -411,7 +411,7 @@ public partial class SettingsView : UserControl
     {
         if (_loading || !IsInitialized) return;
         var s = AppSettings.Current;
-        s.RecordingEnabled = RecordingCheck.IsChecked == true;
+        if (sender == RecordingCheck) s.RecordingEnabled = RecordingCheck.IsChecked == true;
         if (!AppProfile.IsPersonal || sender == MonitorCombo)
             s.RecordMonitor = (MonitorCombo.SelectedItem as Choice)?.Value as string ?? "";
         if (sender == AreaCombo) s.RecordAspect = SelectedAspect;
@@ -571,6 +571,14 @@ public partial class SettingsView : UserControl
 
     private void OnRecorderState(RecorderState state) => Dispatcher.BeginInvoke(() =>
     {
+        bool recordingEnabled = AppSettings.Current.RecordingEnabled;
+        if (RecordingCheck.IsChecked != recordingEnabled)
+        {
+            bool wasLoading = _loading;
+            _loading = true;
+            RecordingCheck.IsChecked = recordingEnabled;
+            _loading = wasLoading;
+        }
         ChatText.Text = state.ChatApps.Count > 0
             ? $"Detected now: {string.Join(", ", state.ChatApps)}"
             : "No voice chat app is running right now.";
@@ -580,7 +588,7 @@ public partial class SettingsView : UserControl
         RecorderStatus.Text = state.Running ? $"Recording · {state.Summary}"
             : state.Error != null ? "Not recording: " + state.Error
             : state.Mode == RecordingMode.Armed ? "Armed · no recording active."
-            : AppSettings.Current.RecordingEnabled ? "Starting…" : "Recording is off.";
+            : recordingEnabled ? "Starting…" : "Recording is off.";
     });
 
     // ---- hotkey --------------------------------------------------------------------------------

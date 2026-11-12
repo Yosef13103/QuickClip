@@ -44,6 +44,22 @@ public sealed class RecordingHotkeysTests
     }
 
     [Fact]
+    public void Manual_approval_expires_even_if_the_master_switch_is_immediately_turned_back_on()
+    {
+        var settings = new AppSettings { RecordingEnabled = true, AuthorizedGameDisplay = "game-display" };
+        int consent = settings.RecordingDisableRevision;
+        Assert.True(settings.AllowsManualDesktop(consent));
+
+        settings.RecordingEnabled = false;
+        Assert.False(settings.AllowsManualDesktop(consent));
+        settings.RecordingEnabled = true;
+
+        Assert.False(settings.AllowsManualDesktop(consent));
+        Assert.True(settings.AllowsManualDesktop(settings.RecordingDisableRevision));
+        Assert.Equal("game-display", settings.AuthorizedGameDisplay);
+    }
+
+    [Fact]
     public void Cycling_requires_a_different_connected_authorized_display()
     {
         MonitorInfo Make(string id) => new(id, "", 0, 0, 1920, 1080) { CaptureIdentity = id };

@@ -20,7 +20,22 @@ internal sealed class AppSettings
     public string? SoundFolder { get; set; }                     // where the editor last added a sound from
 
     // Recording (instant replay)
-    public bool RecordingEnabled { get; set; } = !AppProfile.IsPersonal;
+    private volatile bool _recordingEnabled = !AppProfile.IsPersonal;
+    private int _recordingDisableRevision;
+
+    public bool RecordingEnabled
+    {
+        get => _recordingEnabled;
+        set
+        {
+            if (_recordingEnabled == value) return;
+            _recordingEnabled = value;
+            if (!value) Interlocked.Increment(ref _recordingDisableRevision);
+        }
+    }
+
+    internal int RecordingDisableRevision => Volatile.Read(ref _recordingDisableRevision);
+    internal bool AllowsManualDesktop(int revision) => RecordingEnabled && revision == RecordingDisableRevision;
     public string RecordMonitor { get; set; } = "";             // GDI device name; empty = main monitor
     public string RecordAspect { get; set; } = "";              // "16:9" records the monitor's 16:9 center; empty = all of it
     public int RecordFps { get; set; } = 60;

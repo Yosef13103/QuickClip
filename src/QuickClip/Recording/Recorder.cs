@@ -30,12 +30,14 @@ internal sealed class Recorder
     private readonly RecordingLifecycle _lifecycle;
     private GameCaptureObservation? _observedGame;
     private string? _manualDisplay;
+    private int _manualConsentRevision;
     private readonly HashSet<string> _manualAuthorized = new(StringComparer.OrdinalIgnoreCase);
     private string? _sessionGameId;
     private string? _sessionGame;
     private string? _sessionDisplay;
     private long _lastFreshVideo;
-    internal bool ManualDesktopRequested => Volatile.Read(ref _manualDisplay) != null;
+    internal bool ManualDesktopRequested => Volatile.Read(ref _manualDisplay) != null
+        && AppSettings.Current.AllowsManualDesktop(Volatile.Read(ref _manualConsentRevision));
     private IReadOnlyList<string> _chatApps = [], _musicApps = [];
     private string _summary = "";
     private string? _routingError;
@@ -130,15 +132,25 @@ internal sealed class Recorder
         StateChanged?.Invoke(State);
     });
 
-    internal Task SetManualDesktopAsync(string? confirmedDisplay) => Task.Run(() =>
+    internal Task SetManualDesktopAsync(string? confirmedDisplay, int consentRevision = -1) => Task.Run(() =>
     {
         lock (_gate)
         {
-            if (!AppProfile.IsPersonal || !AppSettings.Current.RecordingEnabled) return;
+            if (!AppProfile.IsPersonal) return;
             var requested = string.IsNullOrWhiteSpace(confirmedDisplay) ? null : confirmedDisplay;
-            if (requested == _manualDisplay) return;
-            if (requested == null) _manualAuthorized.Clear();
-            else _manualAuthorized.Add(requested);
+            if (requested == null)
+            {
+                if (_manualDisplay == null) return;
+                _manualAuthorized.Clear();
+            }
+            else
+            {
+                if (!AppSettings.Current.AllowsManualDesktop(consentRevision)) return;
+                if (!ManualDesktopRequested) _manualAuthorized.Clear();
+                else if (requested == _manualDisplay) return;
+                _manualConsentRevision = consentRevision;
+                _manualAuthorized.Add(requested);
+            }
             _manualDisplay = requested;
             _lifecycle.Reset();
             ReconcilePersonal();
@@ -150,7 +162,7 @@ internal sealed class Recorder
     {
         lock (_gate)
         {
-            if (!AppProfile.IsPersonal || !AppSettings.Current.RecordingEnabled || _manualDisplay == null) return false;
+            if (!AppProfile.IsPersonal || !ManualDesktopRequested || _manualDisplay == null) return false;
             string? next = CaptureSourcePolicy.NextAuthorizedDisplay(Monitors.List(), _manualAuthorized, _manualDisplay);
             if (next == null) return false;
             _manualDisplay = next;
@@ -172,6 +184,12 @@ internal sealed class Recorder
         _observedGame = s.RecordingEnabled && s.PreferGameWindow
             ? _games.ObserveEligibleGame(_observedGame, _lifecycle.Mode == RecordingMode.GameTriggered)
             : null;
+
+        if (_manualDisplay != null && !ManualDesktopRequested)
+        {
+            _manualDisplay = null;
+            _manualAuthorized.Clear();
+        }
 
         IReadOnlyList<MonitorInfo>? displays = null;
         _lifecycle.Reconcile(s.RecordingEnabled, s.PreferGameWindow, s.AuthorizedGameDisplay, _manualDisplay,
@@ -200,14 +218,17 @@ internal sealed class Recorder
         var game = activation.GameOwner is { } owner && _observedGame?.Owner == owner ? _observedGame : null;
         if (activation.GameOwner != null && (game == null || !Eligible(game)))
             return "The eligible game closed before capture could start.";
+        if (activation.GameOwner == null && !ManualDesktopRequested)
+            return "Manual desktop permission has expired.";
         var monitor = FindAuthorizedDisplay(Monitors.List(), activation.Display);
         if (monitor == null) return "The authorized display is no longer connected.";
         StartCore(monitor.DeviceName, CaptureEngine.MonitorBackend.MonitorOnlyDuplication, activation.Display);
         if (!IsRunning) return Error ?? "The selected display could not be recorded.";
-        if (game != null && !Eligible(game))
+        if (!AppSettings.Current.RecordingEnabled || (game == null ? !ManualDesktopRequested : !Eligible(game)))
         {
             StopGraph();
-            return "The eligible game closed while capture was starting.";
+            return game == null ? "Manual desktop permission has expired."
+                : "The eligible game or recording permission changed while capture was starting.";
         }
         _sessionGame = game?.VerifiedTarget?.Game;
         _sessionGameId = activation.GameId;
