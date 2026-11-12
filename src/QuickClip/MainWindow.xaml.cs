@@ -20,7 +20,6 @@ public partial class MainWindow : Window
     private PlayerView? _player;
     private SettingsView? _settings;
     private bool _closeReady;
-    private bool _syncingReplayMaster;
     private WindowState _stateBeforeFullScreen;
     private bool _windowFullScreen;
 
@@ -28,7 +27,6 @@ public partial class MainWindow : Window
     {
         InitializeComponent();
         Title = AppProfile.Name;
-        ReplayMasterToggle.Visibility = AppProfile.IsPersonal ? Visibility.Visible : Visibility.Collapsed;
         Width = Math.Min(Width, SystemParameters.WorkArea.Width * 0.95);
         Height = Math.Min(Height, SystemParameters.WorkArea.Height * 0.95);
 
@@ -235,19 +233,6 @@ public partial class MainWindow : Window
 
     private void UpdateButton_Click(object sender, RoutedEventArgs e) => ShowSettings();
 
-    private async void ReplayMasterChanged(object sender, RoutedEventArgs e)
-    {
-        if (!AppProfile.IsPersonal || !IsLoaded || _syncingReplayMaster) return;
-        var settings = AppSettings.Current;
-        bool enabled = ReplayMasterToggle.IsChecked == true;
-        if (settings.RecordingEnabled == enabled) return;
-        settings.RecordingEnabled = enabled;
-        settings.ReplayOnboardingCompleted = true;
-        settings.Save();
-        await Recorder.Instance.ApplySettingsAsync();
-        UpdateStatus();
-    }
-
     private async void ShowFirstRunReplayChoice()
     {
         var settings = AppSettings.Current;
@@ -271,12 +256,6 @@ public partial class MainWindow : Window
     {
         var recorder = Recorder.Instance;
         var s = AppSettings.Current;
-        if (AppProfile.IsPersonal && ReplayMasterToggle.IsChecked != s.RecordingEnabled)
-        {
-            _syncingReplayMaster = true;
-            try { ReplayMasterToggle.IsChecked = s.RecordingEnabled; }
-            finally { _syncingReplayMaster = false; }
-        }
         var hotkey = new Hotkey(s.HotkeyModifiers, s.HotkeyKey);
         if (recorder.IsRunning)
         {
