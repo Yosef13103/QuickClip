@@ -60,6 +60,27 @@ public partial class ClipDetailsEditor : UserControl
         if (focus) TitleBox.Focus();
     }
 
+    /// <summary>Clears only this view's annotation state; never writes or removes files.</summary>
+    internal void Clear()
+    {
+        _path = null;
+        _details = null;
+        _fileStamp = default;
+        _duration = null;
+        CaptureDate.Text = "";
+        MediaSummary.Text = "";
+        LocationBox.Text = "";
+        LocationBox.ToolTip = null;
+        TitleBox.Clear();
+        GameBox.Clear();
+        FavoriteBox.IsChecked = false;
+        TagBox.Clear();
+        _tags.Clear();
+        UpdateTagChips();
+        ShowBookmarks([]);
+        Feedback.Text = "";
+    }
+
     private void Reveal_Click(object sender, RoutedEventArgs e)
     {
         if (_path == null || !File.Exists(_path))
