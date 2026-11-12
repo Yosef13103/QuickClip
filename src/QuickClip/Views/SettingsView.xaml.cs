@@ -219,7 +219,7 @@ public partial class SettingsView : UserControl
             DiagnosticsCheck.IsChecked = s.RecordingDiagnostics;
             CursorCheck.IsChecked = s.CaptureCursor;
             if (AppProfile.IsPersonal) RecordingCheck.Content = "Enable QuickClip recording";
-            GameSourceItem.Content = AppProfile.IsPersonal ? "Arm automatic game replay" : "Automatic - Game First";
+            GameSourceItem.Content = AppProfile.IsPersonal ? "Record eligible games automatically" : "Automatic - Game First";
             DisplaySourceItem.Content = AppProfile.IsPersonal ? "Manual desktop capture only" : "Selected monitor";
             SourceCombo.SelectedIndex = s.PreferGameWindow ? 0 : 1;
             ShowGameWindowState();
@@ -608,7 +608,7 @@ public partial class SettingsView : UserControl
             : "No music app is running right now.") + " Music played in a web browser stays on the Desktop track.";
         RecorderStatus.Text = state.Running ? $"Recording · {state.Summary}"
             : state.Error != null ? "Not recording: " + state.Error
-            : state.Mode == RecordingMode.Armed ? "Armed · no recording active."
+            : state.Mode == RecordingMode.Armed ? "Waiting for a game · no capture running."
             : recordingEnabled ? "Starting…" : "Recording is off.";
     });
 
