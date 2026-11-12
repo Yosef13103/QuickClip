@@ -75,6 +75,32 @@ internal static class CaptureEngine
         public IntPtr Title;
     }
 
+    [StructLayout(LayoutKind.Sequential)]
+    private struct NativeEndpointStatus
+    {
+        public EndpointFlow Flow;
+        public EndpointStage Stage;
+        public int HResult, MixRate, MixChannels, CaptureRate;
+        public long Packets, MillisecondsSincePacket;
+        public float LastPacketPeak;
+    }
+
+    /// <summary>Returns active native lanes in the order of the plan supplied at start. No IDs or PCM are returned.</summary>
+    internal static IReadOnlyList<EndpointStatus> ReadEndpointStatus()
+    {
+        var native = new NativeEndpointStatus[EndpointAudio.MaxTracks];
+        int count = qc_get_endpoint_status(native, native.Length);
+        var result = new EndpointStatus[count];
+        for (int i = 0; i < count; ++i)
+        {
+            var lane = native[i];
+            result[i] = new(i, lane.Flow, lane.Stage, lane.HResult, lane.MixRate, lane.MixChannels, lane.CaptureRate,
+                lane.Packets, lane.MillisecondsSincePacket >= 0 ? lane.MillisecondsSincePacket : null,
+                lane.LastPacketPeak >= 0 ? lane.LastPacketPeak : null);
+        }
+        return result;
+    }
+
     [UnmanagedFunctionPointer(CallingConvention.StdCall)]
     private delegate void LogCallback(IntPtr message);
 
@@ -276,6 +302,7 @@ internal static class CaptureEngine
     [DllImport(Dll)] private static extern int qc_enum_outputs([Out] Output[] outputs, int max);
     [DllImport(Dll)] private static extern int qc_enum_microphones([Out] AudioDevice[] devices, int max);
     [DllImport(Dll)] private static extern void qc_enum_audio_endpoints(EndpointCallback callback);
+    [DllImport(Dll)] private static extern int qc_get_endpoint_status([Out] NativeEndpointStatus[] statuses, int capacity);
     [DllImport(Dll, CharSet = CharSet.Unicode)] private static extern int qc_start(ref Config config, [Out] char[] error, int errorLength);
     [DllImport(Dll, CharSet = CharSet.Unicode)] private static extern int qc_start_endpoints(ref Config config, [In] EndpointConfig[] endpoints,
         int count, [Out] char[] error, int errorLength);

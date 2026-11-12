@@ -152,6 +152,19 @@ extern "C"
         if (callback) qc::EnumAudioEndpoints(callback);
     }
 
+    __declspec(dllexport) int qc_get_endpoint_status(QcEndpointStatus* statuses, int capacity)
+    {
+        if (!statuses || capacity <= 0) return 0;
+        std::shared_lock guard(g_engineLock);
+        return g_engine ? g_engine->GetEndpointStatus(statuses, capacity) : 0;
+    }
+
+    // Synthetic float fixture only. Does not open an endpoint.
+    __declspec(dllexport) float qc_test_audio_packet_peak(const float* samples, int count)
+    {
+        return count >= 0 && count <= 48000 ? qc::AudioPacketPeak(samples, static_cast<size_t>(count)) : -1;
+    }
+
     __declspec(dllexport) void qc_display_diagnostics(wchar_t* text, int length)
     {
         CopyError(qc::DisplayDiagnostics(), text, length);

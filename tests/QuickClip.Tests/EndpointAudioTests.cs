@@ -1,3 +1,4 @@
+using System.Runtime.InteropServices;
 using QuickClip.Recording;
 
 namespace QuickClip.Tests;
@@ -68,4 +69,34 @@ public sealed class EndpointAudioTests
         Assert.Equal(EndpointAudio.MaxTracks, EndpointAudio.Plan(settings)!.Count);
         Assert.Empty(AppSettings.Parse("""{ "EndpointTracks": [null] }""").EndpointTracks);
     }
+
+    [Fact]
+    public void Same_friendly_name_in_playback_and_input_stays_distinct()
+    {
+        AudioEndpoint render = new(EndpointFlow.Playback, "render-fixture", "Virtual Microphone", true);
+        AudioEndpoint capture = new(EndpointFlow.Microphone, "input-fixture", "Virtual Microphone", true);
+        AudioEndpoint[] endpoints = [render, capture];
+        var game = new EndpointTrack(EndpointFlow.Playback, render.Id, "Game");
+        var mic = new EndpointTrack(EndpointFlow.Microphone, capture.Id, "Mic");
+        Assert.Equal([render], EndpointAudio.ForFlow(endpoints, EndpointFlow.Playback));
+        Assert.Equal([capture], EndpointAudio.ForFlow(endpoints, EndpointFlow.Microphone));
+        Assert.Same(render, EndpointAudio.FindEndpoint(game, endpoints));
+        Assert.Same(capture, EndpointAudio.FindEndpoint(mic, endpoints));
+        Assert.Null(EndpointAudio.FindEndpoint(mic with { DeviceId = render.Id }, endpoints));
+        Assert.Null(EndpointAudio.FindEndpoint(mic, [render]));
+        Assert.Equal([game, mic], EndpointAudio.Normalize([game, mic]));
+    }
+
+    [Fact]
+    public void Native_peak_uses_synthetic_samples_and_handles_silence_without_an_endpoint()
+    {
+        Assert.True(CaptureEngine.IsAvailable);
+        CaptureEngine.Initialize();
+        Assert.Equal(0f, qc_test_audio_packet_peak(null, 4));
+        Assert.Equal(0f, qc_test_audio_packet_peak([0f, 0f, 0f], 3));
+        Assert.Equal(0.625f, qc_test_audio_packet_peak([0f, -0.625f, 0.25f, float.NaN, float.PositiveInfinity], 5));
+    }
+
+    [DllImport("QuickClipCapture.dll")]
+    private static extern float qc_test_audio_packet_peak([In] float[]? samples, int count);
 }

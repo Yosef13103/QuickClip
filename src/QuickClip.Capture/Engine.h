@@ -68,6 +68,13 @@ extern "C"
         int width, height, fpsNumerator, fpsDenominator;
     };
 
+    struct QcEndpointStatus
+    {
+        int flow, stage, error, mixRate, mixChannels, captureRate;
+        int64_t packets, millisecondsSincePacket;
+        float lastPacketPeak;
+    };
+
     struct QcOutput
     {
         int adapter;
@@ -157,6 +164,7 @@ namespace qc
             QcReplayVideo* savedVideo = nullptr);
         void GetReplayPosition(QcReplayPosition& position);
         void GetStats(QcStats& stats);
+        int GetEndpointStatus(QcEndpointStatus* statuses, int capacity) const;
         std::string VideoDiagnostics();
         /// Starts capture again on the next frame (the display changed; the old capture may be stale).
         void RequestRebuild();
