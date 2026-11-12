@@ -8,7 +8,7 @@
         <StackPanel DockPanel.Dock="Top">
             <TextBlock Text="Games" FontSize="24" FontWeight="SemiBold" />
             <CheckBox x:Name="AutoScan" Content="Automatically discover games from Steam and approved folders" Click="AutoScan_Click" Margin="0,8,0,0" />
-            <TextBlock Text="With Games settings open, scans read local Steam library manifests and approved folders at most every 15 minutes." TextWrapping="Wrap" Style="{StaticResource Hint}" />
+            <TextBlock Text="Automatic scans read local Steam manifests and approved folders in the background. You can pause and resume a scan here." TextWrapping="Wrap" Style="{StaticResource Hint}" />
             <Expander Header="Game libraries and launchers" Margin="0,6,0,6">
                 <StackPanel>
                     <TextBlock Text="Supported sources: detected or approved Steam libraries, game folders and exact executable files." TextWrapping="Wrap" Style="{StaticResource Hint}" />
@@ -25,7 +25,7 @@
             </Expander>
             <WrapPanel Margin="0,4,0,0">
                 <Button x:Name="ScanButton" Content="Scan Now" Click="Scan_Click" Margin="0,0,6,0" />
-                <Button x:Name="CancelButton" Content="Cancel scan" Click="Cancel_Click" IsEnabled="False" Margin="0,0,6,0" />
+                <Button x:Name="CancelButton" Content="Pause scan" Click="Cancel_Click" IsEnabled="False" Margin="0,0,6,0" />
                 <Button Content="Add Game…" Click="Add_Click" Margin="0,0,6,0" />
             </WrapPanel>
             <TextBlock x:Name="Status" Style="{StaticResource Hint}" Margin="0,6,0,0" AutomationProperties.LiveSetting="Polite" />
