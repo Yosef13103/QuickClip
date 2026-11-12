@@ -87,7 +87,7 @@ public sealed class ClipDetailsTests
     }
 
     [Fact]
-    public async Task Details_form_saves_tags_favorite_and_labeled_bookmark_together()
+    public async Task Details_form_preserves_saved_bookmarks_when_other_metadata_changes()
     {
         if (!AppProfile.IsPersonal) return;
         var result = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -98,16 +98,17 @@ public sealed class ClipDetailsTests
                 string media = Path.Combine(AppProfile.LocalDirectory, Guid.NewGuid().ToString("N") + ".mp4");
                 Directory.CreateDirectory(Path.GetDirectoryName(media)!);
                 File.WriteAllText(media, "fixture");
-                var editor = new ClipDetailsEditor { BookmarkPosition = () => (1.75, 3), KnownTags = () => ["boss", "chat"] };
-                editor.Open(media, new ClipDetails(Capture, "Terraria"), duration: 3);
+                double? sought = null;
+                var editor = new ClipDetailsEditor { SeekBookmark = seconds => sought = seconds, KnownTags = () => ["boss", "chat"] };
+                var bookmark = new ClipBookmark(1.75, "Boss arrives");
+                var original = new ClipDetails(Capture, "Terraria") { Bookmarks = [bookmark] };
+                ClipDetailsStore.Write(media, original);
+                editor.Open(media, original, duration: 3);
                 Assert.Contains(Path.GetFileName(media), editor.MediaSummary.Text);
-                editor.AddBookmark(double.NaN, 3);
-                editor.AddBookmark(3, 3);
-                Assert.Empty(editor.BookmarkRows.Children);
-                editor.AddBookmark(1.75, 3);
-                editor.AddBookmark(1.75, 3);
                 var row = Assert.IsType<DockPanel>(Assert.Single(editor.BookmarkRows.Children));
-                Assert.IsType<TextBox>(row.Children[2]).Text = "Boss arrives";
+                Assert.IsType<Button>(row.Children[0]).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                Assert.Equal(bookmark.Seconds, sought);
+                Assert.Equal(bookmark.Label, Assert.IsType<TextBlock>(row.Children[1]).Text);
                 editor.TagBox.Text = "BO";
                 var suggestion = Assert.IsType<Button>(Assert.Single(editor.TagSuggestions.Children));
                 suggestion.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
@@ -119,7 +120,7 @@ public sealed class ClipDetailsTests
                 var saved = ClipDetailsStore.Read(new FileInfo(media), "Fallback", null);
                 Assert.Equal("boss", Assert.Single(saved.Tags));
                 Assert.True(saved.IsFavorite);
-                Assert.Equal(new ClipBookmark(1.75, "Boss arrives"), Assert.Single(saved.Bookmarks));
+                Assert.Equal(bookmark, Assert.Single(saved.Bookmarks));
                 Assert.Equal(Capture, saved.CapturedAt);
                 result.SetResult();
             }

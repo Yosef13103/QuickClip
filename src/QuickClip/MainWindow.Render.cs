@@ -14,6 +14,19 @@ public partial class MainWindow
     internal async Task RenderPagesAsync(string dir, string? editorFile)
     {
         Directory.CreateDirectory(dir);
+        if (Environment.GetCommandLineArgs().Contains("--recording-settings-smoke-only"))
+        {
+            ShowSettings();
+            _settings!.ShowRecordingSettingsForRender(audio: true);
+            await Task.Delay(250);
+            SaveVisual(Path.Combine(dir, "settings-audio.png"));
+            _settings.ShowRecordingSettingsForRender(audio: false);
+            await Task.Delay(250);
+            SaveVisual(Path.Combine(dir, "settings-hotkeys.png"));
+            if (Recorder.Instance.IsRunning) throw new InvalidOperationException("Recording must be inactive during the smoke test.");
+            File.WriteAllText(Path.Combine(dir, "report.txt"), "Audio and Hotkeys rendered with recording inactive.");
+            return;
+        }
         if (Environment.GetCommandLineArgs().Contains("--library-smoke-only"))
         {
             await Task.Delay(4000);

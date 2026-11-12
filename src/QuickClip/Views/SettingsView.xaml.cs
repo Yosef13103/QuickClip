@@ -24,11 +24,11 @@ public partial class SettingsView : UserControl
     private readonly List<(ComboBox Combo, Button Remove)> _micRows = [];
     private IReadOnlySet<string> _encoders = new HashSet<string>();
     private bool _loading;
-    private bool _capturingHotkey;
 
     public SettingsView()
     {
         InitializeComponent();
+        BuildHotkeyRows();
         SettingsSections.Visibility = AppProfile.IsPersonal ? Visibility.Visible : Visibility.Collapsed;
         LibraryOptions.Visibility = AppProfile.IsPersonal ? Visibility.Visible : Visibility.Collapsed;
         if (AppProfile.IsPersonal)
@@ -238,7 +238,7 @@ public partial class SettingsView : UserControl
             MicTracksCombo.ItemsSource = new List<Choice> { new("All on one Mic track", false), new("A track for each microphone", true) };
             Select(MicTracksCombo, s.SeparateMicTracks);
 
-            ShowHotkey();
+            ShowHotkeys();
             StartupCheck.IsChecked = Startup.IsEnabled;
             MinTrayCheck.IsChecked = s.MinimizeToTray;
             CloseTrayCheck.IsChecked = s.CloseToTray;
@@ -608,64 +608,6 @@ public partial class SettingsView : UserControl
             : state.Mode == RecordingMode.Armed ? "Armed · no recording active."
             : recordingEnabled ? "Starting…" : "Recording is off.";
     });
-
-    // ---- hotkey --------------------------------------------------------------------------------
-
-    private void ShowHotkey()
-    {
-        var s = AppSettings.Current;
-        HotkeyButton.Content = new Hotkey(s.HotkeyModifiers, s.HotkeyKey).ToString();
-        HotkeyStatus.Text = s.HotkeyKey == 0 ? "Click to assign a shortcut."
-            : App.Host?.HotkeyActive == false
-            ? "Another app is already using this shortcut — pick a different one."
-            : "Works everywhere, including in games.";
-    }
-
-    private void HotkeyButton_Click(object sender, RoutedEventArgs e)
-    {
-        _capturingHotkey = true;
-        App.Host?.SuspendHotkey();
-        HotkeyButton.Content = "Press the keys…";
-        HotkeyStatus.Text = "Esc cancels, Backspace clears.";
-        HotkeyButton.Focus();
-    }
-
-    private void HotkeyButton_PreviewKeyDown(object sender, KeyEventArgs e)
-    {
-        if (!_capturingHotkey) return;
-        e.Handled = true;
-        Key key = e.Key == Key.System ? e.SystemKey : e.Key;
-        if (key == Key.Escape)
-        {
-            EndHotkeyCapture();
-            return;
-        }
-        if (Hotkey.IsModifierKey(key)) return;
-
-        var hotkey = key is Key.Back or Key.Delete ? new Hotkey(0, 0) : Hotkey.FromWpf(Keyboard.Modifiers, key);
-        var result = App.Host?.SetHotkey(RecordingCommand.SaveClip, hotkey);
-        if (result == null)
-        {
-            RecordingHotkeys.Write(AppSettings.Current, RecordingCommand.SaveClip, hotkey);
-            AppSettings.Current.Save();
-        }
-        EndHotkeyCapture();
-        if (result is HotkeyRegistration.Duplicate or HotkeyRegistration.Unavailable or HotkeyRegistration.Invalid)
-            HotkeyStatus.Text = result == HotkeyRegistration.Duplicate ? "QuickClip already uses this shortcut."
-                : "Windows could not register this shortcut. The previous binding was kept.";
-    }
-
-    private void HotkeyButton_LostFocus(object sender, KeyboardFocusChangedEventArgs e)
-    {
-        if (_capturingHotkey) EndHotkeyCapture();
-    }
-
-    private void EndHotkeyCapture()
-    {
-        _capturingHotkey = false;
-        App.Host?.RegisterHotkey();
-        ShowHotkey();
-    }
 
     // ---- general -------------------------------------------------------------------------------
 

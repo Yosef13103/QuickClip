@@ -18,6 +18,12 @@ public sealed class RecordingHotkeysTests
         Assert.Equal(saved.DesktopHotkey, AppSettings.Parse(saved.ToJson()).DesktopHotkey);
         var customized = AppSettings.Parse("""{"HotkeyKey":120,"HotkeyModifiers":4}""");
         Assert.Equal(new Hotkey(Hotkey.Shift, 120), RecordingHotkeys.Read(customized, RecordingCommand.SaveClip));
+        Assert.Equal(RecordingHotkeys.Read(fresh, RecordingCommand.SaveClip), RecordingHotkeys.Default(RecordingCommand.SaveClip));
+        foreach (var command in Enum.GetValues<RecordingCommand>())
+            RecordingHotkeys.Write(customized, command, default);
+        var reloaded = AppSettings.Parse(customized.ToJson());
+        Assert.All(Enum.GetValues<RecordingCommand>(), command => Assert.True(RecordingHotkeys.Read(reloaded, command).IsEmpty));
+        Assert.All(Enum.GetValues<RecordingCommand>().Skip(1), command => Assert.True(RecordingHotkeys.Default(command).IsEmpty));
     }
 
     [Fact]

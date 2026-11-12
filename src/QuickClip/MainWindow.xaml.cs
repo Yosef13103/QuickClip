@@ -239,7 +239,7 @@ public partial class MainWindow : Window
         {
             var stats = recorder.Stats();
             RecDot.Fill = (Brush)FindResource("RecordingRed");
-            string buffered = RecordingPresets.DurationLabel((int)Math.Round(stats.BufferSeconds));
+            string buffered = Fmt.CompactDuration(stats.BufferSeconds);
             string hotkeyText = s.HotkeyKey == 0 ? "no save hotkey configured"
                 : App.Host?.HotkeyActive == false ? "the hotkey is unavailable (see Settings)" : $"{hotkey} saves a clip";
             RecStatus.Text = $"Recording  ·  {recorder.State.Summary}  ·  {buffered} buffered ({Fmt.Size(stats.BufferBytes)})  ·  {hotkeyText}";

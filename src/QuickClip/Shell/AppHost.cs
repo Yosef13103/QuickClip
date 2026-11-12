@@ -145,8 +145,8 @@ internal sealed class AppHost : IDisposable
             ? receipt.GameContext is { } game ? $"{game} · {receipt.SourceDescription}" : receipt.SourceDescription
             : receipt.Game;
         string message = receipt.ActualVideoDuration is { } actual
-            ? $"{label} · {actual.TotalSeconds:0.#} s saved" : label;
-        if (receipt.IsShorterThanRequested == true) message += $" ({receipt.RequestedSeconds} s requested)";
+            ? $"{label} · {Fmt.CompactDuration(actual.TotalSeconds)} saved" : label;
+        if (receipt.IsShorterThanRequested == true) message += $" ({Fmt.CompactDuration(receipt.RequestedSeconds)} requested)";
         ShowClipFeedback(success: true, message);
     });
 

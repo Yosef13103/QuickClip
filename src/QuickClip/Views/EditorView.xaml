@@ -148,8 +148,6 @@
             <StackPanel x:Name="EditControls" Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center" HorizontalAlignment="Right">
                 <Button Style="{StaticResource TextButton}" Click="SetIn_Click" Content="Set in" ToolTip="Start the clip at the playhead (I)" />
                 <Button Style="{StaticResource TextButton}" Click="SetOut_Click" Content="Set out" ToolTip="End the clip at the playhead (O)" />
-                <Button x:Name="BookmarkButton" Style="{StaticResource TextButton}" Content="Bookmark"
-                        Click="Bookmark_Click" ToolTip="Bookmark the current position in this saved clip" />
                 <ToggleButton x:Name="LoopToggle" Style="{StaticResource IconToggle}" Margin="8,0,12,0" Checked="Loop_Changed" Unchecked="Loop_Changed"
                               ToolTip="Loop the selection while previewing (L)">
                     <StackPanel Orientation="Horizontal">

@@ -165,6 +165,15 @@ internal static class Fmt
             : $"{t.Minutes}:{t.Seconds:00}{ms}";
     }
 
+    /// <summary>Whole seconds for short UI labels, independent of media or trimming precision.</summary>
+    public static string CompactDuration(double seconds)
+    {
+        if (!double.IsFinite(seconds) || seconds < 0 || seconds >= long.MaxValue) return "00";
+        long wholeSeconds = (long)seconds;
+        return wholeSeconds < 60 ? wholeSeconds.ToString("00", CultureInfo.InvariantCulture)
+            : FormattableString.Invariant($"{wholeSeconds / 60:00}:{wholeSeconds % 60:00}");
+    }
+
     public static string Size(long bytes) => bytes switch
     {
         >= 1L << 30 => $"{bytes / (double)(1L << 30):0.00} GB",
