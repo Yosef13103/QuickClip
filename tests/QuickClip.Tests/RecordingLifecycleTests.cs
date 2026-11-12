@@ -5,6 +5,18 @@ namespace QuickClip.Tests;
 
 public sealed class RecordingLifecycleTests
 {
+    [Fact]
+    public void Status_describes_verified_game_and_entire_display_scope_without_claiming_window_isolation()
+    {
+        string display = @"\\.\DISPLAY2";
+        Assert.Equal("Game: Terraria · Entire display Display 2",
+            Recorder.CaptureStatusLabel(RecordingMode.GameTriggered, "Terraria", display, "Desktop"));
+        Assert.Equal("Desktop recording · Display 2",
+            Recorder.CaptureStatusLabel(RecordingMode.ManualDesktop, null, display, "Desktop"));
+        Assert.Equal("Desktop",
+            Recorder.CaptureStatusLabel(RecordingMode.GameTriggered, null, display, "Desktop"));
+    }
+
     private static GameCaptureObservation Game(int id)
     {
         var owner = new WindowOwner((IntPtr)id, 10, (uint)id, 42);
