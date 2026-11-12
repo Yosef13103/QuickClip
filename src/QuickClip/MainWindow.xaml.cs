@@ -20,6 +20,7 @@ public partial class MainWindow : Window
     private PlayerView? _player;
     private SettingsView? _settings;
     private bool _closeReady;
+    private bool _syncingReplayMaster;
     private WindowState _stateBeforeFullScreen;
     private bool _windowFullScreen;
 
@@ -27,6 +28,7 @@ public partial class MainWindow : Window
     {
         InitializeComponent();
         Title = AppProfile.Name;
+        ReplayMasterToggle.Visibility = AppProfile.IsPersonal ? Visibility.Visible : Visibility.Collapsed;
         Width = Math.Min(Width, SystemParameters.WorkArea.Width * 0.95);
         Height = Math.Min(Height, SystemParameters.WorkArea.Height * 0.95);
 
@@ -52,6 +54,9 @@ public partial class MainWindow : Window
             UpdateStatus();
             _statusTimer.Start();
             _ = ShowWhatsNewAfterUpdateAsync();
+            if (AppProfile.IsPersonal && !AppSettings.SaveDisabled && !AppSettings.Current.LoadedFromFile
+                && !AppSettings.Current.ReplayOnboardingCompleted)
+                Dispatcher.BeginInvoke(ShowFirstRunReplayChoice, DispatcherPriority.ApplicationIdle);
         };
         WhatsNew.Closed += () =>
         {
@@ -230,10 +235,48 @@ public partial class MainWindow : Window
 
     private void UpdateButton_Click(object sender, RoutedEventArgs e) => ShowSettings();
 
+    private async void ReplayMasterChanged(object sender, RoutedEventArgs e)
+    {
+        if (!AppProfile.IsPersonal || !IsLoaded || _syncingReplayMaster) return;
+        var settings = AppSettings.Current;
+        bool enabled = ReplayMasterToggle.IsChecked == true;
+        if (settings.RecordingEnabled == enabled) return;
+        settings.RecordingEnabled = enabled;
+        settings.ReplayOnboardingCompleted = true;
+        settings.Save();
+        await Recorder.Instance.ApplySettingsAsync();
+        UpdateStatus();
+    }
+
+    private async void ShowFirstRunReplayChoice()
+    {
+        var settings = AppSettings.Current;
+        if (!IsVisible || settings.LoadedFromFile || settings.ReplayOnboardingCompleted || AppSettings.SaveDisabled) return;
+        bool enable = ModalDialog.ConfirmAction(this,
+            "QuickClip can save the last minute of gameplay when you press the hotkey. " +
+            "While waiting for a recognized game, it does not start the video or audio capture engine.\n\n" +
+            "While a game is active, this build records an authorized display, so other visible windows " +
+            "on that display can appear in clips. Display access is configured in Recording settings.\n\n" +
+            "Enable instant replay now?",
+            "Welcome to QuickClip Personal", "Enable instant replay", "Not now", destructive: false);
+        settings.ReplayOnboardingCompleted = true;
+        if (enable) settings.RecordingEnabled = true;
+        settings.Save();
+        await Recorder.Instance.ApplySettingsAsync();
+        UpdateStatus();
+        if (enable) ShowSettings();
+    }
+
     private void UpdateStatus()
     {
         var recorder = Recorder.Instance;
         var s = AppSettings.Current;
+        if (AppProfile.IsPersonal && ReplayMasterToggle.IsChecked != s.RecordingEnabled)
+        {
+            _syncingReplayMaster = true;
+            try { ReplayMasterToggle.IsChecked = s.RecordingEnabled; }
+            finally { _syncingReplayMaster = false; }
+        }
         var hotkey = new Hotkey(s.HotkeyModifiers, s.HotkeyKey);
         if (recorder.IsRunning)
         {
