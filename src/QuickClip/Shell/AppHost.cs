@@ -168,8 +168,17 @@ internal sealed class AppHost : IDisposable
         _sourceBalloonShown = true;
     }
 
+    internal static bool SuppressIdleClipWarning(bool isPersonal, bool notifyWhenInactive, RecordingMode mode) =>
+        isPersonal && !notifyWhenInactive && mode is RecordingMode.Off or RecordingMode.Armed;
+
     private void OnSaveFailed(string error) => _dispatcher.BeginInvoke(() =>
     {
+        if (SuppressIdleClipWarning(AppProfile.IsPersonal, AppSettings.Current.ShowInactiveSaveNotifications,
+            Recorder.Instance.State.Mode))
+        {
+            Log.Write("Save Clip ignored without active recording: " + error);
+            return;
+        }
         if (AppProfile.IsPersonal && !Recorder.Instance.IsRunning)
             NotifySource("Clip not saved", SourceGuidance(Recorder.Instance.Error) ?? error);
         else ShowClipFeedback(success: false, error);
