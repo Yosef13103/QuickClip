@@ -155,7 +155,7 @@ internal sealed partial class GameDetector
             match = new(CatalogMatchKind.Launcher, match.Entry);
 
         bool recognized = match.Kind == CatalogMatchKind.Game
-            || match.Kind == CatalogMatchKind.Candidate && (known.Contains(path) || fullscreen ||
+            || match.Kind == CatalogMatchKind.Candidate && match.Entry?.Source != CatalogSource.Epic && (known.Contains(path) || fullscreen ||
                 match.Entry?.Source == CatalogSource.Steam);
         string? name = recognized ? match.Entry?.DisplayName : null;
         if (match.Kind == CatalogMatchKind.Unknown)

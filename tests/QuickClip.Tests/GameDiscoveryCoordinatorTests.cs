@@ -20,7 +20,7 @@ public sealed class GameDiscoveryCoordinatorTests : IDisposable
         }, request =>
         {
             scans++;
-            return GameCatalogService.CreateScan(request, () => []);
+            return GameCatalogService.CreateScan(request, () => [], () => null);
         });
         coordinator.Start();
         var running = coordinator.RequestAsync();
@@ -42,7 +42,7 @@ public sealed class GameDiscoveryCoordinatorTests : IDisposable
         using var coordinator = new GameDiscoveryCoordinator(() => state, (updated, _) => state = updated, request =>
         {
             scans++;
-            return GameCatalogService.CreateScan(request, () => []);
+            return GameCatalogService.CreateScan(request, () => [], () => null);
         }, segmentsPerSlice: 1);
         bool pause = true;
         coordinator.Changed += () =>
@@ -115,7 +115,7 @@ public sealed class GameDiscoveryCoordinatorTests : IDisposable
                 entered.TrySetResult();
                 if (!release.Wait(TimeSpan.FromSeconds(10))) throw new TimeoutException();
                 return [root];
-            });
+            }, () => null);
         });
         coordinator.Start();
         await coordinator.RequestAsync();

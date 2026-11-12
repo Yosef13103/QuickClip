@@ -7,12 +7,12 @@
     <DockPanel Margin="28,16,24,16" MaxWidth="1340">
         <StackPanel DockPanel.Dock="Top">
             <TextBlock Text="Games" FontSize="24" FontWeight="SemiBold" />
-            <CheckBox x:Name="AutoScan" Content="Automatically discover games from Steam and approved folders" Click="AutoScan_Click" Margin="0,8,0,0" />
-            <TextBlock Text="Automatic scans read local Steam manifests and approved folders in the background. You can pause and resume a scan here." TextWrapping="Wrap" Style="{StaticResource Hint}" />
+            <CheckBox x:Name="AutoScan" Content="Automatically discover installed games" Click="AutoScan_Click" Margin="0,8,0,0" />
+            <TextBlock Text="Automatic scans read local Steam and Epic manifests and approved folders. You can pause and resume a scan here." TextWrapping="Wrap" Style="{StaticResource Hint}" />
             <Expander Header="Game libraries and launchers" Margin="0,6,0,6">
                 <StackPanel>
-                    <TextBlock Text="Supported sources: detected or approved Steam libraries, game folders and exact executable files." TextWrapping="Wrap" Style="{StaticResource Hint}" />
-                    <TextBlock Text="Automatic discovery for Epic, Battle.net, EA, Ubisoft, GOG, Riot and Xbox/Game Pass is unavailable." TextWrapping="Wrap" Style="{StaticResource Hint}" />
+                    <TextBlock Text="Supported sources: Steam libraries, Epic install manifests, game folders and exact executable files." TextWrapping="Wrap" Style="{StaticResource Hint}" />
+                    <TextBlock Text="Automatic discovery for Battle.net, EA, Ubisoft, GOG, Riot and Xbox/Game Pass is unavailable." TextWrapping="Wrap" Style="{StaticResource Hint}" />
                     <ListBox x:Name="Roots" MaxHeight="105" AutomationProperties.Name="Approved folders" />
                     <WrapPanel Margin="0,5,0,0">
                         <Button Content="Approve Steam library…" Click="Steam_Click" Margin="0,0,6,0" />

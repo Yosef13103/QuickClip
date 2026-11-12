@@ -2,7 +2,7 @@ using System.Collections.Immutable;
 
 namespace QuickClip.Discovery;
 
-internal enum CatalogSource { Folder, Steam, Manual }
+internal enum CatalogSource { Folder, Steam, Manual, Epic }
 internal enum CatalogConfidence { Low, Medium, High }
 internal enum CatalogInclusion { Default, Include, Exclude }
 internal enum AppClassification { Automatic, Game, Application, Companion }
@@ -31,6 +31,7 @@ internal sealed record GameScanRoot(string Path, bool IsCollection = false);
 internal sealed record CatalogRequest
 {
     public bool DiscoverSteam { get; init; }
+    public bool DiscoverEpic { get; init; }
     public ImmutableArray<GameScanRoot> GameRoots { get; init; } = [];
     public ImmutableArray<string> SteamLibraryRoots { get; init; } = [];
     public ImmutableArray<string> ExcludedDirectories { get; init; } = [];
@@ -50,7 +51,7 @@ internal sealed record CatalogEntry(
     public CatalogConfidence Confidence => Source switch
     {
         CatalogSource.Manual => CatalogConfidence.High,
-        CatalogSource.Steam => CatalogConfidence.Medium,
+        CatalogSource.Steam or CatalogSource.Epic => CatalogConfidence.Medium,
         _ => CatalogConfidence.Low,
     };
 }
@@ -64,4 +65,5 @@ internal sealed record CatalogResult(
     int VisitedEntries, bool LimitReached, DateTimeOffset CompletedAt)
 {
     public ImmutableArray<string> SteamLibraries { get; init; } = [];
+    public string? EpicManifestDirectory { get; init; }
 }
