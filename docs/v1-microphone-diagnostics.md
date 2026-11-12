@@ -11,7 +11,7 @@ $env:QUICKCLIP_PERSONAL_DATA_DIR = Join-Path (Get-Location) '.quickclip-local/mi
 dotnet src/QuickClip/bin/Release/net10.0-windows/QuickClip.dll
 ```
 
-Quit any running Personal instance first so single-instance forwarding opens the test build. Leave instant replay off for the idle comparison. Set a scratch clips folder before the optional replay test.
+The scratch profile has its own app instance and clips folder. Leave instant replay off for the idle comparison. Before the replay test, verify that the clips folder points to the scratch profile.
 
 1. With the recorder idle, open **Settings → Audio** and enable **Record selected Windows audio devices** if needed. Add **SteelSeries Sonar - Microphone** from the **microphone** picker. The playback picker shows a different Windows endpoint.
 2. Click **Test microphone**, then speak a short test phrase. Let the test finish and click **Save diagnostics**. Repeat with **Microphone (SteelSeries Arctis Pro Chat)** using the same phrase and approximate distance. Keep both JSON files local.
