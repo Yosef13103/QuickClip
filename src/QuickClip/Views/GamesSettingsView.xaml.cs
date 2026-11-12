@@ -1,6 +1,8 @@
 using System.Collections.Immutable;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
+using System.Windows.Data;
 using Microsoft.Win32;
 using QuickClip.Discovery;
 
@@ -13,16 +15,18 @@ public partial class GamesSettingsView : UserControl
         public override string ToString() => (Excluded ? "Excluded · " : Epic ? "Detected Epic manifests · " :
             Automatic ? "Detected Steam · " : Steam ? "Steam · " : "Game folder · ") + Path;
     }
-    private sealed record GameRow(CatalogEntry Entry, string Summary, string Action);
     private static GameDiscoveryCoordinator Discovery => GameCatalogRuntime.Discovery;
     private bool _rendering;
+    private GameCatalogSettings? _renderedState;
+    private List<GameRow> _rows = [];
+    private ListCollectionView? _gamesView;
+    private GameRow? _expanded;
+    private string _query = "";
     private static GameCatalogSettings State => AppSettings.Current.Games ?? new();
-    private CatalogEntry? Selected => (Games.SelectedItem as GameRow)?.Entry;
 
     public GamesSettingsView()
     {
         InitializeComponent();
-        Classification.ItemsSource = Enum.GetValues<AppClassification>();
         Render();
         IsVisibleChanged += async (_, _) =>
         {
@@ -36,7 +40,7 @@ public partial class GamesSettingsView : UserControl
 
     private void ShowDiscoveryStatus()
     {
-        Render();
+        if (!ReferenceEquals(_renderedState, AppSettings.Current.Games)) Render();
         ScanButton.IsEnabled = !Discovery.IsRunning;
         CancelButton.IsEnabled = Discovery.IsRunning;
         if (Discovery.Status.Length != 0) Status.Text = Discovery.Status;
@@ -106,7 +110,8 @@ public partial class GamesSettingsView : UserControl
     private void Add_Click(object sender, RoutedEventArgs e) => PickExecutables(null);
     private void Edit_Click(object sender, RoutedEventArgs e)
     {
-        if (Selected is { Source: CatalogSource.Manual } entry) PickExecutables(entry);
+        if (sender is FrameworkElement { DataContext: GameRow { Entry: { Source: CatalogSource.Manual } entry } })
+            PickExecutables(entry);
     }
 
     private void PickExecutables(CatalogEntry? entry)
@@ -139,7 +144,7 @@ public partial class GamesSettingsView : UserControl
 
     private void Remove_Click(object sender, RoutedEventArgs e)
     {
-        if (Selected is not { Source: CatalogSource.Manual } entry) return;
+        if (sender is not FrameworkElement { DataContext: GameRow { Entry: { Source: CatalogSource.Manual } entry } }) return;
         var request = State.Request;
         Guid id = Guid.ParseExact(entry.Id[7..], "N");
         SetState(State with { Request = request with
@@ -152,7 +157,8 @@ public partial class GamesSettingsView : UserControl
 
     private void Rename_Click(object sender, RoutedEventArgs e)
     {
-        if (Selected is not { } entry) return;
+        if (sender is not FrameworkElement { DataContext: GameRow row }) return;
+        var entry = row.Entry;
         if (TextPrompt.Ask(Window.GetWindow(this), "Game display name", entry.DisplayName, "Save") is { Length: > 0 } name)
             SaveRules(entry, entry.Rules with { DisplayName = name.Trim() });
     }
@@ -167,13 +173,15 @@ public partial class GamesSettingsView : UserControl
 
     private void Classification_Changed(object sender, SelectionChangedEventArgs e)
     {
-        if (!_rendering && Selected is { } entry && Classification.SelectedItem is AppClassification classification)
-            SaveRules(entry, entry.Rules with { Classification = classification });
+        if (_rendering || sender is not ComboBox { IsKeyboardFocusWithin: true, DataContext: GameRow row,
+                SelectedValue: AppClassification classification } || classification == row.Entry.Rules.Classification) return;
+        SaveRules(row.Entry, row.Entry.Rules with { Classification = classification });
     }
 
     private void Launcher_Click(object sender, RoutedEventArgs e)
     {
-        if (Selected is not { } entry || Executables.SelectedValue is not string path) return;
+        if (sender is not Button { DataContext: GameRow row, CommandParameter: string path }) return;
+        var entry = row.Entry;
         var launchers = entry.Rules.LauncherExecutables;
         SaveRules(entry, entry.Rules with { LauncherExecutables = launchers.Contains(path, StringComparer.OrdinalIgnoreCase)
             ? launchers.RemoveAll(value => string.Equals(value, path, StringComparison.OrdinalIgnoreCase)) : launchers.Add(path) });
@@ -190,12 +198,15 @@ public partial class GamesSettingsView : UserControl
 
     private void Search_Changed(object sender, TextChangedEventArgs e)
     {
-        if (Games != null) RenderRows();
+        _query = Search.Text.Trim();
+        _gamesView?.Refresh();
+        UpdateCount();
     }
 
     private void Render()
     {
-        var state = State;
+        _renderedState = AppSettings.Current.Games;
+        var state = _renderedState ?? new();
         AutoScan.IsChecked = state.AutoScan;
         RootRow[] epic = state.Snapshot?.EpicManifestDirectory is { } manifestDirectory &&
             !state.Request.ExcludedDirectories.Any(root => CatalogPaths.IsWithin(manifestDirectory, root))
@@ -210,56 +221,83 @@ public partial class GamesSettingsView : UserControl
             .Concat(state.Request.ExcludedDirectories.Select(path => new RootRow(path, false, Excluded: true))).ToArray();
         LastScan.Text = state.Snapshot is { } scan ? $"Last scan {scan.CompletedAt.ToLocalTime():g} · {scan.Entries.Length:N0} games found"
             : "No completed scan.";
-        ScanIssues.ItemsSource = state.Snapshot?.Issues.Select(issue => $"{issue.Kind} · {issue.Location}").ToArray();
-        RenderRows();
+        ScanIssues.ItemsSource = state.Snapshot?.Issues.Select(ScanIssueText).ToArray();
+        RenderRows(state);
     }
 
-    private void RenderRows()
+    internal void RenderRows(GameCatalogSettings state)
     {
-        string? selected = Selected?.Id;
-        string query = Search.Text.Trim();
-        var state = State;
+        string? selected = (Games.SelectedItem as GameRow)?.Entry.Id;
         var entries = GameCatalogRuntime.Rows(state);
-        var rows = entries.Where(entry => entry.DisplayName.Contains(query, StringComparison.OrdinalIgnoreCase) ||
-                query.Length > 0 && entry.Executables.Any(path => path.Contains(query, StringComparison.OrdinalIgnoreCase)))
-            .Select(entry =>
-            {
-                bool disabled = entry.Rules.Inclusion == CatalogInclusion.Exclude;
-                string source = entry.Source == CatalogSource.Folder ? "Approved folder" : entry.Source.ToString();
-                string status = disabled ? "Disabled for automatic targeting" :
-                    state.OfflineIds.Contains(entry.Id) || entry.Executables.IsEmpty ||
-                    entry.Source == CatalogSource.Epic && entry.Rules.Classification != AppClassification.Game
-                    ? "Needs review" : "Eligible for game detection";
-                return new GameRow(entry, $"{source} · {status}", disabled ? "Allow game targeting" : "Exclude from game targeting");
-            }).ToArray();
-        Games.ItemsSource = rows;
-        Games.SelectedItem = rows.FirstOrDefault(row => row.Entry.Id == selected);
-        Count.Text = $"Detected games · {rows.Length:N0} / {entries.Length:N0}";
-        ShowDetails();
-    }
-
-    private void Game_Changed(object sender, SelectionChangedEventArgs e) => ShowDetails();
-
-    private void ShowDetails()
-    {
-        var entry = Selected;
-        var settings = AppSettings.Current;
+        var offline = state.OfflineIds.ToHashSet(StringComparer.Ordinal);
+        var existing = _rows.ToDictionary(row => row.Entry.Id, StringComparer.Ordinal);
+        var rows = new List<GameRow>(entries.Length);
+        bool refilter = false;
         _rendering = true;
-        Identity.Text = entry == null ? "Select a game to see its identity and executable associations."
-            : $"{entry.DisplayName} · {entry.Id}";
-        Policy.Text = entry == null ? "" :
-            $"Inherits global recording · {settings.RecordFps} fps · {(settings.RecordResolution == 0 ? "Native" : $"{settings.RecordResolution}px short side")} · {settings.BufferSeconds}s replay. " +
-            (settings.UseAudioEndpoints ? "Uses global selected audio endpoints. " : "Uses global legacy audio settings. ") +
-            (entry.Rules.CapturePreference != CatalogCapturePreference.Default ? $"Saved {entry.Rules.CapturePreference} source preference awaits integration. " : "") +
-            (entry.Rules.ProfileId is { } profile ? $" Saved profile {profile} is awaiting integration." : "");
-        Executables.ItemsSource = entry?.Executables.Select(path => new KeyValuePair<string, string>(path,
-            path + (entry.Rules.LauncherExecutables.Contains(path, StringComparer.OrdinalIgnoreCase) ? " · launcher" : "")
-            + (entry.Source == CatalogSource.Manual && !File.Exists(path) ? " · unavailable" : ""))).ToArray();
-        Executables.DisplayMemberPath = "Value";
-        Executables.SelectedValuePath = "Key";
-        Classification.SelectedItem = entry?.Rules.Classification;
-        Classification.IsEnabled = LauncherButton.IsEnabled = RenameButton.IsEnabled = entry != null;
-        EditButton.IsEnabled = RemoveButton.IsEnabled = entry?.Source == CatalogSource.Manual;
-        _rendering = false;
+        try
+        {
+            foreach (var entry in entries)
+            {
+                if (!existing.TryGetValue(entry.Id, out var row)) row = new(entry);
+                else if (_query.Length > 0) refilter |= row.Matches(_query) != GameRow.Matches(entry, _query);
+                row.Update(entry, offline.Contains(entry.Id));
+                rows.Add(row);
+            }
+            if (_expanded != null && !entries.Any(entry => entry.Id == _expanded.Entry.Id))
+                _expanded = null;
+            if (_gamesView == null || !_rows.SequenceEqual(rows))
+            {
+                _rows = rows;
+                _gamesView = new ListCollectionView(rows) { Filter = item => ((GameRow)item).Matches(_query) };
+                Games.ItemsSource = _gamesView;
+                Games.SelectedItem = rows.FirstOrDefault(row => row.Entry.Id == selected && row.Matches(_query));
+            }
+            else if (refilter) _gamesView.Refresh();
+        }
+        finally { _rendering = false; }
+        UpdateCount();
     }
+
+    private void UpdateCount()
+    {
+        if (Count != null && _gamesView != null)
+            Count.Text = $"Detected games · {_gamesView.Count:N0} / {_rows.Count:N0}";
+    }
+
+    private async void Details_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not ToggleButton { DataContext: GameRow row }) return;
+        if (!ToggleDetails(row) || !row.IsManual || row.CheckingExecutables || row.Entry.Executables.IsEmpty) return;
+        var paths = row.Entry.Executables;
+        row.CheckingExecutables = true;
+        try
+        {
+            var unavailable = await Task.Run(() => paths.Where(path => !File.Exists(path)).ToArray());
+            if (row.Entry.Executables.SequenceEqual(paths)) row.SetUnavailableExecutables(unavailable);
+        }
+        finally { row.CheckingExecutables = false; }
+    }
+
+    internal bool ToggleDetails(GameRow row)
+    {
+        bool open = !row.IsExpanded;
+        if (_expanded != null) _expanded.IsExpanded = false;
+        _expanded = open ? row : null;
+        if (open)
+        {
+            row.IsExpanded = true;
+            Games.SelectedItem = row;
+        }
+        return open;
+    }
+
+    internal static string ScanIssueText(CatalogIssue issue) => (issue.Kind switch
+    {
+        CatalogIssueKind.Unavailable => "Source unavailable · reconnect the drive or check folder access",
+        CatalogIssueKind.InvalidManifest => "Unreadable launcher manifest · check the installation and rescan",
+        CatalogIssueKind.InvalidManualEntry => "Invalid manual entry · edit its executable selection",
+        CatalogIssueKind.ReparsePoint => "Linked folder skipped · approve its actual local location",
+        CatalogIssueKind.InvalidPath => "Invalid source path · choose a local folder",
+        _ => "Scan limit reached · try a smaller source",
+    }) + " · " + issue.Location;
 }

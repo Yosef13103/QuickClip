@@ -1,4 +1,9 @@
+using System.Collections.Immutable;
 using System.Windows;
+using System.Windows.Automation;
+using System.Windows.Controls;
+using System.Windows.Media;
+using QuickClip.Discovery;
 using QuickClip.Views;
 
 namespace QuickClip.Tests;
@@ -7,20 +12,114 @@ namespace QuickClip.Tests;
 public sealed class GamesSettingsViewTests
 {
     [Fact]
-    public async Task Games_page_loads_at_a_typical_scaled_desktop_size()
+    public Task Games_page_loads_at_a_typical_scaled_desktop_size() => OnSta(() =>
+    {
+        var page = new GamesSettingsView();
+        Arrange(page);
+        Assert.True(page.Games.ActualHeight > 0);
+        Assert.True(page.AutoScan.IsChecked == true);
+        Assert.False(page.CancelButton.IsEnabled);
+    });
+
+    [Theory]
+    [InlineData(8)]
+    [InlineData(50)]
+    [InlineData(200)]
+    public Task Rows_expand_inline_and_keep_identity_when_filtered(int count) => OnSta(() =>
+    {
+        var page = new GamesSettingsView();
+        var state = Fixture(count);
+        page.RenderRows(state);
+        Arrange(page);
+        Assert.Equal(count, page.Games.Items.Count);
+        var first = Assert.IsType<GamesSettingsView.GameRow>(page.Games.Items[0]);
+        var second = Assert.IsType<GamesSettingsView.GameRow>(page.Games.Items[1]);
+        Assert.Equal("Manual · Enabled", first.Summary);
+        var container = Assert.IsType<ListBoxItem>(page.Games.ItemContainerGenerator.ContainerFromIndex(0));
+        double collapsedHeight = container.ActualHeight;
+        var capture = Descendants<Button>(container).Single(button =>
+            AutomationProperties.GetName(button).StartsWith("Disable automatic targeting", StringComparison.Ordinal));
+        Assert.True(capture.Focusable);
+        Assert.Equal($"Disable automatic targeting for {first.Entry.DisplayName}", capture.ToolTip);
+        Assert.True(page.ToggleDetails(first));
+        Arrange(page);
+        Assert.True(container.ActualHeight > collapsedHeight);
+        Assert.False(second.IsExpanded);
+        if (count == 200) Assert.Null(page.Games.ItemContainerGenerator.ContainerFromIndex(count - 1));
+
+        page.Search.Text = second.Entry.Executables[0];
+        Assert.Same(second, Assert.Single(page.Games.Items));
+        page.Search.Clear();
+        Assert.Same(first, page.Games.Items[0]);
+        Assert.True(first.IsExpanded);
+        Assert.True(page.ToggleDetails(second));
+        Assert.False(first.IsExpanded);
+        Assert.True(second.IsExpanded);
+    });
+
+    [Fact]
+    public Task Rule_state_round_trips_and_updates_accessible_action_without_replacing_row() => OnSta(() =>
+    {
+        var page = new GamesSettingsView();
+        var state = Fixture(8);
+        page.RenderRows(state);
+        var row = Assert.IsType<GamesSettingsView.GameRow>(page.Games.Items[0]);
+        string enabledIcon = row.CaptureIcon;
+        state = state with
+        {
+            Request = state.Request with
+            {
+                Overrides = [new(row.Entry.Id, new(Inclusion: CatalogInclusion.Exclude))],
+            },
+            OfflineIds = [row.Entry.Id],
+        };
+        page.RenderRows(AppSettings.Parse(new AppSettings { Games = state }.ToJson()).Games);
+        Assert.Same(row, page.Games.Items[0]);
+        Assert.NotEqual(enabledIcon, row.CaptureIcon);
+        Assert.Contains("Disabled", row.Summary);
+        Assert.Contains("games remembered", row.Summary);
+        Assert.StartsWith("Enable automatic targeting", row.CaptureAction);
+        Assert.Contains("reconnect", GamesSettingsView.ScanIssueText(new("Test root", CatalogIssueKind.Unavailable)));
+        Assert.Contains("manifest", GamesSettingsView.ScanIssueText(new("Test manifest", CatalogIssueKind.InvalidManifest)));
+    });
+
+    private static GameCatalogSettings Fixture(int count) => new()
+    {
+        Request = new()
+        {
+            ManualEntries = Enumerable.Range(0, count).Select(index => new ManualCatalogEntry(
+                Guid.NewGuid(), $"Test game {index:000}", [$@"C:\SyntheticGames\Game{index:000}.exe"])).ToImmutableArray(),
+        },
+    };
+
+    private static void Arrange(FrameworkElement element)
+    {
+        var size = new Size(1050, 660);
+        element.InvalidateMeasure();
+        element.InvalidateArrange();
+        element.Measure(size);
+        element.Arrange(new Rect(size));
+        element.UpdateLayout();
+    }
+
+    private static IEnumerable<T> Descendants<T>(DependencyObject element) where T : DependencyObject
+    {
+        for (int i = 0; i < VisualTreeHelper.GetChildrenCount(element); i++)
+        {
+            var child = VisualTreeHelper.GetChild(element, i);
+            if (child is T found) yield return found;
+            foreach (var nested in Descendants<T>(child)) yield return nested;
+        }
+    }
+
+    private static async Task OnSta(Action run)
     {
         var result = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var thread = new Thread(() =>
         {
             try
             {
-                var page = new GamesSettingsView();
-                var size = new Size(1050, 660);
-                page.Measure(size);
-                page.Arrange(new Rect(size));
-                Assert.True(page.Games.ActualHeight > 0);
-                Assert.True(page.AutoScan.IsChecked == true);
-                Assert.False(page.CancelButton.IsEnabled);
+                run();
                 result.SetResult();
             }
             catch (Exception ex) { result.SetException(ex); }
