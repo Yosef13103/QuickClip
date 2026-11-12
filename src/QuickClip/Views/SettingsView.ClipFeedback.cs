@@ -16,6 +16,7 @@ public partial class SettingsView
         if (!AppProfile.IsPersonal) return;
         var options = (settings.ClipOverlay ?? new()).Normalize();
         ClipOverlayCheck.IsChecked = options.Enabled;
+        ClipOverlayOptions.Visibility = options.Enabled ? Visibility.Visible : Visibility.Collapsed;
         var displays = new List<Choice> { new("Main display", "") };
         displays.AddRange(ClipNotificationOverlay.Displays().Select(d => new Choice(d.Label, d.Device)));
         if (!string.IsNullOrWhiteSpace(options.Display) && !displays.Any(d => Equals(d.Value, options.Display)))
@@ -42,6 +43,8 @@ public partial class SettingsView
         if (_loading || !IsInitialized) return;
         var settings = AppSettings.Current;
         settings.ClipWindowsNotification = WindowsClipNotificationCheck.IsChecked == true;
+        if (AppProfile.IsPersonal)
+            ClipOverlayOptions.Visibility = ClipOverlayCheck.IsChecked == true ? Visibility.Visible : Visibility.Collapsed;
         if (AppProfile.IsPersonal && OverlayAnchorCombo.SelectedItem is Choice { Value: OverlayAnchor anchor } &&
             OverlaySizeCombo.SelectedItem is Choice { Value: double size } &&
             OverlayOpacityCombo.SelectedItem is Choice { Value: double opacity } &&
