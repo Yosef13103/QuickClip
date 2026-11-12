@@ -36,26 +36,63 @@
         </ResourceDictionary>
     </UserControl.Resources>
 
-    <DockPanel>
-        <WrapPanel x:Name="SettingsSections" DockPanel.Dock="Top" Margin="28,12,14,0"
-                   KeyboardNavigation.DirectionalNavigation="Cycle">
-            <WrapPanel.Resources>
-                <Style TargetType="RadioButton" BasedOn="{StaticResource {x:Type RadioButton}}">
-                    <Setter Property="Margin" Value="0,0,14,6" />
-                    <Setter Property="GroupName" Value="SettingsSection" />
-                    <EventSetter Event="Checked" Handler="SettingsSection_Changed" />
-                </Style>
-            </WrapPanel.Resources>
-            <RadioButton x:Name="RecordingSection" Content="Recording" IsChecked="True" />
-            <RadioButton x:Name="AudioSection" Content="Audio" />
-            <RadioButton x:Name="GamesSection" Content="Games" />
-            <RadioButton x:Name="HotkeysSection" Content="Hotkeys" />
-            <RadioButton x:Name="SharingSection" Content="Sharing" />
-            <RadioButton x:Name="LibrarySection" Content="Library" />
-            <RadioButton x:Name="GeneralSection" Content="General" />
-            <RadioButton x:Name="DiagnosticsSection" Content="Diagnostics" />
-        </WrapPanel>
-        <Grid>
+    <!-- Settings' vertical section rail sits beside the application's primary navigation. -->
+    <Grid>
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition x:Name="SectionsColumn" Width="176" />
+            <ColumnDefinition Width="*" />
+        </Grid.ColumnDefinitions>
+        <Border Grid.Column="0" Background="{StaticResource RailBrush}" Padding="8,12,8,8">
+            <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                <StackPanel x:Name="SettingsSections" KeyboardNavigation.DirectionalNavigation="Cycle">
+                    <StackPanel.Resources>
+                        <Style TargetType="RadioButton" BasedOn="{StaticResource {x:Type RadioButton}}">
+                            <Setter Property="GroupName" Value="SettingsSection" />
+                            <Setter Property="Foreground" Value="#C9CDD2" />
+                            <Setter Property="Cursor" Value="Hand" />
+                            <Setter Property="Focusable" Value="True" />
+                            <Setter Property="Template">
+                                <Setter.Value>
+                                    <ControlTemplate TargetType="RadioButton">
+                                        <Border x:Name="RailButton" Background="Transparent" CornerRadius="7"
+                                                BorderThickness="1" BorderBrush="Transparent" Padding="12,11" Margin="0,2">
+                                            <DockPanel LastChildFill="True">
+                                                <TextBlock Text="{TemplateBinding Tag}" FontFamily="{StaticResource IconFont}"
+                                                           FontSize="17" Width="30" VerticalAlignment="Center" />
+                                                <ContentPresenter ContentSource="Content" VerticalAlignment="Center"
+                                                                  RecognizesAccessKey="True" />
+                                            </DockPanel>
+                                        </Border>
+                                        <ControlTemplate.Triggers>
+                                            <Trigger Property="IsMouseOver" Value="True">
+                                                <Setter TargetName="RailButton" Property="Background" Value="#2B2D30" />
+                                            </Trigger>
+                                            <Trigger Property="IsChecked" Value="True">
+                                                <Setter TargetName="RailButton" Property="Background" Value="#35393F" />
+                                                <Setter Property="Foreground" Value="White" />
+                                            </Trigger>
+                                            <Trigger Property="IsKeyboardFocused" Value="True">
+                                                <Setter TargetName="RailButton" Property="BorderBrush" Value="#83BEDD" />
+                                            </Trigger>
+                                        </ControlTemplate.Triggers>
+                                    </ControlTemplate>
+                                </Setter.Value>
+                            </Setter>
+                            <EventSetter Event="Checked" Handler="SettingsSection_Changed" />
+                        </Style>
+                    </StackPanel.Resources>
+                    <RadioButton x:Name="RecordingSection" Content="Recording" Tag="&#xE714;" IsChecked="True" />
+                    <RadioButton x:Name="AudioSection" Content="Audio" Tag="&#xE767;" />
+                    <RadioButton x:Name="GamesSection" Content="Games" Tag="&#xE7FC;" />
+                    <RadioButton x:Name="HotkeysSection" Content="Hotkeys" Tag="&#xE765;" />
+                    <RadioButton x:Name="SharingSection" Content="Sharing" Tag="&#xE72D;" />
+                    <RadioButton x:Name="LibrarySection" Content="Library" Tag="&#xE8B7;" />
+                    <RadioButton x:Name="GeneralSection" Content="General" Tag="&#xE713;" />
+                    <RadioButton x:Name="DiagnosticsSection" Content="Diagnostics" Tag="&#xE9CE;" />
+                </StackPanel>
+            </ScrollViewer>
+        </Border>
+        <Grid Grid.Column="1">
         <views:GamesSettingsView x:Name="GamesPage" Visibility="Collapsed" />
         <ScrollViewer x:Name="GeneralPage" VerticalScrollBarVisibility="Visible" HorizontalScrollBarVisibility="Disabled">
         <StackPanel x:Name="SettingsContent" MaxWidth="1340" Margin="28,22,14,28" HorizontalAlignment="Center">
@@ -424,9 +461,12 @@
                     </StackPanel>
                     <CheckBox x:Name="WindowsClipNotificationCheck" Content="Show Windows clip notifications"
                               Margin="0,8,0,0" Click="ClipFeedback_Changed" />
-                    <Expander x:Name="ClipOverlayPanel" Header="On-screen clip indicator" Margin="0,12,0,0">
-                        <StackPanel Margin="0,8,0,0">
-                            <CheckBox x:Name="ClipOverlayCheck" Content="Show the indicator when saving a clip" Click="ClipFeedback_Changed" />
+                    <CheckBox x:Name="IdleSaveNotificationCheck"
+                              Content="Warn when Save Clip is pressed with no active game or recording"
+                              Margin="0,8,0,0" Checked="Changed" Unchecked="Changed" />
+                    <StackPanel x:Name="ClipOverlayPanel" Margin="0,12,0,0">
+                        <CheckBox x:Name="ClipOverlayCheck" Content="Show on-screen clip indicator" Click="ClipFeedback_Changed" />
+                        <StackPanel x:Name="ClipOverlayOptions" Margin="18,8,0,0" Visibility="Collapsed">
                             <Grid Margin="0,8,0,0">
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="*" />
@@ -453,7 +493,7 @@
                             <TextBlock Style="{StaticResource Hint}" TextWrapping="Wrap"
                                        Text="Visible over windowed and borderless games. Exclusive fullscreen and capture exclusion depend on Windows and the capture backend." />
                         </StackPanel>
-                    </Expander>
+                    </StackPanel>
                     <CheckBox x:Name="ShellCheck" Margin="0,8,0,0" Checked="ShellCheck_Changed" Unchecked="ShellCheck_Changed">
                         <TextBlock Text="Add &quot;Edit with QuickClip&quot; to the right-click menu of video and audio files" TextWrapping="Wrap" />
                     </CheckBox>
@@ -502,5 +542,5 @@
         </StackPanel>
         </ScrollViewer>
         </Grid>
-    </DockPanel>
+    </Grid>
 </UserControl>
