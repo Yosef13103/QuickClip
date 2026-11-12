@@ -103,3 +103,12 @@ The offscreen Audio and Hotkeys pages rendered with recording inactive. Library 
 Ready to exercise Windows 10 DDA on an explicitly approved display, discovery on multiple actual launcher drives, isolated Sonar signals and 125%/150% DPI and keyboard navigation using a scratch profile and disposable inputs. [Field-test checklist](p0-field-test-acceptance.md) · [Audio and Hotkeys evidence](ft09-ft11-recording-settings.md).
 
 Precise saved duration, support for additional launchers beyond Steam and Epic, and Windows 11 borderless capture capability and permission remain open. The P0 ledger remains 19/27 implementation and 0/26 acceptance. No hardware gate was advanced.
+
+
+## Saved-clip markers, player surround and final-branch validation
+
+PR #25 was integrated by merge commit `b2e8f098930b90e4806a672b6bb14886198250b2` after a green Windows PR check (517 Personal passed, 18 skipped; 27 Upstream passed, 14 skipped). Only successful saved clips leave frame-anchored markers for later overlapping replay windows; markers are persisted in the existing metadata and displayed as diamonds in the Gallery player and bookmarks in the Editor. Player/Editor video letterboxing now uses #282828, without modifying video pixels or exports.
+
+The chime is still rendered by WinMM PlaySound and **is not selectively excluded from endpoint loopback capture**. No silent correction or muting of unrelated track audio is claimed. Output to an existing unrecorded Sonar Aux device is a future optional design, pending hardware routing tests.
+
+Integration PR #18 now targets `custom/main` directly. Re-run strict Windows quality on the new target's merge checkout; passing against the old PR #7 base is not sufficient. Release, on-device DDA/consent and Sonar lane acceptance remain unverified. Close superseded feature PRs after the final candidate is safely merged; PR #21's native duration diagnostic remains a separate unresolved investigation.
