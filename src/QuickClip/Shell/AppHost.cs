@@ -4,6 +4,7 @@ using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
 using System.Windows.Interop;
 using System.Windows.Threading;
+using QuickClip.Discovery;
 using QuickClip.Recording;
 using QuickClip.Updates;
 using QuickClip.Views;
@@ -59,6 +60,7 @@ internal sealed class AppHost : IDisposable
         recorder.SaveFailed += OnSaveFailed;
         recorder.StateChanged += OnRecorderState;
         _ = recorder.ApplySettingsAsync();
+        if (AppProfile.IsPersonal) GameCatalogRuntime.Discovery.Start();
 
         if (!Updater.IsEnabled) return;
         // Look for a new release shortly after start (not during it), then once a day while running.
@@ -308,6 +310,7 @@ internal sealed class AppHost : IDisposable
 
     public void Dispose()
     {
+        if (AppProfile.IsPersonal) GameCatalogRuntime.Discovery.Dispose();
         _updateTimer?.Stop();
         Recorder.Instance.ReplaySaved -= OnReplaySaved;
         Recorder.Instance.SaveFailed -= OnSaveFailed;
