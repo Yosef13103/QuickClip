@@ -6,11 +6,29 @@ public sealed record LiveReplayMarker(Guid Id, Guid SessionId, long SourceId, Ti
 
 public sealed record SavedReplayMarker(LiveReplayMarker Marker, TimeSpan Offset);
 
+public enum ReplayCaptureBackend { DesktopDuplication, WindowsGraphicsCapture }
+
+/// <summary>Source identity verified by the fixed monitor policy. An unknown legacy source is left unset.</summary>
+public sealed record ReplayDesktopSource(string DisplayDevice, ReplayCaptureBackend Backend);
+
+public sealed record ReplayVideoOutput(int Width, int Height, double? AverageFps);
+
 /// <summary>Metadata for a published clip. The available span runs from the oldest usable keyframe to the latest retained video frame.</summary>
 public sealed record ReplaySaveReceipt(string Path, string Game, Guid SessionId, int RequestedSeconds,
     TimeSpan? ActualVideoDuration, TimeSpan AvailableVideoSpan, TimeSpan FirstFrameTime, TimeSpan LastFrameTime,
     long FirstSourceId, long LastSourceId, DateTimeOffset? CapturedAt, IReadOnlyList<SavedReplayMarker> Markers)
 {
+    public ReplayDesktopSource? DesktopSource { get; init; }
+    public string? GameContext { get; init; }
+    public string? GameContextId { get; init; }
+    public string SourceDescription => DescribeSource(DesktopSource, SpansCaptureEpochs);
+
+    internal static string DescribeSource(ReplayDesktopSource? desktop, bool spansEpochs) =>
+        desktop != null ? desktop.Backend == ReplayCaptureBackend.DesktopDuplication
+            ? "Entire display (Desktop Duplication)" : "Entire display (Windows Graphics Capture)"
+        : spansEpochs ? "Mixed or unverified sources" : "Unverified source";
+    public ReplayVideoOutput? VideoOutput { get; init; }
+    public bool SpansCaptureEpochs => FirstSourceId != LastSourceId;
     public bool? IsShorterThanRequested => ActualVideoDuration is TimeSpan duration ? duration < TimeSpan.FromSeconds(RequestedSeconds) : null;
 }
 
@@ -37,6 +55,18 @@ internal sealed class ReplayMarkers
             Time(position.FrameUs), game, source, string.IsNullOrEmpty(label) ? null : label);
         _markers.Add(new(position.Sequence, marker));
         return marker;
+    }
+
+    /// <summary>Only a successfully published clip creates a marker for future overlapping saves.
+    /// Its position is the original save request, not the later completion sound.</summary>
+    internal LiveReplayMarker? AddSavedClip(CaptureEngine.ReplayPosition savedAt,
+        CaptureEngine.ReplayPosition active, Guid sessionId, string game, string source)
+    {
+        if (savedAt.Sequence == 0 || savedAt.Session != active.Session ||
+            savedAt.Sequence < active.FirstSequence || savedAt.Sequence > active.Sequence)
+            return null;
+        Prune(active, sessionId);
+        return Add(savedAt, sessionId, game, source, "Clip saved");
     }
 
     public Candidate[] Snapshot(CaptureEngine.ReplayPosition position, Guid sessionId)

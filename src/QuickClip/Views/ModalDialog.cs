@@ -30,11 +30,23 @@ internal static class ModalDialog
     }
 
     internal static bool ConfirmDelete(Window? owner, string title, string paths)
+        => ConfirmAction(owner, paths, title, "Delete", "Cancel", destructive: true);
+
+    internal static bool ConfirmAction(Window? owner, string message, string title, string accept, string cancel, bool destructive)
     {
         if (owner is not { IsVisible: true, Content: Panel })
-            return MessageBox.Show(paths, title, MessageBoxButton.YesNo, MessageBoxImage.Warning, MessageBoxResult.No) == MessageBoxResult.Yes;
-        return Run(owner, title, new TextBlock { Text = paths, TextWrapping = TextWrapping.Wrap },
-            "Delete", "Cancel", safeDefault: true, destructive: true);
+            return MessageBox.Show(message, title, MessageBoxButton.YesNo, MessageBoxImage.Warning, MessageBoxResult.No) == MessageBoxResult.Yes;
+        return Run(owner, title, new TextBlock { Text = message, TextWrapping = TextWrapping.Wrap },
+            accept, cancel, safeDefault: true, destructive: destructive);
+    }
+
+    internal static bool AskConfirmation(Window? owner, string message, string title, string action)
+    {
+        if (owner is not { IsVisible: true, Content: Panel })
+            return MessageBox.Show(message, title, MessageBoxButton.OKCancel, MessageBoxImage.Question,
+                MessageBoxResult.Cancel) == MessageBoxResult.OK;
+        return Run(owner, title, new TextBlock { Text = message, TextWrapping = TextWrapping.Wrap },
+            action, "Cancel", safeDefault: true);
     }
 
     internal static string? Ask(Window? owner, string prompt, string initial, string action, bool allowEmpty)
@@ -83,11 +95,8 @@ internal static class ModalDialog
         var buttons = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right };
         var primary = new Button { Content = accept, MinWidth = 84, Padding = new Thickness(12, 6, 12, 6) };
         var secondary = new Button { Content = cancel ?? "", MinWidth = 84, Padding = new Thickness(12, 6, 12, 6), Margin = new Thickness(0, 0, 8, 0) };
-        if (destructive)
-        {
-            primary.Background = new SolidColorBrush(Color.FromRgb(174, 45, 55));
-            primary.Foreground = Brushes.White;
-        }
+        if (destructive && owner.TryFindResource("DangerButtonStyle") is Style danger)
+            primary.Style = danger;
         if (cancel != null) buttons.Children.Add(secondary);
         buttons.Children.Add(primary);
         body.Children.Add(buttons);

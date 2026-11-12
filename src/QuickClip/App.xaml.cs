@@ -132,6 +132,11 @@ public partial class App : Application
             ShowMain();
             _main?.ShowSettings();
         };
+        Host.RecordingSettingsRequested += () =>
+        {
+            ShowMain();
+            _main?.ShowSettings();
+        };
         Host.QuitRequested += Quit;
         Host.Start();
         SingleInstance.Listen(a => Dispatcher.BeginInvoke(() => HandleArgs(a)));

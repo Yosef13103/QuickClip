@@ -77,6 +77,39 @@ public sealed class ReplayRuntimeTests
     }
 
     [Fact]
+    public void Successful_save_is_only_visible_in_later_overlapping_replay_windows()
+    {
+        var markers = new ReplayMarkers();
+        var session = Guid.NewGuid();
+        var atFirstSave = new CaptureEngine.ReplayPosition
+        {
+            Session = 7, Sequence = 100, FirstSequence = 41, Source = 1,
+            EventUs = 60_000_000, FrameUs = 60_000_000,
+        };
+        Assert.Empty(markers.Snapshot(atFirstSave, session)); // the first clip contains no self-marker
+        Assert.NotNull(markers.AddSavedClip(atFirstSave, atFirstSave, session, "Terraria", "Entire display"));
+        var atSecondSave = atFirstSave;
+        atSecondSave.Sequence = 132;
+        atSecondSave.FirstSequence = 72;
+        atSecondSave.EventUs = 92_000_000;
+        atSecondSave.FrameUs = 92_000_000;
+        var candidate = Assert.Single(markers.Snapshot(atSecondSave, session));
+        Assert.Equal("Clip saved", candidate.Marker.Label);
+        Assert.Equal(100, candidate.Sequence);
+        var anchors = new[] { new CaptureEngine.ReplayAnchor { Sequence = 100, OffsetUs = 28_000_000 } };
+        Assert.Equal(TimeSpan.FromSeconds(28), Assert.Single(ReplayMarkers.Match([candidate], anchors, TimeSpan.FromSeconds(60))).Offset);
+
+        // A new recording graph or an expired replay frame cannot inherit a prior save.
+        var nextSession = atSecondSave;
+        nextSession.Session++;
+        Assert.Null(markers.AddSavedClip(atFirstSave, nextSession, session, "Terraria", "Entire display"));
+        nextSession.Session = atFirstSave.Session;
+        nextSession.FirstSequence = 101;
+        Assert.Null(markers.AddSavedClip(atFirstSave, nextSession, session, "Terraria", "Entire display"));
+        Assert.Empty(markers.Snapshot(nextSession, session));
+    }
+
+    [Fact]
     public void Receipts_accept_only_matched_offsets_inside_the_finalized_track()
     {
         var buffer = new ReplayMarkers();

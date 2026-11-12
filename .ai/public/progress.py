@@ -22,7 +22,9 @@ for feature in data['features']:
         if gate['status'] not in valid or (gate['status'] == 'pass' and not gate['evidence'].strip()):
             raise ValueError(f'Invalid state or missing pass evidence: {gate_id}')
         seen.add(gate_id)
-print('QuickClip quality gates —',data['baseline_sha'][:12])
+print('QuickClip quality gates (audit baseline) —',data['baseline_sha'][:12])
+if data.get('integration_checkpoint'):
+    print('Integration evidence checkpoint:', data['integration_checkpoint'])
 print('Gate completion is evidence-based; pending/reported do NOT count as passed.\n')
 print(f"{'Feature':<9} {'Tier':<4} {'Code':>7} {'Accept':>7}  {'Status':<8} Name")
 print('-'*107)

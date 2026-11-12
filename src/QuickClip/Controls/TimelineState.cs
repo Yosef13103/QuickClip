@@ -135,4 +135,10 @@ public sealed class TimelineState
     public double TimeToX(double t, double width) => ViewSpan <= 0 ? 0 : (t - ViewStart) / ViewSpan * width;
 
     public double XToTime(double x, double width) => width <= 0 ? 0 : Math.Clamp(ViewStart + x / width * ViewSpan, 0, Duration);
+
+    internal static double ClampEditorHeight(double available, double requested)
+    {
+        double minimum = Math.Min(available, 112);
+        return Math.Clamp(requested, minimum, Math.Max(minimum, available - 145));
+    }
 }

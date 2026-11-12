@@ -14,11 +14,43 @@ public partial class MainWindow
     internal async Task RenderPagesAsync(string dir, string? editorFile)
     {
         Directory.CreateDirectory(dir);
+        if (Environment.GetCommandLineArgs().Contains("--recording-settings-smoke-only"))
+        {
+            ShowSettings();
+            _settings!.ShowRecordingSettingsForRender(audio: true);
+            await Task.Delay(250);
+            SaveVisual(Path.Combine(dir, "settings-audio.png"));
+            _settings.ShowRecordingSettingsForRender(audio: false);
+            await Task.Delay(250);
+            SaveVisual(Path.Combine(dir, "settings-hotkeys.png"));
+            if (Recorder.Instance.IsRunning) throw new InvalidOperationException("Recording must be inactive during the smoke test.");
+            File.WriteAllText(Path.Combine(dir, "report.txt"), "Audio and Hotkeys rendered with recording inactive.");
+            return;
+        }
+        if (Environment.GetCommandLineArgs().Contains("--library-smoke-only"))
+        {
+            await Task.Delay(4000);
+            var clips = Gallery.SelectForRender(2);
+            ShowSettings();
+            await _settings!.ShowLibraryForRenderAsync();
+            SaveVisual(Path.Combine(dir, "settings-library.png"));
+            int folders = clips.Select(Path.GetDirectoryName).Distinct(StringComparer.OrdinalIgnoreCase).Count();
+            File.WriteAllText(Path.Combine(dir, "report.txt"), $"Library settings rendered. Gallery selected {clips.Count} clips across {folders} folders. Recording active: {Recorder.Instance.IsRunning}.");
+            return;
+        }
         var report = new System.Text.StringBuilder();
         await Task.Delay(5000);
         SaveVisual(Path.Combine(dir, "gallery.png"));
         report.AppendLine($"gallery realized rows: {Gallery.RealizedRowsForRender}");
         report.AppendLine(await Gallery.VerifySearchForRenderAsync());
+        if (Environment.GetCommandLineArgs().Contains("--gallery-smoke-only"))
+        {
+            Gallery.SelectForRender(2);
+            await Task.Delay(300);
+            SaveVisual(Path.Combine(dir, "gallery-selected.png"));
+            File.WriteAllText(Path.Combine(dir, "report.txt"), report.ToString());
+            return;
+        }
 
         if (Gallery.OpenFirstForRender())
         {
@@ -45,6 +77,14 @@ public partial class MainWindow
             _editor.SetTrimForRender(originalEnd);
             report.AppendLine("gallery opened unified editor and mode changes preserved clip, playhead and trim");
             report.AppendLine(await _editor.MeasureAccordionForRenderAsync());
+            if (Environment.GetCommandLineArgs().Contains("--editor-smoke-only"))
+            {
+                _editor.ExpandedTracks = true;
+                await Task.Delay(300);
+                SaveVisual(Path.Combine(dir, "editor-taller-tracks.png"));
+                File.WriteAllText(Path.Combine(dir, "report.txt"), report.ToString());
+                return;
+            }
             ShowPage(Gallery);
         }
 

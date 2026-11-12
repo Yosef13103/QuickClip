@@ -24,17 +24,20 @@ public partial class SettingsView : UserControl
     private readonly List<(ComboBox Combo, Button Remove)> _micRows = [];
     private IReadOnlySet<string> _encoders = new HashSet<string>();
     private bool _loading;
-    private bool _capturingHotkey;
 
     public SettingsView()
     {
         InitializeComponent();
+        BuildHotkeyRows();
+        SettingsSections.Visibility = AppProfile.IsPersonal ? Visibility.Visible : Visibility.Collapsed;
         LibraryOptions.Visibility = AppProfile.IsPersonal ? Visibility.Visible : Visibility.Collapsed;
         if (AppProfile.IsPersonal)
         {
+            SettingsContent.MaxWidth = 920;
             PersonalProfileHint.Text = $"{AppProfile.Name} {AppVersion.Current.Display} · Updates, Windows startup and Explorer integration are disabled.";
             PersonalProfileHint.Visibility = Visibility.Visible;
             UpdatesCard.Visibility = StartupCheck.Visibility = ShellCheck.Visibility = Visibility.Collapsed;
+            ApplySettingsSection(RecordingSection);
         }
         // Recording settings restart the recorder; wait until the user stops fiddling.
         _restartTimer = new DispatcherTimer(TimeSpan.FromMilliseconds(700), DispatcherPriority.Background, (_, _) =>
@@ -52,6 +55,30 @@ public partial class SettingsView : UserControl
             Recorder.Instance.StateChanged += OnRecorderState;
             Updater.Changed += OnUpdaterChanged;
         };
+    }
+
+    private void SettingsSection_Changed(object sender, RoutedEventArgs e)
+    {
+        if (sender is RadioButton section && LibraryCard != null) ApplySettingsSection(section);
+    }
+
+    private void ApplySettingsSection(RadioButton section)
+    {
+        bool games = section == GamesSection;
+        GamesPage.Visibility = games ? Visibility.Visible : Visibility.Collapsed;
+        GeneralPage.Visibility = games ? Visibility.Collapsed : Visibility.Visible;
+        SectionTitle.Text = section.Content.ToString();
+        RecordingCard.Visibility = SectionVisibility(RecordingSection);
+        AudioCard.Visibility = SectionVisibility(AudioSection);
+        HotkeysCard.Visibility = SectionVisibility(HotkeysSection);
+        SharingCard.Visibility = SectionVisibility(SharingSection);
+        LibraryCard.Visibility = SectionVisibility(LibrarySection);
+        GeneralCard.Visibility = SectionVisibility(GeneralSection);
+        DiagnosticsCard.Visibility = SectionVisibility(DiagnosticsSection);
+        GeneralPage.ScrollToTop();
+        if (section == DiagnosticsSection) CaptureAdvanced.IsExpanded = true;
+        if (section == LibrarySection) _ = RefreshRecordingFoldersAsync();
+        Visibility SectionVisibility(RadioButton item) => section == item ? Visibility.Visible : Visibility.Collapsed;
     }
 
     // ---- updates -------------------------------------------------------------------------------
@@ -152,8 +179,10 @@ public partial class SettingsView : UserControl
 
             _monitors = await Task.Run(Monitors.List);
             MonitorCombo.ItemsSource = _monitors.Select(m => new Choice(m.Label, m.DeviceName)).ToList();
-            Select(MonitorCombo, (_monitors.FirstOrDefault(m => string.Equals(m.DeviceName, s.RecordMonitor, StringComparison.OrdinalIgnoreCase))
-                                  ?? _monitors.FirstOrDefault(m => m.IsPrimary))?.DeviceName);
+            var savedDisplay = _monitors.FirstOrDefault(m => string.Equals(m.DeviceName, s.RecordMonitor, StringComparison.OrdinalIgnoreCase));
+            var initialDisplay = savedDisplay ?? (AppProfile.IsPersonal
+                ? null : _monitors.FirstOrDefault(m => m.IsPrimary));
+            Select(MonitorCombo, initialDisplay?.DeviceName);
             RefreshAreas(s.RecordAspect);
 
             int stepIndex = Array.FindIndex(RecordingPresets.BufferSteps, v => v >= s.BufferSeconds);
@@ -188,6 +217,9 @@ public partial class SettingsView : UserControl
             Select(NvencPresetCombo, s.NvencPreset);
             DiagnosticsCheck.IsChecked = s.RecordingDiagnostics;
             CursorCheck.IsChecked = s.CaptureCursor;
+            if (AppProfile.IsPersonal) RecordingCheck.Content = "Enable QuickClip recording";
+            GameSourceItem.Content = AppProfile.IsPersonal ? "Arm automatic game replay" : "Automatic - Game First";
+            DisplaySourceItem.Content = AppProfile.IsPersonal ? "Manual desktop capture only" : "Selected monitor";
             SourceCombo.SelectedIndex = s.PreferGameWindow ? 0 : 1;
             ShowGameWindowState();
 
@@ -206,7 +238,7 @@ public partial class SettingsView : UserControl
             MicTracksCombo.ItemsSource = new List<Choice> { new("All on one Mic track", false), new("A track for each microphone", true) };
             Select(MicTracksCombo, s.SeparateMicTracks);
 
-            ShowHotkey();
+            ShowHotkeys();
             StartupCheck.IsChecked = Startup.IsEnabled;
             MinTrayCheck.IsChecked = s.MinimizeToTray;
             CloseTrayCheck.IsChecked = s.CloseToTray;
@@ -220,7 +252,7 @@ public partial class SettingsView : UserControl
                 ShellCheck.IsEnabled = false;
                 ShellCheck.ToolTip = "On the Windows 11 right-click menu (added with scripts\\add-win11-menu.ps1; run it with -Remove to undo).";
             }
-            FolderBox.Text = s.ClipsFolder;
+            await RefreshRecordingFoldersAsync();
             IndexLibraryCheck.IsChecked = s.EnableLibraryIndex;
             LoadClipFeedback(s);
             FilenameTemplate.Text = s.ClipFilenameTemplate;
@@ -277,6 +309,21 @@ public partial class SettingsView : UserControl
         bool gameWindow = SourceCombo.SelectedIndex == 0;
         var selected = (EncoderCombo.SelectedItem as Choice)?.Value as string;
         NvencPresetCombo.IsEnabled = (string.IsNullOrEmpty(selected) ? RecordingPresets.DefaultEncoder(_encoders)?.Id : selected)?.EndsWith("_nvenc", StringComparison.Ordinal) == true;
+        if (AppProfile.IsPersonal)
+        {
+            var settings = AppSettings.Current;
+            var display = _monitors.FirstOrDefault(m => Equals(m.DeviceName, (MonitorCombo.SelectedItem as Choice)?.Value));
+            bool authorized = !string.IsNullOrEmpty(settings.AuthorizedGameDisplay);
+            GameDisplayConsent.Visibility = gameWindow ? Visibility.Visible : Visibility.Collapsed;
+            GameDisplayConsent.IsEnabled = authorized || display?.CaptureIdentity != null;
+            GameDisplayConsent.Content = authorized ? "Revoke game display permission" : "Allow selected display during games…";
+            BackendCombo.IsEnabled = false;
+            CaptureTargetHint.Text = gameWindow
+                ? "Waits for an eligible game. With display permission, Desktop Duplication records everything visible on that display while the game is open."
+                    + (authorized ? " Permission is set for the previously confirmed display." : " No display permission has been granted.")
+                : "No automatic capture. Use Start manual desktop capture in the tray to explicitly record the selected display.";
+            return;
+        }
         CaptureTargetHint.Text = gameWindow
             ? "Automatic captures a detected game window even when another window covers it. It records the selected monitor when game capture is unavailable. On Windows 10, WGC can display a yellow border. Strict game-only capture requires a future no-monitor fallback policy."
             : "Records everything visible on the selected display, including windows covering a game. The advanced monitor backend applies to this source.";
@@ -361,12 +408,30 @@ public partial class SettingsView : UserControl
         MicTracksCombo.IsEnabled = on;
     }
 
+    private void GameDisplayConsent_Click(object sender, RoutedEventArgs e)
+    {
+        var settings = AppSettings.Current;
+        if (settings.AuthorizedGameDisplay != null) settings.AuthorizedGameDisplay = null;
+        else
+        {
+            var display = _monitors.FirstOrDefault(m => Equals(m.DeviceName, (MonitorCombo.SelectedItem as Choice)?.Value));
+            if (display?.CaptureIdentity == null || ModalDialog.Show(Window.GetWindow(this),
+                $"Allow game-triggered recording of everything visible on {display.Label}? Other apps, messages and notifications on this display can appear in saved clips.",
+                "Allow entire-display game recording?", MessageBoxButton.YesNo, MessageBoxImage.Warning, MessageBoxResult.No) != MessageBoxResult.Yes) return;
+            if (!CaptureSourcePolicy.AcceptGameDisplay(settings, display, confirmed: true)) return;
+        }
+        settings.Save();
+        ShowGameWindowState();
+        _ = Recorder.Instance.ApplySettingsAsync();
+    }
+
     private void Changed(object sender, RoutedEventArgs e)
     {
         if (_loading || !IsInitialized) return;
         var s = AppSettings.Current;
-        s.RecordingEnabled = RecordingCheck.IsChecked == true;
-        s.RecordMonitor = (MonitorCombo.SelectedItem as Choice)?.Value as string ?? "";
+        if (sender == RecordingCheck) s.RecordingEnabled = RecordingCheck.IsChecked == true;
+        if (!AppProfile.IsPersonal || sender == MonitorCombo)
+            s.RecordMonitor = (MonitorCombo.SelectedItem as Choice)?.Value as string ?? "";
         if (sender == AreaCombo) s.RecordAspect = SelectedAspect;
         if (sender == MonitorCombo) RefreshAreas(s.RecordAspect);
         if (sender == MonitorCombo || sender == AreaCombo)
@@ -407,7 +472,12 @@ public partial class SettingsView : UserControl
         UpdateEstimates();
         bool recordingSetting = sender != StartupCheck && sender != MinTrayCheck && sender != CloseTrayCheck && sender != SoundCheck
                                 && sender != MotionBlurCheck && sender != ConfirmDeleteCheck;
-        if (recordingSetting) ScheduleRecorderRestart();
+        if (sender == RecordingCheck || sender == SourceCombo)
+        {
+            _restartTimer.Stop();
+            _ = Recorder.Instance.ApplySettingsAsync();
+        }
+        else if (recordingSetting) ScheduleRecorderRestart();
     }
 
     private void ScheduleRecorderRestart()
@@ -519,6 +589,14 @@ public partial class SettingsView : UserControl
 
     private void OnRecorderState(RecorderState state) => Dispatcher.BeginInvoke(() =>
     {
+        bool recordingEnabled = AppSettings.Current.RecordingEnabled;
+        if (RecordingCheck.IsChecked != recordingEnabled)
+        {
+            bool wasLoading = _loading;
+            _loading = true;
+            RecordingCheck.IsChecked = recordingEnabled;
+            _loading = wasLoading;
+        }
         ChatText.Text = state.ChatApps.Count > 0
             ? $"Detected now: {string.Join(", ", state.ChatApps)}"
             : "No voice chat app is running right now.";
@@ -527,61 +605,9 @@ public partial class SettingsView : UserControl
             : "No music app is running right now.") + " Music played in a web browser stays on the Desktop track.";
         RecorderStatus.Text = state.Running ? $"Recording · {state.Summary}"
             : state.Error != null ? "Not recording: " + state.Error
-            : AppSettings.Current.RecordingEnabled ? "Starting…" : "Recording is off.";
+            : state.Mode == RecordingMode.Armed ? "Armed · no recording active."
+            : recordingEnabled ? "Starting…" : "Recording is off.";
     });
-
-    // ---- hotkey --------------------------------------------------------------------------------
-
-    private void ShowHotkey()
-    {
-        var s = AppSettings.Current;
-        HotkeyButton.Content = new Hotkey(s.HotkeyModifiers, s.HotkeyKey).ToString();
-        HotkeyStatus.Text = s.HotkeyKey == 0 ? "Click to assign a shortcut."
-            : App.Host?.HotkeyActive == false
-            ? "Another app is already using this shortcut — pick a different one."
-            : "Works everywhere, including in games.";
-    }
-
-    private void HotkeyButton_Click(object sender, RoutedEventArgs e)
-    {
-        _capturingHotkey = true;
-        App.Host?.SuspendHotkey();
-        HotkeyButton.Content = "Press the keys…";
-        HotkeyStatus.Text = "Esc cancels, Backspace clears.";
-        HotkeyButton.Focus();
-    }
-
-    private void HotkeyButton_PreviewKeyDown(object sender, KeyEventArgs e)
-    {
-        if (!_capturingHotkey) return;
-        e.Handled = true;
-        Key key = e.Key == Key.System ? e.SystemKey : e.Key;
-        if (key == Key.Escape)
-        {
-            EndHotkeyCapture();
-            return;
-        }
-        if (Hotkey.IsModifierKey(key)) return;
-
-        var s = AppSettings.Current;
-        var hotkey = key is Key.Back or Key.Delete ? new Hotkey(0, 0) : Hotkey.FromWpf(Keyboard.Modifiers, key);
-        s.HotkeyModifiers = hotkey.Modifiers;
-        s.HotkeyKey = hotkey.VirtualKey;
-        s.Save();
-        EndHotkeyCapture();
-    }
-
-    private void HotkeyButton_LostFocus(object sender, KeyboardFocusChangedEventArgs e)
-    {
-        if (_capturingHotkey) EndHotkeyCapture();
-    }
-
-    private void EndHotkeyCapture()
-    {
-        _capturingHotkey = false;
-        App.Host?.RegisterHotkey();
-        ShowHotkey();
-    }
 
     // ---- general -------------------------------------------------------------------------------
 
@@ -608,17 +634,4 @@ public partial class SettingsView : UserControl
 
     private void PlayClipSound_Click(object sender, RoutedEventArgs e) => ClipSound.Play();
 
-    private void ChangeFolder_Click(object sender, RoutedEventArgs e)
-    {
-        var dlg = new OpenFolderDialog { Title = "Where should clips be saved?", InitialDirectory = AppSettings.Current.ClipsFolder };
-        if (dlg.ShowDialog(Window.GetWindow(this)) != true) return;
-        if (ClipLibrary.IsMomentsPath(dlg.FolderName))
-        {
-            ModalDialog.Show(Window.GetWindow(this), "Choose a clips folder outside the Moments archive.", "Protected archive", MessageBoxButton.OK);
-            return;
-        }
-        AppSettings.Current.ClipsFolder = dlg.FolderName;
-        AppSettings.Current.Save();
-        FolderBox.Text = dlg.FolderName;
-    }
 }

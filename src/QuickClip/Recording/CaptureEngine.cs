@@ -5,7 +5,7 @@ namespace QuickClip.Recording;
 /// <summary>P/Invoke surface of QuickClipCapture.dll (src/QuickClip.Capture). Struct layouts mirror Engine.h.</summary>
 internal static class CaptureEngine
 {
-    internal enum MonitorBackend { Automatic, DesktopDuplication, GraphicsCapture }
+    internal enum MonitorBackend { Automatic, DesktopDuplication, GraphicsCapture, MonitorOnlyDuplication, MonitorOnlyGraphics }
     internal enum NvencSpeed { BalancedP4, FasterP3, FastestP2 }
     [StructLayout(LayoutKind.Sequential)]
     internal struct VideoOptions
@@ -75,6 +75,32 @@ internal static class CaptureEngine
         public IntPtr Title;
     }
 
+    [StructLayout(LayoutKind.Sequential)]
+    private struct NativeEndpointStatus
+    {
+        public EndpointFlow Flow;
+        public EndpointStage Stage;
+        public int HResult, MixRate, MixChannels, CaptureRate;
+        public long Packets, MillisecondsSincePacket;
+        public float LastPacketPeak;
+    }
+
+    /// <summary>Returns active native lanes in the order of the plan supplied at start. No IDs or PCM are returned.</summary>
+    internal static IReadOnlyList<EndpointStatus> ReadEndpointStatus()
+    {
+        var native = new NativeEndpointStatus[EndpointAudio.MaxTracks];
+        int count = qc_get_endpoint_status(native, native.Length);
+        var result = new EndpointStatus[count];
+        for (int i = 0; i < count; ++i)
+        {
+            var lane = native[i];
+            result[i] = new(i, lane.Flow, lane.Stage, lane.HResult, lane.MixRate, lane.MixChannels, lane.CaptureRate,
+                lane.Packets, lane.MillisecondsSincePacket >= 0 ? lane.MillisecondsSincePacket : null,
+                lane.LastPacketPeak >= 0 ? lane.LastPacketPeak : null);
+        }
+        return result;
+    }
+
     [UnmanagedFunctionPointer(CallingConvention.StdCall)]
     private delegate void LogCallback(IntPtr message);
 
@@ -128,7 +154,7 @@ internal static class CaptureEngine
     /// <param name="separateMics">Each microphone on its own track, named by its title, instead of all on one Mic track.</param>
     public static string? Start(string monitorDevice, string aspect, int fps, int outWidth, int outHeight, string encoder, int videoKbps,
         int audioKbps, int bufferSeconds, bool cursor, bool splitChat, bool splitMusic, IReadOnlyList<Microphones.Input> mics,
-        bool separateMics, IReadOnlyList<EndpointTrack>? endpointTracks = null, VideoOptions video = default)
+        bool separateMics, IReadOnlyList<EndpointTrack>? endpointTracks = null, VideoOptions video = default, string? displayIdentity = null)
     {
         var strings = new List<IntPtr>();
         IntPtr Uni(string? s) { var p = s == null ? IntPtr.Zero : Marshal.StringToHGlobalUni(s); strings.Add(p); return p; }
@@ -170,8 +196,8 @@ internal static class CaptureEngine
                     DeviceId = Uni(t.DeviceId),
                     Title = Uni(t.Label),
                 }).ToArray();
-            int started = qc_start_with_video(ref config, tracks, endpointTracks == null ? -1 : tracks.Length,
-                ref video, error, error.Length);
+            int started = qc_start_with_display(ref config, tracks, endpointTracks == null ? -1 : tracks.Length,
+                ref video, displayIdentity, error, error.Length);
             return started != 0 ? null : new string(error).TrimEnd('\0');
         }
         finally
@@ -230,15 +256,25 @@ internal static class CaptureEngine
         public long Sequence, OffsetUs;
     }
 
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct ReplayVideo
+    {
+        public int Width, Height, FpsNumerator, FpsDenominator;
+    }
+
     internal static ReplayPosition? GetReplayPosition() =>
         qc_get_replay_position(out var position) != 0 ? position : null;
 
     internal static string? SaveReplay(string path, int seconds, string title, ReplayPosition position, bool bounded,
-        ReplayAnchor[] anchors, out ReplaySpan span)
+        ReplayAnchor[] anchors, out ReplaySpan span) =>
+        SaveReplay(path, seconds, title, position, bounded, anchors, out span, out _);
+
+    internal static string? SaveReplay(string path, int seconds, string title, ReplayPosition position, bool bounded,
+        ReplayAnchor[] anchors, out ReplaySpan span, out ReplayVideo video)
     {
         var error = new char[1024];
-        return qc_save_replay(path, seconds, title, position.Session, bounded ? position.EventUs : -1, out span, anchors, anchors.Length,
-            error, error.Length) != 0 ? null : new string(error).TrimEnd('\0');
+        return qc_save_replay_with_video(path, seconds, title, position.Session, bounded ? position.EventUs : -1, out span,
+            anchors, anchors.Length, out video, error, error.Length) != 0 ? null : new string(error).TrimEnd('\0');
     }
 
     public static Stats GetStats()
@@ -266,11 +302,12 @@ internal static class CaptureEngine
     [DllImport(Dll)] private static extern int qc_enum_outputs([Out] Output[] outputs, int max);
     [DllImport(Dll)] private static extern int qc_enum_microphones([Out] AudioDevice[] devices, int max);
     [DllImport(Dll)] private static extern void qc_enum_audio_endpoints(EndpointCallback callback);
+    [DllImport(Dll)] private static extern int qc_get_endpoint_status([Out] NativeEndpointStatus[] statuses, int capacity);
     [DllImport(Dll, CharSet = CharSet.Unicode)] private static extern int qc_start(ref Config config, [Out] char[] error, int errorLength);
     [DllImport(Dll, CharSet = CharSet.Unicode)] private static extern int qc_start_endpoints(ref Config config, [In] EndpointConfig[] endpoints,
         int count, [Out] char[] error, int errorLength);
-    [DllImport(Dll, CharSet = CharSet.Unicode)] private static extern int qc_start_with_video(ref Config config, [In] EndpointConfig[] endpoints,
-        int count, ref VideoOptions video, [Out] char[] error, int errorLength);
+    [DllImport(Dll, CharSet = CharSet.Unicode)] private static extern int qc_start_with_display(ref Config config, [In] EndpointConfig[] endpoints,
+        int count, ref VideoOptions video, string? displayIdentity, [Out] char[] error, int errorLength);
     [DllImport(Dll, CharSet = CharSet.Unicode)] private static extern void qc_video_diagnostics([Out] char[] text, int length);
     [DllImport(Dll, CharSet = CharSet.Unicode)] private static extern void qc_display_diagnostics([Out] char[] text, int length);
     [DllImport(Dll)] private static extern void qc_stop();
@@ -285,6 +322,7 @@ internal static class CaptureEngine
     [DllImport(Dll, CharSet = CharSet.Unicode)] private static extern int qc_save(string path, int seconds, string title, [Out] char[] error, int errorLength);
     [DllImport(Dll)] private static extern int qc_get_stats(out Stats stats);
     [DllImport(Dll)] private static extern int qc_get_replay_position(out ReplayPosition position);
-    [DllImport(Dll, CharSet = CharSet.Unicode)] private static extern int qc_save_replay(string path, int seconds, string title,
-        long session, long requestUs, out ReplaySpan span, [In, Out] ReplayAnchor[] anchors, int count, [Out] char[] error, int errorLength);
+    [DllImport(Dll, CharSet = CharSet.Unicode)] private static extern int qc_save_replay_with_video(string path, int seconds, string title,
+        long session, long requestUs, out ReplaySpan span, [In, Out] ReplayAnchor[] anchors, int count, out ReplayVideo video,
+        [Out] char[] error, int errorLength);
 }

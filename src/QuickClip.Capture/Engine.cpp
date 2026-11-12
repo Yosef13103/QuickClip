@@ -267,6 +267,18 @@ namespace qc
             return found;
         }
 
+        bool MatchesDisplayIdentity(const std::wstring& device, const std::wstring& expected)
+        {
+            if (expected.empty()) return true;
+            DISPLAY_DEVICEW monitor{};
+            monitor.cb = sizeof monitor;
+            if (!EnumDisplayDevicesW(device.c_str(), 0, &monitor, EDD_GET_DEVICE_INTERFACE_NAME)
+                || _wcsicmp(monitor.DeviceID, expected.c_str()) != 0)
+                return false;
+            // A cloned source can represent more than the authorized physical target.
+            return !EnumDisplayDevicesW(device.c_str(), 1, &monitor, EDD_GET_DEVICE_INTERFACE_NAME);
+        }
+
         struct Area
         {
             int x = 0, y = 0, width = 0, height = 0;
@@ -338,6 +350,7 @@ namespace qc
         explicit Shared(int64_t windowUs) : ring(windowUs) {}
 
         std::wstring monitorDevice;
+        std::wstring displayIdentity;
         int aspectWidth = 0, aspectHeight = 0;     // record the centered part with this shape; 0 = the whole monitor
         int fps = 60, outWidth = 0, outHeight = 0, videoKbps = 0;
         bool cursor = true;
@@ -463,7 +476,8 @@ namespace qc
                     a.x, a.y, m.width - a.x - a.width, m.height - a.y - a.height);
 
                 // High-rate Auto retains Graphics Capture first. Explicit choices keep their selected backend.
-                bool preferGraphics = s.videoOptions.backend == 2 || (s.videoOptions.backend == 0 && s.fps > 60);
+                bool preferGraphics = s.videoOptions.backend == 2 || s.videoOptions.backend == 4 ||
+                    (s.videoOptions.backend == 0 && s.fps > 60);
                 bool system = NeedsSystemFrames(s);
                 std::string ddaError, wgcError;
                 auto tryBackend = [&](bool useDuplication) {
@@ -635,8 +649,9 @@ namespace qc
                     }
                     else
                     {
-                        ok = FindMonitor(s->monitorDevice, monitor);
-                        if (!ok) error = "The selected monitor wasn't found.";
+                        ok = FindMonitor(s->monitorDevice, monitor)
+                            && MatchesDisplayIdentity(s->monitorDevice, s->displayIdentity);
+                        if (!ok) error = "The selected monitor is missing or could not be verified.";
                     }
                     if (ok)
                     {
@@ -926,13 +941,15 @@ namespace qc
     // Engine
     // ---------------------------------------------------------------------------------------------
 
-    Engine::Engine(const QcConfig& c, bool endpointMode, const QcEndpointTrack* endpoints, int endpointCount, QcVideoOptions video)
+    Engine::Engine(const QcConfig& c, bool endpointMode, const QcEndpointTrack* endpoints, int endpointCount,
+        QcVideoOptions video, const wchar_t* displayIdentity)
         : shared_(std::make_shared<Shared>(static_cast<int64_t>(c.bufferSeconds) * 1000000)),
           monitor_(c.monitorDevice ? c.monitorDevice : L""),
           splitChat_(c.splitChat != 0), splitMusic_(c.splitMusic != 0), micSeparate_(c.micSeparate != 0),
           endpointMode_(endpointMode), audioKbps_(c.audioKbps)
     {
         shared_->videoOptions = video;
+        if (displayIdentity) shared_->displayIdentity = displayIdentity;
         for (int i = 0; !endpointMode_ && i < c.micCount; i++)
         {
             const wchar_t* id = c.micDeviceIds ? c.micDeviceIds[i] : nullptr;
@@ -955,9 +972,9 @@ namespace qc
     bool Engine::Start(std::string& error)
     {
         MonitorTarget monitor;
-        if (!FindMonitor(monitor_, monitor))
+        if (!FindMonitor(monitor_, monitor) || !MatchesDisplayIdentity(monitor_, shared_->displayIdentity))
         {
-            error = "The selected monitor wasn't found.";
+            error = "The selected monitor is missing or could not be verified.";
             return false;
         }
         shared_->monitorDevice = monitor_;
@@ -1005,7 +1022,8 @@ namespace qc
         auto captureEndpoint = [&](const Endpoint& endpoint, size_t track)
         {
             endpointSources_.push_back(std::make_unique<AudioSource>(endpoint.kind, 0, endpoint.deviceId, SampleRate,
-                std::make_unique<MixerSink>(*tracks_[track]->mixer, SampleRate)));
+                std::make_unique<MixerSink>(*tracks_[track]->mixer, SampleRate), endpointMode_ ? static_cast<int>(track) : -1,
+                endpointMode_ && shared_->videoOptions.diagnostics != 0));
         };
         if (endpointMode_)
         {
@@ -1031,6 +1049,7 @@ namespace qc
 
     void Engine::SetCaptureWindow(HWND window, int width, int height, int videoKbps)
     {
+        if (shared_->videoOptions.backend >= 3) return; // explicit monitor authorization never includes a window
         {
             std::lock_guard guard(shared_->targetLock);
             shared_->window = window;
@@ -1204,7 +1223,7 @@ namespace qc
     }
 
     bool Engine::Save(const std::wstring& path, int seconds, const std::wstring& title, std::string& error,
-        QcReplaySpan* span, QcReplayAnchor* anchors, int count, int64_t requestUs)
+        QcReplaySpan* span, QcReplayAnchor* anchors, int count, int64_t requestUs, QcReplayVideo* savedVideo)
     {
         // The clip ends now, when it was asked for. Audio is encoded ~200 ms behind, so wait for every
         // track to get past this moment (they always do unless something is badly stuck).
@@ -1312,6 +1331,9 @@ namespace qc
                     if (stream->codecpar->codec_type != AVMEDIA_TYPE_VIDEO) continue;
                     if (stream->duration > 0)
                         span->durationUs = av_rescale_q(stream->duration, stream->time_base, AVRational{ 1, 1'000'000 });
+                    if (savedVideo)
+                        *savedVideo = { stream->codecpar->width, stream->codecpar->height,
+                            stream->avg_frame_rate.num, stream->avg_frame_rate.den };
                     break;
                 }
                 avformat_close_input(&saved);
@@ -1324,6 +1346,14 @@ namespace qc
     {
         std::lock_guard guard(shared_->statsLock);
         return shared_->videoDescription + (shared_->videoSample.empty() ? "" : "\n" + shared_->videoSample);
+    }
+
+    int Engine::GetEndpointStatus(QcEndpointStatus* statuses, int capacity) const
+    {
+        if (!endpointMode_) return 0;
+        int count = std::min(capacity, static_cast<int>(endpointSources_.size()));
+        for (int i = 0; i < count; ++i) statuses[i] = endpointSources_[i]->Status();
+        return count;
     }
 
     void Engine::GetStats(QcStats& stats)

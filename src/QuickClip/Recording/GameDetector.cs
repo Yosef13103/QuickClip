@@ -1,14 +1,29 @@
 using System.Diagnostics;
 using System.Runtime.InteropServices;
 using Microsoft.Win32;
+using QuickClip.Discovery;
 
 namespace QuickClip.Recording;
 
 internal readonly record struct WindowOwner(IntPtr Handle, uint ThreadId, uint ProcessId, long Started);
 internal sealed record GameWindowTarget(WindowOwner Owner, string Game, bool Recognized);
+internal sealed record GameCaptureObservation(WindowOwner Owner, string Executable, CatalogMatch Match,
+    GameWindowTarget? Target, bool IsForeground)
+{
+    /// <summary>Eligible exact catalog identity for the armed recorder. The legacy target can be heuristic.</summary>
+    public GameWindowTarget? VerifiedTarget => !SkipAutomaticCapture && Target is { Recognized: true } target &&
+        (Match.Kind == CatalogMatchKind.Game || Match is { Kind: CatalogMatchKind.Candidate, Entry.Source: CatalogSource.Steam })
+            ? target : null;
+
+    public bool SkipAutomaticCapture => Match.Kind is CatalogMatchKind.Ignored or CatalogMatchKind.Inactive
+        or CatalogMatchKind.Ambiguous or CatalogMatchKind.Launcher or CatalogMatchKind.Application
+        || Match.Kind == CatalogMatchKind.Candidate && Target == null;
+    public GameRecordingPolicy ResolvePolicy(GameProfileDocument profiles, GameRecordingPolicy defaults) =>
+        profiles.Resolve(Match.Entry?.Rules.ProfileId, defaults);
+}
 
 /// <summary>Works out which game a clip belongs to (null = not a game, filed under "Desktop").</summary>
-internal sealed class GameDetector
+internal sealed partial class GameDetector
 {
     // Apps that are never games, even when fullscreen.
     private static readonly HashSet<string> NotGames = new(StringComparer.OrdinalIgnoreCase)
@@ -44,39 +59,84 @@ internal sealed class GameDetector
 
     /// <summary>The game window in the foreground at the last <see cref="Poll"/>.</summary>
     public GameWindowTarget? ForegroundGame { get; private set; }
+    public GameCaptureObservation? ForegroundObservation { get; private set; }
+    public GameCaptureObservation? ActiveObservation { get; private set; }
 
     /// <summary>Called every few seconds: remembers the game in the foreground, if any.</summary>
     public void Poll()
     {
-        ForegroundGame = DetectForeground();
-        if (ForegroundGame == null) return;
-        _lastGame = ForegroundGame.Game;
+        ForegroundObservation = DetectForeground();
+        ActiveObservation = SelectObservation(ActiveObservation, ForegroundObservation, IsCurrent);
+        ForegroundGame = ForegroundObservation?.Target;
+        if (ForegroundObservation is { Match.Kind: not CatalogMatchKind.Unknown } observed
+            && ForegroundGame != null)
+        {
+            // The old recorder can start WGC for any target delivered here. Preserve its existing
+            // eligibility until the capture adapter enforces an explicit, borderless source policy.
+            if (Classify(observed.Executable, IsFullscreen(observed.Owner.Handle), KnownGames()) == null)
+                ForegroundGame = null;
+            else
+                ForegroundGame = ForegroundGame with
+                {
+                    Recognized = KnownGames().Contains(observed.Executable) || GameFolderName(observed.Executable) != null,
+                };
+        }
+        if ((AppProfile.IsPersonal ? ActiveObservation?.Target : ForegroundGame) is not { } target)
+        {
+            if (ForegroundObservation?.SkipAutomaticCapture == true) _lastGame = null;
+            return;
+        }
+        _lastGame = target.Game;
         _lastGameSeen = DateTime.UtcNow;
     }
 
     /// <summary>The game a clip ending now belongs to: the foreground game, or the last one played during the clip.</summary>
     public string? GameForClip(int clipSeconds)
     {
-        var game = DetectForeground()?.Game;
+        var observed = DetectForeground();
+        if (observed?.SkipAutomaticCapture == true) return null;
+        var game = observed?.Target?.Game;
         if (game != null) return game;
         return _lastGame != null && DateTime.UtcNow - _lastGameSeen <= TimeSpan.FromSeconds(clipSeconds + 5) ? _lastGame : null;
     }
 
-    private GameWindowTarget? DetectForeground()
+    internal string? VerifiedGameContext() =>
+        VerifiedGameContext(ActiveObservation, DetectForeground(), IsCurrent);
+
+    internal static GameCaptureObservation? SelectVerifiedObservation(GameCaptureObservation? retained,
+        GameCaptureObservation? foreground, Func<WindowOwner, bool> isCurrent, Func<string, bool, CatalogMatch>? match = null)
+    {
+        var selected = SelectObservation(retained?.VerifiedTarget != null ? retained : null,
+            foreground?.VerifiedTarget != null ? foreground : null, isCurrent, match);
+        return selected?.VerifiedTarget != null ? selected : null;
+    }
+
+    internal static string? VerifiedGameContext(GameCaptureObservation? current,
+        GameCaptureObservation? foreground, Func<WindowOwner, bool> isCurrent,
+        Func<string, bool, CatalogMatch>? match = null) =>
+        SelectObservation(current, foreground, isCurrent, match)?.Target is { Recognized: true } target
+            ? target.Game : null;
+
+    private GameCaptureObservation? DetectForeground()
     {
         try
         {
             IntPtr hwnd = GetForegroundWindow();
             uint threadId = GetWindowThreadProcessId(hwnd, out uint pid);
             if (threadId == 0 || pid == 0 || pid == Environment.ProcessId) return null;
+            long started = ProcessScan.StartTime(pid);
+            if (started == 0) return null;
             string? path = ProcessScan.ExePath(pid);
             if (path == null) return null;
             var known = KnownGames();
-            string? game = Classify(path, IsFullscreen(hwnd), known, () => WindowTitle(hwnd));
-            if (game == null) return null;
-            long started = ProcessScan.StartTime(pid);
-            return started == 0 ? null : new GameWindowTarget(new WindowOwner(hwnd, threadId, pid, started),
-                game, known.Contains(path) || GameFolderName(path) != null);
+            var owner = new WindowOwner(hwnd, threadId, pid, started);
+            bool fullscreen = IsFullscreen(hwnd);
+            var observed = AppProfile.IsPersonal
+                ? Observe(owner, path, GameCatalogRuntime.Match(path, true), fullscreen, known, () => WindowTitle(hwnd))
+                : new GameCaptureObservation(owner, path, new(CatalogMatchKind.Unknown),
+                    Classify(path, fullscreen, known, () => WindowTitle(hwnd)) is { } name
+                        ? new(owner, name, known.Contains(path) || GameFolderName(path) != null) : null, true);
+            return IsCurrent(owner) ? observed : null;
         }
         catch (Exception ex)
         {
@@ -85,11 +145,55 @@ internal sealed class GameDetector
         }
     }
 
+    internal static GameCaptureObservation Observe(WindowOwner owner, string path, CatalogMatch match,
+        bool fullscreen, IReadOnlySet<string> known, Func<string>? title = null)
+    {
+        string executable = Path.GetFileNameWithoutExtension(path);
+        if (CatalogPaths.IsDiscordProcess(path)) match = new(CatalogMatchKind.Companion);
+        else if (NotGames.Contains(executable)) match = new(CatalogMatchKind.Application, match.Entry);
+        else if (executable.ToLowerInvariant() is "launcher" or "gamelauncher" or "updater" or "update")
+            match = new(CatalogMatchKind.Launcher, match.Entry);
+
+        bool recognized = match.Kind == CatalogMatchKind.Game
+            || match.Kind == CatalogMatchKind.Candidate && match.Entry?.Source != CatalogSource.Epic && (known.Contains(path) || fullscreen ||
+                match.Entry?.Source == CatalogSource.Steam);
+        string? name = recognized ? match.Entry?.DisplayName : null;
+        if (match.Kind == CatalogMatchKind.Unknown)
+        {
+            name = Classify(path, fullscreen, known, title);
+            recognized = known.Contains(path) || GameFolderName(path) != null;
+        }
+        return new(owner, path, match, name == null ? null : new(owner, SanitizeFolderName(name), recognized), true);
+    }
+
+    internal static GameCaptureObservation? SelectObservation(GameCaptureObservation? current,
+        GameCaptureObservation? foreground, Func<WindowOwner, bool> isCurrent,
+        Func<string, bool, CatalogMatch>? match = null)
+    {
+        match ??= GameCatalogRuntime.Match;
+        if (foreground?.Target is { Recognized: true } target && isCurrent(target.Owner)) return foreground;
+        if (current?.Target != null && isCurrent(current.Owner))
+        {
+            var latest = match(current.Executable, foreground?.Owner == current.Owner);
+            if ((latest.Kind is CatalogMatchKind.Unknown or CatalogMatchKind.Candidate or CatalogMatchKind.Game)
+                && latest.Entry?.Id == current.Match.Entry?.Id)
+                return current with
+                {
+                    Match = latest,
+                    Target = latest.Entry is { } entry
+                        ? current.Target with { Game = SanitizeFolderName(entry.DisplayName) }
+                        : current.Target,
+                    IsForeground = foreground?.Owner == current.Owner,
+                };
+        }
+        return foreground?.Target != null && isCurrent(foreground.Owner) ? foreground : null;
+    }
+
     /// <summary>Game name for an executable, or null if it doesn't look like a game.</summary>
     public static string? Classify(string exePath, bool fullscreen, IReadOnlySet<string> knownGames, Func<string>? windowTitle = null)
     {
         string exe = Path.GetFileNameWithoutExtension(exePath);
-        if (NotGames.Contains(exe) || IsDiscordUpdater(exePath, exe)) return null;
+        if (NotGames.Contains(exe) || (AppProfile.IsPersonal ? CatalogPaths.IsDiscordProcess(exePath) : CatalogPaths.IsDiscordUpdater(exePath))) return null;
         string? folderName = GameFolderName(exePath);
         bool known = knownGames.Contains(exePath);
         if (!known && folderName == null && !fullscreen) return null;
@@ -113,10 +217,6 @@ internal sealed class GameDetector
         if (string.IsNullOrWhiteSpace(name)) name = exe;
         return SanitizeFolderName(name!);
     }
-
-    private static bool IsDiscordUpdater(string path, string exe) =>
-        string.Equals(exe, "Update", StringComparison.OrdinalIgnoreCase) &&
-        Path.GetFileName(Path.GetDirectoryName(path))?.ToLowerInvariant() is "discord" or "discordptb" or "discordcanary";
 
     private static string? GameFolderName(string path)
     {

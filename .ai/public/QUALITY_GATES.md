@@ -16,9 +16,9 @@ The previous agent reported **365 tests passed / 18 opt-in skipped** for the v4 
 
 | ID | Area | Tier | Code gates | Acceptance gates | State |
 |---|---|---|---:|---:|---|
-| QC-001 | Reproducible builds, CI and protected integration | P0 | 0/3 | 0/2 | active |
+| QC-001 | Reproducible builds, CI and protected integration | P0 | 2/3 | 0/2 | active |
 | QC-002 | Instant replay correctness, saving and memory safety | P0 | 3/4 | 0/5 | active |
-| QC-003 | Automatic game detection and per-game profiles | P0 | 2/6 | 0/5 | active |
+| QC-003 | Automatic game detection and per-game profiles | P0 | 4/6 | 0/5 | active |
 | QC-004 | Capture targeting and truthful recorded-source identity | P0 | 3/5 | 0/4 | active |
 | QC-005 | Separated audio tracks and sync | P0 | 2/3 | 0/4 | active |
 | QC-006 | Capture geometry and codec correctness | P0 | 3/3 | 0/3 | active |
@@ -42,8 +42,8 @@ First milestone. A passing local report is not the same as required CI.
 
 | Gate | Stage | Status | Objective evidence / requirement |
 |---|---|---|---|
-| `QC-001-I01` | implementation | TODO | Windows GitHub Actions builds and deterministic dependency restore |
-| `QC-001-I02` | implementation | TODO | Test job runs synthetic managed and relevant native tests on PR |
+| `QC-001-I01` | implementation | PASS | Merged PR #2 at `60c4172` provides strict x64 Release builds for both profiles with SDK 10.0.403, hash-verified native assets and NuGet restore. NuGet transitives are not lock-file enforced. [Windows CI evidence](https://github.com/Yosef13103/QuickClip/actions/runs/43071338005) |
+| `QC-001-I02` | implementation | PASS | PR #2 Windows CI ran synthetic tests and native interop preflight with capture off. Personal passed 366 with 18 skips. Upstream passed 27 with 14 skips. Zero failures. [Windows CI evidence](https://github.com/Yosef13103/QuickClip/actions/runs/43071338005) |
 | `QC-001-I03` | implementation | TODO | PRs target custom/main with change/evidence handoff and protected main |
 | `QC-001-A01` | acceptance | TODO | Latest custom/main passes Windows CI (0 failing; skips explicitly reported) |
 | `QC-001-A02` | acceptance | TODO | Every new P0 PR has traceable acceptance IDs and reproducible commands |
@@ -72,8 +72,8 @@ Highest feature gap: catalog exists but live runtime is not connected.
 |---|---|---|---|
 | `QC-003-I01` | implementation | PASS | Approved-folder/Steam/manual EXE scanning service implemented |
 | `QC-003-I02` | implementation | PASS | Catalog path matcher and saved profile model implemented |
-| `QC-003-I03` | implementation | TODO | Live GameDetector obtains game identity from catalog, not only legacy heuristics |
-| `QC-003-I04` | implementation | TODO | Games UI: approved roots, scan, manual EXEs, include/exclude, overrides |
+| `QC-003-I03` | implementation | PASS | Verified live game observation checks catalog eligibility before legacy heuristics. See [integration evidence](../../docs/p0-integration-validation.md) at `4580af7`. |
+| `QC-003-I04` | implementation | PASS | Games settings supports approved roots, scans, exact EXEs and future-target eligibility rules. See [integration evidence](../../docs/p0-integration-validation.md) at `4580af7`. |
 | `QC-003-I05` | implementation | TODO | Effective profile applied to capture at stable game/session boundaries |
 | `QC-003-I06` | implementation | TODO | Game start/exit/alt-tab session lifecycle and explicit fallback policy |
 | `QC-003-A01` | acceptance | TODO | 12/12 representative Steam and manual catalog cases correctly recognized |
@@ -90,7 +90,7 @@ Do not promise Windows 10 border-free Game Only capture by unsupported workaroun
 |---|---|---|---|
 | `QC-004-I01` | implementation | PASS | Borderless monitor capture via Desktop Duplication |
 | `QC-004-I02` | implementation | PASS | Window-only target capture via Windows Graphics Capture |
-| `QC-004-I03` | implementation | PASS | Automatic Game First mode with selected monitor fallback |
+| `QC-004-I03` | implementation | PASS | Preserve game-window intent and require explicit consent for a named whole-display DDA source. See [integration evidence](../../docs/p0-integration-validation.md) at `4580af7`. |
 | `QC-004-I04` | implementation | TODO | Strict Game Only mode with no desktop fallback |
 | `QC-004-I05` | implementation | TODO | Clip receipt captures true source/mode/display and stream geometry over saved interval |
 | `QC-004-A01` | acceptance | TODO | 20/20 alt-tab cases preserve intended target or deliberately stop without leaking desktop |

@@ -50,7 +50,9 @@ internal sealed class MpvPlayer : IDisposable
         SetOption("drag-and-drop", "no");
         SetOption("load-scripts", "no");
         SetOption("ytdl", "no");
-        SetOption("background-color", "#000000");
+        // Tint the non-video letterbox region so a black frame remains distinguishable.
+        // This changes only the renderer surround; source pixels and exports are untouched.
+        SetOption("background-color", "#282828");
         SetOption("demuxer-max-back-bytes", "200MiB");
         // The volume mixer shows the audio stream under these (by default "<file> - mpv").
         SetOption("audio-client-name", "QuickClip");

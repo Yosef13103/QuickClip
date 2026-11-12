@@ -1,0 +1,9 @@
+# FT-09 passive game observation
+
+When armed, the integration recorder can call `detector.ObserveEligibleGame(retained)` on its existing observation tick. Pass the prior verified observation. The result is a verified observation or null. Use the result only as eligibility input to the recorder's source consent and state machine.
+
+Selection prefers a verified foreground game, then a still-eligible retained owner, then a passive window. Passive enumeration inspects up to 512 top-level windows and 48 distinct candidate PIDs, with a 100 ms cooperative admission budget. It stops at the cap and produces no passive selection from an incomplete pass. It requires a visible, unowned, uncloaked, non-minimized client window and checks HWND, thread, PID and process start identity. It reads executable paths for exact catalog matching without reading window titles during passive enumeration. Background observations honor foreground-only and exclusion rules. If multiple eligible windows belong to one catalog identity, the largest client area wins. Multiple eligible identities without focus or retention are ambiguous and require focus.
+
+The feature supplies observations, including games that start with a visible window without taking focus. It leaves focus, source selection, capture start and stop, and recorder policy to integration. Hidden, minimized, cloaked, protected/unreadable, and budget-limited windows cannot establish passive eligibility. Synthetic tests cover selection, launch/exit, ownership changes, exclusions and multiple-window cases. Real Windows game behavior remains an owner-supervised integration check.
+
+Revert this follow-up commit for rollback. No settings schema or recording files change. [Microsoft EnumWindows](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-enumwindows) · [DWM window attributes](https://learn.microsoft.com/en-us/windows/win32/api/dwmapi/ne-dwmapi-dwmwindowattribute)

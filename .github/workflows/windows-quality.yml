@@ -1,7 +1,7 @@
 name: Windows quality
 on:
   pull_request:
-    branches: [custom/main]
+    branches: [custom/main, integration/p0-capture-games, integration/nov12-field-test]
   push:
     branches: [custom/main]
 permissions:

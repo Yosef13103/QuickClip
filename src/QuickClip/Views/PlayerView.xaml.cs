@@ -158,6 +158,7 @@ public partial class PlayerView : UserControl
         TitleChanged?.Invoke();
         _duration = clip.Duration ?? 0;
         _mpvTimePos = 0;
+        SeekMarkers.Show([], 0); // switching clips must never show the previous clip's markers
         ShowPosition(0);
         ShowMessage(null);
 
@@ -173,7 +174,20 @@ public partial class PlayerView : UserControl
         {
             Log.Write($"Probing {clip.Path} failed: {ex.Message}"); // mpv may still manage
         }
+        ClipBookmark[] markers = [];
+        if (AppProfile.IsPersonal)
+        {
+            try
+            {
+                markers = (await Task.Run(() => ClipDetailsStore.Read(new FileInfo(clip.Path), clip.Folder, null))).Bookmarks;
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                Log.Write("Reading clip timeline markers failed: " + ex.Message);
+            }
+        }
         if (token != _openToken || _player == null || _audio == null) return;
+        SeekMarkers.Show(markers, _duration);
 
         _eof = false;
         _player.Command("stop");
@@ -230,6 +244,7 @@ public partial class PlayerView : UserControl
                 if (value is double d && d > 0)
                 {
                     _duration = d;
+                    SeekMarkers.UpdateDuration(d);
                     ShowPosition(_mpvTimePos);
                 }
                 break;

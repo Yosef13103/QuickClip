@@ -239,7 +239,7 @@ public partial class MainWindow : Window
         {
             var stats = recorder.Stats();
             RecDot.Fill = (Brush)FindResource("RecordingRed");
-            string buffered = RecordingPresets.DurationLabel((int)Math.Round(stats.BufferSeconds));
+            string buffered = Fmt.CompactDuration(stats.BufferSeconds);
             string hotkeyText = s.HotkeyKey == 0 ? "no save hotkey configured"
                 : App.Host?.HotkeyActive == false ? "the hotkey is unavailable (see Settings)" : $"{hotkey} saves a clip";
             RecStatus.Text = $"Recording  ·  {recorder.State.Summary}  ·  {buffered} buffered ({Fmt.Size(stats.BufferBytes)})  ·  {hotkeyText}";
@@ -248,6 +248,7 @@ public partial class MainWindow : Window
         {
             RecDot.Fill = IdleDot;
             RecStatus.Text = recorder.Error != null ? "Not recording: " + recorder.Error
+                : recorder.State.Mode == RecordingMode.Armed ? "Armed · no recording active"
                 : s.RecordingEnabled ? "Starting…" : "Recording is off — turn on instant replay in Settings";
         }
         SaveClipButton.IsEnabled = recorder.IsRunning;

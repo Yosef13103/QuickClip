@@ -120,16 +120,55 @@ public sealed class GameCatalogTests : IDisposable
     }
 
     [Fact]
-    public async Task Entry_budget_counts_non_executables_and_stops_traversal()
+    public async Task Loose_files_do_not_consume_the_candidate_budget()
     {
         for (int i = 0; i < 12; i++) FileAt("Game", $"File{i}.txt");
         var result = await GameCatalogService.ScanAsync(new()
         {
             GameRoots = [new(At("Game"))], MaxEntries = 4
         });
-        Assert.Equal(4, result.VisitedEntries);
-        Assert.True(result.LimitReached);
+        Assert.Equal(0, result.VisitedEntries);
+        Assert.False(result.LimitReached);
         Assert.Empty(result.Entries);
+    }
+
+    [Fact]
+    public async Task Large_collection_discovers_nested_installs_and_filters_helpers()
+    {
+        string first = FileAt("library", "Collection", "Game", "Game.exe");
+        string second = FileAt("library", "Other", "Game", "Binaries", "Game-Win64-Shipping.exe");
+        FileAt("library", "Collection", "Game", "UnityCrashHandler64.exe");
+        FileAt("library", "Other", "Game", "Binaries", "unins000.exe");
+        for (int i = 0; i < 20_001; i++) File.Create(At("library", $"Loose{i}.txt")).Dispose();
+        var result = await GameCatalogService.ScanAsync(new()
+        {
+            GameRoots = [new(At("library"), IsCollection: true)], MaxEntries = 12,
+        });
+        Assert.False(result.LimitReached);
+        Assert.Equal(2, result.Entries.Select(entry => entry.Id).Distinct().Count());
+        Assert.All(result.Entries, entry => Assert.Equal("Game", entry.Name));
+        Assert.Equal(new[] { first, second }, result.Entries.SelectMany(entry => entry.Executables).Order());
+    }
+
+    [Fact]
+    public async Task Steam_config_adds_secondary_library_without_manual_approval_and_honors_exclusions()
+    {
+        FileAt("Steam", "steamapps", "common", "First", "First.exe");
+        FileAt("Other", "steamapps", "common", "Second", "Second.exe");
+        File.WriteAllText(At("Steam", "steamapps", "appmanifest_42.acf"), Manifest("42", "First"));
+        File.WriteAllText(At("Other", "steamapps", "appmanifest_43.acf"), Manifest("43", "Second"));
+        Directory.CreateDirectory(At("Steam", "config"));
+        string other = At("Other").Replace("\\", "\\\\");
+        File.WriteAllText(At("Steam", "config", "libraryfolders.vdf"),
+            $"\"libraryfolders\" {{ \"1\" {{ \"path\" \"{other}\" }} }}");
+        var request = new CatalogRequest { DiscoverSteam = true };
+        var both = await GameCatalogService.ScanAsync(request, steamInstallations: () => [At("Steam")]);
+        Assert.Equal(new[] { "steam:42", "steam:43" }, both.Entries.Select(entry => entry.Id));
+        var state = GameCatalogRuntime.WithScan(new(), both);
+        Assert.Equal(2, GameCatalogRuntime.Rows(state).Length);
+        var excluded = await GameCatalogService.ScanAsync(request with { ExcludedDirectories = [At("Other")] },
+            steamInstallations: () => [At("Steam")]);
+        Assert.Equal("steam:42", Assert.Single(excluded.Entries).Id);
     }
 
     [Fact]

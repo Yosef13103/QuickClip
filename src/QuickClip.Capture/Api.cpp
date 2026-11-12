@@ -43,13 +43,13 @@ namespace
     }
 
     int StartEngine(const QcConfig& config, bool endpointMode, const QcEndpointTrack* endpoints, int count, wchar_t* error, int length,
-        QcVideoOptions video = {})
+        QcVideoOptions video = {}, const wchar_t* displayIdentity = nullptr)
     {
         std::unique_lock guard(g_engineLock);
         g_engine.reset();
         try
         {
-            auto engine = std::make_unique<qc::Engine>(config, endpointMode, endpoints, count, video);
+            auto engine = std::make_unique<qc::Engine>(config, endpointMode, endpoints, count, video, displayIdentity);
             std::string message;
             if (engine->Start(message))
             {
@@ -152,6 +152,19 @@ extern "C"
         if (callback) qc::EnumAudioEndpoints(callback);
     }
 
+    __declspec(dllexport) int qc_get_endpoint_status(QcEndpointStatus* statuses, int capacity)
+    {
+        if (!statuses || capacity <= 0) return 0;
+        std::shared_lock guard(g_engineLock);
+        return g_engine ? g_engine->GetEndpointStatus(statuses, capacity) : 0;
+    }
+
+    // Synthetic float fixture only. Does not open an endpoint.
+    __declspec(dllexport) float qc_test_audio_packet_peak(const float* samples, int count)
+    {
+        return count >= 0 && count <= 48000 ? qc::AudioPacketPeak(samples, static_cast<size_t>(count)) : -1;
+    }
+
     __declspec(dllexport) void qc_display_diagnostics(wchar_t* text, int length)
     {
         CopyError(qc::DisplayDiagnostics(), text, length);
@@ -163,11 +176,11 @@ extern "C"
         return StartEngine(*config, false, nullptr, 0, error, errorLength);
     }
 
-    __declspec(dllexport) int qc_start_with_video(const QcConfig* config, const QcEndpointTrack* endpoints, int count,
-        const QcVideoOptions* video, wchar_t* error, int errorLength)
+    __declspec(dllexport) int qc_start_with_display(const QcConfig* config, const QcEndpointTrack* endpoints, int count,
+        const QcVideoOptions* video, const wchar_t* displayIdentity, wchar_t* error, int errorLength)
     {
         if (!config || !video || count < -1 || count > 16 || (count > 0 && !endpoints) ||
-            video->backend < 0 || video->backend > 2 || video->nvencPreset < 0 || video->nvencPreset > 2)
+            video->backend < 0 || video->backend > 4 || video->nvencPreset < 0 || video->nvencPreset > 2)
         {
             CopyError("Invalid endpoint audio configuration.", error, errorLength);
             return 0;
@@ -187,7 +200,18 @@ extern "C"
                     return 0;
                 }
         }
-        return StartEngine(*config, count >= 0, endpoints, std::max(0, count), error, errorLength, *video);
+        if (displayIdentity && (!*displayIdentity || video->backend != 3 || !config->monitorDevice || !*config->monitorDevice))
+        {
+            CopyError("Authorized display capture requires a named display and Desktop Duplication.", error, errorLength);
+            return 0;
+        }
+        return StartEngine(*config, count >= 0, endpoints, std::max(0, count), error, errorLength, *video, displayIdentity);
+    }
+
+    __declspec(dllexport) int qc_start_with_video(const QcConfig* config, const QcEndpointTrack* endpoints, int count,
+        const QcVideoOptions* video, wchar_t* error, int errorLength)
+    {
+        return qc_start_with_display(config, endpoints, count, video, nullptr, error, errorLength);
     }
 
     __declspec(dllexport) int qc_start_endpoints(const QcConfig* config, const QcEndpointTrack* endpoints, int count,
@@ -290,9 +314,11 @@ extern "C"
         return 1;
     }
 
-    __declspec(dllexport) int qc_save_replay(const wchar_t* path, int seconds, const wchar_t* title, int64_t session,
-        int64_t requestUs, QcReplaySpan* span, QcReplayAnchor* anchors, int count, wchar_t* error, int errorLength)
+    __declspec(dllexport) int qc_save_replay_with_video(const wchar_t* path, int seconds, const wchar_t* title, int64_t session,
+        int64_t requestUs, QcReplaySpan* span, QcReplayAnchor* anchors, int count, QcReplayVideo* savedVideo,
+        wchar_t* error, int errorLength)
     {
+        if (savedVideo) *savedVideo = {};
         if (!path || !span || seconds <= 0 || count < 0 || count > 128 || (count && !anchors))
         {
             CopyError("Invalid replay request.", error, errorLength);
@@ -307,9 +333,15 @@ extern "C"
             return 0;
         }
         std::string message;
-        if (g_engine->Save(path, seconds, title ? title : L"", message, span, anchors, count, requestUs)) return 1;
+        if (g_engine->Save(path, seconds, title ? title : L"", message, span, anchors, count, requestUs, savedVideo)) return 1;
         CopyError(message, error, errorLength);
         return 0;
+    }
+
+    __declspec(dllexport) int qc_save_replay(const wchar_t* path, int seconds, const wchar_t* title, int64_t session,
+        int64_t requestUs, QcReplaySpan* span, QcReplayAnchor* anchors, int count, wchar_t* error, int errorLength)
+    {
+        return qc_save_replay_with_video(path, seconds, title, session, requestUs, span, anchors, count, nullptr, error, errorLength);
     }
 
     // Deterministic packet fixture for the managed tests. No encoder, audio endpoints or desktop are opened.

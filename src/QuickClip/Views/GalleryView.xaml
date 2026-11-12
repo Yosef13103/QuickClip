@@ -64,8 +64,9 @@
                                 <Button Tag="{Binding IsFavorite}" Style="{StaticResource FavoriteButtonStyle}"
                                         Click="FavoriteCard_Click" VerticalAlignment="Center"
                                         Visibility="{Binding PersonalAnnotations, RelativeSource={RelativeSource AncestorType=views:GalleryView}, Converter={StaticResource ShowIf}}" />
-                                <Button Content="Share" Style="{StaticResource TextButton}" Click="ShareClip_Click"
-                                        ToolTip="Create a shareable copy and put it on the clipboard" />
+                                <Button Content="&#xE72D;" Style="{StaticResource IconButton}" Click="ShareClip_Click"
+                                        Focusable="True" VerticalAlignment="Center" AutomationProperties.Name="Share clip"
+                                        ToolTip="Share clip · copy to clipboard" />
                                 <Button Content="⋯" Style="{StaticResource TextButton}" Padding="5,2" Width="30" FontSize="15"
                                         Tag="{Binding ElementName=Card}" Click="ClipOverflow_Click"
                                         AutomationProperties.Name="Clip actions" ToolTip="Clip actions" />
@@ -85,7 +86,9 @@
                                         </Style>
                                     </TextBlock.Style>
                                 </TextBlock>
-                                <TextBlock Margin="0,2,0,0" FontSize="12" Foreground="{StaticResource SubtleText}">
+                                <TextBlock Margin="0,2,0,0" FontSize="12" Foreground="{StaticResource SubtleText}"
+                                           TextTrimming="CharacterEllipsis" ToolTip="{Binding Created, StringFormat=F}">
+                                    <Run Text="{Binding Created, Mode=OneWay, StringFormat=t}" /><Run Text="  ·  " />
                                     <Run Text="{Binding Ago, Mode=OneWay}" /><Run Text="  ·  " /><Run Text="{Binding SizeText, Mode=OneWay}" />
                                 </TextBlock>
                             </StackPanel>
@@ -107,6 +110,24 @@
                         <Setter TargetName="Card" Property="BorderThickness" Value="2" />
                     </DataTrigger>
                 </DataTemplate.Triggers>
+            </DataTemplate>
+            <DataTemplate DataType="{x:Type gallery:GalleryDayHeader}">
+                <DockPanel Margin="0,12,14,8">
+                    <CheckBox DockPanel.Dock="Left" IsThreeState="True" IsChecked="{Binding Selection, Mode=OneWay}"
+                              Click="SelectDay_Click" VerticalAlignment="Center" Margin="0,0,9,0"
+                              AutomationProperties.Name="{Binding SelectionLabel}" ToolTip="{Binding SelectionLabel}" />
+                    <TextBlock DockPanel.Dock="Left" Text="{Binding Heading}" FontWeight="SemiBold" FontSize="15"
+                               VerticalAlignment="Center" Margin="0,0,12,0" />
+                    <TextBlock Text="{Binding Summary}" ToolTip="{Binding Summary}" TextTrimming="CharacterEllipsis"
+                               VerticalAlignment="Center" Style="{StaticResource Hint}" />
+                </DockPanel>
+            </DataTemplate>
+            <DataTemplate DataType="{x:Type gallery:GalleryClipRow}">
+                <ItemsControl ItemsSource="{Binding Clips}" ItemTemplate="{StaticResource ClipCard}">
+                    <ItemsControl.ItemsPanel>
+                        <ItemsPanelTemplate><StackPanel Orientation="Horizontal" /></ItemsPanelTemplate>
+                    </ItemsControl.ItemsPanel>
+                </ItemsControl>
             </DataTemplate>
 
             <!-- Lists in the side panel scroll with it rather than on their own -->
@@ -201,11 +222,13 @@
                 <!-- What to do with the selected clips -->
                 <Border x:Name="SelectionBar" DockPanel.Dock="Top" Background="{StaticResource PanelBrush}" CornerRadius="6" Padding="14,6,8,6"
                         Margin="0,0,14,14" Visibility="Collapsed">
-                    <DockPanel>
-                        <StackPanel x:Name="SelectionActions" DockPanel.Dock="Right" Orientation="Horizontal">
+                    <StackPanel>
+                        <TextBlock x:Name="SelectionText" FontWeight="SemiBold" TextWrapping="Wrap" Margin="0,0,0,5" />
+                        <WrapPanel x:Name="SelectionActions">
                             <Button x:Name="OrganizeSelectedButton" Content="Organize…" Style="{StaticResource TextButton}" Click="OrganizeSelected_Click"
                                     Visibility="{Binding PersonalAnnotations, RelativeSource={RelativeSource AncestorType=views:GalleryView}, Converter={StaticResource ShowIf}}" />
-                            <Button Content="Delete selected…" Style="{StaticResource TextButton}" Click="DeleteSelected_Click" />
+                            <Button x:Name="DeleteSelectedButton" Content="Delete selected…" Style="{StaticResource DangerButtonStyle}" Click="DeleteSelected_Click"
+                                    ToolTip="Delete selected clips visible in this view" />
                             <Button x:Name="AddToProjectButton" Style="{DynamicResource AccentButtonStyle}" Padding="12,5" Focusable="False"
                                     Click="AddToProject_Click">
                                 <StackPanel Orientation="Horizontal">
@@ -214,22 +237,21 @@
                                     <TextBlock FontFamily="{StaticResource IconFont}" Text="&#xE70D;" FontSize="10" VerticalAlignment="Center" Margin="8,1,0,0" />
                                 </StackPanel>
                             </Button>
-                            <Button Style="{StaticResource TextButton}" Margin="8,0,4,0" Click="CopyToFolder_Click"
+                            <Button x:Name="CopySelectedButton" Style="{StaticResource TextButton}" Margin="8,0,4,0" Click="CopyToFolder_Click"
                                     ToolTip="Copy the selected clips to a folder of your choice">
                                 <StackPanel Orientation="Horizontal">
                                     <TextBlock FontFamily="{StaticResource IconFont}" Text="&#xE8C8;" VerticalAlignment="Center" Margin="0,0,7,0" />
                                     <TextBlock Text="Copy to folder…" />
                                 </StackPanel>
                             </Button>
-                            <Button Style="{StaticResource TextButton}" Content="Select all" Click="SelectAll_Click" ToolTip="Select every clip in this folder" />
-                            <Button Style="{StaticResource TextButton}" Content="Clear" Margin="0" Click="ClearSelection_Click" />
-                        </StackPanel>
-                        <TextBlock x:Name="SelectionText" VerticalAlignment="Center" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
-                    </DockPanel>
+                            <Button Style="{StaticResource TextButton}" Content="Select all matching" Click="SelectAll_Click" ToolTip="Select all clips visible in this view" />
+                            <Button Style="{StaticResource TextButton}" Content="Clear selection" Margin="0" Click="ClearSelection_Click"
+                                    ToolTip="Clear visible and hidden selections" />
+                        </WrapPanel>
+                    </StackPanel>
                 </Border>
                 <TextBlock x:Name="StatusText" DockPanel.Dock="Top" Style="{StaticResource Hint}" Margin="0,-4,14,12" Visibility="Collapsed" />
-                <WrapPanel DockPanel.Dock="Top" Margin="0,0,0,10">
-                    <WrapPanel x:Name="OrganizationFilters" Margin="0,0,16,0">
+                <WrapPanel x:Name="OrganizationFilters" DockPanel.Dock="Top" Margin="0,0,16,10">
                         <StackPanel Orientation="Horizontal" Margin="0,0,10,4">
                             <TextBlock Text="Search" VerticalAlignment="Center" Margin="0,0,6,0" />
                             <TextBox x:Name="ClipSearchBox" Width="130" MaxLength="120" TextChanged="OrganizationFilter_Changed"
@@ -249,10 +271,9 @@
                         </StackPanel>
                         <CheckBox x:Name="FavoritesFilter" Content="Favorites only" VerticalAlignment="Center" Margin="0,0,10,4"
                                   Checked="OrganizationFilter_Changed" Unchecked="OrganizationFilter_Changed" />
-                        <CheckBox x:Name="FavoritesSort" Content="Favorites first" VerticalAlignment="Center" Margin="0,0,10,4"
+                        <CheckBox x:Name="FavoritesSort" Content="Favorites first within each day" VerticalAlignment="Center" Margin="0,0,10,4"
                                   Checked="OrganizationFilter_Changed" Unchecked="OrganizationFilter_Changed" />
                         <Button Content="Clear filters" Click="ClearFilters_Click" Style="{StaticResource TextButton}" Margin="0,0,8,4" />
-                    </WrapPanel>
                 </WrapPanel>
                 <Border x:Name="InlineDetails" DockPanel.Dock="Top" Visibility="Collapsed"
                         Background="{StaticResource PanelBrush}" Padding="14,4" Margin="0,0,14,12">
@@ -276,17 +297,6 @@
                                 <VirtualizingStackPanel />
                             </ItemsPanelTemplate>
                         </ItemsControl.ItemsPanel>
-                        <ItemsControl.ItemTemplate>
-                            <DataTemplate>
-                                <ItemsControl ItemsSource="{Binding}" ItemTemplate="{StaticResource ClipCard}">
-                                    <ItemsControl.ItemsPanel>
-                                        <ItemsPanelTemplate>
-                                            <StackPanel Orientation="Horizontal" />
-                                        </ItemsPanelTemplate>
-                                    </ItemsControl.ItemsPanel>
-                                </ItemsControl>
-                            </DataTemplate>
-                        </ItemsControl.ItemTemplate>
                     </ItemsControl>
 
                     <StackPanel x:Name="EmptyState" VerticalAlignment="Center" HorizontalAlignment="Center" MaxWidth="420" Margin="0,0,0,80"

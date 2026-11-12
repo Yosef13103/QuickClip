@@ -26,7 +26,6 @@
         <TextBlock x:Name="BookmarkCount" Margin="0,6,0,0" />
         <StackPanel x:Name="BookmarkPanel" Visibility="Collapsed" Margin="0,10,0,0">
             <TextBlock Text="Bookmarks" FontWeight="SemiBold" />
-            <Button Content="Bookmark playhead" Click="AddBookmark_Click" HorizontalAlignment="Left" Margin="0,4,0,4" />
             <StackPanel x:Name="BookmarkRows" />
         </StackPanel>
         <TextBlock x:Name="Feedback" TextWrapping="Wrap" Margin="0,4,0,0" />

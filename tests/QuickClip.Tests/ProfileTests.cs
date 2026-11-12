@@ -36,7 +36,8 @@ public sealed class ProfileTests
         Assert.StartsWith("QuickClip.Personal.Instance.", AppProfile.PipeName);
         Assert.False(settings.RecordingEnabled);
         Assert.False(settings.RecordMic);
-        Assert.Equal(0, settings.HotkeyKey);
+        Assert.Equal(0, settings.HotkeyKey); // parsed existing Personal profile keeps the old unbound default
+        Assert.Equal(0x79, new AppSettings().HotkeyKey);
         Assert.False(settings.CheckForUpdates);
         Assert.False(Startup.IsEnabled);
         Assert.False(ShellIntegration.IsRegistered());

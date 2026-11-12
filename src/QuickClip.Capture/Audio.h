@@ -11,6 +11,7 @@
 #include <vector>
 
 struct SwrContext;
+struct QcEndpointStatus;
 
 namespace qc
 {
@@ -158,6 +159,9 @@ namespace qc
     };
 
     enum class SourceKind { ProcessInclude, ProcessExclude, Microphone, RenderLoopback };
+    enum class AudioStage { Pending, Com, EndpointLookup, EndpointFlow, Activate, Initialize, Event, Start, Streaming, Read };
+
+    float AudioPacketPeak(const float* samples, size_t count);
 
     /// Whether Windows can capture single apps (Windows 11, or Windows 10 build 20348 and later). Without it,
     /// Desktop records everything the speakers play and the Chat and Music tracks stay silent.
@@ -170,10 +174,12 @@ namespace qc
     class AudioSource
     {
     public:
-        AudioSource(SourceKind kind, DWORD pid, std::wstring deviceId, int rate, std::unique_ptr<AudioSink> sink);
+        AudioSource(SourceKind kind, DWORD pid, std::wstring deviceId, int rate, std::unique_ptr<AudioSink> sink, int track = -1,
+            bool measureSignal = false);
         ~AudioSource();
         AudioSource(const AudioSource&) = delete;
         AudioSource& operator=(const AudioSource&) = delete;
+        QcEndpointStatus Status() const;
 
     private:
         void Run();
@@ -185,6 +191,13 @@ namespace qc
         int rate_;
         std::unique_ptr<AudioSink> sink_;
         bool endpointFallbackLogged_ = false;
+        const int track_;
+        const bool measureSignal_;
+        std::atomic<AudioStage> stage_{ AudioStage::Pending };
+        std::atomic<HRESULT> error_{ S_OK };
+        std::atomic<int> mixRate_{ 0 }, mixChannels_{ 0 };
+        std::atomic<int64_t> packets_{ 0 }, lastPacketUs_{ 0 };
+        std::atomic<float> lastPacketPeak_{ -1 };
         HANDLE stop_;
         std::thread thread_;
     };

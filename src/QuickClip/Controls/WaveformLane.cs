@@ -282,7 +282,6 @@ public sealed class WaveformLane : FrameworkElement
         base.OnLostMouseCapture(e);
     }
 
-    protected override void OnMouseWheel(MouseWheelEventArgs e) => TimelineBar.HandleWheel(this, Track?.Timeline, e);
 
     private static T Freeze<T>(T f) where T : Freezable { f.Freeze(); return f; }
 }

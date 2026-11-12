@@ -43,7 +43,7 @@ extern "C"
 
     struct QcVideoOptions
     {
-        int backend; // 0 = Auto, 1 = Desktop Duplication, 2 = Windows Graphics Capture
+        int backend; // 0 = legacy Auto, 1 = DDA, 2 = WGC, 3 = monitor-only DDA, 4 = monitor-only WGC
         int nvencPreset; // 0 = p4, 1 = p3, 2 = p2
         int diagnostics;
     };
@@ -61,6 +61,18 @@ extern "C"
     struct QcReplayAnchor
     {
         int64_t sequence, offsetUs;
+    };
+
+    struct QcReplayVideo
+    {
+        int width, height, fpsNumerator, fpsDenominator;
+    };
+
+    struct QcEndpointStatus
+    {
+        int flow, stage, error, mixRate, mixChannels, captureRate;
+        int64_t packets, millisecondsSincePacket;
+        float lastPacketPeak;
     };
 
     struct QcOutput
@@ -138,7 +150,8 @@ namespace qc
     class Engine
     {
     public:
-        Engine(const QcConfig& config, bool endpointMode, const QcEndpointTrack* endpoints, int endpointCount, QcVideoOptions video);
+        Engine(const QcConfig& config, bool endpointMode, const QcEndpointTrack* endpoints, int endpointCount,
+            QcVideoOptions video, const wchar_t* displayIdentity);
         ~Engine();
         bool Start(std::string& error);
         /// Desktop records everything but `desktopExclude`'s process tree (nothing when that is 0) plus the trees of
@@ -147,9 +160,11 @@ namespace qc
         void SetAudioProcesses(DWORD desktopExclude, const std::vector<DWORD>& desktopInclude,
             const std::vector<DWORD>& chat, const std::vector<DWORD>& music, const std::vector<DWORD>& desktopSubtract);
         bool Save(const std::wstring& path, int seconds, const std::wstring& title, std::string& error,
-            QcReplaySpan* span = nullptr, QcReplayAnchor* anchors = nullptr, int count = 0, int64_t requestUs = -1);
+            QcReplaySpan* span = nullptr, QcReplayAnchor* anchors = nullptr, int count = 0, int64_t requestUs = -1,
+            QcReplayVideo* savedVideo = nullptr);
         void GetReplayPosition(QcReplayPosition& position);
         void GetStats(QcStats& stats);
+        int GetEndpointStatus(QcEndpointStatus* statuses, int capacity) const;
         std::string VideoDiagnostics();
         /// Starts capture again on the next frame (the display changed; the old capture may be stale).
         void RequestRebuild();
