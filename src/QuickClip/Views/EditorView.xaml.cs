@@ -582,7 +582,7 @@ public partial class EditorView : UserControl
             _sourceState = EditorSourceState.Ready;
             _sourceSuspended = false;
             Video.Visibility = Visibility.Visible;
-            UnavailableSource.Visibility = Visibility.Collapsed;
+            UnavailableSource.Visibility = MissingSourceOverlay.Visibility = Visibility.Collapsed;
             if (differentClip && (_viewMode || _fullscreen))
             {
                 _viewMode = false;
