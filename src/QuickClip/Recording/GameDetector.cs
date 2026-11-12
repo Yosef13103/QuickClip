@@ -23,7 +23,7 @@ internal sealed record GameCaptureObservation(WindowOwner Owner, string Executab
 }
 
 /// <summary>Works out which game a clip belongs to (null = not a game, filed under "Desktop").</summary>
-internal sealed class GameDetector
+internal sealed partial class GameDetector
 {
     // Apps that are never games, even when fullscreen.
     private static readonly HashSet<string> NotGames = new(StringComparer.OrdinalIgnoreCase)
