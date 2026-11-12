@@ -16,8 +16,15 @@ internal static class GameCatalogService
         await CreateScan(request, steamInstallations)
             .ContinueAsync(int.MaxValue, TimeSpan.FromSeconds(45), cancellationToken, progress).ConfigureAwait(false);
 
-    internal static Scan CreateScan(CatalogRequest request, Func<IEnumerable<string>>? steamInstallations = null) =>
-        new(request, steamInstallations ?? FindSteamInstallations);
+    internal static Scan CreateScan(CatalogRequest request, Func<IEnumerable<string>>? steamInstallations = null,
+        Func<string?>? epicManifests = null) =>
+        new(request, steamInstallations ?? FindSteamInstallations, epicManifests ?? FindEpicManifests);
+
+    private static string? FindEpicManifests()
+    {
+        string common = Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData);
+        return common.Length == 0 ? null : Path.Combine(common, "Epic", "EpicGamesLauncher", "Data", "Manifests");
+    }
 
     private static IEnumerable<string> FindSteamInstallations()
     {
@@ -49,26 +56,29 @@ internal static class GameCatalogService
         private CancellationToken _cancel;
         private IProgress<int>? _progress;
         private readonly Func<IEnumerable<string>> _steamInstallations;
+        private readonly Func<string?> _epicManifests;
         private readonly string[] _excluded;
         private readonly Dictionary<string, Candidate> _games = new(StringComparer.Ordinal);
-        private readonly Dictionary<string, Candidate> _steamFolders = new(Paths);
+        private readonly Dictionary<string, Candidate> _launcherFolders = new(Paths);
         private readonly List<CatalogIssue> _issues = [];
         private readonly LinkedList<Action> _pending = new();
         private readonly HashSet<string> _steamRoots = new(Paths);
         private readonly HashSet<string> _collections = new(Paths);
         private bool _initialized;
+        private string? _epicManifestDirectory;
         private int _scheduled;
         private int _visited, _manifestBytes, _segmentEntries, _reportedGames = -1;
         private long _segmentStarted;
         private bool _limitReached;
 
-        public Scan(CatalogRequest request, Func<IEnumerable<string>> steamInstallations)
+        public Scan(CatalogRequest request, Func<IEnumerable<string>> steamInstallations, Func<string?> epicManifests)
         {
             if (request.MaxEntries is < 1 or > 100_000 || request.MaxDepth is < 0 or > 16 ||
                 request.GameRoots.Length + request.SteamLibraryRoots.Length > 128)
                 throw new ArgumentException("Invalid catalog scan limits.", nameof(request));
             _request = request;
             _steamInstallations = steamInstallations;
+            _epicManifests = epicManifests;
             _excluded = request.ExcludedDirectories.Select(path => CatalogPaths.LocalPath(path)
                 ?? throw new ArgumentException("Excluded directories must be absolute local drive paths.", nameof(request))).ToArray();
         }
@@ -116,6 +126,7 @@ internal static class GameCatalogService
             return new(entries, [.. _issues], _visited, _limitReached || HasMore, DateTimeOffset.UtcNow)
             {
                 SteamLibraries = [.. _steamRoots.Order(Paths)],
+                EpicManifestDirectory = _epicManifestDirectory,
             };
         }
 
@@ -128,6 +139,12 @@ internal static class GameCatalogService
                 if (ApprovedRoot(raw) is { } library && _steamRoots.Add(library))
                     planned.Add(() => ScanSteam(library));
             }
+            if (_request.DiscoverEpic && CatalogPaths.LocalPath(_epicManifests()) is { Length: > 3 } epic &&
+                !IsExcluded(epic) && Directory.Exists(epic))
+            {
+                _epicManifestDirectory = epic;
+                planned.Add(() => ScanEpic(epic));
+            }
 
             var gameRoots = new HashSet<string>(Paths);
             foreach (var root in _request.GameRoots)
@@ -135,7 +152,7 @@ internal static class GameCatalogService
                 if (ApprovedRoot(root.Path) is not { } path || !gameRoots.Add(path)) continue;
                 planned.Add(() =>
                 {
-                    if (_steamFolders.ContainsKey(path)) return;
+                    if (_launcherFolders.ContainsKey(path)) return;
                     if (root.IsCollection) ScanCollection(path);
                     else ScanFolder(path);
                 });
@@ -226,11 +243,49 @@ internal static class GameCatalogService
                 var game = GetCandidate(key, manifest.Name, CatalogSource.Steam);
                 if (game.InstallDirectories.Add(install))
                 {
-                    _steamFolders.TryAdd(install, game);
+                    _launcherFolders.TryAdd(install, game);
                     installs.Add(() => ScanExecutables(install, 0, game));
                 }
-            }, manifests: true);
+            }, name => name.StartsWith("appmanifest_", StringComparison.OrdinalIgnoreCase));
             Prepend(installs, library);
+        }
+
+        private void ScanEpic(string directory)
+        {
+            VisitEntries(directory, (path, _) =>
+            {
+                try
+                {
+                    using var file = File.Open(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+                    long length = file.Length;
+                    if (length > EpicManifestParser.MaxDocumentSize || length > ManifestBudget - _manifestBytes)
+                    {
+                        AddIssue(path, length > EpicManifestParser.MaxDocumentSize ? CatalogIssueKind.InvalidManifest : CatalogIssueKind.Incomplete);
+                        _limitReached |= length <= EpicManifestParser.MaxDocumentSize;
+                        return;
+                    }
+                    _manifestBytes += (int)length;
+                    var data = new byte[(int)length];
+                    file.ReadExactly(data);
+                    _cancel.ThrowIfCancellationRequested();
+                    if (file.ReadByte() != -1) { AddIssue(path, CatalogIssueKind.Unavailable); return; }
+                    if (EpicManifestParser.Parse(data, out bool malformed) is not { } manifest)
+                    {
+                        if (malformed) AddIssue(path, CatalogIssueKind.InvalidManifest);
+                        return;
+                    }
+                    if (!IsRendererCandidate(manifest.Executable) || IsExcluded(manifest.Executable) ||
+                        ApprovedRoot(manifest.InstallDirectory) == null || !CheckDirectory(Path.GetDirectoryName(manifest.Executable)!) ||
+                        !TryAttributes(manifest.Executable, out var attributes) || attributes.HasFlag(FileAttributes.Directory))
+                        return;
+                    if (_launcherFolders.TryGetValue(manifest.InstallDirectory, out var existing) && existing.Id != manifest.Id) return;
+                    var game = GetCandidate(manifest.Id, manifest.Name, CatalogSource.Epic);
+                    game.InstallDirectories.Add(manifest.InstallDirectory);
+                    game.Executables.Add(manifest.Executable);
+                    _launcherFolders.TryAdd(manifest.InstallDirectory, game);
+                }
+                catch (Exception ex) when (IsAccessError(ex)) { AddIssue(path, CatalogIssueKind.Unavailable); }
+            }, name => name.EndsWith(".item", StringComparison.OrdinalIgnoreCase));
         }
 
         private SteamAppManifest? ReadManifest(string path)
@@ -265,7 +320,7 @@ internal static class GameCatalogService
 
         private void ScanCollection(string path, int depth = 0)
         {
-            if (!_collections.Add(path) || _steamFolders.ContainsKey(path)) return;
+            if (!_collections.Add(path) || _launcherFolders.ContainsKey(path)) return;
             var directories = new List<string>();
             var executables = new List<string>();
             VisitEntries(path, (entry, attributes) =>
@@ -283,7 +338,7 @@ internal static class GameCatalogService
                 var game = FolderCandidate(path);
                 game.Executables.UnionWith(executables);
             }
-            var subdirectories = directories.Where(dir => !_steamFolders.ContainsKey(dir)).ToArray();
+            var subdirectories = directories.Where(dir => !_launcherFolders.ContainsKey(dir)).ToArray();
             if (subdirectories.Length > 0 && depth >= Math.Min(_request.MaxDepth, 4))
             {
                 _limitReached = true;
@@ -310,7 +365,7 @@ internal static class GameCatalogService
                 if (attributes.HasFlag(FileAttributes.Directory))
                 {
                     if (depth == _request.MaxDepth) _limitReached = true;
-                    else if (!_steamFolders.ContainsKey(entry)) ScanExecutables(entry, depth + 1, game);
+                    else if (!_launcherFolders.ContainsKey(entry)) ScanExecutables(entry, depth + 1, game);
                 }
                 else AddExecutable(game, entry);
             });
@@ -413,7 +468,7 @@ internal static class GameCatalogService
             return true;
         }
 
-        private void VisitEntries(string directory, Action<string, FileAttributes> visit, bool manifests = false)
+        private void VisitEntries(string directory, Action<string, FileAttributes> visit, Func<string, bool>? manifestName = null)
         {
             if (!CheckDirectory(directory)) return;
             try
@@ -427,7 +482,7 @@ internal static class GameCatalogService
                     _cancel.ThrowIfCancellationRequested();
                     var (path, attributes) = entries.Current;
                     string leaf = Path.GetFileName(path);
-                    if (manifests ? !leaf.StartsWith("appmanifest_", StringComparison.OrdinalIgnoreCase)
+                    if (manifestName != null ? attributes.HasFlag(FileAttributes.Directory) || !manifestName(leaf)
                         : !attributes.HasFlag(FileAttributes.Directory) && !CatalogPaths.IsExecutable(path)) continue;
                     _visited++;
                     _segmentEntries++;

@@ -8,9 +8,10 @@ namespace QuickClip.Views;
 
 public partial class GamesSettingsView : UserControl
 {
-    private sealed record RootRow(string Path, bool Steam, bool Automatic = false, bool Excluded = false)
+    private sealed record RootRow(string Path, bool Steam, bool Automatic = false, bool Excluded = false, bool Epic = false)
     {
-        public override string ToString() => (Excluded ? "Excluded · " : Automatic ? "Detected Steam · " : Steam ? "Steam · " : "Game folder · ") + Path;
+        public override string ToString() => (Excluded ? "Excluded · " : Epic ? "Detected Epic manifests · " :
+            Automatic ? "Detected Steam · " : Steam ? "Steam · " : "Game folder · ") + Path;
     }
     private sealed record GameRow(CatalogEntry Entry, string Summary, string Action);
     private static GameDiscoveryCoordinator Discovery => GameCatalogRuntime.Discovery;
@@ -99,7 +100,7 @@ public partial class GamesSettingsView : UserControl
             : root.Steam ? request with { SteamLibraryRoots = request.SteamLibraryRoots.Remove(root.Path) }
             : request with { GameRoots = request.GameRoots.RemoveAll(row => row.Path == root.Path) } });
         Status.Text = root.Excluded ? "Exclusion removed. Scan again to find this source."
-            : root.Automatic ? "Steam library excluded." : "Approval removed.";
+            : root.Automatic ? "Launcher source excluded." : "Approval removed.";
     }
 
     private void Add_Click(object sender, RoutedEventArgs e) => PickExecutables(null);
@@ -196,11 +197,15 @@ public partial class GamesSettingsView : UserControl
     {
         var state = State;
         AutoScan.IsChecked = state.AutoScan;
+        RootRow[] epic = state.Snapshot?.EpicManifestDirectory is { } manifestDirectory &&
+            !state.Request.ExcludedDirectories.Any(root => CatalogPaths.IsWithin(manifestDirectory, root))
+            ? [new(manifestDirectory, Steam: false, Automatic: true, Epic: true)] : [];
         Roots.ItemsSource = state.Request.SteamLibraryRoots.Select(path => new RootRow(path, true))
             .Concat((state.Snapshot?.SteamLibraries ?? []).Where(path =>
                 !state.Request.SteamLibraryRoots.Contains(path, StringComparer.OrdinalIgnoreCase) &&
                 !state.Request.ExcludedDirectories.Contains(path, StringComparer.OrdinalIgnoreCase))
                 .Select(path => new RootRow(path, true, Automatic: true)))
+            .Concat(epic)
             .Concat(state.Request.GameRoots.Select(root => new RootRow(root.Path, false)))
             .Concat(state.Request.ExcludedDirectories.Select(path => new RootRow(path, false, Excluded: true))).ToArray();
         LastScan.Text = state.Snapshot is { } scan ? $"Last scan {scan.CompletedAt.ToLocalTime():g} · {scan.Entries.Length:N0} games found"
@@ -222,7 +227,9 @@ public partial class GamesSettingsView : UserControl
                 bool disabled = entry.Rules.Inclusion == CatalogInclusion.Exclude;
                 string source = entry.Source == CatalogSource.Folder ? "Approved folder" : entry.Source.ToString();
                 string status = disabled ? "Disabled for automatic targeting" :
-                    state.OfflineIds.Contains(entry.Id) || entry.Executables.IsEmpty ? "Needs review" : "Eligible for game detection";
+                    state.OfflineIds.Contains(entry.Id) || entry.Executables.IsEmpty ||
+                    entry.Source == CatalogSource.Epic && entry.Rules.Classification != AppClassification.Game
+                    ? "Needs review" : "Eligible for game detection";
                 return new GameRow(entry, $"{source} · {status}", disabled ? "Allow game targeting" : "Exclude from game targeting");
             }).ToArray();
         Games.ItemsSource = rows;

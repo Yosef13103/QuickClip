@@ -53,13 +53,18 @@ internal static class GameCatalogRuntime
         foreach (var entry in settings.Request.Overrides) rules[entry.Id] = entry.Rules;
         var roots = settings.Request.GameRoots.Select(root => root.Path).Concat(settings.Request.SteamLibraryRoots)
             .Concat(settings.Snapshot?.SteamLibraries ?? []).ToArray();
-        bool Approved(string path) => roots.Any(root => CatalogPaths.IsWithin(path, root))
-            && !settings.Request.ExcludedDirectories.Any(root => CatalogPaths.IsWithin(path, root));
+        bool Approved(CatalogEntry entry, string path) =>
+            (entry.Source == CatalogSource.Epic
+                ? settings.Snapshot?.EpicManifestDirectory is { } epic &&
+                !settings.Request.ExcludedDirectories.Any(root => CatalogPaths.IsWithin(epic, root)) &&
+                entry.InstallDirectories.Any(root => CatalogPaths.IsWithin(path, root))
+                : roots.Any(root => CatalogPaths.IsWithin(path, root))) &&
+            !settings.Request.ExcludedDirectories.Any(root => CatalogPaths.IsWithin(path, root));
         var discovered = (settings.Snapshot?.Entries ?? []).Where(entry => entry.Source != CatalogSource.Manual)
             .Select(entry => entry with
             {
-                InstallDirectories = [.. entry.InstallDirectories.Where(Approved)],
-                Executables = [.. entry.Executables.Where(Approved)],
+                InstallDirectories = [.. entry.InstallDirectories.Where(path => Approved(entry, path))],
+                Executables = [.. entry.Executables.Where(path => Approved(entry, path))],
             }).Where(entry => entry.InstallDirectories.Length > 0);
         var manual = settings.Request.ManualEntries.Select(entry => new CatalogEntry(
             "manual:" + entry.Id.ToString("N"), entry.DisplayName, CatalogSource.Manual, [], entry.Executables, new()));
@@ -72,7 +77,10 @@ internal static class GameCatalogRuntime
     {
         var previous = settings.Snapshot?.Entries ?? [];
         bool Incomplete(CatalogEntry entry) => entry.Source != CatalogSource.Manual &&
-            (scan.LimitReached || scan.Issues.Any(issue => entry.InstallDirectories.Any(dir =>
+            (scan.LimitReached || scan.Issues.Any(issue =>
+                entry.Source == CatalogSource.Epic && scan.EpicManifestDirectory is { } manifestDirectory &&
+                CatalogPaths.IsWithin(issue.Location, manifestDirectory) ||
+                entry.InstallDirectories.Any(dir =>
                 CatalogPaths.IsWithin(dir, issue.Location) || CatalogPaths.IsWithin(issue.Location, dir) ||
                 entry.Source == CatalogSource.Steam && CatalogPaths.IsWithin(issue.Location,
                     Path.GetDirectoryName(Path.GetDirectoryName(dir)!)!))));
@@ -90,6 +98,7 @@ internal static class GameCatalogRuntime
                 Entries = [.. entries],
                 SteamLibraries = [.. scan.SteamLibraries.Concat((scan.LimitReached || scan.Issues.Length > 0)
                     ? settings.Snapshot?.SteamLibraries ?? [] : []).Distinct(StringComparer.OrdinalIgnoreCase)],
+                EpicManifestDirectory = scan.EpicManifestDirectory ?? (scan.LimitReached ? settings.Snapshot?.EpicManifestDirectory : null),
             },
             OfflineIds = [.. offline.Order(StringComparer.Ordinal)],
         };

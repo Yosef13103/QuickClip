@@ -64,7 +64,7 @@ internal sealed class GameDiscoveryCoordinator : IDisposable
             return Task.CompletedTask;
 
         var request = ScanRequest(state);
-        if (!request.DiscoverSteam && request.GameRoots.IsEmpty && request.SteamLibraryRoots.IsEmpty)
+        if (!request.DiscoverSteam && !request.DiscoverEpic && request.GameRoots.IsEmpty && request.SteamLibraryRoots.IsEmpty)
         {
             Status = "Add a game folder or turn on Steam discovery.";
             Changed?.Invoke();
@@ -170,7 +170,7 @@ internal sealed class GameDiscoveryCoordinator : IDisposable
     }
 
     private static CatalogRequest ScanRequest(GameCatalogSettings state) =>
-        state.Request with { DiscoverSteam = state.AutoScan, Overrides = [], ManualEntries = [] };
+        state.Request with { DiscoverSteam = state.AutoScan, DiscoverEpic = state.AutoScan, Overrides = [], ManualEntries = [] };
 
     public void Dispose()
     {
