@@ -58,6 +58,21 @@ public sealed class PassiveGameObservationTests
             () => throw new InvalidOperationException("Foreground selection needs no window walk."), Match)?.Owner);
     }
 
+    [Fact]
+    public void Active_owner_survives_another_games_focus_until_a_catalog_veto()
+    {
+        var first = Window(First, 1, 10);
+        var second = Window(Second, 2, 100);
+        var retained = GameDetector.ResolveEligibleGame(null, null, _ => true, () => [first], Match);
+        var foreground = GameDetector.Observe(second.Owner, Second, Match(Second, true), false, new HashSet<string>());
+
+        Assert.Equal(first.Owner, GameDetector.ResolveEligibleGame(retained, foreground, _ => true, () => [],
+            Match, preferRetained: true)?.Owner);
+        Assert.Equal(second.Owner, GameDetector.ResolveEligibleGame(retained, foreground, _ => true, () => [],
+            (path, fg) => path == First ? Match(path, fg) with { Kind = CatalogMatchKind.Inactive } : Match(path, fg),
+            preferRetained: true)?.Owner);
+    }
+
     private static PassiveGameWindow Window(string path, int number, long size) =>
         new(new(new IntPtr(number), 10, (uint)(20 + number), 30), path, size);
 

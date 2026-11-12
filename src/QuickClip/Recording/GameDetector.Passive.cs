@@ -14,22 +14,29 @@ internal sealed partial class GameDetector
     private static readonly TimeSpan WindowBudget = TimeSpan.FromMilliseconds(100);
 
     /// <summary>Call from an armed recorder's existing observation tick. This method never starts capture.</summary>
-    internal GameCaptureObservation? ObserveEligibleGame(GameCaptureObservation? retained) =>
+    internal GameCaptureObservation? ObserveEligibleGame(GameCaptureObservation? retained, bool preferRetained) =>
         AppProfile.IsPersonal
-            ? ResolveEligibleGame(retained, DetectForeground(), IsObservableOwner, ReadPassiveWindows, GameCatalogRuntime.Match)
+            ? ResolveEligibleGame(retained, DetectForeground(), IsObservableOwner, ReadPassiveWindows,
+                GameCatalogRuntime.Match, preferRetained)
             : null;
 
     internal static GameCaptureObservation? ResolveEligibleGame(GameCaptureObservation? retained,
         GameCaptureObservation? foreground, Func<WindowOwner, bool> isCurrent,
-        Func<IReadOnlyList<PassiveGameWindow>> windows, Func<string, bool, CatalogMatch> match)
+        Func<IReadOnlyList<PassiveGameWindow>> windows, Func<string, bool, CatalogMatch> match, bool preferRetained = false)
     {
+        GameCaptureObservation? verifiedForeground = null;
         if (foreground?.VerifiedTarget != null)
         {
             var updated = Observe(foreground.Owner, foreground.Executable, match(foreground.Executable, true),
                 false, NoKnownGames);
-            if (updated.VerifiedTarget != null && isCurrent(updated.Owner)) return updated;
+            if (updated.VerifiedTarget != null && isCurrent(updated.Owner))
+            {
+                if (!preferRetained || updated.Owner == retained?.Owner) return updated;
+                verifiedForeground = updated;
+            }
         }
         if (SelectVerifiedObservation(retained, null, isCurrent, match) is { } live) return live;
+        if (verifiedForeground != null) return verifiedForeground;
 
         GameCaptureObservation? best = null;
         long bestArea = 0;
@@ -49,7 +56,9 @@ internal sealed partial class GameDetector
         return best;
     }
 
-    private static bool IsObservableOwner(WindowOwner owner) =>
+    internal static bool IsForegroundOwner(WindowOwner owner) => GetForegroundWindow() == owner.Handle;
+
+    internal static bool IsObservableOwner(WindowOwner owner) =>
         VisibleClientArea(owner.Handle) > 0 && IsCurrent(owner);
 
     private static IReadOnlyList<PassiveGameWindow> ReadPassiveWindows()

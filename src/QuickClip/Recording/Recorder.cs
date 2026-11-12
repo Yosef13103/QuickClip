@@ -28,7 +28,7 @@ internal sealed class Recorder
     private Timer? _poll;
     private int _pollGeneration;
     private readonly RecordingLifecycle _lifecycle;
-    private readonly Dictionary<WindowOwner, GameCaptureObservation> _observedGames = [];
+    private GameCaptureObservation? _observedGame;
     private string? _manualDisplay;
     private readonly HashSet<string> _manualAuthorized = new(StringComparer.OrdinalIgnoreCase);
     private string? _sessionGameId;
@@ -111,7 +111,7 @@ internal sealed class Recorder
             {
                 _manualDisplay = null;
                 _manualAuthorized.Clear();
-                _observedGames.Clear();
+                _observedGame = null;
             }
         }
         StateChanged?.Invoke(State);
@@ -123,7 +123,7 @@ internal sealed class Recorder
         {
             _manualDisplay = null;
             _manualAuthorized.Clear();
-            _observedGames.Clear();
+            _observedGame = null;
             StopCore();
             Error = null;
         }
@@ -169,25 +169,13 @@ internal sealed class Recorder
     private void ReconcilePersonal()
     {
         var s = AppSettings.Current;
-        if (s.RecordingEnabled && s.PreferGameWindow)
-        {
-            _games.Poll();
-            foreach (var observation in new[] { _games.ActiveObservation, _games.ForegroundObservation })
-                if (observation?.VerifiedTarget != null)
-                    _observedGames[observation.Owner] = observation;
-            foreach (var owner in _observedGames.Keys.ToArray())
-            {
-                var observed = _observedGames[owner] with { IsForeground = owner == _games.ForegroundObservation?.Owner };
-                var refreshed = CaptureSourcePolicy.RefreshEligibleGame(observed, GameDetector.IsCurrent, GameCatalogRuntime.Match);
-                if (refreshed != null) _observedGames[owner] = refreshed;
-                else _observedGames.Remove(owner);
-            }
-        }
-        else _observedGames.Clear();
+        _observedGame = s.RecordingEnabled && s.PreferGameWindow
+            ? _games.ObserveEligibleGame(_observedGame, _lifecycle.Mode == RecordingMode.GameTriggered)
+            : null;
 
         IReadOnlyList<MonitorInfo>? displays = null;
         _lifecycle.Reconcile(s.RecordingEnabled, s.PreferGameWindow, s.AuthorizedGameDisplay, _manualDisplay,
-            _observedGames.Values.OrderByDescending(x => x.Owner == _games.ForegroundObservation?.Owner).ToArray(),
+            _observedGame is { } observed ? [observed] : [],
             identity => FindAuthorizedDisplay(displays ??= Monitors.List(), identity) is { } monitor
                 && (!IsRunning || string.Equals(_sessionDisplay, monitor.DeviceName, StringComparison.OrdinalIgnoreCase)),
             "No display is authorized for game replay. Use Allow selected display during games in Recording settings.");
@@ -204,11 +192,12 @@ internal sealed class Recorder
     }
 
     private static bool Eligible(GameCaptureObservation observation) =>
-        CaptureSourcePolicy.IsEligibleGame(observation, GameDetector.IsCurrent, GameCatalogRuntime.Match);
+        CaptureSourcePolicy.IsEligibleGame(observation with { IsForeground = GameDetector.IsForegroundOwner(observation.Owner) },
+            GameDetector.IsObservableOwner, GameCatalogRuntime.Match);
 
     private string? StartPersonalGraph(CaptureActivation activation)
     {
-        var game = activation.GameOwner is { } owner ? _observedGames.GetValueOrDefault(owner) : null;
+        var game = activation.GameOwner is { } owner && _observedGame?.Owner == owner ? _observedGame : null;
         if (activation.GameOwner != null && (game == null || !Eligible(game)))
             return "The eligible game closed before capture could start.";
         var monitor = FindAuthorizedDisplay(Monitors.List(), activation.Display);
