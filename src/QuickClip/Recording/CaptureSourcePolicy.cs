@@ -9,6 +9,14 @@ internal readonly record struct CaptureSourceDecision(CaptureEngine.MonitorBacke
 
 internal static class CaptureSourcePolicy
 {
+    internal static string? NextAuthorizedDisplay(IReadOnlyList<MonitorInfo> monitors, IReadOnlySet<string> authorized, string current)
+    {
+        var connected = monitors.Select(monitor => monitor.CaptureIdentity)
+            .OfType<string>().Where(authorized.Contains).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
+        int index = Array.FindIndex(connected, display => string.Equals(display, current, StringComparison.OrdinalIgnoreCase));
+        if (connected.Length == 0 || (connected.Length == 1 && index >= 0)) return null;
+        return connected[(index + 1) % connected.Length];
+    }
     internal static bool IsEligibleGame(GameCaptureObservation observation, Func<WindowOwner, bool> current,
         Func<string, bool, Discovery.CatalogMatch> match)
     {

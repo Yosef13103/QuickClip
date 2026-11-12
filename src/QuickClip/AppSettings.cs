@@ -49,7 +49,10 @@ internal sealed class AppSettings
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? MicDeviceId { get; set; }
     public int HotkeyModifiers { get; set; } = 1;               // MOD_ALT
-    public int HotkeyKey { get; set; } = AppProfile.IsPersonal ? 0 : 0x79; // Alt+F10 upstream
+    public int HotkeyKey { get; set; } = 0x79;                   // Alt+F10 for a new profile
+    public Shell.Hotkey MasterHotkey { get; set; }
+    public Shell.Hotkey DesktopHotkey { get; set; }
+    public Shell.Hotkey SwitchMonitorHotkey { get; set; }
     public bool ClipSound { get; set; } = true;
     public bool ClipWindowsNotification { get; set; } = true;
     public Shell.ClipOverlayOptions ClipOverlay { get; set; } = new();
@@ -106,6 +109,13 @@ internal sealed class AppSettings
     internal static AppSettings Parse(string json)
     {
         var settings = JsonSerializer.Deserialize<AppSettings>(json, JsonOptions) ?? new AppSettings();
+        if (AppProfile.IsPersonal && settings.HotkeyKey == 0x79)
+        {
+            using var existing = JsonDocument.Parse(json);
+            if (existing.RootElement.ValueKind != JsonValueKind.Object ||
+                !existing.RootElement.TryGetProperty(nameof(HotkeyKey), out _))
+                settings.HotkeyKey = 0; // older Personal profiles with no saved key were unbound
+        }
         if (settings.MicDeviceId != null)
         {
             settings.MicDeviceIds = [settings.MicDeviceId];

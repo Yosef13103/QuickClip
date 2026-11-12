@@ -30,6 +30,7 @@ internal sealed class Recorder
     private readonly RecordingLifecycle _lifecycle;
     private readonly Dictionary<WindowOwner, GameCaptureObservation> _observedGames = [];
     private string? _manualDisplay;
+    private readonly HashSet<string> _manualAuthorized = new(StringComparer.OrdinalIgnoreCase);
     private string? _sessionGameId;
     private string? _sessionGame;
     private string? _sessionDisplay;
@@ -109,6 +110,7 @@ internal sealed class Recorder
             else
             {
                 _manualDisplay = null;
+                _manualAuthorized.Clear();
                 _observedGames.Clear();
             }
         }
@@ -120,6 +122,7 @@ internal sealed class Recorder
         lock (_gate)
         {
             _manualDisplay = null;
+            _manualAuthorized.Clear();
             _observedGames.Clear();
             StopCore();
             Error = null;
@@ -134,11 +137,27 @@ internal sealed class Recorder
             if (!AppProfile.IsPersonal || !AppSettings.Current.RecordingEnabled) return;
             var requested = string.IsNullOrWhiteSpace(confirmedDisplay) ? null : confirmedDisplay;
             if (requested == _manualDisplay) return;
+            if (requested == null) _manualAuthorized.Clear();
+            else _manualAuthorized.Add(requested);
             _manualDisplay = requested;
             _lifecycle.Reset();
             ReconcilePersonal();
         }
         StateChanged?.Invoke(State);
+    });
+
+    internal Task<bool> CycleManualDisplayAsync() => Task.Run(() =>
+    {
+        lock (_gate)
+        {
+            if (!AppProfile.IsPersonal || !AppSettings.Current.RecordingEnabled || _manualDisplay == null) return false;
+            string? next = CaptureSourcePolicy.NextAuthorizedDisplay(Monitors.List(), _manualAuthorized, _manualDisplay);
+            if (next == null) return false;
+            _manualDisplay = next;
+            ReconcilePersonal();
+        }
+        StateChanged?.Invoke(State);
+        return true;
     });
 
     private void StartPolling()
