@@ -75,6 +75,7 @@ internal sealed class AppSettings
     public double ShareSizeMB { get; set; } = 30;                // shared copies are made to fit under this
     public bool ShareMotionBlur { get; set; } = true;             // sharing a 120 fps clip blends it into 60 fps motion blur
     public string ClipsFolder { get; set; } = AppProfile.ClipsDirectory;
+    public string[] AdditionalClipSources { get; set; } = [];
     public string ClipFilenameTemplate { get; set; } = Gallery.ClipNaming.DefaultTemplate;
     public string[] LibraryExclusions { get; set; } = [];
     public bool ConfirmClipDeletion { get; set; } = true;
@@ -145,18 +146,36 @@ internal sealed class AppSettings
     /// <summary>Debug runs that point QuickClip at test folders must not overwrite the real settings.</summary>
     internal static bool SaveDisabled { get; set; }
 
-    public void Save()
+    public void Save() => TrySave();
+
+    internal bool TrySave()
     {
-        if (SaveDisabled) return;
+        if (SaveDisabled) return true;
+        string? staged = null;
         try
         {
             Directory.CreateDirectory(Path.GetDirectoryName(FilePath)!);
             lock (JsonOptions)
-                File.WriteAllText(FilePath, ToJson());
+            {
+                staged = FilePath + "." + Guid.NewGuid().ToString("N") + ".tmp";
+                File.WriteAllText(staged, ToJson());
+                File.Move(staged, FilePath, overwrite: true);
+                staged = null;
+            }
+            return true;
         }
         catch (Exception ex)
         {
-            Log.Write("Could not save settings: " + ex.Message);
+            Log.Write("Could not save settings: " + ex.GetType().Name);
+            return false;
+        }
+        finally
+        {
+            if (staged != null)
+            {
+                try { File.Delete(staged); }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
+            }
         }
     }
 }

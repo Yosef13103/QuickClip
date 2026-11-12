@@ -14,6 +14,17 @@ public partial class MainWindow
     internal async Task RenderPagesAsync(string dir, string? editorFile)
     {
         Directory.CreateDirectory(dir);
+        if (Environment.GetCommandLineArgs().Contains("--library-smoke-only"))
+        {
+            await Task.Delay(4000);
+            var clips = Gallery.SelectForRender(2);
+            ShowSettings();
+            await _settings!.ShowLibraryForRenderAsync();
+            SaveVisual(Path.Combine(dir, "settings-library.png"));
+            int folders = clips.Select(Path.GetDirectoryName).Distinct(StringComparer.OrdinalIgnoreCase).Count();
+            File.WriteAllText(Path.Combine(dir, "report.txt"), $"Library settings rendered. Gallery selected {clips.Count} clips across {folders} folders. Recording active: {Recorder.Instance.IsRunning}.");
+            return;
+        }
         var report = new System.Text.StringBuilder();
         await Task.Delay(5000);
         SaveVisual(Path.Combine(dir, "gallery.png"));

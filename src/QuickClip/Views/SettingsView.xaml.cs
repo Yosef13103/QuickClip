@@ -33,9 +33,11 @@ public partial class SettingsView : UserControl
         LibraryOptions.Visibility = AppProfile.IsPersonal ? Visibility.Visible : Visibility.Collapsed;
         if (AppProfile.IsPersonal)
         {
+            SettingsContent.MaxWidth = 920;
             PersonalProfileHint.Text = $"{AppProfile.Name} {AppVersion.Current.Display} · Updates, Windows startup and Explorer integration are disabled.";
             PersonalProfileHint.Visibility = Visibility.Visible;
             UpdatesCard.Visibility = StartupCheck.Visibility = ShellCheck.Visibility = Visibility.Collapsed;
+            ApplySettingsSection(RecordingSection);
         }
         // Recording settings restart the recorder; wait until the user stops fiddling.
         _restartTimer = new DispatcherTimer(TimeSpan.FromMilliseconds(700), DispatcherPriority.Background, (_, _) =>
@@ -57,10 +59,26 @@ public partial class SettingsView : UserControl
 
     private void SettingsSection_Changed(object sender, RoutedEventArgs e)
     {
-        if (GamesPage == null || GeneralPage == null) return;
-        bool games = sender == GamesSection;
+        if (sender is RadioButton section && LibraryCard != null) ApplySettingsSection(section);
+    }
+
+    private void ApplySettingsSection(RadioButton section)
+    {
+        bool games = section == GamesSection;
         GamesPage.Visibility = games ? Visibility.Visible : Visibility.Collapsed;
         GeneralPage.Visibility = games ? Visibility.Collapsed : Visibility.Visible;
+        SectionTitle.Text = section.Content.ToString();
+        RecordingCard.Visibility = SectionVisibility(RecordingSection);
+        AudioCard.Visibility = SectionVisibility(AudioSection);
+        HotkeysCard.Visibility = SectionVisibility(HotkeysSection);
+        SharingCard.Visibility = SectionVisibility(SharingSection);
+        LibraryCard.Visibility = SectionVisibility(LibrarySection);
+        GeneralCard.Visibility = SectionVisibility(GeneralSection);
+        DiagnosticsCard.Visibility = SectionVisibility(DiagnosticsSection);
+        GeneralPage.ScrollToTop();
+        if (section == DiagnosticsSection) CaptureAdvanced.IsExpanded = true;
+        if (section == LibrarySection) _ = RefreshRecordingFoldersAsync();
+        Visibility SectionVisibility(RadioButton item) => section == item ? Visibility.Visible : Visibility.Collapsed;
     }
 
     // ---- updates -------------------------------------------------------------------------------
@@ -234,7 +252,7 @@ public partial class SettingsView : UserControl
                 ShellCheck.IsEnabled = false;
                 ShellCheck.ToolTip = "On the Windows 11 right-click menu (added with scripts\\add-win11-menu.ps1; run it with -Remove to undo).";
             }
-            FolderBox.Text = s.ClipsFolder;
+            await RefreshRecordingFoldersAsync();
             IndexLibraryCheck.IsChecked = s.EnableLibraryIndex;
             LoadClipFeedback(s);
             FilenameTemplate.Text = s.ClipFilenameTemplate;
@@ -674,17 +692,4 @@ public partial class SettingsView : UserControl
 
     private void PlayClipSound_Click(object sender, RoutedEventArgs e) => ClipSound.Play();
 
-    private void ChangeFolder_Click(object sender, RoutedEventArgs e)
-    {
-        var dlg = new OpenFolderDialog { Title = "Where should clips be saved?", InitialDirectory = AppSettings.Current.ClipsFolder };
-        if (dlg.ShowDialog(Window.GetWindow(this)) != true) return;
-        if (ClipLibrary.IsMomentsPath(dlg.FolderName))
-        {
-            ModalDialog.Show(Window.GetWindow(this), "Choose a clips folder outside the Moments archive.", "Protected archive", MessageBoxButton.OK);
-            return;
-        }
-        AppSettings.Current.ClipsFolder = dlg.FolderName;
-        AppSettings.Current.Save();
-        FolderBox.Text = dlg.FolderName;
-    }
 }

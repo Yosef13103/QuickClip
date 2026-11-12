@@ -70,12 +70,7 @@ internal sealed class PersonalLibrary : IClipAnnotationActions, ILibraryInventor
         }
     }
 
-    private static bool WithinConfiguredRoot(string path)
-    {
-        string root = AppSettings.Current.ClipsFolder;
-        return !ClipLibrary.IsMomentsPath(path) && LibraryFiles.Within(path, root) &&
-            !LibraryFiles.IsExcluded(root, path, [.. AppSettings.Current.LibraryExclusions ?? []]);
-    }
+    private static bool WithinConfiguredRoot(string path) => SavedRecordingFolders.ContainsMedia(AppSettings.Current, path);
 
     public async Task<ClipAnnotationResult> SaveDraftAsync(ClipAnnotationTarget target, ClipDetails draft, CancellationToken token)
     {

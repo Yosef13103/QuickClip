@@ -55,7 +55,9 @@ public partial class GalleryView : UserControl
     private readonly CancellationTokenSource _lifetime = new();
     private readonly HashSet<string> _changedScopes = new(StringComparer.OrdinalIgnoreCase);
     private bool _scanRoot = true;
-    private FileSystemWatcher? _watcher;
+    private readonly List<FileSystemWatcher> _watchers = [];
+    private string[] _loadedSources = [];
+    private string[] _availableSources = [];
     private int _columns = 3;
     private bool _loading, _reloadQueued, _released, _settingLists;
     private bool _updatingSelection, _editingAnnotations;
@@ -133,10 +135,18 @@ public partial class GalleryView : UserControl
         ClipDeletion.Current.Changed += OnDeletionChanged;
         IsVisibleChanged += (_, _) =>
         {
-            if (!IsVisible) _hoverPreview.Stop();
-            if (IsVisible && (_loadedRoot != AppSettings.Current.ClipsFolder ||
+            if (!IsVisible)
+            {
+                _hoverPreview.Stop();
+                return;
+            }
+            var settings = AppSettings.Current;
+            var sources = SavedRecordingFolders.Additional(settings);
+            if (_loadedRoot != settings.ClipsFolder ||
+                !_loadedSources.SequenceEqual(sources, SavedRecordingFolders.Paths) ||
+                !_availableSources.SequenceEqual(AvailableFolders(settings.ClipsFolder, sources), SavedRecordingFolders.Paths) ||
                 _loadedIndexed != PersonalLibrary.Enabled ||
-                !_loadedExclusions.SequenceEqual(AppSettings.Current.LibraryExclusions ?? []))) _ = ReloadAsync();
+                !_loadedExclusions.SequenceEqual(settings.LibraryExclusions ?? [])) _ = ReloadAsync();
         };
         Loaded += (_, _) => _ = ReloadAsync();
     }
@@ -149,8 +159,7 @@ public partial class GalleryView : UserControl
         _hoverPreview.Stop();
         Recorder.Instance.ClipSaved -= OnClipSaved;
         ClipDeletion.Current.Changed -= OnDeletionChanged;
-        _watcher?.Dispose();
-        _watcher = null;
+        StopWatchingFolders();
         _reloadTimer.Stop();
         _agoTimer.Stop();
         _statusTimer.Stop();
@@ -198,27 +207,51 @@ public partial class GalleryView : UserControl
         try
         {
             string root = AppSettings.Current.ClipsFolder;
+            string[] sources = SavedRecordingFolders.Additional(AppSettings.Current);
+            string[] available = AvailableFolders(root, sources);
             string[] exclusions = AppSettings.Current.LibraryExclusions ?? [];
             bool indexed = PersonalLibrary.Enabled && !ClipLibrary.IsMomentsPath(root);
-            if (root != _loadedRoot) Watch(root);
-            bool fullScan = _scanRoot || root != _loadedRoot || indexed != _loadedIndexed ||
+            bool foldersChanged = root != _loadedRoot || !_loadedSources.SequenceEqual(sources, SavedRecordingFolders.Paths) ||
+                !_availableSources.SequenceEqual(available, SavedRecordingFolders.Paths);
+            if (foldersChanged) WatchFolders(root, available);
+            bool fullScan = _scanRoot || foldersChanged || indexed != _loadedIndexed ||
                 !_loadedExclusions.SequenceEqual(exclusions);
             var scopes = fullScan ? null : _changedScopes.ToArray();
             _changedScopes.Clear();
             _scanRoot = false;
             _loadedRoot = root;
+            _loadedSources = sources;
+            _availableSources = available;
             _loadedExclusions = exclusions;
             _loadedIndexed = indexed;
             InventorySource = indexed ? PersonalLibrary.Current : null;
             var previous = _clips.ToDictionary(c => c.Path, StringComparer.OrdinalIgnoreCase);
+            _projects = await Task.Run(() => available.SelectMany(LoadProjects).ToList(), _lifetime.Token);
             if (indexed)
             {
-                _projects = await Task.Run(() => ProjectLibrary.List(root), _lifetime.Token);
                 if (scopes == null || scopes.Length > 0 || _clips.Count == 0)
                 {
-                    var result = await PersonalLibrary.Current.LoadAsync(root, exclusions, scopes, _lifetime.Token);
-                    _clips = result.Clips;
-                    if (!result.Scan.Complete) ShowStatus("The library scan was incomplete or its drive is unavailable.");
+                    var loaded = new List<ClipItem>();
+                    bool incomplete = false;
+                    foreach (string folder in (scopes == null ? sources : []).Prepend(root))
+                    {
+                        try
+                        {
+                            var result = await PersonalLibrary.Current.LoadAsync(folder, exclusions,
+                                SavedRecordingFolders.Paths.Equals(folder, root) ? scopes : null, _lifetime.Token);
+                            loaded.AddRange(result.Clips);
+                            incomplete |= !result.Scan.Complete;
+                        }
+                        catch (Exception ex) when (ex is not OperationCanceledException)
+                        {
+                            incomplete = true;
+                            Log.Write("Could not refresh an indexed clips folder: " + ex.GetType().Name);
+                        }
+                    }
+                    if (scopes != null)
+                        loaded.AddRange(_clips.Where(clip => sources.Any(folder => LibraryFiles.Within(clip.Path, folder))));
+                    _clips = loaded.OrderByDescending(clip => clip.Details.CapturedAt).ToList();
+                    if (incomplete) ShowStatus("One or more Gallery sources are unavailable or could not be fully scanned.");
                 }
                 else
                 {
@@ -227,9 +260,10 @@ public partial class GalleryView : UserControl
                 }
             }
             else
-                (_clips, _projects) = await Task.Run(() => ClipLibrary.IsMomentsPath(root)
-                    ? (new List<ClipItem>(), new List<ProjectSummary>())
-                    : (ClipLibrary.Scan(root, exclusions, previous), ProjectLibrary.List(root)));
+                _clips = await Task.Run(() => available.SelectMany(folder => ClipLibrary.Scan(folder, exclusions, previous))
+                    .OrderByDescending(clip => clip.Details.CapturedAt).ToList(), _lifetime.Token);
+            if (sources.Any(folder => !available.Contains(folder, SavedRecordingFolders.Paths)))
+                ShowStatus("A saved Gallery source is offline. Its folder remains in Settings → Library.");
             if (_released) return;
             foreach (var clip in _clips)
             {
@@ -269,42 +303,67 @@ public partial class GalleryView : UserControl
         }
     }
 
-    private void Watch(string root)
+    private static string[] AvailableFolders(string root, IEnumerable<string> sources) =>
+        sources.Prepend(root).Where(folder => !ClipLibrary.IsMomentsPath(folder) &&
+            LibraryFiles.InspectPath(folder, directory: true) == ClipAvailability.Available).ToArray();
+
+    private static List<ProjectSummary> LoadProjects(string folder)
     {
-        _watcher?.Dispose();
-        _watcher = null;
-        if (ClipLibrary.IsMomentsPath(root)) return;
+        if (LibraryFiles.InspectPath(ProjectLibrary.Root(folder), directory: true) != ClipAvailability.Available) return [];
+        try { return ProjectLibrary.List(folder); }
+        catch (Exception ex) when (LibraryFiles.IsAccessError(ex)) { return []; }
+    }
+
+    private void StopWatchingFolders()
+    {
+        foreach (var watcher in _watchers) watcher.Dispose();
+        _watchers.Clear();
+    }
+
+    private void WatchFolders(string primary, IEnumerable<string> available)
+    {
+        StopWatchingFolders();
+        foreach (string folder in available) Watch(folder, SavedRecordingFolders.Paths.Equals(primary, folder));
+    }
+
+    private void Watch(string root, bool primary)
+    {
         try
         {
-            Directory.CreateDirectory(root);
-            _watcher = new FileSystemWatcher(root)
+            var watcher = new FileSystemWatcher(root)
             {
                 IncludeSubdirectories = true,
                 NotifyFilter = NotifyFilters.FileName | NotifyFilters.DirectoryName | NotifyFilters.LastWrite,
             };
             bool Relevant(string path) => !Path.GetFileName(path).StartsWith(".quickclip-tmp", StringComparison.OrdinalIgnoreCase) &&
                 !ClipLibrary.IsExcluded(Path.GetRelativePath(root, path), AppSettings.Current.LibraryExclusions);
+            void Changed(string path)
+            {
+                if (primary) QueueScopedReload(path);
+                else { _scanRoot = true; QueueReload(); }
+            }
             FileSystemEventHandler changed = (_, e) =>
             {
-                if (Relevant(e.FullPath)) Dispatcher.BeginInvoke(() => QueueScopedReload(e.FullPath));
+                if (Relevant(e.FullPath)) Dispatcher.BeginInvoke(() => Changed(e.FullPath));
             };
-            _watcher.Created += changed;
-            _watcher.Deleted += changed;
-            _watcher.Changed += changed;
-            _watcher.Renamed += (_, e) =>
+            watcher.Created += changed;
+            watcher.Deleted += changed;
+            watcher.Changed += changed;
+            watcher.Renamed += (_, e) =>
             {
                 Dispatcher.BeginInvoke(() =>
                 {
-                    if (Relevant(e.OldFullPath)) QueueScopedReload(e.OldFullPath);
-                    if (Relevant(e.FullPath)) QueueScopedReload(e.FullPath);
+                    if (Relevant(e.OldFullPath)) Changed(e.OldFullPath);
+                    if (Relevant(e.FullPath)) Changed(e.FullPath);
                 });
             };
-            _watcher.Error += (_, _) => Dispatcher.BeginInvoke(() => { _scanRoot = true; QueueReload(); });
-            _watcher.EnableRaisingEvents = true;
+            watcher.Error += (_, _) => Dispatcher.BeginInvoke(() => { _scanRoot = true; QueueReload(); });
+            _watchers.Add(watcher);
+            watcher.EnableRaisingEvents = true;
         }
         catch (Exception ex)
         {
-            Log.Write("Can't watch the clips folder: " + ex.Message);
+            Log.Write("Can't watch a clips folder: " + ex.GetType().Name);
         }
     }
 
@@ -793,6 +852,7 @@ public partial class GalleryView : UserControl
     private void OnDeletionChanged() => Dispatcher.BeginInvoke(() =>
     {
         UndoDeleteButton.IsEnabled = ClipDeletion.Current.CanUndo;
+        _scanRoot = true;
         QueueReload();
     });
 
@@ -826,8 +886,13 @@ public partial class GalleryView : UserControl
     private void OpenFolder_Click(object sender, RoutedEventArgs e)
     {
         string root = AppSettings.Current.ClipsFolder;
-        string dir = _folder == ClipLibrary.AllClips ? root : Path.Combine(root, _folder);
-        Directory.CreateDirectory(dir);
+        string dir = _folder == ClipLibrary.AllClips ? root :
+            CurrentClips.FirstOrDefault() is { } clip ? Path.GetDirectoryName(clip.Path)! : root;
+        if (!Directory.Exists(dir))
+        {
+            ShowStatus("The selected folder is unavailable.");
+            return;
+        }
         Process.Start(new ProcessStartInfo("explorer.exe", $"\"{dir}\"") { UseShellExecute = true });
     }
 
