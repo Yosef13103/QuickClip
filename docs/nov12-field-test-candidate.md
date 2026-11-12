@@ -41,3 +41,25 @@ Tested code `47e8e239ad759432e103d111878847c549a03c33` on Windows 10 build 19045
 The offscreen Debug Gallery smoke used 120 generated clips across 12 days and a scratch profile. It realized 7 of 72 rows initially, returned one search match with selection preserved and passed mixed and multiple day selection checks. Capture was disabled and no personal media was used.
 
 Remaining work includes the Audio picker UI, additional P1 UI, actual replay duration measurement, Epic discovery and supervised Windows display consent, physical hotkeys, gameplay and Sonar testing. The draft targets PR #7's integration branch. No acceptance gates were advanced.
+
+
+## Editor controls, Epic discovery and replay-duration evidence
+
+The candidate merges [PR #19](https://github.com/Yosef13103/QuickClip/pull/19) at `711ed278f54868d2764459a79212db5a769357f8` and [PR #20](https://github.com/Yosef13103/QuickClip/pull/20) at `f4fd3f921e057a25f43f62251d8e2b422eab3c45`. Both merges completed without conflicts. Epic entries remain in Needs review until explicitly classified as Game. The recorder, its consent handling, and the native capture engine have the same source as the prior candidate.
+
+For the FT-07/14 owner, PR #19 changes `GalleryView.xaml` at `DeleteSelectedButton`, replacing the view-local delete style with `DangerButtonStyle` from `Themes/Styles.xaml`. In `ModalDialog.cs`, it routes `ConfirmDelete` through `ConfirmAction` and applies the shared danger style to destructive primary actions while keeping the safe default. Gallery selection behavior, `GalleryView.xaml.cs`, and the Settings and Library changes remain in their existing workstreams. PR #20 also adds the Epic source controls and status to `GamesSettingsView.xaml` and its code-behind.
+
+[PR #21 at e2432febe57f41cad8f281a23256dfebf61cf70f](https://github.com/Yosef13103/QuickClip/pull/21) remains evidence-only. Its generated fixture reported 60.416667 s and 60.616667 s of video for 60 s requests at two GOP phases. The proposed test export reads an input path and writes an output path in the production native DLL. It was left out of the candidate to preserve that runtime boundary. Production duration policy was untouched. [Measurement report](https://github.com/Yosef13103/QuickClip/blob/e2432febe57f41cad8f281a23256dfebf61cf70f/docs/p0-replay-duration.md).
+
+### Validation
+
+Code tested at `40925902cb5c4e8dd15eb04f6093f4f0998827d9` on Windows 10 build 19045 with SDK 10.0.403. Strict Personal and Upstream Release builds and Personal Debug passed with zero warnings or errors. The Release suites used the same isolated profile, cached restore, compatibility filter and opt-ins described above.
+
+| Suite | Passed | Failed | Skipped |
+| --- | ---: | ---: | ---: |
+| Personal | 493 | 0 | 18 |
+| Upstream compatibility filter | 27 | 0 | 14 |
+
+The offscreen Editor smoke used 120 generated three-track clips across 12 days. The Gallery realized 7 of 72 rows at first paint, found one search match and passed day selection. The Editor retained the clip, playhead and trim across mode changes, restored the accordion layout, and rendered the compact and taller track layouts. No screen or audio source was captured and no personal media was used.
+
+FT-07/14 Settings and Library changes, broader P1 Games, Audio and Hotkeys UI, precise replay duration, and supervised Windows, real launcher, mixed-DPI, gameplay and Sonar checks remain pending. No acceptance gates were advanced.
