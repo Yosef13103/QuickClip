@@ -400,7 +400,8 @@ public partial class EditorView : UserControl
         ShowMessage("Open a video or drop it here");
         _ = Task.Run(() => DeletePreviews(olderThan: TimeSpan.FromDays(1)));
 
-        LoopToggle.IsChecked = _settings.Loop;
+        // Personal clips start with looping off; looping is an explicit per-editor choice.
+        LoopToggle.IsChecked = AppProfile.IsPersonal ? false : _settings.Loop;
         // Merging always starts off (it used to be remembered, which quietly merged every later export).
         _settings.MergeAudio = false;
         _uiReady = true;
@@ -451,7 +452,7 @@ public partial class EditorView : UserControl
 
     private void SaveSettings()
     {
-        _settings.Loop = LoopToggle.IsChecked == true;
+        if (!AppProfile.IsPersonal) _settings.Loop = LoopToggle.IsChecked == true;
         if (FormatCombo.SelectedItem is Choice f) _settings.Format = (string)f.Value;
         if (AudioBitrateCombo.SelectedItem is Choice ab) _settings.AudioBitrate = (int)ab.Value;
         if (double.TryParse(TargetSizeBox.Text, NumberStyles.Float, CultureInfo.CurrentCulture, out var mb) && mb > 0)
@@ -626,6 +627,7 @@ public partial class EditorView : UserControl
             _eof = false;
             _timeline.Reset(info.Duration);
             Timeline.HasMedia = true;
+            if (AppProfile.IsPersonal) LoopToggle.IsChecked = false;
 
             _crop.Reset(info.Video?.Width ?? 0, info.Video?.Height ?? 0);
             CropCheck.IsChecked = false;
