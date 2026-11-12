@@ -53,6 +53,14 @@ public partial class MainWindow
             _editor.SetTrimForRender(originalEnd);
             report.AppendLine("gallery opened unified editor and mode changes preserved clip, playhead and trim");
             report.AppendLine(await _editor.MeasureAccordionForRenderAsync());
+            if (Environment.GetCommandLineArgs().Contains("--editor-smoke-only"))
+            {
+                _editor.ExpandedTracks = true;
+                await Task.Delay(300);
+                SaveVisual(Path.Combine(dir, "editor-taller-tracks.png"));
+                File.WriteAllText(Path.Combine(dir, "report.txt"), report.ToString());
+                return;
+            }
             ShowPage(Gallery);
         }
 
