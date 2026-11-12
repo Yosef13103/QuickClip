@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using Microsoft.Win32;
 using QuickClip.Discovery;
 using QuickClip.Gallery;
@@ -24,6 +25,7 @@ internal sealed class Recorder
     private readonly ReplayMarkers _replayMarkers = new();
     private Guid _replaySession;
     private int _replayBufferSeconds;
+    private ImmutableArray<EndpointTrack> _runningEndpointPlan = [];
     private readonly GameDetector _games = new();
     private Timer? _poll;
     private int _pollGeneration;
@@ -59,6 +61,15 @@ internal sealed class Recorder
     public event Action<SavedClip>? ClipSaved;
     public event Action<ReplaySaveReceipt>? ReplaySaved;
     public event Action<string>? SaveFailed;
+
+    internal RunningEndpointLane[] ReadRunningEndpointAudio()
+    {
+        lock (_gate)
+        {
+            return !IsRunning || _runningEndpointPlan.IsEmpty ? [] :
+                EndpointAudio.RunningLanes(_runningEndpointPlan, CaptureEngine.ReadEndpointStatus());
+        }
+    }
 
     public RecorderState State => new(IsRunning, Error,
         IsRunning ? $"{_summary} · {_captureTarget?.Game ?? _monitorTarget}" : _summary, _chatApps, _musicApps)
@@ -293,6 +304,7 @@ internal sealed class Recorder
                 Log.Write($"Recording {mics.Count} microphone{(mics.Count == 1 ? "" : "s")}{(separateMics ? " on separate tracks" : "")}: " +
                           string.Join(", ", mics.Select(m => m.DeviceId == "" ? $"{m.Title} (Windows default)" : m.Title)));
 
+            _runningEndpointPlan = endpoints?.ToImmutableArray() ?? [];
             IsRunning = true;
             _replaySession = Guid.NewGuid();
             _replayBufferSeconds = s.BufferSeconds;
@@ -339,6 +351,7 @@ internal sealed class Recorder
     {
         if (IsRunning) CaptureEngine.Stop();
         IsRunning = false;
+        _runningEndpointPlan = [];
         _replayMarkers.Clear();
         (_sessionGame, _sessionGameId, _sessionDisplay, _desktopSource) = (null, null, null, null);
         (_chatApps, _musicApps) = ([], []);

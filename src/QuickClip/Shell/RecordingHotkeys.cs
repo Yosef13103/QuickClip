@@ -5,6 +5,9 @@ internal enum HotkeyRegistration { Unbound, Registered, Invalid, Duplicate, Unav
 
 internal static class RecordingHotkeys
 {
+    public static Hotkey Default(RecordingCommand command) => command == RecordingCommand.SaveClip
+        ? new(Hotkey.Alt, 0x79) : default;
+
     public static Hotkey Read(AppSettings settings, RecordingCommand command) => command switch
     {
         RecordingCommand.SaveClip => new(settings.HotkeyModifiers, settings.HotkeyKey),

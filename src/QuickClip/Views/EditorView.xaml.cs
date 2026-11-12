@@ -314,7 +314,6 @@ public partial class EditorView : UserControl
             if (string.Equals(CurrentFile, path, StringComparison.OrdinalIgnoreCase)) ShowClipTitle(details);
             ClipDetailsSaved?.Invoke(path, details);
         };
-        MetadataEditor.BookmarkPosition = () => (_timeline.Position, _timeline.Duration);
         MetadataEditor.KnownTags = () => KnownTags?.Invoke() ?? [];
         MetadataEditor.SeekBookmark = seconds => OnSeekRequested(seconds, true);
         MetadataEditor.BookmarksChanged += Timeline.SetBookmarks;
@@ -324,7 +323,6 @@ public partial class EditorView : UserControl
             MetadataGroup.IsExpanded = true;
             MetadataEditor.QueueBookmarkFocus(mark.Seconds);
         };
-        BookmarkButton.Visibility = AppProfile.IsPersonal ? Visibility.Visible : Visibility.Collapsed;
         FavoriteButton.Visibility = AppProfile.IsPersonal ? Visibility.Visible : Visibility.Collapsed;
 
         TrackList.ItemsSource = _tracks;
@@ -1110,19 +1108,6 @@ public partial class EditorView : UserControl
         Seek(t);
     }
 
-    private void Bookmark_Click(object sender, RoutedEventArgs e)
-    {
-        if (!AppProfile.IsPersonal || _media == null || _loading || _exportCts != null || _favoriteSaving) return;
-        if (_viewMode || _fullscreen)
-        {
-            _viewMode = false;
-            ExitFullscreen();
-            ApplyMode();
-        }
-        MetadataGroup.IsExpanded = true;
-        MetadataEditor.AddBookmark(_timeline.Position, _timeline.Duration);
-    }
-
     private async void Favorite_Click(object sender, RoutedEventArgs e)
     {
         if (MetadataEditor.AnnotationTarget is not { } target || _media == null) return;
@@ -1298,9 +1283,6 @@ public partial class EditorView : UserControl
                 if (!e.IsRepeat) DeleteMedia_Click(this, e);
                 break;
             case Key.O when ctrl: _ = PromptOpenAsync(); break;
-            case Key.B when ctrl && AppProfile.IsPersonal:
-                if (!e.IsRepeat) Bookmark_Click(this, e);
-                break;
             case Key.E when ctrl: ExportNew_Click(this, e); break;
             case Key.S when ctrl: SaveOver_Click(this, e); break;
             case Key.Z when ctrl && _undo != null: Undo_Click(this, e); break;
@@ -1630,7 +1612,6 @@ public partial class EditorView : UserControl
         ExportButton.IsEnabled = _media != null && !busy;
         SaveOverButton.IsEnabled = _media != null && !busy;
         DeleteMediaButton.IsEnabled = _media != null && !busy && !_deletingMedia;
-        BookmarkButton.IsEnabled = _media != null && !busy;
         FavoriteButton.IsEnabled = _media != null && !busy && !_deletingMedia;
         MetadataEditor.IsEnabled = !busy;
         MergeCheck.IsEnabled = _tracks.Count > 1;

@@ -42,7 +42,7 @@ public sealed class ClipItem : INotifyPropertyChanged
     internal ClipHeader Header { get; }
     internal int ThumbnailWidth { get; set; }
 
-    public string DurationText => Duration is double d ? Fmt.Time(d, millis: false) : "";
+    public string DurationText => Duration is double d ? Fmt.CompactDuration(d) : "";
     public string SizeText => Fmt.Size(Size);
 
     internal void ApplyDetails(ClipDetails details)

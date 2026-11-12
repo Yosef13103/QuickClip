@@ -88,6 +88,25 @@ public sealed class EndpointAudioTests
     }
 
     [Fact]
+    public void Running_status_matches_the_original_plan_by_lane_and_flow()
+    {
+        EndpointTrack[] original =
+        [
+            new(EndpointFlow.Playback, "playback-id", "Game"),
+            new(EndpointFlow.Microphone, "input-id", "Mic"),
+        ];
+        EndpointStatus stream = new(0, EndpointFlow.Playback, EndpointStage.Streaming, 0, 48_000, 2, 48_000, 12, 4, 0);
+        EndpointStatus wrongFlow = stream with { TrackIndex = 1 };
+        EndpointStatus failure = new(1, EndpointFlow.Microphone, EndpointStage.Initialize,
+            unchecked((int)0x88890008), 0, 0, 48_000, 0, null, null);
+        var lanes = EndpointAudio.RunningLanes(original, [wrongFlow, failure, stream]);
+        Assert.Equal(original, lanes.Select(lane => lane.Track));
+        Assert.Equal(stream, lanes[0].Status);
+        Assert.Equal(failure, lanes[1].Status);
+        Assert.Null(EndpointAudio.RunningLanes(original, [wrongFlow])[1].Status);
+    }
+
+    [Fact]
     public void Native_peak_uses_synthetic_samples_and_handles_silence_without_an_endpoint()
     {
         Assert.True(CaptureEngine.IsAvailable);

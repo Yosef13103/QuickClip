@@ -10,14 +10,21 @@ internal enum EndpointStage { Pending, Com, EndpointLookup, EndpointFlow, Activa
 
 internal sealed record EndpointStatus(int TrackIndex, EndpointFlow Flow, EndpointStage Stage, int HResult,
     int MixRate, int MixChannels, int CaptureRate, long PacketCount, long? MillisecondsSincePacket, float? LastPacketPeak);
+internal sealed record RunningEndpointLane(EndpointTrack Track, EndpointStatus? Status);
 
 internal static class EndpointAudio
 {
     public const int MaxTracks = 16;
 
     internal static AudioEndpoint? FindEndpoint(EndpointTrack track, IEnumerable<AudioEndpoint> endpoints) =>
-        endpoints.FirstOrDefault(endpoint => endpoint.Flow == track.Flow &&
-            string.Equals(endpoint.Id, track.DeviceId, StringComparison.OrdinalIgnoreCase));
+        endpoints.FirstOrDefault(endpoint => SameDevice(track.Flow, track.DeviceId, endpoint.Flow, endpoint.Id));
+
+    internal static bool SameDevice(EndpointFlow leftFlow, string leftId, EndpointFlow rightFlow, string rightId) =>
+        leftFlow == rightFlow && StringComparer.OrdinalIgnoreCase.Equals(leftId, rightId);
+
+    internal static RunningEndpointLane[] RunningLanes(IReadOnlyList<EndpointTrack> plan, IReadOnlyList<EndpointStatus> statuses) =>
+        plan.Select((track, index) => new RunningEndpointLane(track,
+            statuses.FirstOrDefault(status => status.TrackIndex == index && status.Flow == track.Flow))).ToArray();
 
     internal static IReadOnlyList<AudioEndpoint> ForFlow(IEnumerable<AudioEndpoint> endpoints, EndpointFlow flow) =>
         endpoints.Where(endpoint => endpoint.Flow == flow).ToArray();
@@ -25,6 +32,7 @@ internal static class EndpointAudio
     public static List<EndpointTrack> Normalize(IEnumerable<EndpointTrack?>? tracks)
     {
         var result = new List<EndpointTrack>();
+        // Windows endpoint IDs identify one endpoint and the native start API rejects duplicate IDs.
         var ids = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var track in tracks ?? [])
         {

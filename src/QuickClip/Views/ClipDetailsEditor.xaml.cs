@@ -14,14 +14,12 @@ public partial class ClipDetailsEditor : UserControl
     private ClipMediaStamp _fileStamp;
     private double? _duration;
     private readonly List<string> _tags = [];
-    private readonly List<ClipBookmark> _bookmarks = [];
-    private readonly Dictionary<double, TextBox> _bookmarkLabels = [];
+    private readonly Dictionary<double, Button> _bookmarkButtons = [];
 
     public ClipDetailsEditor() => InitializeComponent();
     internal event Action<string, ClipDetails>? Saved;
     internal event Action? Cancelled;
     internal event Action<IReadOnlyList<ClipBookmark>>? BookmarksChanged;
-    internal Func<(double Position, double Duration)>? BookmarkPosition { get; set; }
     internal Action<double>? SeekBookmark { get; set; }
     internal Func<IReadOnlyList<string>>? KnownTags { get; set; }
     internal IClipAnnotationActions AnnotationActions { get; set; } = LegacyClipAnnotationActions.Instance;
@@ -36,7 +34,7 @@ public partial class ClipDetailsEditor : UserControl
     internal bool HasDraft => _details is { } details &&
         (TitleBox.Text.Trim() != (details.Title ?? "") || GameBox.Text.Trim() != details.Game ||
          FavoriteBox.IsChecked != details.IsFavorite || !string.IsNullOrWhiteSpace(TagBox.Text) ||
-         !_tags.SequenceEqual(details.Tags) || !_bookmarks.SequenceEqual(details.Bookmarks));
+         !_tags.SequenceEqual(details.Tags));
 
     internal void Open(string path, ClipDetails details, bool focus = false, double? duration = null)
     {
@@ -57,10 +55,7 @@ public partial class ClipDetailsEditor : UserControl
         _tags.Clear();
         _tags.AddRange(details.Tags);
         UpdateTagChips();
-        _bookmarks.Clear();
-        _bookmarks.AddRange(details.Bookmarks);
-        BookmarkPanel.Visibility = BookmarkPosition != null ? Visibility.Visible : Visibility.Collapsed;
-        UpdateBookmarkRows();
+        ShowBookmarks(details.Bookmarks);
         Feedback.Text = "";
         if (focus) TitleBox.Focus();
     }
@@ -160,84 +155,43 @@ public partial class ClipDetailsEditor : UserControl
         AddTag();
     }
 
-    private void AddBookmark_Click(object sender, RoutedEventArgs e)
-    {
-        if (BookmarkPosition?.Invoke() is { } time) AddBookmark(time.Position, time.Duration);
-    }
-
-    internal void AddBookmark(double position, double duration)
-    {
-        if (_details == null) return;
-        if (!double.IsFinite(position) || !double.IsFinite(duration) || position < 0 || position >= duration)
-        {
-            Feedback.Text = "Move the playhead inside the clip to add a bookmark.";
-            return;
-        }
-        double seconds = Math.Floor(position * 1000) / 1000;
-        if (_bookmarkLabels.ContainsKey(seconds))
-        {
-            QueueBookmarkFocus(seconds);
-            return;
-        }
-        if (_bookmarks.Count >= ClipDetails.MaxBookmarks)
-        {
-            Feedback.Text = $"This clip already has {ClipDetails.MaxBookmarks} bookmarks.";
-            return;
-        }
-        _bookmarks.Add(new ClipBookmark(seconds, $"Bookmark at {Fmt.Time(seconds)}"));
-        _bookmarks.Sort((left, right) => left.Seconds.CompareTo(right.Seconds));
-        UpdateBookmarkRows();
-        QueueBookmarkFocus(seconds);
-        Feedback.Text = "";
-    }
-
     internal void QueueBookmarkFocus(double seconds)
     {
         Dispatcher.BeginInvoke(() =>
         {
-            if (!_bookmarkLabels.TryGetValue(seconds, out var box) || !box.IsVisible) return;
-            box.BringIntoView();
-            box.Focus();
-            box.SelectAll();
+            if (!_bookmarkButtons.TryGetValue(seconds, out var button) || !button.IsVisible) return;
+            button.BringIntoView();
+            button.Focus();
         }, System.Windows.Threading.DispatcherPriority.Input);
     }
 
-    private void UpdateBookmarkRows()
+    private void ShowBookmarks(IReadOnlyList<ClipBookmark> bookmarks)
     {
-        BookmarkCount.Text = _bookmarks.Count == 1 ? "1 bookmark" : $"{_bookmarks.Count} bookmarks";
-        _bookmarkLabels.Clear();
+        BookmarkCount.Text = bookmarks.Count == 1 ? "1 bookmark" : $"{bookmarks.Count} bookmarks";
+        BookmarkCount.Visibility = bookmarks.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
+        BookmarkPanel.Visibility = SeekBookmark != null && bookmarks.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
+        _bookmarkButtons.Clear();
         BookmarkRows.Children.Clear();
-        if (BookmarkPosition == null) return;
-        for (int i = 0; i < _bookmarks.Count; i++)
+        if (SeekBookmark == null) return;
+        foreach (var mark in bookmarks)
         {
-            int index = i;
-            var mark = _bookmarks[index];
             var row = new DockPanel { Margin = new Thickness(0, 2, 0, 2) };
             var seek = new Button { Content = mark.TimeText, ToolTip = $"Seek to {mark.TimeText}" };
+            AutomationProperties.SetName(seek, $"Seek to {mark.Label} at {mark.TimeText}");
             seek.Click += (_, _) => SeekBookmark?.Invoke(mark.Seconds);
             DockPanel.SetDock(seek, Dock.Left);
             row.Children.Add(seek);
-            var remove = new Button { Content = "×", ToolTip = $"Remove bookmark at {mark.TimeText}" };
-            AutomationProperties.SetName(remove, (string)remove.ToolTip);
-            remove.Click += (_, _) =>
+            row.Children.Add(new TextBlock
             {
-                _bookmarks.RemoveAt(index);
-                UpdateBookmarkRows();
-            };
-            DockPanel.SetDock(remove, Dock.Right);
-            row.Children.Add(remove);
-            var label = new TextBox { Text = mark.Label, MaxLength = ClipBookmark.MaxLabelLength };
-            AutomationProperties.SetName(label, $"Bookmark label at {mark.TimeText}");
-            label.TextChanged += (_, _) =>
-            {
-                _bookmarks[index] = mark with { Label = label.Text };
-                BookmarksChanged?.Invoke(_bookmarks.ToArray());
-            };
-            row.Children.Add(label);
+                Text = mark.Label,
+                TextWrapping = TextWrapping.Wrap,
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(8, 0, 0, 0),
+            });
             BookmarkRows.Children.Add(row);
-            _bookmarkLabels.Add(mark.Seconds, label);
+            _bookmarkButtons[mark.Seconds] = seek;
         }
-        BookmarksChanged?.Invoke(_bookmarks.ToArray());
+        BookmarksChanged?.Invoke(bookmarks);
     }
 
     private async void Save_Click(object sender, RoutedEventArgs e)
@@ -248,18 +202,12 @@ public partial class ClipDetailsEditor : UserControl
             string title = TitleBox.Text.Trim();
             string game = GameBox.Text.Trim();
             if (!AddTag()) return;
-            if (_bookmarks.Any(mark => string.IsNullOrWhiteSpace(mark.Label) || mark.Label.Trim().Any(char.IsControl)))
-            {
-                Feedback.Text = "Give each bookmark a label before saving.";
-                return;
-            }
             var details = target.Details with
             {
                 Title = title.Length == 0 ? null : title,
                 Game = game.Length == 0 ? ClipLibrary.InitialGame(AppSettings.Current.ClipsFolder, target.Path) : game,
                 Tags = _tags.ToArray(),
                 IsFavorite = FavoriteBox.IsChecked == true,
-                Bookmarks = _bookmarks.ToArray(),
             };
             IsSaving = true;
             IsEnabled = false;
