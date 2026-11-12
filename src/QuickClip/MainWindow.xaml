@@ -47,6 +47,11 @@
         <!-- Recording status -->
         <Border x:Name="StatusBar" Grid.Row="1" Grid.Column="1" Background="{StaticResource PanelBrush}" BorderBrush="#2A2A2A" BorderThickness="0,1,0,0" Padding="16,7,10,7">
             <DockPanel>
+                <!-- Always-visible master. This enables automatic game replay; it never starts desktop capture while idle. -->
+                <ToggleButton x:Name="ReplayMasterToggle" DockPanel.Dock="Right" Margin="0,0,12,0"
+                              Padding="12,5" VerticalAlignment="Center"
+                              Checked="ReplayMasterChanged" Unchecked="ReplayMasterChanged"
+                              Content="Instant replay" ToolTip="Enable automatic recording when a permitted game is running" />
                 <Button x:Name="SaveClipButton" DockPanel.Dock="Right" Style="{DynamicResource AccentButtonStyle}" Padding="12,5" Focusable="False"
                         Click="SaveClip_Click">
                     <StackPanel Orientation="Horizontal">
