@@ -72,6 +72,8 @@ internal sealed class AppSettings
     public bool ClipWindowsNotification { get; set; } = true;
     // Suppress expected no-game/off hotkey warnings by default in Personal, not actual capture errors.
     public bool ShowInactiveSaveNotifications { get; set; } = !AppProfile.IsPersonal;
+    // First-run prompt is explicit: a new Personal profile never silently starts screen capture.
+    public bool ReplayOnboardingCompleted { get; set; }
     public Shell.ClipOverlayOptions ClipOverlay { get; set; } = new();
     public bool EnableLibraryIndex { get; set; }
     public double ShareSizeMB { get; set; } = 30;                // shared copies are made to fit under this
