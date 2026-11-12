@@ -79,3 +79,27 @@ Code tested at `41ea84d7494d05182c8535a9b08ad922b33ae59c` on Windows 10 build 19
 The destination-change fixture verifies settings round-trip, rollback, a missing source returning, existing clip identity and favorites, and projects from both roots. Two isolated offscreen profiles exercised SQLite on and off with four generated clips across the active and retained folders and two capture days. Both profiles showed both folders, found one filtered match with selection preserved, and passed mixed and multiple day selection. The configured active destination stayed selected. Fixture files, their timestamps and the settings file were unchanged. The unavailable retained folder stayed absent. Only the SQLite-enabled profile created the index. The headless WPF Games fixtures covered 8, 50 and 200 rows, inline expansion, filtered identity, virtualization and accessible targeting labels. No live screen or audio capture ran.
 
 This is the integration base for the final Audio and Hotkeys WPF work. Supervised Windows display consent, mixed DPI, screen reader, real launchers, gameplay and Sonar checks remain pending. PR #21 remains duration evidence only. Precise saved duration remains open, and no acceptance gates were advanced.
+
+
+## Final Audio and Hotkeys candidate
+
+[PR #24](https://github.com/Yosef13103/QuickClip/pull/24) at `a2d6ae60b465051622886af3b87245d412567a68` merged without conflicts. Audio separates playback and microphone pickers and retains missing selections by exact endpoint ID and flow. The diagnostics button reads the immutable running plan and existing native lane status under the recorder lock, without opening a source. The four Hotkeys commands share the tray dispatcher and its display consent rules, including expiry of manual approval when the master is turned off.
+
+Existing bookmarks are labeled and seekable and survive metadata edits and export trimming. The removed bookmark creation actions leave stored data readable. Compact durations change UI formatting only. Native capture, mux policy, and replay timing remain unchanged. PR #21's synthetic measurements remain linked evidence and its native export is absent.
+
+### Validation
+
+Code tested at `8d13305980e3a639012cd4e73a797808e894e175` on Windows 10 build 19045 with SDK 10.0.403. Strict Personal and Upstream Release and Personal Debug builds passed with zero warnings and errors. The local restore used the pinned dependency cache and `-p:NuGetAudit=false`.
+
+| Suite | Passed | Failed | Skipped |
+| --- | ---: | ---: | ---: |
+| Personal | 511 | 0 | 18 |
+| Upstream compatibility filter | 27 | 0 | 14 |
+
+The offscreen Audio and Hotkeys pages rendered with recording inactive. Library and Gallery passed with SQLite on and off, retaining both configured folders and filtered day selection. The synthetic media, timestamps and settings were unchanged. The offline folder stayed absent. No live screen or audio capture ran. The full Personal suite includes opposite-flow devices with equal labels, missing endpoint preservation, native status matching, hotkey registration and consent regressions, and bookmark read/seek/preservation.
+
+### Owner-supervised validation
+
+Ready to exercise Windows 10 DDA on an explicitly approved display, discovery on multiple actual launcher drives, isolated Sonar signals and 125%/150% DPI and keyboard navigation using a scratch profile and disposable inputs. [Field-test checklist](p0-field-test-acceptance.md) · [Audio and Hotkeys evidence](ft09-ft11-recording-settings.md).
+
+Precise saved duration, support for additional launchers beyond Steam and Epic, and Windows 11 borderless capture capability and permission remain open. The P0 ledger remains 19/27 implementation and 0/26 acceptance. No hardware gate was advanced.
