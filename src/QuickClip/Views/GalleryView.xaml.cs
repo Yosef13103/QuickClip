@@ -405,6 +405,7 @@ public partial class GalleryView : UserControl
         }
         if (saved.Count == 0) return;
         RefreshKnownTags();
+        if (regroup) _renderedColumns = 0; // Group summaries include the corrected game label.
         if (regroup) RebuildFolders(preserveScroll: true);
         else ShowFolder(preserveScroll: true);
     }
@@ -416,24 +417,24 @@ public partial class GalleryView : UserControl
         ApplyRows(_filter.Apply(_clips, _folder), preserveScroll);
     }
 
+    private IReadOnlyList<ClipItem> _filteredClips = [];
+
     private void ApplyRows(IReadOnlyList<ClipItem> clips, bool preserveScroll)
     {
-        if (HasSelection)
-        {
-            var visible = clips.Select(clip => clip.Path).ToHashSet(StringComparer.OrdinalIgnoreCase);
-            ChangeSelection(_clips.Where(clip => clip.IsSelected && !visible.Contains(clip.Path)), false);
-        }
         FolderTitle.Text = _folder;
         FolderInfo.Text = clips.Count == 0 ? "" : $"{clips.Count} clip{(clips.Count == 1 ? "" : "s")}  ·  {Fmt.Size(clips.Sum(c => c.Size))}";
-        if (_renderedColumns != _columns || !_visibleClips.SequenceEqual(clips))
+        if (_renderedColumns != _columns || !_filteredClips.SequenceEqual(clips))
         {
             var scroll = Rows.Template?.FindName("GalleryScroll", Rows) as ScrollViewer;
             double offset = scroll?.VerticalOffset ?? 0;
             _renderedColumns = _columns;
-            _visibleClips = clips;
-            Rows.ItemsSource = clips.Chunk(_columns).ToList();
+            _filteredClips = clips;
+            var rows = GalleryDayFeed.Build(clips, _columns);
+            _visibleClips = rows.OfType<GalleryClipRow>().SelectMany(row => row.Clips).ToArray();
+            Rows.ItemsSource = rows;
             if (preserveScroll && offset > 0) scroll?.ScrollToVerticalOffset(offset);
         }
+        UpdateSelection();
 
         EmptyState.Visibility = clips.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
         EmptyTitle.Text = _filter.IsFiltered ? "No matching clips" : "No clips yet";
@@ -462,7 +463,7 @@ public partial class GalleryView : UserControl
         SetValue(PosterHeightProperty, Math.Max(1, cardWidth - 2) * 9 / 16);
         if (columns == _columns) return;
         _columns = columns;
-        if (_clips.Count > 0) ShowFolder();
+        if (_clips.Count > 0) ShowFolder(preserveScroll: true);
     }
 
     private void ShowStatus(string text)
@@ -807,9 +808,9 @@ public partial class GalleryView : UserControl
 
     private async Task DeleteClipsAsync(List<string> paths)
     {
-        var result = await ClipDeletion.Current.DeleteAsync(paths, batch => ClipDeleteDialog.Confirm(Window.GetWindow(this), batch));
+        var result = await ClipDeletion.Current.DeleteAsync(paths,
+            batch => ClipDeleteDialog.Confirm(Window.GetWindow(this), batch, force: batch.Count > 1));
         if (result.Cancelled) return;
-        foreach (var clip in _clips.Where(c => paths.Contains(c.Path, StringComparer.OrdinalIgnoreCase))) clip.IsSelected = false;
         ShowStatus($"{result.Deleted} clip(s) sent to the Recycle Bin." + (result.Failed > 0 ? $" {result.Failed} could not be recycled and were left in place." :
             ClipDeletion.Current.CanUndo ? " Use Undo delete to restore." : " Restore them through the Windows Recycle Bin."));
         await ReloadAsync();
@@ -867,20 +868,37 @@ public partial class GalleryView : UserControl
 
     private void UpdateSelection()
     {
-        HasSelection = _selected.Count > 0;
-        SelectionBar.Visibility = HasSelection ? Visibility.Visible : Visibility.Collapsed;
+        foreach (var day in Rows.Items.OfType<GalleryDayHeader>()) day.RefreshSelection();
+        var selected = CurrentClips.Where(clip => clip.IsSelected).ToArray();
+        HasSelection = selected.Length > 0;
+        DeleteSelectedButton.IsEnabled = OrganizeSelectedButton.IsEnabled = AddToProjectButton.IsEnabled =
+            CopySelectedButton.IsEnabled = HasSelection;
         if (!SelectionActions.IsEnabled) return; // showing progress instead
-        long size = _clips.Where(c => c.IsSelected).Sum(c => c.Size);
-        SelectionText.Text = $"{_selected.Count} clip{(_selected.Count == 1 ? "" : "s")} selected  ·  {Fmt.Size(size)}";
+        SelectionBar.Visibility = _selected.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
+        int hidden = _selected.Count - selected.Length;
+        SelectionText.Text = $"{selected.Length:N0} visible selected · {Fmt.Size(selected.Sum(clip => clip.Size))}" +
+            (hidden > 0 ? $" · {hidden:N0} hidden" : "");
     }
 
     /// <summary>Selected clips, oldest first (the order they happened in, which is how a montage usually starts).</summary>
     private List<string> SelectedPaths() =>
-        _clips.Where(c => c.IsSelected).OrderBy(c => c.Created).Select(c => c.Path).ToList();
+        GalleryDayFeed.SelectedPaths(CurrentClips);
+
+    private void SelectDay_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is FrameworkElement { DataContext: GalleryDayHeader day })
+            ChangeSelection(day.Clips, day.Selection != true);
+    }
 
     private void ClearSelection()
     {
         ChangeSelection(_clips.Where(c => c.IsSelected), false);
+    }
+
+    private void ClearProcessedSelection(IEnumerable<string> paths)
+    {
+        var processed = paths.ToHashSet(StringComparer.OrdinalIgnoreCase);
+        ChangeSelection(_clips.Where(clip => clip.IsSelected && processed.Contains(clip.Path)), false);
     }
 
     private void SelectAll_Click(object sender, RoutedEventArgs e)
@@ -928,7 +946,7 @@ public partial class GalleryView : UserControl
             var project = ProjectLibrary.Load(folder);
             int added = await WithProgressAsync($"Adding to {project.Name}", paths.Count,
                 progress => ProjectLibrary.AddClipsAsync(project, paths, progress));
-            if (paths.Any(_selected.Contains)) ClearSelection();
+            ClearProcessedSelection(paths);
             ShowStatus(added == paths.Count
                 ? $"Added {added} clip{(added == 1 ? "" : "s")} to {project.Name}."
                 : $"Added {added} clip{(added == 1 ? "" : "s")} to {project.Name}; {paths.Count - added} {(paths.Count - added == 1 ? "was" : "were")} already in it.");
@@ -957,7 +975,7 @@ public partial class GalleryView : UserControl
                 await ProjectLibrary.CopyToFolderAsync(paths, dialog.FolderName, progress);
                 return paths.Count;
             });
-            if (paths.Any(_selected.Contains)) ClearSelection();
+            ClearProcessedSelection(paths);
             ShowStatus($"Copied {paths.Count} clip{(paths.Count == 1 ? "" : "s")} to {dialog.FolderName}.");
         }
         catch (Exception ex)
@@ -1115,6 +1133,24 @@ public partial class GalleryView : UserControl
     internal async Task<string> VerifySearchForRenderAsync()
     {
         if (CurrentClips.Count < 2) return "Gallery search smoke skipped: fewer than two clips.";
+        string dayReport = "";
+        var days = Rows.Items.OfType<GalleryDayHeader>().Take(2).ToArray();
+        if (_selected.Count == 0 && days.Length == 2 && days[0].Clips.Count > 1)
+        {
+            ChangeSelection([days[0].Clips[0]], true);
+            if (days[0].Selection != null) throw new InvalidOperationException("Partially selected day was not mixed.");
+            var firstHeader = new CheckBox { DataContext = days[0] };
+            var secondHeader = new CheckBox { DataContext = days[1] };
+            SelectDay_Click(firstHeader, new RoutedEventArgs());
+            SelectDay_Click(secondHeader, new RoutedEventArgs());
+            if (SelectedPaths().Count != days.Sum(day => day.Clips.Count))
+                throw new InvalidOperationException("Day selection did not combine both days.");
+            SelectDay_Click(firstHeader, new RoutedEventArgs());
+            if (SelectedPaths().Count != days[1].Clips.Count)
+                throw new InvalidOperationException("Deselecting a day changed another day's selection.");
+            ClearSelection();
+            dayReport = " Day selection smoke passed for mixed and multiple days.";
+        }
         var first = CurrentClips[0];
         int count = CurrentClips.Count;
         string saved = ClipSearchBox.Text;
@@ -1127,7 +1163,7 @@ public partial class GalleryView : UserControl
             await SearchAsync();
             if (!CurrentClips.Contains(first) || CurrentClips.Count >= count || !first.IsSelected)
                 throw new InvalidOperationException("Gallery search lost the matching clip or its selection.");
-            return $"Gallery search: {CurrentClips.Count} matches from {count} clips, visible selection preserved.";
+            return $"Gallery search: {CurrentClips.Count} matches from {count} clips, visible selection preserved.{dayReport}";
         }
         finally
         {
