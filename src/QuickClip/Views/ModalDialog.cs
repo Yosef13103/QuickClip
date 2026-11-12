@@ -37,6 +37,15 @@ internal static class ModalDialog
             "Delete", "Cancel", safeDefault: true, destructive: true);
     }
 
+    internal static bool AskConfirmation(Window? owner, string message, string title, string action)
+    {
+        if (owner is not { IsVisible: true, Content: Panel })
+            return MessageBox.Show(message, title, MessageBoxButton.OKCancel, MessageBoxImage.Question,
+                MessageBoxResult.Cancel) == MessageBoxResult.OK;
+        return Run(owner, title, new TextBlock { Text = message, TextWrapping = TextWrapping.Wrap },
+            action, "Cancel", safeDefault: true);
+    }
+
     internal static string? Ask(Window? owner, string prompt, string initial, string action, bool allowEmpty)
     {
         if (owner is not { IsVisible: true, Content: Panel }) return null;

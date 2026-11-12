@@ -24,15 +24,29 @@
     </UserControl.Resources>
 
     <DockPanel>
-        <StackPanel x:Name="SettingsSections" DockPanel.Dock="Top" Orientation="Horizontal" Margin="28,12,14,0">
-            <RadioButton x:Name="GeneralSection" Content="Settings" GroupName="SettingsSection" IsChecked="True" Checked="SettingsSection_Changed" Margin="0,0,20,0" />
-            <RadioButton x:Name="GamesSection" Content="Games" GroupName="SettingsSection" Checked="SettingsSection_Changed" />
-        </StackPanel>
+        <WrapPanel x:Name="SettingsSections" DockPanel.Dock="Top" Margin="28,12,14,0"
+                   KeyboardNavigation.DirectionalNavigation="Cycle">
+            <WrapPanel.Resources>
+                <Style TargetType="RadioButton" BasedOn="{StaticResource {x:Type RadioButton}}">
+                    <Setter Property="Margin" Value="0,0,14,6" />
+                    <Setter Property="GroupName" Value="SettingsSection" />
+                    <EventSetter Event="Checked" Handler="SettingsSection_Changed" />
+                </Style>
+            </WrapPanel.Resources>
+            <RadioButton x:Name="RecordingSection" Content="Recording" IsChecked="True" />
+            <RadioButton x:Name="AudioSection" Content="Audio" />
+            <RadioButton x:Name="GamesSection" Content="Games" />
+            <RadioButton x:Name="HotkeysSection" Content="Hotkeys" />
+            <RadioButton x:Name="SharingSection" Content="Sharing" />
+            <RadioButton x:Name="LibrarySection" Content="Library" />
+            <RadioButton x:Name="GeneralSection" Content="General" />
+            <RadioButton x:Name="DiagnosticsSection" Content="Diagnostics" />
+        </WrapPanel>
         <Grid>
         <views:GamesSettingsView x:Name="GamesPage" Visibility="Collapsed" />
         <ScrollViewer x:Name="GeneralPage" VerticalScrollBarVisibility="Visible" HorizontalScrollBarVisibility="Disabled">
-        <StackPanel MaxWidth="1340" Margin="28,22,14,28" HorizontalAlignment="Center">
-            <TextBlock Text="Settings" FontSize="24" FontWeight="SemiBold" Margin="0,0,0,16" />
+        <StackPanel x:Name="SettingsContent" MaxWidth="1340" Margin="28,22,14,28" HorizontalAlignment="Center">
+            <TextBlock x:Name="SectionTitle" Text="Settings" FontSize="24" FontWeight="SemiBold" Margin="0,0,0,16" />
 
             <TextBlock x:Name="PersonalProfileHint" Style="{StaticResource Hint}" Visibility="Collapsed"
                        TextWrapping="Wrap" Margin="0,0,0,14" />
@@ -87,7 +101,7 @@
             </Border>
 
             <!-- Recording -->
-            <Border Style="{StaticResource Card}">
+            <Border x:Name="RecordingCard" Style="{StaticResource Card}">
                 <StackPanel>
                     <TextBlock Text="Instant replay" Style="{StaticResource CardTitle}" />
                     <TextBlock Style="{StaticResource Hint}"
@@ -246,6 +260,9 @@
                                        Text="Desktop Duplication records everything visible on the selected display, including windows covering the game, and avoids the Windows capture indicator. Windows Graphics Capture may show an indicator. This preference applies to monitor capture. Game-window capture always uses Windows Graphics Capture." />
                         </StackPanel>
                     </Expander>
+                </StackPanel>
+            </Border>
+            <Border x:Name="DiagnosticsCard" Style="{StaticResource Card}">
                     <Expander x:Name="CaptureAdvanced" Header="Advanced Recording Diagnostics" Margin="0,12,0,0" Expanded="Diagnostics_Expanded">
                         <StackPanel Margin="0,10,0,0">
                             <CheckBox x:Name="DiagnosticsCheck" Content="Sample recording timings (every 5 seconds)" Margin="0,10,0,0" Checked="Changed" Unchecked="Changed" />
@@ -253,11 +270,10 @@
                             <Button Content="Refresh diagnostics" Click="Diagnostics_Refresh" HorizontalAlignment="Left" Margin="0,8,0,0" />
                         </StackPanel>
                     </Expander>
-                </StackPanel>
             </Border>
 
             <!-- Audio -->
-            <Border Style="{StaticResource Card}">
+            <Border x:Name="AudioCard" Style="{StaticResource Card}">
                 <StackPanel>
                     <TextBlock Text="Audio" Style="{StaticResource CardTitle}" />
                     <CheckBox x:Name="EndpointModeCheck" Content="Record selected Windows audio devices"
@@ -319,7 +335,7 @@
             </Border>
 
             <!-- Hotkey -->
-            <Border Style="{StaticResource Card}">
+            <Border x:Name="HotkeysCard" Style="{StaticResource Card}">
                 <StackPanel>
                     <TextBlock Text="Hotkey" Style="{StaticResource CardTitle}" />
                     <Grid Style="{StaticResource Row}">
@@ -338,7 +354,7 @@
             </Border>
 
             <!-- Sharing -->
-            <Border Style="{StaticResource Card}">
+            <Border x:Name="SharingCard" Style="{StaticResource Card}">
                 <StackPanel>
                     <TextBlock Text="Sharing" Style="{StaticResource CardTitle}" />
                     <TextBlock Style="{StaticResource Hint}" Margin="0,2,0,0" TextWrapping="Wrap"
@@ -366,7 +382,7 @@
             </Border>
 
             <!-- General -->
-            <Border Style="{StaticResource Card}">
+            <Border x:Name="GeneralCard" Style="{StaticResource Card}">
                 <StackPanel>
                     <TextBlock Text="General" Style="{StaticResource CardTitle}" />
                     <CheckBox x:Name="StartupCheck" Content="Start QuickClip with Windows (in the tray)" Margin="0,10,0,0" Checked="Changed" Unchecked="Changed" />
@@ -414,24 +430,41 @@
                         <TextBlock Text="Add &quot;Edit with QuickClip&quot; to the right-click menu of video and audio files" TextWrapping="Wrap" />
                     </CheckBox>
 
-                    <Grid Style="{StaticResource Row}" Margin="0,16,0,0">
+                </StackPanel>
+            </Border>
+            <Border x:Name="LibraryCard" Style="{StaticResource Card}">
+                <StackPanel>
+                    <TextBlock Text="Saved recordings location" Style="{StaticResource CardTitle}" />
+                    <TextBlock Text="New recordings are saved here. Gallery can also show clips from additional sources." Style="{StaticResource Hint}" />
+                    <Grid Style="{StaticResource Row}">
                         <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="160" />
                             <ColumnDefinition Width="*" />
                             <ColumnDefinition Width="Auto" />
                         </Grid.ColumnDefinitions>
-                        <TextBlock Text="Clips folder" VerticalAlignment="Center" />
-                        <TextBox x:Name="FolderBox" Grid.Column="1" IsReadOnly="True" Style="{StaticResource CompactBox}" Padding="8,6" />
-                        <Button Grid.Column="2" Style="{StaticResource TextButton}" Content="Change…" Margin="8,0,0,0" Click="ChangeFolder_Click" />
+                        <TextBox x:Name="FolderBox" IsReadOnly="True" Style="{StaticResource CompactBox}" Padding="8,6"
+                                 AutomationProperties.Name="Saved recordings location" />
+                        <Button Grid.Column="1" Content="Change…" Margin="8,0,0,0" Click="ChangeFolder_Click" />
                     </Grid>
+                    <DockPanel Margin="0,6,0,0">
+                        <Button DockPanel.Dock="Right" Content="Open folder" Click="OpenRecordingFolder_Click" />
+                        <TextBlock x:Name="RecordingFreeSpace" Style="{StaticResource Hint}" VerticalAlignment="Center" />
+                    </DockPanel>
                     <StackPanel x:Name="LibraryOptions" Margin="0,16,0,0">
-                        <CheckBox x:Name="IndexLibraryCheck" Content="Index this clips folder and store annotations in SQLite"
+                        <TextBlock Text="Additional Gallery sources" FontWeight="SemiBold" />
+                        <TextBlock Text="These folders stay visible in Gallery. New recordings go to the location above." Style="{StaticResource Hint}" />
+                        <ListBox x:Name="AdditionalSourcesList" Margin="0,6,0,0" MaxHeight="180"
+                                 AutomationProperties.Name="Additional Gallery sources" />
+                        <WrapPanel Margin="0,6,0,12">
+                            <Button Content="Add existing folder…" Click="AddClipSource_Click" Margin="0,0,8,4" />
+                            <Button Content="Remove from Gallery…" Click="RemoveClipSource_Click" Margin="0,0,8,4" />
+                        </WrapPanel>
+                        <CheckBox x:Name="IndexLibraryCheck" Content="Index Gallery sources and store annotations in SQLite"
                                   Click="IndexLibrary_Click" Margin="0,0,0,10" />
                         <TextBlock Text="Clip filename template" />
                         <TextBox x:Name="FilenameTemplate" Margin="0,5,0,0" TextChanged="FilenameTemplate_Changed"
                                  LostKeyboardFocus="FilenameTemplate_Commit" />
                         <TextBlock x:Name="FilenamePreview" Margin="0,5,0,0" Style="{StaticResource Hint}" TextWrapping="Wrap" />
-                        <TextBlock Text="Additional excluded folders (relative to clips folder, one per line)" Margin="0,12,0,0" TextWrapping="Wrap" />
+                        <TextBlock Text="Excluded subfolders (relative to each Gallery source, one per line)" Margin="0,12,0,0" TextWrapping="Wrap" />
                         <TextBox x:Name="ExclusionsBox" Margin="0,5,0,0" AcceptsReturn="True" MinHeight="50"
                                  LostKeyboardFocus="Exclusions_Commit" />
                     </StackPanel>
