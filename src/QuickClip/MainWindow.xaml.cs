@@ -248,7 +248,7 @@ public partial class MainWindow : Window
         {
             RecDot.Fill = IdleDot;
             RecStatus.Text = recorder.Error != null ? "Not recording: " + recorder.Error
-                : recorder.State.Mode == RecordingMode.Armed ? "Armed · no recording active"
+                : recorder.State.Mode == RecordingMode.Armed ? "Waiting for a game · not capturing"
                 : s.RecordingEnabled ? "Starting…" : "Recording is off — turn on instant replay in Settings";
         }
         SaveClipButton.IsEnabled = recorder.IsRunning;
