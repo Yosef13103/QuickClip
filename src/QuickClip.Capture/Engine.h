@@ -146,6 +146,8 @@ namespace qc
         Engine(const QcConfig& config, bool endpointMode, const QcEndpointTrack* endpoints, int endpointCount, QcVideoOptions video);
         ~Engine();
         bool Start(std::string& error);
+        static bool SaveReplayFixture(const std::wstring& input, const std::wstring& output, int seconds, int64_t endUs,
+            bool bounded, QcReplaySpan& span, std::string& error);
         /// Desktop records everything but `desktopExclude`'s process tree (nothing when that is 0) plus the trees of
         /// `desktopInclude`, less the sound of `desktopSubtract`'s trees (some of the Chat and Music processes), taken
         /// out sample for sample. Chat and Music record their processes' trees.
@@ -176,6 +178,8 @@ namespace qc
         void RestartVideo();
 
         std::shared_ptr<Shared> shared_;
+        bool SaveAt(const std::wstring& path, int seconds, const std::wstring& title, std::string& error,
+            QcReplaySpan* span, QcReplayAnchor* anchors, int count, int64_t endUs, bool bounded, QcReplayVideo* savedVideo);
         std::wstring monitor_;
         bool splitChat_, splitMusic_, micSeparate_, endpointMode_;
         int audioKbps_;

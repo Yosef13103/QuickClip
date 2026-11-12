@@ -1220,6 +1220,12 @@ namespace qc
             if (ready) break;
             Sleep(20);
         }
+        return SaveAt(path, seconds, title, error, span, anchors, count, endUs, bounded, savedVideo);
+    }
+
+    bool Engine::SaveAt(const std::wstring& path, int seconds, const std::wstring& title, std::string& error,
+        QcReplaySpan* span, QcReplayAnchor* anchors, int count, int64_t endUs, bool bounded, QcReplayVideo* savedVideo)
+    {
         int64_t startUs = 0;
         std::vector<PacketRing::Entry> entries;
         std::shared_ptr<StreamInfo> video;
@@ -1323,6 +1329,74 @@ namespace qc
             }
         }
         return true;
+    }
+
+    bool Engine::SaveReplayFixture(const std::wstring& input, const std::wstring& output, int seconds, int64_t endUs,
+        bool bounded, QcReplaySpan& span, std::string& error)
+    {
+        AVFormatContext* file = nullptr;
+        if (avformat_open_input(&file, Narrow(input).c_str(), av_find_input_format("mov"), nullptr) < 0)
+        {
+            error = "Couldn't open generated replay fixture.";
+            return false;
+        }
+        auto closeInput = [](AVFormatContext* context) { avformat_close_input(&context); };
+        std::unique_ptr<AVFormatContext, decltype(closeInput)> source(file, closeInput);
+        if (file->nb_streams != 4 || file->streams[0]->codecpar->codec_id != AV_CODEC_ID_H264 ||
+            !file->pb || avio_size(file->pb) > 16 * 1024 * 1024)
+        {
+            error = "Expected a small fixture with one H.264 video and three AAC tracks.";
+            return false;
+        }
+        auto* vs = file->streams[0];
+        QcConfig config{};
+        config.fps = 60;
+        config.bufferSeconds = seconds;
+        Engine engine(config, true, nullptr, 0, {});
+        engine.shared_->startedUtcUs = av_gettime();
+        auto video = std::make_shared<StreamInfo>();
+        video->params = avcodec_parameters_alloc();
+        if (!video->params || avcodec_parameters_copy(video->params, vs->codecpar) < 0)
+        {
+            error = "Couldn't copy fixture video parameters.";
+            return false;
+        }
+        video->timeBase = vs->time_base;
+        engine.shared_->video = std::move(video);
+        for (unsigned i = 1; i < file->nb_streams; ++i)
+        {
+            auto* params = file->streams[i]->codecpar;
+            if (params->codec_id != AV_CODEC_ID_AAC || params->sample_rate != SampleRate ||
+                params->ch_layout.nb_channels != Channels)
+            {
+                error = "Expected stereo AAC tracks at the replay sample rate.";
+                return false;
+            }
+            auto track = std::make_unique<Track>();
+            auto* name = av_dict_get(file->streams[i]->metadata, "handler_name", nullptr, 0);
+            track->title = name ? name->value : "Audio";
+            if (!track->encoder.Open(128, error)) return false;
+            engine.tracks_.push_back(std::move(track));
+        }
+        auto freePacket = [](AVPacket* p) { av_packet_free(&p); };
+        std::unique_ptr<AVPacket, decltype(freePacket)> packet(av_packet_alloc(), freePacket);
+        if (!packet) { error = "Couldn't allocate a fixture packet."; return false; }
+        int read = 0;
+        while (read++ < 50'000 && av_read_frame(file, packet.get()) >= 0)
+        {
+            int stream = packet->stream_index;
+            AVRational timeBase = file->streams[stream]->time_base;
+            int64_t timestamp = av_rescale_q(packet->pts, timeBase, AVRational{ 1, 1'000'000 });
+            if (timestamp >= 0 && timestamp <= endUs)
+            {
+                if (stream != 0) av_packet_rescale_ts(packet.get(), timeBase, AVRational{ 1, SampleRate });
+                auto* copy = av_packet_clone(packet.get());
+                if (!copy) { error = "Couldn't retain a fixture packet."; return false; }
+                engine.shared_->ring.Push(copy, stream, timestamp, (packet->flags & AV_PKT_FLAG_KEY) != 0, 1);
+            }
+            av_packet_unref(packet.get());
+        }
+        return engine.SaveAt(output, seconds, L"Replay fixture", error, &span, nullptr, 0, endUs, bounded, nullptr);
     }
 
     std::string Engine::VideoDiagnostics()

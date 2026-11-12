@@ -323,6 +323,18 @@ extern "C"
     // Deterministic packet fixture for the managed tests. No encoder, audio endpoints or desktop are opened.
     struct QcTestReplayFrame { int64_t timeUs, source; int key, clearBefore; };
 
+    __declspec(dllexport) int qc_test_replay_mux(const wchar_t* input, const wchar_t* output, int seconds, int64_t endUs,
+        int bounded, QcReplaySpan* span, wchar_t* error, int errorLength)
+    {
+        if (!input || !output || _wcsicmp(input, output) == 0 || !span ||
+            seconds <= 0 || seconds > 120 || endUs <= 0 || endUs > 125'000'000)
+            return 0;
+        std::string message;
+        if (qc::Engine::SaveReplayFixture(input, output, seconds, endUs, bounded != 0, *span, message)) return 1;
+        CopyError(message, error, errorLength);
+        return 0;
+    }
+
     __declspec(dllexport) int qc_test_replay_ring(const QcTestReplayFrame* frames, int frameCount, int bufferSeconds,
         int requestedSeconds, int64_t requestUs, QcReplayPosition* position, QcReplaySpan* span,
         QcReplayAnchor* anchors, int anchorCount, int* streamCounts)
