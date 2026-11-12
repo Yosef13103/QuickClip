@@ -211,7 +211,7 @@ internal sealed class AppHost : IDisposable
         string state = r.IsRunning
             ? $"Recording · {new Hotkey(AppSettings.Current.HotkeyModifiers, AppSettings.Current.HotkeyKey)} saves a clip"
             : r.Error != null ? "Not recording: " + r.Error
-            : r.State.Mode == RecordingMode.Armed ? "Armed · no recording active" : "Recording is off";
+            : r.State.Mode == RecordingMode.Armed ? "Waiting for a game · not capturing" : "Recording is off";
         var data = NewIconData();
         data.uFlags = NIF_TIP | NIF_SHOWTIP;
         data.szTip = Truncate(AppProfile.Name + " — " + state, 127);
