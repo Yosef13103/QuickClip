@@ -48,7 +48,9 @@ public sealed class EpicManifestTests : IDisposable
             final = await scan.ContinueAsync(1, TimeSpan.FromSeconds(20), default);
         Assert.False(final.InProgress);
         Assert.Equal(count, final.Entries.Length);
-        Assert.Equal(count, final.VisitedEntries);
+        // Progress now counts both manifest entries and the executable inspected
+        // during each complete, resumable renderer-validation pass.
+        Assert.Equal(count * 2, final.VisitedEntries);
         Assert.Empty(final.Issues);
     }
 
