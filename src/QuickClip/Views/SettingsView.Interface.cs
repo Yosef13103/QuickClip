@@ -23,9 +23,9 @@ public partial class SettingsView
     private void UpdateSectionsWidth()
     {
         var scale = (AppSettings.Current.InterfaceScale ?? new()).Normalize();
-        double expanded = 176 * Math.Max(scale.Text, scale.Controls) / 100d;
+        double expanded = 148 * Math.Max(scale.Text, scale.Controls) / 100d;
         bool compact = ActualWidth < 625 + expanded;
-        var width = new GridLength(compact ? 64 * scale.Controls / 100d : expanded);
+        var width = new GridLength(compact ? 70 * scale.Controls / 100d : expanded);
         if (SectionsColumn.Width != width) SectionsColumn.Width = width;
         SettingsSections.Width = width.Value - 16;
         if (!Equals(SettingsSections.Tag, compact)) SettingsSections.Tag = compact;
