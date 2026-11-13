@@ -602,14 +602,14 @@
                         <TextBlock Text="Windows controls placement of its notifications." Style="{StaticResource Hint}" Margin="0,4,0,0" />
                         <StackPanel x:Name="ClipEventsPanel" Margin="0,8,0,0">
                             <TextBlock Text="Notify me when" Style="{StaticResource FieldLabel}" />
-                            <WrapPanel>
+                            <UniformGrid Columns="2">
                                 <CheckBox x:Name="ReplayEnabledNotice" Content="Instant replay is enabled" Focusable="True" Margin="0,0,12,4" Click="ClipFeedback_Changed" />
                                 <CheckBox x:Name="ClipSavedNotice" Content="A clip is saved" Focusable="True" Margin="0,0,12,4" Click="ClipFeedback_Changed" />
                                 <CheckBox x:Name="DesktopStartedNotice" Content="Desktop recording starts" Focusable="True" Margin="0,0,12,4" Click="ClipFeedback_Changed" />
                                 <CheckBox x:Name="DesktopStoppedNotice" Content="Desktop recording stops" Focusable="True" Margin="0,0,12,4" Click="ClipFeedback_Changed" />
                                 <CheckBox x:Name="SaveFailedNotice" Content="Saving fails" Focusable="True" Margin="0,0,12,4" Click="ClipFeedback_Changed" />
                                 <CheckBox x:Name="IdleSaveNotificationCheck" Content="Save Clip is pressed without active recording" Focusable="True" Margin="0,0,12,4" Click="ClipFeedback_Changed" />
-                            </WrapPanel>
+                            </UniformGrid>
                         </StackPanel>
                         <StackPanel x:Name="ClipOverlayOptions" Margin="0,8,0,0" Visibility="Collapsed">
                             <TextBlock Text="Overlay style" Style="{StaticResource FieldLabel}" />
@@ -625,11 +625,13 @@
                                 <CheckBox x:Name="OverlayShowHotkey" Content="Save hotkey hint" Focusable="True" Click="ClipFeedback_Changed" />
                             </WrapPanel>
                             <WrapPanel Margin="0,8,0,0">
-                                <Button Content="Choose overlay image…" Margin="0,0,8,0" Click="ChooseOverlayImage_Click" />
+                                <Button Content="Choose image / WebM animation…" Margin="0,0,8,0" Click="ChooseOverlayImage_Click" />
                                 <Button x:Name="ClearOverlayImage" Content="Use default icon" Click="ClearOverlayImage_Click" />
                             </WrapPanel>
-                            <CheckBox x:Name="OverlayImageOnly" Content="Show the image by itself" Focusable="True" Click="ClipFeedback_Changed" Margin="0,4,0,0" />
                             <TextBlock x:Name="OverlayImageStatus" Style="{StaticResource Hint}" AutomationProperties.LiveSetting="Polite" />
+                            <TextBlock x:Name="OverlayImageError" Foreground="{DynamicResource DangerBrush}"
+                                       FontWeight="SemiBold" FontSize="{DynamicResource QuickClipText14}" TextWrapping="Wrap"
+                                       Visibility="Collapsed" AutomationProperties.LiveSetting="Assertive" />
                             <Grid Margin="0,8,0,0">
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="*" />
@@ -648,8 +650,12 @@
                                     <ComboBox x:Name="OverlaySizeCombo" SelectionChanged="ClipFeedback_Changed" AutomationProperties.Name="Indicator size" />
                                     <TextBlock Text="Opacity" Margin="0,8,0,0" />
                                     <ComboBox x:Name="OverlayOpacityCombo" SelectionChanged="ClipFeedback_Changed" AutomationProperties.Name="Indicator opacity" />
-                                    <TextBlock Text="Duration" Margin="0,8,0,0" />
-                                    <ComboBox x:Name="OverlayDurationCombo" SelectionChanged="ClipFeedback_Changed" AutomationProperties.Name="Indicator duration" />
+                                    <TextBlock Text="Duration in seconds (0.6–60)" Margin="0,8,0,0" />
+                                    <TextBox x:Name="OverlayDurationBox" TextChanged="ClipFeedback_Changed"
+                                             AutomationProperties.Name="Indicator duration in seconds" />
+                                    <TextBlock x:Name="OverlayDurationError" Foreground="{DynamicResource DangerBrush}"
+                                               FontWeight="SemiBold" TextWrapping="Wrap"
+                                               AutomationProperties.LiveSetting="Polite" />
                                 </StackPanel>
                             </Grid>
                             <WrapPanel Margin="0,10,0,0">

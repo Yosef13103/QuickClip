@@ -47,7 +47,7 @@ internal sealed class ClipNotificationOverlay : IDisposable
             _imagePath = options.ImagePath;
             _image = null;
             string? path = options.ImagePath;
-            _imageLoad = path == null ? null : Task.Run(() => ClipOverlayImage.LoadAsset(path));
+            _imageLoad = path == null ? null : ClipOverlayImage.LoadAssetAsync(path);
         }
         if (_imageLoad != null)
         {
@@ -82,7 +82,7 @@ internal sealed class ClipNotificationOverlay : IDisposable
         _ring.RenderTransform = new ScaleTransform();
         _ring.Opacity = 0;
 
-        bool imageOnly = options.ImageOnly && _image != null;
+        bool imageOnly = (options.Style == OverlayStyle.ImageOnly || options.ImageOnly) && _image != null;
         if (imageOnly)
         {
             _details.Visibility = Visibility.Collapsed;

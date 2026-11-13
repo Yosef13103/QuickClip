@@ -118,6 +118,21 @@ public sealed class ClipFeedbackTests
     }
 
     [Fact]
+    public void Image_only_style_round_trips_and_legacy_image_only_flag_survives()
+    {
+        var modern = AppSettings.Parse(new AppSettings { ClipOverlay = new()
+        {
+            Style = OverlayStyle.ImageOnly, ImagePath = @"C:\Media\alpha.webm",
+        } }.ToJson());
+        Assert.Equal(OverlayStyle.ImageOnly, modern.ClipOverlay.Normalize().Style);
+        var legacy = AppSettings.Parse(new AppSettings { ClipOverlay = new()
+        {
+            Style = OverlayStyle.Compact, ImageOnly = true, ImagePath = @"C:\Media\cat.gif",
+        } }.ToJson());
+        Assert.True(legacy.ClipOverlay.ImageOnly);
+    }
+
+    [Fact]
     public void Chime_gain_preserves_the_asset_and_applies_to_the_pcm_only()
     {
         byte[] original = ClipSound.Load();

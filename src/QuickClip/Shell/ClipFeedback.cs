@@ -1,10 +1,11 @@
+using System.Globalization;
 using System.Windows;
 
 namespace QuickClip.Shell;
 
 internal enum OverlayAnchor { TopLeft, TopCenter, TopRight, MiddleLeft, Center, MiddleRight, BottomLeft, BottomCenter, BottomRight }
 internal enum OverlayAnimation { Ripple, Fade, Slide, None }
-internal enum OverlayStyle { Compact, Badge, Detailed }
+internal enum OverlayStyle { Compact, Badge, Detailed, ImageOnly }
 internal enum ClipEvent { ReplayEnabled, Saved, DesktopStarted, DesktopStopped, Failed, Inactive }
 internal sealed record ClipEventOptions(bool ReplayEnabled = true, bool Saved = true, bool DesktopStarted = true,
     bool DesktopStopped = true, bool Failed = true)
@@ -36,6 +37,13 @@ internal sealed record ClipOverlayOptions
     public double Size { get; init; } = 72;
     public double Opacity { get; init; } = .9;
     public double Seconds { get; init; } = 1.4;
+    internal const double MinSeconds = .6;
+    internal const double MaxSeconds = 60;
+
+    internal static bool TryParseSeconds(string? text, out double seconds) =>
+        (double.TryParse(text, NumberStyles.Float, CultureInfo.CurrentCulture, out seconds) ||
+         double.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out seconds)) &&
+        double.IsFinite(seconds) && seconds >= MinSeconds && seconds <= MaxSeconds;
     public OverlayAnimation Animation { get; init; } = OverlayAnimation.Slide;
 
     internal ClipOverlayOptions Normalize() => this with
@@ -44,7 +52,7 @@ internal sealed record ClipOverlayOptions
         Anchor = Enum.IsDefined(Anchor) ? Anchor : OverlayAnchor.BottomRight,
         Size = double.IsFinite(Size) ? Math.Clamp(Size, 40, 120) : 72,
         Opacity = double.IsFinite(Opacity) ? Math.Clamp(Opacity, .2, 1) : .9,
-        Seconds = double.IsFinite(Seconds) ? Math.Clamp(Seconds, .6, 5) : 1.4,
+        Seconds = double.IsFinite(Seconds) ? Math.Clamp(Seconds, MinSeconds, MaxSeconds) : 1.4,
         Animation = Enum.IsDefined(Animation) ? Animation : OverlayAnimation.Ripple,
     };
 
