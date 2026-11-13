@@ -139,7 +139,7 @@ public partial class SettingsView
         settings.ShowInactiveSaveNotifications = IdleSaveNotificationCheck.IsChecked == true;
         settings.ClipWindowsNotification = mode is ClipNotificationMode.Windows or ClipNotificationMode.Both;
         UpdateFeedbackVisibility();
-        bool validDuration = ClipOverlayOptions.TryParseSeconds(OverlayDurationBox.Text, out double enteredSeconds);
+        bool validDuration = QuickClip.Shell.ClipOverlayOptions.TryParseSeconds(OverlayDurationBox.Text, out double enteredSeconds);
         OverlayDurationError.Text = validDuration ? "" : "Enter a duration from 0.6 to 60 seconds.";
         if (OverlayAnchorCombo.SelectedItem is Choice { Value: OverlayAnchor anchor } &&
             OverlaySizeCombo.SelectedItem is Choice { Value: double size } &&
@@ -198,7 +198,7 @@ public partial class SettingsView
             // Choose the animation's natural duration on import; custom seconds remain editable.
             if (asset.Frames.Length > 1)
                 OverlayDurationBox.Text = Math.Clamp(asset.Frames.Sum(frame => frame.Delay.TotalSeconds),
-                    ClipOverlayOptions.MinSeconds, ClipOverlayOptions.MaxSeconds)
+                    QuickClip.Shell.ClipOverlayOptions.MinSeconds, QuickClip.Shell.ClipOverlayOptions.MaxSeconds)
                     .ToString("0.##", CultureInfo.CurrentCulture);
             SaveOverlayImage(dialog.FileName);
             App.Host?.TestClipOverlay();
