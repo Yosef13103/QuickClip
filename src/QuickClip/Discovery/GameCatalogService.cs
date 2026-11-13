@@ -1,3 +1,4 @@
+using System.Buffers.Binary;
 using System.Collections.Immutable;
 using System.Diagnostics;
 using System.Globalization;
@@ -70,6 +71,7 @@ internal static class GameCatalogService
         private int _visited, _manifestBytes, _segmentEntries, _reportedGames = -1;
         private long _segmentStarted;
         private bool _limitReached;
+        private bool _installIncomplete;
 
         public Scan(CatalogRequest request, Func<IEnumerable<string>> steamInstallations, Func<string?> epicManifests)
         {
@@ -252,6 +254,7 @@ internal static class GameCatalogService
 
         private void ScanEpic(string directory)
         {
+            var installs = new List<Action>();
             VisitEntries(directory, (path, _) =>
             {
                 try
@@ -274,18 +277,20 @@ internal static class GameCatalogService
                         if (malformed) AddIssue(path, CatalogIssueKind.InvalidManifest);
                         return;
                     }
-                    if (!IsRendererCandidate(manifest.Executable) || IsExcluded(manifest.Executable) ||
+                    var role = CatalogPaths.DefaultRole(manifest.Executable);
+                    if (role is not (CatalogMatchKind.Unknown or CatalogMatchKind.Launcher) || IsExcluded(manifest.Executable) ||
                         ApprovedRoot(manifest.InstallDirectory) == null || !CheckDirectory(Path.GetDirectoryName(manifest.Executable)!) ||
                         !TryAttributes(manifest.Executable, out var attributes) || attributes.HasFlag(FileAttributes.Directory))
                         return;
                     if (_launcherFolders.TryGetValue(manifest.InstallDirectory, out var existing) && existing.Id != manifest.Id) return;
                     var game = GetCandidate(manifest.Id, manifest.Name, CatalogSource.Epic);
-                    game.InstallDirectories.Add(manifest.InstallDirectory);
-                    game.Executables.Add(manifest.Executable);
+                    if (game.InstallDirectories.Add(manifest.InstallDirectory))
+                        installs.Add(() => ScanInstall(manifest.InstallDirectory, 0, game, manifest.Executable));
                     _launcherFolders.TryAdd(manifest.InstallDirectory, game);
                 }
                 catch (Exception ex) when (IsAccessError(ex)) { AddIssue(path, CatalogIssueKind.Unavailable); }
             }, name => name.EndsWith(".item", StringComparison.OrdinalIgnoreCase));
+            Prepend(installs, directory);
         }
 
         private SteamAppManifest? ReadManifest(string path)
@@ -323,12 +328,14 @@ internal static class GameCatalogService
             if (!_collections.Add(path) || _launcherFolders.ContainsKey(path)) return;
             var directories = new List<string>();
             var executables = new List<string>();
+            bool hasLauncher = false;
             VisitEntries(path, (entry, attributes) =>
             {
                 if (attributes.HasFlag(FileAttributes.Directory)) directories.Add(entry);
                 else if (IsRendererCandidate(entry)) executables.Add(entry);
+                else if (CatalogPaths.DefaultRole(entry) == CatalogMatchKind.Launcher) hasLauncher = true;
             });
-            if (depth > 0 && (executables.Count > 0 || directories.Any(IsBinaryDirectory)))
+            if (depth > 0 && (hasLauncher || executables.Count > 0 || directories.Any(IsBinaryDirectory)))
             {
                 Prepend([() => ScanFolder(path, depth)], path);
                 return;
@@ -337,6 +344,7 @@ internal static class GameCatalogService
             {
                 var game = FolderCandidate(path);
                 game.Executables.UnionWith(executables);
+                // Loose executables at the collection root have no per-install identity.
             }
             var subdirectories = directories.Where(dir => !_launcherFolders.ContainsKey(dir)).ToArray();
             if (subdirectories.Length > 0 && depth >= Math.Min(_request.MaxDepth, 4))
@@ -354,28 +362,163 @@ internal static class GameCatalogService
         private void ScanFolder(string path, int depth = 0)
         {
             var game = FolderCandidate(path);
-            ScanExecutables(path, depth, game);
+            ScanInstall(path, depth, game, null);
             RemoveEmptyFolder(game);
         }
 
-        private void ScanExecutables(string path, int depth, Candidate game)
+        private void ScanInstall(string install, int depth, Candidate game, string? launchExecutable)
+        {
+            var executables = new List<string>();
+            _installIncomplete = false;
+            ScanExecutables(install, depth, game, executables, catalogAll: launchExecutable == null);
+            if (launchExecutable != null) game.Executables.Add(launchExecutable);
+            if (!_installIncomplete) IdentifyRenderer(game, install, executables, launchExecutable);
+        }
+
+        private void ScanExecutables(string path, int depth, Candidate game, List<string>? executables = null, bool catalogAll = true)
         {
             VisitEntries(path, (entry, attributes) =>
             {
                 if (attributes.HasFlag(FileAttributes.Directory))
                 {
-                    if (depth == _request.MaxDepth) _limitReached = true;
-                    else if (!_launcherFolders.ContainsKey(entry)) ScanExecutables(entry, depth + 1, game);
+                    if (depth == _request.MaxDepth)
+                    {
+                        _limitReached = true;
+                        _installIncomplete = true;
+                    }
+                    else if (!_launcherFolders.ContainsKey(entry)) ScanExecutables(entry, depth + 1, game, executables, catalogAll);
                 }
-                else AddExecutable(game, entry);
+                else if (IsRendererCandidate(entry))
+                {
+                    if (catalogAll) game.Executables.Add(entry);
+                    executables?.Add(entry);
+                }
             });
         }
 
-        private static void AddExecutable(Candidate game, string path)
+        private void IdentifyRenderer(Candidate game, string install, IEnumerable<string> executables, string? launchExecutable)
         {
-            if (!IsRendererCandidate(path)) return;
-            game.Executables.Add(path);
+            string? preferred = null;
+            int best = 0;
+            bool unrealBootstrap = false;
+            foreach (string executable in executables)
+            {
+                // Each visited EXE gets at most one evidence probe within the scan time budget.
+                if (Stopwatch.GetElapsedTime(_segmentStarted) >= TimeSpan.FromSeconds(8))
+                {
+                    _limitReached = true;
+                    AddIssue(install, CatalogIssueKind.Incomplete);
+                    return;
+                }
+                _cancel.ThrowIfCancellationRequested();
+                int score = RendererScore(install, executable);
+                if (launchExecutable != null && score == EngineRenderer && !Paths.Equals(launchExecutable, executable))
+                {
+                    bool bootstrap = SharesRendererName(launchExecutable, executable);
+                    if (!bootstrap && !(CatalogPaths.DefaultRole(launchExecutable) == CatalogMatchKind.Launcher &&
+                        Paths.Equals(RendererStem(executable), Path.GetFileName(install)))) continue;
+                    unrealBootstrap |= bootstrap;
+                }
+                if (score > best) (best, preferred) = (score, executable);
+                else if (score == best) preferred = null;
+            }
+
+            if (launchExecutable != null)
+            {
+                if (CatalogPaths.DefaultRole(launchExecutable) == CatalogMatchKind.Launcher ||
+                    unrealBootstrap)
+                    game.DetectedLaunchers.Add(launchExecutable);
+                else
+                {
+                    game.Renderers.Add(launchExecutable);
+                    return;
+                }
+                if (best < EngineRenderer) return;
+            }
+
+            if (preferred != null)
+            {
+                game.Renderers.Add(preferred);
+                game.Executables.Add(preferred);
+                if (launchExecutable == null && best >= EngineRenderer)
+                    game.DetectedLaunchers.UnionWith(executables.Where(path => SharesRendererName(path, preferred)));
+            }
         }
+
+        private static bool SharesRendererName(string path, string renderer)
+        {
+            string stem = RendererStem(renderer);
+            return !Paths.Equals(path, renderer) &&
+                Paths.Equals(Path.GetFileNameWithoutExtension(path), stem);
+        }
+
+        private static string RendererStem(string path)
+        {
+            string stem = Path.GetFileNameWithoutExtension(path);
+            return stem.EndsWith("-Win64-Shipping", StringComparison.OrdinalIgnoreCase) ||
+                stem.EndsWith("-Win32-Shipping", StringComparison.OrdinalIgnoreCase)
+                    ? stem[..^"-Win64-Shipping".Length] : stem;
+        }
+
+        private const int EngineRenderer = 4;
+
+        private int RendererScore(string install, string executable)
+        {
+            if (IsEngineRenderer(install, executable)) return EngineRenderer;
+            string stem = Path.GetFileNameWithoutExtension(executable);
+            return _request.GameRoots.Any(root => !root.IsCollection && Paths.Equals(CatalogPaths.LocalPath(root.Path), install)) &&
+                stem.Equals(Path.GetFileName(install), StringComparison.OrdinalIgnoreCase) ? 3 : 0;
+        }
+
+        private bool IsEngineRenderer(string install, string executable)
+        {
+            string directory = Path.GetDirectoryName(executable)!;
+            string stem = Path.GetFileNameWithoutExtension(executable);
+            string parent = Path.GetFileName(directory);
+            if (Paths.Equals(Path.GetFileName(Path.GetDirectoryName(directory)), "Binaries") &&
+                CatalogPaths.IsWithin(directory, install) &&
+                ((Paths.Equals(parent, "Win64") && stem.EndsWith("-Win64-Shipping", StringComparison.OrdinalIgnoreCase)) ||
+                 (Paths.Equals(parent, "Win32") && stem.EndsWith("-Win32-Shipping", StringComparison.OrdinalIgnoreCase))))
+                return true;
+
+            string data = Path.Combine(directory, stem + "_Data");
+            if (EvidenceFile(Path.Combine(directory, "UnityPlayer.dll")) && Directory.Exists(data) && CheckDirectory(data) &&
+                (EvidenceFile(Path.Combine(data, "globalgamemanagers")) || EvidenceFile(Path.Combine(data, "data.unity3d"))))
+                return true;
+
+            string pack = Path.ChangeExtension(executable, ".pck");
+            try
+            {
+                if (EvidenceFile(pack))
+                {
+                    using var external = File.Open(pack, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+                    if (HasGodotMagic(external)) return true;
+                }
+                using var embedded = File.Open(executable, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+                const int footerSize = sizeof(ulong) + sizeof(uint);
+                if (embedded.Length < footerSize + sizeof(uint)) return false;
+                long footerPosition = embedded.Seek(-footerSize, SeekOrigin.End);
+                Span<byte> footer = stackalloc byte[footerSize];
+                embedded.ReadExactly(footer);
+                if (!footer[sizeof(ulong)..].SequenceEqual("GDPC"u8)) return false;
+                ulong size = BinaryPrimitives.ReadUInt64LittleEndian(footer);
+                if (size < sizeof(uint) || size > (ulong)footerPosition) return false;
+                embedded.Position = footerPosition - (long)size;
+                return HasGodotMagic(embedded);
+            }
+            catch (Exception ex) when (IsAccessError(ex)) { return false; }
+        }
+
+        private static bool HasGodotMagic(Stream stream)
+        {
+            Span<byte> header = stackalloc byte[4];
+            return stream.ReadAtLeast(header, header.Length, throwOnEndOfStream: false) == header.Length &&
+                header.SequenceEqual("GDPC"u8);
+        }
+
+        private bool EvidenceFile(string path) =>
+            !IsExcluded(path) && File.Exists(path) && TryAttributes(path, out var attributes) &&
+            !attributes.HasFlag(FileAttributes.Directory);
 
         private static bool IsRendererCandidate(string path)
         {
@@ -513,6 +656,7 @@ internal static class GameCatalogService
             _cancel.ThrowIfCancellationRequested();
             if (_segmentEntries < _request.MaxEntries && Stopwatch.GetElapsedTime(_segmentStarted) < TimeSpan.FromSeconds(8)) return true;
             _limitReached = true;
+            _installIncomplete = true;
             AddIssue(directory, CatalogIssueKind.Incomplete);
             return false;
         }
@@ -539,22 +683,32 @@ internal static class GameCatalogService
             public string Id { get; } = id;
             public HashSet<string> InstallDirectories { get; } = new(Paths);
             public HashSet<string> Executables { get; } = new(Paths);
+            public HashSet<string> Renderers { get; } = new(Paths);
+            public HashSet<string> DetectedLaunchers { get; } = new(Paths);
 
             public CatalogEntry ToEntry(CatalogRules rules)
             {
                 if (_cached is { } cached && cached.Executables.Length == Executables.Count &&
-                    cached.InstallDirectories.Length == InstallDirectories.Count)
+                    cached.InstallDirectories.Length == InstallDirectories.Count &&
+                    (cached.RendererExecutables?.Length ?? 0) == Renderers.Count &&
+                    cached.DetectedLaunchers.Length == DetectedLaunchers.Count)
                     return cached with { Rules = rules };
                 var ranked = Executables.OrderByDescending(Score).ThenBy(path => path, Paths).ToImmutableArray();
                 string displayName = source == CatalogSource.Folder
                     ? ranked.Take(6).Select(ReadProductName).FirstOrDefault(value => value != null) ?? name
                     : name;
-                return _cached = new(Id, displayName, source, [.. InstallDirectories.Order(Paths)], ranked, rules);
+                return _cached = new(Id, displayName, source, [.. InstallDirectories.Order(Paths)], ranked, rules)
+                {
+                    RendererExecutables = source is CatalogSource.Folder or CatalogSource.Epic ? [.. Renderers.Order(Paths)] : null,
+                    DetectedLaunchers = [.. DetectedLaunchers.Order(Paths)],
+                };
             }
 
             private int Score(string path)
             {
                 string stem = Path.GetFileNameWithoutExtension(path);
+                if (Renderers.Contains(path)) return 4;
+                if (DetectedLaunchers.Contains(path)) return 0;
                 if (stem.Equals(name, StringComparison.OrdinalIgnoreCase)) return 3;
                 if (stem.EndsWith("-Win64-Shipping", StringComparison.OrdinalIgnoreCase)) return 2;
                 return stem.EndsWith("Helper", StringComparison.OrdinalIgnoreCase) ? 0 : 1;

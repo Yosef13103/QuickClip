@@ -21,6 +21,7 @@ internal sealed class GameCatalogIndex
             if (!entry.Rules.LauncherExecutables.IsDefaultOrEmpty)
                 foreach (var raw in entry.Rules.LauncherExecutables)
                     if (CatalogPaths.LocalPath(raw) is { } path) launchers.Add(path);
+            launchers.UnionWith(entry.DetectedLaunchers);
             _launchers[entry.Id] = launchers;
 
             foreach (var path in entry.Executables.Select(CatalogPaths.LocalPath).OfType<string>()
@@ -59,7 +60,7 @@ internal sealed class GameCatalogIndex
         var rules = entry.Rules;
         if (rules.Inclusion == CatalogInclusion.Exclude) return new(CatalogMatchKind.Ignored, entry);
         if (CatalogPaths.IsDiscordProcess(path)) return new(CatalogPaths.DefaultRole(path), entry);
-        if (rules.Classification == AppClassification.Launcher || _launchers[entry.Id].Contains(path))
+        if (rules.Classification == AppClassification.Launcher || candidates.Any(candidate => _launchers[candidate.Id].Contains(path)))
             return new(CatalogMatchKind.Launcher, entry);
         if (rules.Classification == AppClassification.Application) return new(CatalogMatchKind.Application, entry);
         if (rules.Classification == AppClassification.Companion) return new(CatalogMatchKind.Companion, entry);
@@ -67,18 +68,18 @@ internal sealed class GameCatalogIndex
             return new(role, entry);
         if (rules.Activation == CatalogActivation.ForegroundOnly && !isForeground) return new(CatalogMatchKind.Inactive, entry);
         bool game = rules.Classification == AppClassification.Game ||
-            entry.Source is CatalogSource.Manual or CatalogSource.Epic ||
+            entry.Source == CatalogSource.Manual ||
             rules.ApprovedExecutables.Contains(path, StringComparer.OrdinalIgnoreCase) ||
-            entry.Source == CatalogSource.Folder && MatchesInstallName(entry, path);
+            (entry.RendererExecutables is { } renderers
+                ? renderers.Contains(path, StringComparer.OrdinalIgnoreCase)
+                : LegacyRenderer(entry, path));
         return new(game ? CatalogMatchKind.Game : CatalogMatchKind.Candidate, entry);
     }
 
-    // A collection can contain arbitrary EXEs. A default Folder match needs a
-    // renderer whose name corroborates the particular install, beyond root membership.
-    private static bool MatchesInstallName(CatalogEntry entry, string path)
-    {
-        string name = Path.GetFileNameWithoutExtension(path);
-        return entry.InstallDirectories.Any(install => CatalogPaths.IsWithin(path, install) &&
-            name.Equals(Path.GetFileName(install), StringComparison.OrdinalIgnoreCase));
-    }
+    private static bool LegacyRenderer(CatalogEntry entry, string path) =>
+        // Older Epic snapshots contain only the validated manifest executable.
+        entry.Source == CatalogSource.Epic ||
+        entry.Source == CatalogSource.Folder && entry.InstallDirectories.Any(install =>
+            CatalogPaths.IsWithin(path, install) && string.Equals(Path.GetFileNameWithoutExtension(path),
+                Path.GetFileName(install), StringComparison.OrdinalIgnoreCase));
 }

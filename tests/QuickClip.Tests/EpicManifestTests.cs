@@ -55,7 +55,7 @@ public sealed class EpicManifestTests : IDisposable
         Assert.Equal(manifests, result.EpicManifestDirectory);
         var state = GameCatalogRuntime.WithScan(new() { Request = request }, result);
         var game = Assert.Single(GameCatalogRuntime.Rows(state));
-        Assert.Equal((CatalogSource.Epic, "Fixture Title", exe), (game.Source, game.Name, Assert.Single(game.Executables)));
+        Assert.Equal((CatalogSource.Epic, "Fixture Title", exe), (game.Source, game.Name, Assert.Single(game.RendererExecutables!.Value)));
         var index = new GameCatalogIndex(new([game], [], 0, false, default));
         var window = new WindowOwner(new IntPtr(1), 2, 3, 4);
         var sibling = new PassiveGameWindow(window with { ProcessId = 99 }, Path.Combine(bin, "Other.exe"), 200);
@@ -74,6 +74,44 @@ public sealed class EpicManifestTests : IDisposable
         var retained = GameCatalogRuntime.WithScan(state, corrupt);
         Assert.Equal(game.Id, Assert.Single(retained.OfflineIds));
         Assert.Equal(game.Id, Assert.Single(GameCatalogRuntime.Rows(retained)).Id);
+    }
+
+    [Fact]
+    public async Task Epic_bootstrap_does_not_capture_its_window_and_can_activate_the_shipping_renderer()
+    {
+        string manifests = _fixture.CreateSubdirectory("Manifests").FullName;
+        string install = _fixture.CreateSubdirectory("Install").FullName;
+        string launch = Path.Combine(install, "Project.exe");
+        string shipping = Path.Combine(install, "Project", "Binaries", "Win64", "Project-Win64-Shipping.exe");
+        Directory.CreateDirectory(Path.GetDirectoryName(shipping)!);
+        File.WriteAllBytes(launch, [1]);
+        File.WriteAllBytes(shipping, [1]);
+        File.WriteAllBytes(Path.Combine(manifests, "install.item"), Manifest(install, "Project.exe"));
+        var request = new CatalogRequest { DiscoverEpic = true };
+        var scan = await GameCatalogService.CreateScan(request, epicManifests: () => manifests)
+            .ContinueAsync(20, TimeSpan.FromSeconds(5), default);
+        var rows = GameCatalogRuntime.Rows(new() { Request = request, Snapshot = scan });
+        Assert.Equal(shipping, Assert.Single(Assert.Single(rows).RendererExecutables!.Value));
+        var index = new GameCatalogIndex(scan with { Entries = rows });
+        Assert.Equal(CatalogMatchKind.Launcher, index.Match(launch, true).Kind);
+        var owner = new WindowOwner((IntPtr)1, 2, 3, 4);
+        var foreground = GameDetector.Observe(owner with { Handle = (IntPtr)2 }, launch, index.Match(launch, true), true, new HashSet<string>());
+        var selected = GameDetector.ResolveEligibleGame(null, foreground, _ => true, () => [new(owner, shipping, 100)], index.Match);
+        Assert.Equal(owner, selected?.VerifiedTarget?.Owner);
+
+        var capped = await GameCatalogService.CreateScan(request with { MaxDepth = 1 }, epicManifests: () => manifests)
+            .ContinueAsync(20, TimeSpan.FromSeconds(5), default);
+        Assert.True(capped.LimitReached);
+        Assert.Equal(CatalogMatchKind.Candidate, new GameCatalogIndex(capped).Match(launch, true).Kind);
+
+        File.Delete(shipping);
+        string unrelated = Path.Combine(install, "Project", "Binaries", "Win64", "Tool-Win64-Shipping.exe");
+        File.WriteAllBytes(unrelated, [1]);
+        var direct = await GameCatalogService.CreateScan(request, epicManifests: () => manifests)
+            .ContinueAsync(20, TimeSpan.FromSeconds(5), default);
+        var directIndex = new GameCatalogIndex(direct);
+        Assert.Equal(CatalogMatchKind.Game, directIndex.Match(launch, true).Kind);
+        Assert.Equal(CatalogMatchKind.Unknown, directIndex.Match(unrelated, true).Kind);
     }
 
     private static byte[] Manifest(string install, string relative, bool incomplete = false, bool executable = true, string? main = null) =>

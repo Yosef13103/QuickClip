@@ -71,7 +71,11 @@ internal static class GameCatalogRuntime
             {
                 InstallDirectories = [.. entry.InstallDirectories.Where(path => Approved(entry, path))],
                 Executables = [.. entry.Executables.Where(path => Approved(entry, path) &&
-                    CatalogPaths.DefaultRole(path) == CatalogMatchKind.Unknown)],
+                    CatalogPaths.DefaultRole(path) is CatalogMatchKind.Unknown or CatalogMatchKind.Launcher)],
+                RendererExecutables = entry.RendererExecutables is { } renderers
+                    ? [.. renderers.Where(path => Approved(entry, path))]
+                    : null,
+                DetectedLaunchers = [.. entry.DetectedLaunchers.Where(path => Approved(entry, path))],
             }).Where(entry => entry.InstallDirectories.Length > 0);
         var manual = settings.Request.ManualEntries.Select(entry => new CatalogEntry(
             "manual:" + entry.Id.ToString("N"), entry.DisplayName, CatalogSource.Manual, [], entry.Executables, new()));
@@ -119,6 +123,7 @@ internal static class GameCatalogRuntime
             {
                 InstallDirectories = [.. entry.InstallDirectories.Concat(prior.InstallDirectories).Distinct(comparer)],
                 Executables = [.. entry.Executables.Concat(prior.Executables).Distinct(comparer)],
+                DetectedLaunchers = [.. entry.DetectedLaunchers.Concat(prior.DetectedLaunchers).Distinct(comparer)],
             };
         }
     }

@@ -217,11 +217,12 @@ public partial class GamesSettingsView : UserControl
         {
             if (existing is [var match] && paths.All(path => match.Executables.Contains(path, StringComparer.OrdinalIgnoreCase)))
             {
-                if (match.Source == CatalogSource.Folder &&
+                if ((match.Source is CatalogSource.Folder or CatalogSource.Epic) &&
                     match.Rules is { Inclusion: not CatalogInclusion.Exclude, Classification: AppClassification.Automatic } &&
                     paths.Any(path => !match.Rules.ApprovedExecutables.Contains(path, StringComparer.OrdinalIgnoreCase)) &&
                     paths.All(path => CatalogPaths.DefaultRole(path) == CatalogMatchKind.Unknown &&
                         !match.Rules.LauncherExecutables.Contains(path, StringComparer.OrdinalIgnoreCase) &&
+                        !match.DetectedLaunchers.Contains(path, StringComparer.OrdinalIgnoreCase) &&
                         !state.BlockedExecutables.Contains(path, StringComparer.OrdinalIgnoreCase)) &&
                     ModalDialog.ConfirmAction(owner, $"Enable automatic game detection for the selected executable(s) in {match.DisplayName}?",
                         "Game already in the catalog", "Enable detection", "Keep current settings", destructive: false))

@@ -1,5 +1,6 @@
 using System.Text.Json;
 using QuickClip.Discovery;
+using QuickClip.Recording;
 
 namespace QuickClip.Tests;
 
@@ -7,11 +8,61 @@ public sealed class GameCatalogTests : IDisposable
 {
     private readonly DirectoryInfo _fixture = Directory.CreateTempSubdirectory("quickclip-catalog-");
 
+    [Theory]
+    [InlineData("Unreal")]
+    [InlineData("Unity")]
+    [InlineData("Godot")]
+    public async Task Approved_install_activates_only_its_corroborated_nested_renderer(string engine)
+    {
+        string install = At("library", "Store Name");
+        string launcher = FileAt("library", "Store Name", "GameLauncher.exe");
+        string utility = FileAt("library", "Store Name", "Extras", "Utility.exe");
+        string renderer;
+        if (engine == "Unreal")
+            renderer = FileAt("library", "Store Name", "Project", "Binaries", "Win64", "GameCode-Win64-Shipping.exe");
+        else
+        {
+            renderer = FileAt("library", "Store Name", "Bin", "GameCode.exe");
+            if (engine == "Unity")
+            {
+                FileAt("library", "Store Name", "Bin", "UnityPlayer.dll");
+                FileAt("library", "Store Name", "Bin", "GameCode_Data", "globalgamemanagers");
+            }
+            else
+                File.WriteAllBytes(Path.ChangeExtension(renderer, ".pck"), "GDPC"u8.ToArray());
+        }
+        var request = new CatalogRequest { GameRoots = [new(At("library"), IsCollection: true)] };
+        var scan = await GameCatalogService.ScanAsync(request);
+        var state = AppSettings.Parse(new AppSettings { Games = new() { Request = request, Snapshot = scan } }.ToJson()).Games;
+        var rows = GameCatalogRuntime.Rows(state);
+        var entry = Assert.Single(rows.Where(row => row.InstallDirectories.Contains(install)));
+        Assert.Equal(renderer, Assert.Single(entry.RendererExecutables!.Value));
+        Assert.Equal(renderer, entry.Executables[0]);
+        var index = new GameCatalogIndex(scan with { Entries = rows });
+        var owner = new WindowOwner((IntPtr)1, 2, 3, 4);
+        var observed = GameDetector.ResolveEligibleGame(null, null, _ => true,
+            () => [new(owner with { ProcessId = 9 }, launcher, 9000), new(owner with { ProcessId = 8 }, utility, 8000),
+                new(owner, renderer, 100)], index.Match);
+        Assert.Equal(owner, observed?.VerifiedTarget?.Owner);
+        Assert.Null(GameDetector.ResolveEligibleGame(null, null, _ => true,
+            () => [new(owner, launcher, 100), new(owner, utility, 100)], index.Match));
+
+        var display = new MonitorInfo("DISPLAY1", "", 0, 0, 1920, 1080) { CaptureIdentity = "fixture-display" };
+        CaptureActivation? active = null;
+        var lifecycle = new RecordingLifecycle(activation => { active = activation; return null; }, () => active = null);
+        lifecycle.Reconcile(true, null, observed, [display], _ => display.DeviceName, _ => false);
+        Assert.Null(active);
+        lifecycle.Reconcile(true, null, observed, [display], _ => display.DeviceName, _ => true);
+        Assert.Equal(RecordingMode.GameTriggered, lifecycle.Mode);
+        Assert.Equal(owner, active?.GameOwner);
+    }
+
     [Fact]
     public async Task Collection_scan_groups_executables_and_respects_exclusions_and_depth()
     {
         string game = FileAt("library", "Game", "Bin", "Game.exe");
-        string adjacent = FileAt("library", "Game", "SkipMore", "Helper.EXE");
+        string adjacent = FileAt("library", "Game", "SkipMore", "Utility.EXE");
+        FileAt("library", "Game", "Bin", "Helper.exe");
         FileAt("library", "Game", "Skip", "Private.exe");
         FileAt("library", "Game", "_CommonRedist", "Installer.exe");
         FileAt("library", "Game", "Bin", "Nested", "TooDeep.exe");
@@ -32,7 +83,7 @@ public sealed class GameCatalogTests : IDisposable
         Assert.True(first.LimitReached);
         var rows = GameCatalogRuntime.Rows(new() { Request = request, Snapshot = first });
         var index = new GameCatalogIndex(first with { Entries = rows });
-        Assert.Equal(CatalogMatchKind.Game, index.Match(game, false).Kind);
+        Assert.Equal(CatalogMatchKind.Candidate, index.Match(game, false).Kind);
         Assert.Equal(CatalogMatchKind.Candidate, index.Match(adjacent, true).Kind);
 
         var second = await GameCatalogService.ScanAsync(request with

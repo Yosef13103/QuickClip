@@ -47,10 +47,16 @@ internal static class CatalogPaths
         if (IsDiscordProcess(path)) return CatalogMatchKind.Companion;
         string name = Path.GetFileNameWithoutExtension(path).ToUpperInvariant();
         if (name == "ZOOM") return CatalogMatchKind.Companion;
-        if (name is "STEAM" or "EPICGAMESLAUNCHER" or "LAUNCHER" or "GAMELAUNCHER")
+        if (name is "STEAM" or "STEAMWEBHELPER" or "EPICGAMESLAUNCHER" or "LAUNCHER" or "GAMELAUNCHER"
+            or "BATTLE.NET" or "RIOTCLIENTSERVICES" or "EADESKTOP" or "EALAUNCHER" or "GALAXYCLIENT"
+            or "UBISOFTCONNECT" or "ROCKSTAR GAMES LAUNCHER" or "BOOTSTRAPPACKAGEDGAME" or "START_PROTECTED_GAME"
+            || name.EndsWith("LAUNCHER", StringComparison.Ordinal))
             return CatalogMatchKind.Launcher;
         if (name is "7ZA" or "SETUP" or "INSTALL" or "INSTALLER" or "UPDATE" or "UPDATER"
+            or "7Z" or "7ZR" or "UNRAR" or "DXSETUP" or "PREREQUISITES" or "WERFAULT"
             or "CRASHPAD_HANDLER" or "UNITYCRASHHANDLER32" or "UNITYCRASHHANDLER64" or "CRASHREPORTCLIENT"
+            || name.EndsWith("HELPER", StringComparison.Ordinal)
+            || name.EndsWith("CRASHHANDLER", StringComparison.Ordinal)
             || name.StartsWith("UNINS", StringComparison.Ordinal)
             || name.StartsWith("VC_REDIST", StringComparison.Ordinal)
             || name.EndsWith("CRASHREPORTER", StringComparison.Ordinal)

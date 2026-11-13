@@ -31,7 +31,7 @@ public sealed class GameObservationTests
         };
         string install = Path.GetDirectoryName(Path.GetDirectoryName(path))!;
         var discovered = new CatalogEntry(source + ":fixture", "Fixture", Enum.Parse<CatalogSource>(source),
-            [install], [path], new());
+            [install], [path], new()) { RendererExecutables = source == "Folder" ? [path] : null };
         var settings = new GameCatalogSettings
         {
             Request = new()
@@ -77,7 +77,7 @@ public sealed class GameObservationTests
         const string discord = @"C:\Collection\Fixture\Discord.exe";
         const string browser = @"C:\Collection\Fixture\chrome.exe";
         var entry = new CatalogEntry("folder:fixture", "Fixture", CatalogSource.Folder, [install],
-            [renderer, alternate, helper, launcher, discord, browser], new());
+            [renderer, alternate, helper, launcher, discord, browser], new()) { RendererExecutables = [renderer] };
         var state = new GameCatalogSettings
         {
             Request = new()

@@ -46,6 +46,8 @@ internal sealed record CatalogEntry(
     string Id, string Name, CatalogSource Source,
     ImmutableArray<string> InstallDirectories, ImmutableArray<string> Executables, CatalogRules Rules)
 {
+    public ImmutableArray<string>? RendererExecutables { get; init; }
+    public ImmutableArray<string> DetectedLaunchers { get; init; } = [];
     public string DisplayName => string.IsNullOrWhiteSpace(Rules.DisplayName) ? Name : Rules.DisplayName.Trim();
 
     // Confidence in the catalog association, rather than in a particular EXE being the game's renderer.

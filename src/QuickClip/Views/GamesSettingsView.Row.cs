@@ -49,7 +49,8 @@ public partial class GamesSettingsView
             _ when !Entry.Executables.IsEmpty && Entry.Executables.All(path => CatalogPaths.DefaultRole(path) == CatalogMatchKind.Companion) => "Companion app",
             _ when !Entry.Executables.IsEmpty && Entry.Executables.All(path => CatalogPaths.DefaultRole(path) == CatalogMatchKind.Launcher) => "Launcher",
             _ when !Entry.Executables.IsEmpty && Entry.Executables.All(path => CatalogPaths.DefaultRole(path) == CatalogMatchKind.Application) => "Utility",
-            _ => Entry.Source is CatalogSource.Manual or CatalogSource.Epic ? "Game · enabled" : "Game candidate",
+            _ => Entry.Source == CatalogSource.Manual || Entry.RendererExecutables is { IsEmpty: false } ||
+                Entry is { Source: CatalogSource.Epic, RendererExecutables: null } ? "Game · enabled" : "Game candidate",
         };
         private string? Availability => _offline ? "Source unavailable or scan incomplete · games remembered" :
             Entry.Executables.IsEmpty ? "No executable found · check the source and rescan" :
@@ -75,7 +76,8 @@ public partial class GamesSettingsView
         {
             if (IsExcluded || _blocked.Contains(path, StringComparer.OrdinalIgnoreCase)) return " · ignored";
             if (CatalogPaths.IsDiscordProcess(path)) return CatalogPaths.IsDiscordUpdater(path) ? " · ignored" : " · companion";
-            if (Entry.Rules.LauncherExecutables.Contains(path, StringComparer.OrdinalIgnoreCase)) return " · launcher";
+            if (Entry.Rules.LauncherExecutables.Contains(path, StringComparer.OrdinalIgnoreCase) ||
+                Entry.DetectedLaunchers.Contains(path, StringComparer.OrdinalIgnoreCase)) return " · launcher";
             return CatalogPaths.DefaultRole(path) switch
             {
                 CatalogMatchKind.Companion => " · companion",
