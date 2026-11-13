@@ -26,6 +26,12 @@ This plan tracks the owner’s November 13 post-field-test feedback. The working
 
 ## Release readiness
 
+### Personal appearance
+
+- [ ] General theme selection and custom palette. Local strict Personal and Upstream Release builds passed. Automated tests cover all four built-in palettes, JSON validation, settings round-trip and collection of 256 replaced custom background brushes. Verify live General, Gallery, Editor, Player and notification overlay at 100/125/150/200% DPI. Recording FPS and encoder performance require an owner-supervised game session. `--reset-theme` switches to QuickClip Dark while retaining the saved palette.
+- Import loads a draft for local preview. Save applies the palette only after readability checks pass. The JSON format accepts a version, name and the 15 opaque RGB values. Maximum file size is 8 KiB.
+- On integration, keep the dynamic palette references on any XAML changed by scaling PR #30 and notification PR #32. Additional notification overlay elements use the same semantic brushes as the original overlay. Controls that render source video or thumbnail pixels keep their existing media rendering.
+
 - [ ] Each merged PR has strict Personal and Upstream CI at the exact commit.
 - [ ] Owner-supervised game launch/exit, idle-zero-capture, Discord focus, DISPLAY1→DISPLAY2 move, consent boundary, and manual override tests on real Windows 10/11 hardware.
 - [ ] Real playback device and mic isolation, notification tone routing, and replay A/V synchronization tests.

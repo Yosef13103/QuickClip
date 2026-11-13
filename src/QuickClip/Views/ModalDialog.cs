@@ -65,6 +65,8 @@ internal static class ModalDialog
     {
         var host = (Panel)owner.Content;
         var overlay = new Grid { Background = new SolidColorBrush(Color.FromArgb(140, 0, 0, 0)) };
+        if (owner.TryFindResource("ModalScrimBrush") is Brush)
+            overlay.SetResourceReference(Panel.BackgroundProperty, "ModalScrimBrush");
         Panel.SetZIndex(overlay, int.MaxValue);
         if (host is Grid grid)
         {
@@ -84,6 +86,11 @@ internal static class ModalDialog
             BorderBrush = owner.TryFindResource("PanelBrush") as Brush ?? Brushes.Gray,
             Background = owner.TryFindResource("CardBrush") as Brush ?? SystemColors.WindowBrush,
         };
+        if (owner.TryFindResource("BorderBrush") is Brush)
+        {
+            box.SetResourceReference(Border.BorderBrushProperty, "BorderBrush");
+            box.SetResourceReference(Border.BackgroundProperty, "OverlayBackgroundBrush");
+        }
         AutomationProperties.SetName(box, title);
         var body = new StackPanel();
         body.Children.Add(new TextBlock { Text = title, FontSize = 19, FontWeight = FontWeights.SemiBold, TextWrapping = TextWrapping.Wrap });

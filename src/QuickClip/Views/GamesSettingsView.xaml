@@ -69,7 +69,7 @@
                                         <Setter Property="Focusable" Value="True" />
                                         <Style.Triggers>
                                             <DataTrigger Binding="{Binding IsExcluded}" Value="True">
-                                                <Setter Property="Foreground" Value="{StaticResource RecordingRed}" />
+                                                <Setter Property="Foreground" Value="{DynamicResource RecordingRed}" />
                                             </DataTrigger>
                                         </Style.Triggers>
                                     </Style>

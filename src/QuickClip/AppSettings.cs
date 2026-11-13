@@ -85,6 +85,8 @@ internal sealed class AppSettings
     public bool ConfirmClipDeletion { get; set; } = true;
 
     // Window behaviour
+    public string? Theme { get; set; }
+    public string? CustomThemeJson { get; set; }
     public bool MinimizeToTray { get; set; } = true;
     public bool CloseToTray { get; set; } = true;
 

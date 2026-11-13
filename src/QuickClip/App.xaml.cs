@@ -3,6 +3,7 @@ using System.Windows;
 using System.Windows.Threading;
 using QuickClip.Recording;
 using QuickClip.Shell;
+using QuickClip.Themes;
 
 namespace QuickClip;
 
@@ -10,6 +11,7 @@ public partial class App : Application
 {
     /// <summary>Tray icon, hotkey and recorder; alive for the whole session.</summary>
     internal static AppHost? Host { get; private set; }
+    internal ThemeResources Themes { get; } = new();
 
     private bool _quitting;
 
@@ -95,6 +97,9 @@ public partial class App : Application
         }
 
         bool tray = args.Contains("--tray");
+        Themes.Attach(this);
+        Themes.Apply(this, AppSettings.Current);
+        if (AppProfile.IsPersonal && args.Contains("--reset-theme", StringComparer.OrdinalIgnoreCase)) ResetTheme();
         string? file = args.FirstOrDefault(a => !a.StartsWith("--", StringComparison.Ordinal));
 #if DEBUG
         // Test runs: point clips at a scratch folder without touching the saved settings.
@@ -166,6 +171,7 @@ public partial class App : Application
     /// <summary>Arguments from a later launch: a file to edit, or a command for the running QuickClip.</summary>
     private void HandleArgs(string[] args)
     {
+        if (AppProfile.IsPersonal && args.Contains("--reset-theme", StringComparer.OrdinalIgnoreCase)) ResetTheme();
         if (args.Contains("--quit"))
         {
             Quit();
@@ -179,6 +185,14 @@ public partial class App : Application
         string? file = args.FirstOrDefault(a => !a.StartsWith("--", StringComparison.Ordinal));
         if (args.Contains("--tray") && file == null) return;
         ShowMain(file);
+    }
+
+    private void ResetTheme()
+    {
+        var settings = AppSettings.Current;
+        settings.Theme = nameof(ThemeChoice.Dark);
+        Themes.Apply(this, settings);
+        settings.Save();
     }
 
     private bool _renderOffscreen;

@@ -8,7 +8,7 @@
                 <ResourceDictionary Source="/QuickClip;component/Themes/Styles.xaml" />
             </ResourceDictionary.MergedDictionaries>
             <Style x:Key="InventoryCard" TargetType="Border">
-                <Setter Property="Background" Value="{StaticResource PanelBrush}" />
+                <Setter Property="Background" Value="{DynamicResource PanelBrush}" />
                 <Setter Property="CornerRadius" Value="8" />
                 <Setter Property="Padding" Value="16" />
                 <Setter Property="Margin" Value="0,0,12,12" />

@@ -7,7 +7,7 @@
                 <ResourceDictionary Source="/QuickClip;component/Themes/Styles.xaml" />
             </ResourceDictionary.MergedDictionaries>
             <Style x:Key="Card" TargetType="Border">
-                <Setter Property="Background" Value="{StaticResource PanelBrush}" />
+                <Setter Property="Background" Value="{DynamicResource PanelBrush}" />
                 <Setter Property="CornerRadius" Value="8" />
                 <Setter Property="Padding" Value="20,8,20,18" />
                 <Setter Property="Margin" Value="0,0,14,14" />
@@ -25,7 +25,7 @@
                 <Setter Property="Template">
                     <Setter.Value>
                         <ControlTemplate TargetType="CheckBox">
-                            <Border x:Name="MasterCard" Background="#25272B" BorderBrush="#454A51"
+                            <Border x:Name="MasterCard" Background="{DynamicResource ElevatedSurfaceBrush}" BorderBrush="{DynamicResource BorderBrush}"
                                     BorderThickness="1" CornerRadius="9" Padding="15,13">
                                 <Grid>
                                     <Grid.ColumnDefinitions>
@@ -34,30 +34,30 @@
                                     </Grid.ColumnDefinitions>
                                     <StackPanel VerticalAlignment="Center">
                                         <TextBlock Text="Game and desktop capture" FontWeight="SemiBold" FontSize="15"
-                                                   Foreground="#F3F4F6" />
+                                                   Foreground="{DynamicResource PrimaryTextBrush}" />
                                         <TextBlock Text="Enable instant replay for recognized games"
-                                                   FontSize="12" Foreground="#AEB4BC" Margin="0,5,10,0"
+                                                   FontSize="12" Foreground="{DynamicResource SecondaryTextBrush}" Margin="0,5,10,0"
                                                    TextWrapping="Wrap" />
                                     </StackPanel>
                                     <Grid Grid.Column="1" Width="48" Height="26" VerticalAlignment="Center">
-                                        <Border x:Name="SwitchTrack" CornerRadius="13" Background="#4D5561" />
+                                        <Border x:Name="SwitchTrack" CornerRadius="13" Background="{DynamicResource DisabledBrush}" />
                                         <Ellipse x:Name="SwitchThumb" HorizontalAlignment="Left" Margin="4,0,0,0"
-                                                 VerticalAlignment="Center" Width="18" Height="18" Fill="#F5F6F8" />
+                                                 VerticalAlignment="Center" Width="18" Height="18" Fill="{DynamicResource SwitchThumbBrush}" />
                                     </Grid>
                                 </Grid>
                             </Border>
                             <ControlTemplate.Triggers>
                                 <Trigger Property="IsChecked" Value="True">
-                                    <Setter TargetName="SwitchTrack" Property="Background" Value="#168F87" />
+                                    <Setter TargetName="SwitchTrack" Property="Background" Value="{DynamicResource AccentBrush}" />
                                     <Setter TargetName="SwitchThumb" Property="HorizontalAlignment" Value="Right" />
                                     <Setter TargetName="SwitchThumb" Property="Margin" Value="0,0,4,0" />
-                                    <Setter TargetName="MasterCard" Property="BorderBrush" Value="#287E79" />
+                                    <Setter TargetName="MasterCard" Property="BorderBrush" Value="{DynamicResource AccentBrush}" />
                                 </Trigger>
                                 <Trigger Property="IsMouseOver" Value="True">
-                                    <Setter TargetName="MasterCard" Property="Background" Value="#2C3035" />
+                                    <Setter TargetName="MasterCard" Property="Background" Value="{DynamicResource SelectionBrush}" />
                                 </Trigger>
                                 <Trigger Property="IsKeyboardFocused" Value="True">
-                                    <Setter TargetName="MasterCard" Property="BorderBrush" Value="#81CAC3" />
+                                    <Setter TargetName="MasterCard" Property="BorderBrush" Value="{DynamicResource AccentHoverBrush}" />
                                 </Trigger>
                                 <Trigger Property="IsEnabled" Value="False">
                                     <Setter TargetName="MasterCard" Property="Opacity" Value="0.5" />
@@ -92,7 +92,7 @@
             <ColumnDefinition x:Name="SectionsColumn" Width="176" />
             <ColumnDefinition Width="*" />
         </Grid.ColumnDefinitions>
-        <Border Grid.Column="0" Background="{StaticResource RailBrush}" Padding="8,16,8,16">
+        <Border Grid.Column="0" Background="{DynamicResource RailBrush}" Padding="8,16,8,16">
             <!-- Left navigation uses comfortable centered spacing; shrink/scroll when DPI requires. -->
             <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled"
                           VerticalContentAlignment="Center" HorizontalContentAlignment="Stretch">
@@ -101,7 +101,7 @@
                     <StackPanel.Resources>
                         <Style TargetType="RadioButton" BasedOn="{StaticResource {x:Type RadioButton}}">
                             <Setter Property="GroupName" Value="SettingsSection" />
-                            <Setter Property="Foreground" Value="#C9CDD2" />
+                            <Setter Property="Foreground" Value="{DynamicResource SecondaryTextBrush}" />
                             <Setter Property="Cursor" Value="Hand" />
                             <Setter Property="Focusable" Value="True" />
                             <Setter Property="Template">
@@ -126,15 +126,15 @@
                                         </Border>
                                         <ControlTemplate.Triggers>
                                             <Trigger Property="IsMouseOver" Value="True">
-                                                <Setter TargetName="RailButton" Property="Background" Value="#2B2D30" />
+                                                <Setter TargetName="RailButton" Property="Background" Value="{DynamicResource ElevatedSurfaceBrush}" />
                                             </Trigger>
                                             <Trigger Property="IsChecked" Value="True">
-                                                <Setter TargetName="RailButton" Property="Background" Value="#31373B" />
+                                                <Setter TargetName="RailButton" Property="Background" Value="{DynamicResource SelectionBrush}" />
                                                 <Setter TargetName="SelectedAccent" Property="Visibility" Value="Visible" />
-                                                <Setter Property="Foreground" Value="White" />
+                                                <Setter Property="Foreground" Value="{DynamicResource PrimaryTextBrush}" />
                                             </Trigger>
                                             <Trigger Property="IsKeyboardFocused" Value="True">
-                                                <Setter TargetName="RailButton" Property="BorderBrush" Value="#83BEDD" />
+                                                <Setter TargetName="RailButton" Property="BorderBrush" Value="{DynamicResource AccentHoverBrush}" />
                                             </Trigger>
                                         </ControlTemplate.Triggers>
                                     </ControlTemplate>
@@ -293,7 +293,7 @@
                             </WrapPanel>
                         </StackPanel>
                     </Expander>
-                    <Border Background="#14171C" CornerRadius="6" Padding="10" Margin="0,10,0,0">
+                    <Border Background="{DynamicResource BackgroundBrush}" CornerRadius="6" Padding="10" Margin="0,10,0,0">
                         <StackPanel>
                             <TextBlock x:Name="PreviewHeading" Text="Selected monitor preview" FontWeight="SemiBold" />
                             <controls:RecordingAreaPreview x:Name="CropPreview" Height="100" Margin="4,8" Focusable="False" />
@@ -512,6 +512,7 @@
             <Border x:Name="GeneralCard" Style="{StaticResource Card}">
                 <StackPanel>
                     <TextBlock Text="General" Style="{StaticResource CardTitle}" />
+                      <views:AppearanceSettings x:Name="Appearance" Margin="0,10,0,0" />
                     <CheckBox x:Name="StartupCheck" Content="Start QuickClip with Windows (in the tray)" Margin="0,10,0,0" Checked="Changed" Unchecked="Changed" />
                     <CheckBox x:Name="MinTrayCheck" Content="Minimizing hides QuickClip to the tray" Margin="0,8,0,0" Checked="Changed" Unchecked="Changed" />
                     <CheckBox x:Name="CloseTrayCheck" Content="Closing the window keeps QuickClip running in the tray" Margin="0,8,0,0" Checked="Changed" Unchecked="Changed" />

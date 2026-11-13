@@ -31,14 +31,14 @@ internal sealed class ClipNotificationOverlay : IDisposable
         _timer!.Stop();
         _surface!.BeginAnimation(UIElement.OpacityProperty, null);
         _surface.Opacity = 0;
-        var accent = new SolidColorBrush(success ? Color.FromRgb(92, 237, 172) : Color.FromRgb(255, 127, 131));
         _glyph!.Text = success ? "✓" : "!";
-        _glyph.Foreground = accent;
+        string accent = success ? "SuccessBrush" : "DangerBrush";
+        _glyph.SetResourceReference(TextBlock.ForegroundProperty, accent);
         _glyph.FontSize = options.Size * .32;
         _badge!.Width = _badge.Height = options.Size * .68;
         _badge.CornerRadius = new CornerRadius(options.Size);
-        _badge.BorderBrush = accent;
-        _ring!.Stroke = accent;
+        _badge.SetResourceReference(Border.BorderBrushProperty, accent);
+        _ring!.SetResourceReference(Shape.StrokeProperty, accent);
         _ring.RenderTransform = new ScaleTransform();
         _ring.Opacity = 0;
 
@@ -87,9 +87,9 @@ internal sealed class ClipNotificationOverlay : IDisposable
         _badge = new Border
         {
             HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center,
-            Background = new SolidColorBrush(Color.FromArgb(236, 23, 28, 32)),
             BorderThickness = new Thickness(1), Child = _glyph,
         };
+        _badge.SetResourceReference(Border.BackgroundProperty, "OverlayBackgroundBrush");
         _surface.Children.Add(_ring);
         _surface.Children.Add(_badge);
         _window = new Window
