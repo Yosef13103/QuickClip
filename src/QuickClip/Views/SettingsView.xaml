@@ -628,7 +628,6 @@
                                 <Button Content="Choose image / WebM animation…" Margin="0,0,8,0" Click="ChooseOverlayImage_Click" />
                                 <Button x:Name="ClearOverlayImage" Content="Use default icon" Click="ClearOverlayImage_Click" />
                             </WrapPanel>
-                            <CheckBox x:Name="OverlayImageOnly" Content="Show the image by itself" Focusable="True" Click="ClipFeedback_Changed" Margin="0,4,0,0" />
                             <TextBlock x:Name="OverlayImageStatus" Style="{StaticResource Hint}" AutomationProperties.LiveSetting="Polite" />
                             <TextBlock x:Name="OverlayImageError" Foreground="{DynamicResource DangerBrush}"
                                        FontWeight="SemiBold" FontSize="{DynamicResource QuickClipText14}" TextWrapping="Wrap"
