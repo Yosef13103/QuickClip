@@ -63,7 +63,7 @@ internal static class ClipSoundOutput
         finally { Marshal.Release(rawStore); }
     }
 
-    internal static bool Play(string endpointId)
+    internal static bool Play(string? endpointId, int volume = 100)
     {
         try
         {
@@ -71,12 +71,15 @@ internal static class ClipSoundOutput
             try
             {
                 // The MMDevice ID is opaque. Query the endpoint's actual flow before opening it.
-                if (enumerator.GetDevice(endpointId, out var device) < 0) return false;
+                int result = string.IsNullOrWhiteSpace(endpointId)
+                    ? enumerator.GetDefaultAudioEndpoint(CoreAudio.DataFlowRender, CoreAudio.RoleMultimedia, out var device)
+                    : enumerator.GetDevice(endpointId, out device);
+                if (result < 0) return false;
                 try
                 {
                     if (device is not IClipSoundEndpoint endpoint) return false;
                     endpoint.GetDataFlow(out int flow);
-                    return flow == CoreAudio.DataFlowRender && Render(device, Wav.Value);
+                    return flow == CoreAudio.DataFlowRender && Render(device, ScalePcm(Wav.Value, volume));
                 }
                 finally { Marshal.ReleaseComObject(device); }
             }
@@ -87,6 +90,19 @@ internal static class ClipSoundOutput
             Log.Write("Clip sound output unavailable: " + ex.GetType().Name);
             return false;
         }
+    }
+
+    internal static byte[] ScalePcm(byte[] wave, int volume)
+    {
+        volume = Math.Clamp(volume, 0, 100);
+        if (volume == 100) return wave;
+        var scaled = (byte[])wave.Clone();
+        for (int offset = 44; offset + 1 < scaled.Length; offset += 2)
+        {
+            var sample = System.Buffers.Binary.BinaryPrimitives.ReadInt16LittleEndian(wave.AsSpan(offset, 2));
+            System.Buffers.Binary.BinaryPrimitives.WriteInt16LittleEndian(scaled.AsSpan(offset, 2), (short)(sample * volume / 100));
+        }
+        return scaled;
     }
 
     private static bool Render(IMMDevice device, byte[] wav)

@@ -244,7 +244,6 @@ public partial class SettingsView : UserControl
             MinTrayCheck.IsChecked = s.MinimizeToTray;
             CloseTrayCheck.IsChecked = s.CloseToTray;
             SoundCheck.IsChecked = s.ClipSound;
-            IdleSaveNotificationCheck.IsChecked = s.ShowInactiveSaveNotifications;
             ConfirmDeleteCheck.IsChecked = s.ConfirmClipDeletion;
             MotionBlurCheck.IsChecked = s.ShareMotionBlur;
             ShowShareSize();
@@ -461,7 +460,6 @@ public partial class SettingsView : UserControl
         s.MinimizeToTray = MinTrayCheck.IsChecked == true;
         s.CloseToTray = CloseTrayCheck.IsChecked == true;
         s.ClipSound = SoundCheck.IsChecked == true;
-        s.ShowInactiveSaveNotifications = IdleSaveNotificationCheck.IsChecked == true;
         s.ConfirmClipDeletion = ConfirmDeleteCheck.IsChecked == true;
         s.ShareMotionBlur = MotionBlurCheck.IsChecked == true;
         s.Save();
@@ -474,7 +472,7 @@ public partial class SettingsView : UserControl
 
         UpdateEstimates();
         bool recordingSetting = sender != StartupCheck && sender != MinTrayCheck && sender != CloseTrayCheck && sender != SoundCheck
-                                && sender != MotionBlurCheck && sender != ConfirmDeleteCheck && sender != IdleSaveNotificationCheck;
+                                && sender != MotionBlurCheck && sender != ConfirmDeleteCheck;
         if (sender == RecordingCheck || sender == SourceCombo)
         {
             _restartTimer.Stop();
@@ -641,7 +639,7 @@ public partial class SettingsView : UserControl
         button.IsEnabled = false;
         try
         {
-            bool played = await ClipSound.PlayAsync(AppSettings.Current.ClipSoundOutputId);
+            bool played = await ClipSound.PlayAsync(AppSettings.Current.ClipSoundOutputId, AppSettings.Current.ClipSoundVolume);
             if (AppProfile.IsPersonal) SoundOutputStatus.Text = played
                 ? SoundOverlapMessage()
                 : "The selected output could not play the chime.";

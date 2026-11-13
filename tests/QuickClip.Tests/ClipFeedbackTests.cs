@@ -37,6 +37,19 @@ public sealed class ClipFeedbackTests
     }
 
     [Fact]
+    public void Event_preferences_preserve_inactive_default_and_classify_failures()
+    {
+        var settings = AppSettings.Parse(new AppSettings { ClipEvents = new(Saved: false, DesktopStopped: false) }.ToJson());
+        Assert.False(settings.ClipEvents.Allows(ClipEvent.Saved, false));
+        Assert.True(settings.ClipEvents.Allows(ClipEvent.DesktopStarted, false));
+        Assert.False(settings.ClipEvents.Allows(ClipEvent.DesktopStopped, false));
+        Assert.False(settings.ClipEvents.Allows(ClipEvent.Inactive, false));
+        Assert.True(settings.ClipEvents.Allows(ClipEvent.Inactive, true));
+        Assert.False(ClipFeedback.From(settings, ClipEvent.Failed, "Test").Sound);
+        Assert.False(ClipFeedback.From(settings, ClipEvent.Inactive, "Test").Success);
+    }
+
+    [Fact]
     public void Notification_master_suppresses_visual_channels_and_keeps_sound_separate()
     {
         var settings = new AppSettings
@@ -89,6 +102,112 @@ public sealed class ClipFeedbackTests
         Assert.Equal((short)16, BitConverter.ToInt16(wav, 34));
         Assert.Equal("data"u8.ToArray(), wav[36..40]);
         Assert.Equal(wav.Length - 44, BitConverter.ToInt32(wav, 40));
+    }
+
+    [Fact]
+    public void Overlay_display_falls_back_when_disconnected_and_motion_honors_windows()
+    {
+        var main = new ClipNotificationOverlay.Display((IntPtr)1, "Display1", new Rect(0, 0, 1920, 1080), true);
+        var other = new ClipNotificationOverlay.Display((IntPtr)2, "Display2", new Rect(-1280, 0, 1280, 720), false);
+        Assert.Same(other, ClipNotificationOverlay.SelectDisplay([main, other], "display2"));
+        Assert.Same(main, ClipNotificationOverlay.SelectDisplay([main], "Display2"));
+        Assert.Null(ClipNotificationOverlay.SelectDisplay([], "Display2"));
+        Assert.False(ClipNotificationOverlay.MotionEnabled(false, OverlayAnimation.Slide));
+        Assert.False(ClipNotificationOverlay.MotionEnabled(true, OverlayAnimation.None));
+        Assert.True(ClipNotificationOverlay.MotionEnabled(true, OverlayAnimation.Slide));
+    }
+
+    [Fact]
+    public void Chime_gain_preserves_the_asset_and_applies_to_the_pcm_only()
+    {
+        byte[] original = ClipSound.Load();
+        byte[] half = ClipSoundOutput.ScalePcm(original, 50);
+        Assert.Equal(original[..44], half[..44]);
+        Assert.Equal(BitConverter.ToInt16(original, 44) / 2, BitConverter.ToInt16(half, 44));
+        Assert.All(ClipSoundOutput.ScalePcm(original, 0)[44..], sample => Assert.Equal(0, sample));
+        Assert.Same(original, ClipSoundOutput.ScalePcm(original, 100));
+        Assert.Equal(100, AppSettings.Parse("{}").ClipSoundVolume);
+        Assert.Equal(42, AppSettings.Parse(new AppSettings { ClipSoundVolume = 42 }.ToJson()).ClipSoundVolume);
+    }
+
+    private static byte[] GifFixture() => Convert.FromHexString(
+        "47494638396101000100800000FF00000000FF" +
+        "21F904000A0000002C0000000001000100000202440100" +
+        "21F90400190000002C00000000010001000002024C01003B");
+
+    [OptInFact("QUICKCLIP_TEST_NOTIFICATION_WINDOW")]
+    public async Task Opt_in_overlay_replaces_and_cancels_notifications_without_a_frame_timer_left_running()
+    {
+        var done = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var thread = new Thread(() =>
+        {
+            var dispatcher = System.Windows.Threading.Dispatcher.CurrentDispatcher;
+            dispatcher.InvokeAsync(async () =>
+            {
+                try
+                {
+                    using var overlay = new ClipNotificationOverlay();
+                    var displays = ClipNotificationOverlay.Displays();
+                    Assert.NotEmpty(displays);
+                    foreach (var display in displays)
+                    {
+                        await overlay.ShowAsync(new() { Display = display.Device, Seconds = .6, Animation = OverlayAnimation.None }, "First", true);
+                        Assert.True(overlay.IsVisible);
+                        await overlay.ShowAsync(new() { Display = display.Device, Style = OverlayStyle.Detailed,
+                            Seconds = .6, Animation = OverlayAnimation.None }, "Second", false, error: "Fixture");
+                        Assert.True(overlay.IsVisible);
+                        Assert.False(overlay.IsAnimatingImage);
+                        overlay.Hide();
+                        Assert.False(overlay.IsVisible);
+                        Assert.False(overlay.IsAnimatingImage);
+                    }
+                    var folder = Directory.CreateTempSubdirectory("quickclip-gif-window-");
+                    try
+                    {
+                        string path = Path.Combine(folder.FullName, "animated.gif");
+                        File.WriteAllBytes(path, GifFixture());
+                        var options = new ClipOverlayOptions { ImagePath = path, Seconds = .6 };
+                        var pending = overlay.ShowAsync(options, "Cancelled", true);
+                        overlay.Hide();
+                        await pending;
+                        Assert.False(overlay.IsVisible);
+                        await overlay.ShowAsync(options, "Expires", true);
+                        Assert.Equal(SystemParameters.ClientAreaAnimation, overlay.IsAnimatingImage);
+                        await Task.Delay(900);
+                        Assert.False(overlay.IsVisible);
+                        Assert.False(overlay.IsAnimatingImage);
+                    }
+                    finally { folder.Delete(recursive: true); }
+                    done.SetResult();
+                }
+                catch (Exception ex) { done.SetException(ex); }
+                finally { dispatcher.BeginInvokeShutdown(System.Windows.Threading.DispatcherPriority.Background); }
+            });
+            System.Windows.Threading.Dispatcher.Run();
+        }) { IsBackground = true };
+        thread.SetApartmentState(ApartmentState.STA);
+        thread.Start();
+        await done.Task.WaitAsync(TimeSpan.FromSeconds(15));
+    }
+
+    [Fact]
+    public void Gif_uses_individual_frame_delays_and_rejects_corrupt_data()
+    {
+        // A one-pixel, two-frame GIF with 100 and 250 ms delays.
+        byte[] gif = GifFixture();
+        var folder = Directory.CreateTempSubdirectory("quickclip-gif-");
+        try
+        {
+            string path = Path.Combine(folder.FullName, "two-frames.gif");
+            File.WriteAllBytes(path, gif);
+            var image = Assert.IsType<ClipOverlayImage.Asset>(ClipOverlayImage.LoadAsset(path));
+            Assert.Equal(new[] { TimeSpan.FromMilliseconds(100), TimeSpan.FromMilliseconds(250) },
+                image.Frames.Select(frame => frame.Delay));
+            Assert.All(image.Frames, frame => Assert.True(frame.Bitmap.IsFrozen));
+            File.WriteAllBytes(path, gif[..16]);
+            Assert.Null(ClipOverlayImage.LoadAsset(path));
+        }
+        finally { folder.Delete(recursive: true); }
     }
 
     [Fact]
