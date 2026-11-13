@@ -581,6 +581,19 @@
                                 Focusable="True" Click="PlayClipSound_Click" />
                     </WrapPanel>
                     <StackPanel x:Name="SoundOutputPanel" Margin="0,4,0,0">
+                        <TextBlock Text="Clip save sound" Style="{StaticResource FieldLabel}" />
+                        <WrapPanel>
+                            <Button x:Name="ChooseClipSoundButton" Content="Choose custom sound…" Style="{StaticResource TextButton}"
+                                    Click="ChooseClipSound_Click" />
+                            <Button x:Name="ResetClipSoundButton" Content="Use default shutter" Style="{StaticResource TextButton}"
+                                    Click="ResetClipSound_Click" />
+                        </WrapPanel>
+                        <TextBlock x:Name="SelectedClipSound" Style="{StaticResource Hint}" TextWrapping="Wrap"
+                                   AutomationProperties.LiveSetting="Polite" />
+                        <TextBlock x:Name="ClipSoundFileError" Foreground="{DynamicResource DangerBrush}"
+                                   FontWeight="SemiBold" TextWrapping="Wrap" Visibility="Collapsed"
+                                   AutomationProperties.LiveSetting="Assertive" />
+                        <TextBlock Style="{StaticResource Hint}" Text="Supports local WAV, MP3, FLAC, OGG/Opus, M4A, AAC, AIFF; up to 16 MiB. Only the first 3 seconds play." />
                         <DockPanel Margin="0,0,0,4">
                             <TextBlock DockPanel.Dock="Right" Margin="8,0,0,0" VerticalAlignment="Center"
                                        Text="{Binding Value, ElementName=SoundVolumeSlider, StringFormat={}{0:0}%}" />
