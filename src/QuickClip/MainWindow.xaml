@@ -16,7 +16,7 @@
         </ResourceDictionary>
     </Window.Resources>
 
-    <Grid>
+    <Grid Background="{DynamicResource BackgroundBrush}">
         <Grid.ColumnDefinitions>
             <ColumnDefinition x:Name="RailColumn" Width="80" />
             <ColumnDefinition Width="*" />
