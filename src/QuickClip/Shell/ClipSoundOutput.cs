@@ -107,6 +107,7 @@ internal static class ClipSoundOutput
 
     private static bool Render(IMMDevice device, byte[] wav)
     {
+        if (wav.Length < 46 || (wav.Length - 44) % 2 != 0) return false;
         var clientId = typeof(IClipSoundAudioClient).GUID;
         device.Activate(ref clientId, CoreAudio.ClsctxAll, IntPtr.Zero, out object clientObject);
         try
@@ -118,8 +119,7 @@ internal static class ClipSoundOutput
             uint frames = (uint)((wav.Length - 44) / 2); // 16-bit mono
             client.Initialize(0, AutoConvertPcm | NoPersist, 6_000_000, 0, format, IntPtr.Zero);
             client.GetBufferSize(out uint capacity);
-            if (capacity == 0 || wav.Length < 46 || (wav.Length - 44) % 2 != 0) return false;
-            uint frames = (uint)((wav.Length - 44) / 2);
+            if (capacity == 0) return false;
             var renderId = typeof(IClipSoundRenderClient).GUID;
             client.GetService(ref renderId, out object renderObject);
             try
