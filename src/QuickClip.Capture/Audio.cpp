@@ -5,10 +5,12 @@
 #include <audioclient.h>
 #include <audioclientactivationparams.h>
 #include <avrt.h>
+#include <mmreg.h>
 #include <mmdeviceapi.h>
 #include <wrl/client.h>
 #include <wrl/implements.h>
 #include <algorithm>
+#include <bit>
 #include <cmath>
 #include <stdexcept>
 
@@ -565,6 +567,55 @@ namespace qc
         return peak;
     }
 
+    bool CanDownmixLoopback(SourceKind kind, int channels, DWORD mask)
+    {
+        constexpr DWORD knownSpeakers = SPEAKER_TOP_BACK_RIGHT * 2 - 1;
+        return kind == SourceKind::RenderLoopback && channels > Channels &&
+            (mask & ~knownSpeakers) == 0 && std::popcount(mask) == channels;
+    }
+
+    // Based on upstream QuickClip 6f44cc1. Windows orders samples by ascending speaker-mask bit.
+    void DownmixLoopback(const float* samples, uint32_t frames, int channels, DWORD mask, float* stereo)
+    {
+        constexpr float surround = 0.70710678f;
+        float leftGain[18]{}, rightGain[18]{};
+        int channel = 0;
+        while (mask != 0)
+        {
+            DWORD speaker = DWORD{1} << std::countr_zero(mask);
+            mask ^= speaker;
+            float left = 0, right = 0;
+            switch (speaker)
+            {
+            case SPEAKER_FRONT_LEFT: left = 1; break;
+            case SPEAKER_FRONT_RIGHT: right = 1; break;
+            case SPEAKER_LOW_FREQUENCY: left = right = 0.5f; break;
+            case SPEAKER_BACK_LEFT: case SPEAKER_SIDE_LEFT: case SPEAKER_FRONT_LEFT_OF_CENTER:
+            case SPEAKER_TOP_FRONT_LEFT: case SPEAKER_TOP_BACK_LEFT: left = surround; break;
+            case SPEAKER_BACK_RIGHT: case SPEAKER_SIDE_RIGHT: case SPEAKER_FRONT_RIGHT_OF_CENTER:
+            case SPEAKER_TOP_FRONT_RIGHT: case SPEAKER_TOP_BACK_RIGHT: right = surround; break;
+            default: left = right = surround; break;
+            }
+            leftGain[channel] = left;
+            rightGain[channel++] = right;
+        }
+        for (uint32_t f = 0; f < frames; ++f, samples += channels, stereo += Channels)
+        {
+            double left = 0, right = 0;
+            for (int c = 0; c < channels; ++c)
+            {
+                const float sample = samples[c];
+                if (!std::isfinite(sample)) continue;
+                left += static_cast<double>(sample) * leftGain[c];
+                right += static_cast<double>(sample) * rightGain[c];
+            }
+            // Scale both sides only on overload, preserving their balance and unity gain for isolated front channels.
+            const double scale = std::max({ 1.0, std::abs(left), std::abs(right) });
+            stereo[0] = static_cast<float>(left / scale);
+            stereo[1] = static_cast<float>(right / scale);
+        }
+    }
+
     AudioSource::AudioSource(SourceKind kind, DWORD pid, std::wstring deviceId, int rate, std::unique_ptr<AudioSink> sink,
         int track, bool measureSignal)
         : kind_(kind), pid_(pid), deviceId_(std::move(deviceId)), rate_(rate), sink_(std::move(sink)),
@@ -654,13 +705,30 @@ namespace qc
         }
         if (FAILED(hr)) return hr;
 
-        if (track_ >= 0)
+        WAVEFORMATEXTENSIBLE surroundFormat{};
+        if (track_ >= 0 || kind_ == SourceKind::RenderLoopback)
         {
             WAVEFORMATEX* mix = nullptr;
             if (SUCCEEDED(client->GetMixFormat(&mix)) && mix)
             {
                 mixRate_ = static_cast<int>(mix->nSamplesPerSec);
                 mixChannels_ = mix->nChannels;
+                if (kind_ == SourceKind::RenderLoopback && mix->wFormatTag == WAVE_FORMAT_EXTENSIBLE &&
+                    mix->cbSize == sizeof(WAVEFORMATEXTENSIBLE) - sizeof(WAVEFORMATEX))
+                {
+                    const auto& ext = *reinterpret_cast<const WAVEFORMATEXTENSIBLE*>(mix);
+                    // The IEEE float subtype is a standard wave-format GUID.
+                    constexpr GUID ieeeFloat{ WAVE_FORMAT_IEEE_FLOAT, 0, 0x0010, { 0x80, 0, 0, 0xaa, 0, 0x38, 0x9b, 0x71 } };
+                    if (ext.SubFormat == ieeeFloat && mix->wBitsPerSample == 32 && ext.Samples.wValidBitsPerSample == 32 &&
+                        mix->nBlockAlign == mix->nChannels * sizeof(float) &&
+                        CanDownmixLoopback(kind_, mix->nChannels, ext.dwChannelMask))
+                    {
+                        surroundFormat = ext;
+                        // WASAPI can convert the sample rate without collapsing the speaker layout.
+                        surroundFormat.Format.nSamplesPerSec = static_cast<DWORD>(rate_);
+                        surroundFormat.Format.nAvgBytesPerSec = surroundFormat.Format.nSamplesPerSec * surroundFormat.Format.nBlockAlign;
+                    }
+                }
                 CoTaskMemFree(mix);
             }
         }
@@ -676,8 +744,29 @@ namespace qc
         DWORD flags = AUDCLNT_STREAMFLAGS_EVENTCALLBACK | AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM | AUDCLNT_STREAMFLAGS_SRC_DEFAULT_QUALITY;
         if (kind_ != SourceKind::Microphone) flags |= AUDCLNT_STREAMFLAGS_LOOPBACK;
         stage_ = AudioStage::Initialize;
-        hr = client->Initialize(AUDCLNT_SHAREMODE_SHARED, flags, 2000000 /* 200 ms */, 0, &format, nullptr);
+        auto initialize = [&](WAVEFORMATEX& requested) {
+            return client->Initialize(AUDCLNT_SHAREMODE_SHARED, flags, 2000000 /* 200 ms */, 0, &requested, nullptr);
+        };
+        if (surroundFormat.Format.nChannels > Channels)
+        {
+            hr = initialize(surroundFormat.Format);
+            if (FAILED(hr))
+            {
+                Log("audio track %d: surround loopback initialization failed (0x%08lx); retrying stereo on the same endpoint",
+                    track_ + 1, static_cast<unsigned long>(hr));
+                surroundFormat = {};
+                client.Reset();
+                AudioStage stage{};
+                hr = ActivateEndpoint(eRender, deviceId_, client, &stage);
+                stage_ = stage;
+                if (FAILED(hr)) return hr;
+                stage_ = AudioStage::Initialize;
+            }
+        }
+        if (surroundFormat.Format.nChannels == 0) hr = initialize(format);
         if (FAILED(hr)) return hr;
+        const int captureChannels = surroundFormat.Format.nChannels > 0 ? surroundFormat.Format.nChannels : Channels;
+        std::vector<float> stereo;
 
         stage_ = AudioStage::Event;
         ComPtr<IAudioCaptureClient> capture;
@@ -707,7 +796,7 @@ namespace qc
         if (measureSignal_)
             Log("audio track %d (%s) started; endpoint mix %d Hz/%d ch, capture %d Hz/%d ch", track_ + 1,
                 kind_ == SourceKind::Microphone ? "microphone input" : "playback loopback",
-                mixRate_.load(), mixChannels_.load(), rate_, Channels);
+                mixRate_.load(), mixChannels_.load(), rate_, captureChannels);
         bool first = true; // a new stream, which doesn't follow on from the last
 
         HANDLE waits[] = { stop_, ready };
@@ -730,12 +819,18 @@ namespace qc
                     ? NowUs() - static_cast<int64_t>(frames) * 1000000 / rate_
                     : static_cast<int64_t>(qpcPosition / 10);
                 bool silent = (bufferFlags & AUDCLNT_BUFFERFLAGS_SILENT) != 0;
+                const auto* samples = silent ? nullptr : reinterpret_cast<const float*>(data);
+                if (samples && captureChannels > Channels)
+                {
+                    stereo.resize(static_cast<size_t>(frames) * Channels);
+                    DownmixLoopback(samples, frames, captureChannels, surroundFormat.dwChannelMask, stereo.data());
+                    samples = stereo.data();
+                }
                 if (track_ >= 0)
                 {
                     if (measureSignal_)
                     {
-                        float peak = AudioPacketPeak(silent ? nullptr : reinterpret_cast<const float*>(data),
-                            static_cast<size_t>(frames) * Channels);
+                        float peak = AudioPacketPeak(samples, static_cast<size_t>(frames) * Channels);
                         lastPacketPeak_.store(peak, std::memory_order_relaxed);
                         samplePeak = std::max(samplePeak, peak);
                         ++samplePackets;
@@ -744,7 +839,7 @@ namespace qc
                     lastPacketUs_.store(NowUs(), std::memory_order_relaxed);
                 }
                 bool restart = first || (bufferFlags & AUDCLNT_BUFFERFLAGS_DATA_DISCONTINUITY) != 0;
-                sink_->Push(silent ? nullptr : reinterpret_cast<const float*>(data), frames, timeUs, restart);
+                sink_->Push(samples, frames, timeUs, restart);
                 first = false;
                 hr = capture->ReleaseBuffer(frames);
                 if (FAILED(hr)) break;

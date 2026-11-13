@@ -165,6 +165,15 @@ extern "C"
         return count >= 0 && count <= 48000 ? qc::AudioPacketPeak(samples, static_cast<size_t>(count)) : -1;
     }
 
+    // One synthetic frame using the production layout policy and downmix.
+    __declspec(dllexport) int qc_test_loopback_downmix(int flow, const float* input, int channels, DWORD mask, float* stereo)
+    {
+        const auto kind = flow == 0 ? qc::SourceKind::RenderLoopback : qc::SourceKind::Microphone;
+        if (!input || !stereo || !qc::CanDownmixLoopback(kind, channels, mask)) return 0;
+        qc::DownmixLoopback(input, 1, channels, mask, stereo);
+        return 1;
+    }
+
     __declspec(dllexport) void qc_display_diagnostics(wchar_t* text, int length)
     {
         CopyError(qc::DisplayDiagnostics(), text, length);

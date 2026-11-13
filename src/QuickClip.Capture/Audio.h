@@ -162,6 +162,8 @@ namespace qc
     enum class AudioStage { Pending, Com, EndpointLookup, EndpointFlow, Activate, Initialize, Event, Start, Streaming, Read };
 
     float AudioPacketPeak(const float* samples, size_t count);
+    bool CanDownmixLoopback(SourceKind kind, int channels, DWORD mask);
+    void DownmixLoopback(const float* samples, uint32_t frames, int channels, DWORD mask, float* stereo);
 
     /// Whether Windows can capture single apps (Windows 11, or Windows 10 build 20348 and later). Without it,
     /// Desktop records everything the speakers play and the Chat and Music tracks stay silent.
