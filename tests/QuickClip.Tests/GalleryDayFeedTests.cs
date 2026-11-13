@@ -42,6 +42,60 @@ public sealed class GalleryDayFeedTests : IDisposable
         Assert.True(clips[3].IsSelected); // Hidden by the filter, but retained for when it is cleared.
     }
 
+    [Fact]
+    public void Orders_years_and_repeated_fall_back_hour_by_capture_instant()
+    {
+        var zone = TimeZoneInfo.FindSystemTimeZoneById("Eastern Standard Time");
+        var firstHour = Clip(1, new(2026, 11, 1, 5, 45, 0, TimeSpan.Zero), "Game");
+        var repeatedHour = Clip(2, new(2026, 11, 1, 6, 15, 0, TimeSpan.Zero), "Game");
+        var earlierYear = Clip(3, firstHour.Details.CapturedAt.AddYears(-1), "Game");
+
+        var days = GalleryDayFeed.Build([firstHour, earlierYear, repeatedHour], 4, zone)
+            .OfType<GalleryDayHeader>().ToArray();
+        Assert.Equal([2026, 2025], days.Select(day => day.Day.Year));
+        Assert.Equal([repeatedHour, firstHour], days[0].Clips);
+    }
+
+    [Fact]
+    public void Filtered_day_and_folder_selection_leave_hidden_clips_selected_but_out_of_bulk_paths()
+    {
+        var visible = Clip(1, First, "Game A");
+        var hiddenBySearch = Clip(2, First.AddMinutes(-1), "Game A");
+        var hiddenByFolder = Clip(3, First.AddDays(-1), "Game B");
+        ClipItem[] library = [visible, hiddenBySearch, hiddenByFolder];
+        hiddenBySearch.IsSelected = hiddenByFolder.IsSelected = true;
+        var filter = new GalleryClipFilter("1.mp4", "", false, false);
+        var matches = filter.Apply(library, "Game A");
+        var header = Assert.Single(GalleryDayFeed.Build(matches, 4).OfType<GalleryDayHeader>());
+
+        Assert.Equal(false, header.Selection);
+        foreach (var clip in header.Clips) clip.IsSelected = true;
+        header.RefreshSelection();
+        Assert.Equal(true, header.Selection);
+        Assert.Equal([visible.Path], GalleryDayFeed.SelectedPaths(matches));
+        Assert.Equal(3, library.Count(clip => clip.IsSelected));
+
+        foreach (var clip in header.Clips) clip.IsSelected = false;
+        var cleared = (filter with { Search = "" }).Apply(library, "Game A");
+        Assert.Equal([hiddenBySearch.Path], GalleryDayFeed.SelectedPaths(cleared));
+        Assert.Empty(GalleryDayFeed.SelectedPaths(filter.Apply(library, "Game B")));
+        Assert.True(hiddenByFolder.IsSelected);
+    }
+
+    [Fact]
+    public void Legacy_gallery_scan_excludes_nested_moments_archive()
+    {
+        string parent = Directory.CreateDirectory(Path.Combine(_directory, "Parent")).FullName;
+        string archive = Directory.CreateDirectory(Path.Combine(parent, "sTEELsERIES mOMENTS")).FullName;
+        string live = Path.Combine(parent, "visible.mp4");
+        File.WriteAllText(live, "fixture");
+        File.WriteAllText(Path.Combine(archive, "private.mp4"), "fixture");
+
+        Assert.Equal(live, Assert.Single(ClipLibrary.Scan(_directory)).Path);
+        Assert.True(ClipLibrary.IsMomentsPath(Path.Combine(parent, "STEELSERIES MOMENTS. ", "clip.mp4")));
+        Assert.Empty(ClipLibrary.Scan(archive));
+    }
+
     [Theory]
     [InlineData(1, 1)]
     [InlineData(2, 2)]

@@ -250,6 +250,6 @@ public sealed class Mp4InfoTests(MediaFixture media)
 
         var files = ClipLibrary.Scan(root + Path.DirectorySeparatorChar)
             .Select(c => Path.GetFileName(c.Path)).OrderBy(n => n).ToArray();
-        Assert.Equal(["desktop.mp4", "finished.mp4", "game.mp4"], files);
+        Assert.Equal(["desktop.mp4", "game.mp4"], files);
     }
 }

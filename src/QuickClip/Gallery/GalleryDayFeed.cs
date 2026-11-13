@@ -38,14 +38,16 @@ public sealed record GalleryClipRow(IReadOnlyList<ClipItem> Clips);
 
 internal static class GalleryDayFeed
 {
-    internal static List<object> Build(IReadOnlyList<ClipItem> clips, int columns, TimeZoneInfo? zone = null)
+    internal static List<object> Build(IReadOnlyList<ClipItem> clips, int columns, TimeZoneInfo? zone = null, bool favoritesFirst = false)
     {
         zone ??= TimeZoneInfo.Local;
         var rows = new List<object>();
         foreach (var group in clips.GroupBy(clip => TimeZoneInfo.ConvertTime(clip.Details.CapturedAt, zone).Date)
             .OrderByDescending(group => group.Key))
         {
-            var day = group.ToArray();
+            var day = group.OrderByDescending(clip => favoritesFirst && clip.IsFavorite)
+                .ThenByDescending(clip => clip.Details.CapturedAt)
+                .ThenBy(clip => clip.Path, StringComparer.OrdinalIgnoreCase).ToArray();
             rows.Add(new GalleryDayHeader(group.Key, day));
             rows.AddRange(day.Chunk(columns).Select(row => new GalleryClipRow(row)));
         }

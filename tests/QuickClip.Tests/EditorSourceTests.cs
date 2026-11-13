@@ -22,11 +22,11 @@ public sealed class EditorSourceTests : IDisposable
         deletion.Changed += () => states.Add(EditorSource.Check(source, stamp, out _));
         Assert.True((await deletion.DeleteAsync([source], _ => false)).Cancelled);
         Assert.Equal(1, (await deletion.DeleteAsync([other], _ => true)).Deleted);
-        Assert.Equal(1, deletion.Undo().Deleted);
+        Assert.Equal(1, (await deletion.UndoAsync()).Deleted);
         Assert.Equal(0, releases);
         Assert.True(EditorSource.Matches(source, [source.ToUpperInvariant()]));
         Assert.Equal(1, (await deletion.DeleteAsync([source], _ => true)).Deleted);
-        Assert.Equal(1, deletion.Undo().Deleted);
+        Assert.Equal(1, (await deletion.UndoAsync()).Deleted);
         Assert.Equal(1, releases);
         Assert.Equal(new[] { EditorSourceState.Ready, EditorSourceState.Ready, EditorSourceState.Ready,
             EditorSourceState.Missing, EditorSourceState.Ready }, states);

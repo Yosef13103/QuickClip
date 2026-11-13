@@ -82,7 +82,7 @@ public partial class SettingsView
         }
         if (!row.Assign.Focus()) return;
         _capturingHotkey = row;
-        App.Host.SuspendHotkey();
+        App.Host.CaptureShortcut(key => SetHotkey(row, key));
         row.Assign.Content = "Press the keys…";
         row.Status.Text = "Escape cancels. Backspace clears.";
     }
@@ -104,23 +104,22 @@ public partial class SettingsView
         {
             var shortcut = Hotkey.FromWpf(Keyboard.Modifiers, key);
             if (!shortcut.IsEmpty) SetHotkey(row, shortcut);
+            else row.Status.Text = HotkeyMessage(HotkeyRegistration.Invalid);
         }
     }
 
     private void CancelHotkeyCapture()
     {
         _capturingHotkey = null;
-        App.Host?.RegisterHotkey();
+        App.Host?.CaptureShortcut(null);
         ShowHotkeys();
     }
 
     private void SetHotkey(HotkeyRow row, Hotkey shortcut)
     {
-        bool listening = _capturingHotkey != null;
-        _capturingHotkey = null;
         var result = App.Host?.SetHotkey(row.Command, shortcut);
-        // An invalid or duplicate chord is rejected before the host tries registration.
-        if (listening && result is HotkeyRegistration.Invalid or HotkeyRegistration.Duplicate) App.Host?.RegisterHotkey();
+        _capturingHotkey = null;
+        App.Host?.CaptureShortcut(null);
         ShowHotkeys();
         if (result is not (HotkeyRegistration.Registered or HotkeyRegistration.Unbound))
             row.Status.Text = HotkeyMessage(result) + " Previous shortcut kept.";
@@ -131,6 +130,7 @@ public partial class SettingsView
         HotkeyRegistration.Unbound => "No shortcut assigned.",
         HotkeyRegistration.Registered => "Registered with Windows.",
         HotkeyRegistration.Invalid => "Invalid key combination.",
+        HotkeyRegistration.Reserved => "Windows reserves this key combination.",
         HotkeyRegistration.Duplicate => "Another QuickClip command uses this shortcut.",
         HotkeyRegistration.Unavailable => "Windows could not register this shortcut. It may be reserved or in use.",
         _ => "Windows registration status is unavailable.",
