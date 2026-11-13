@@ -347,7 +347,7 @@ internal sealed class AppHost : IDisposable
             NotifySource("No other authorized display", "To switch, authorize another connected display in the manual desktop capture tray menu.");
     }
 
-    private void ToggleManualDesktop(Recorder recorder)
+    internal void ToggleManualDesktop(Recorder recorder)
     {
         if (recorder.ManualDesktopRequested)
         {

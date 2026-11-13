@@ -240,12 +240,16 @@ public partial class MainWindow : Window
         bool enable = ModalDialog.ConfirmAction(this,
             "QuickClip can save the last minute of gameplay when you press the hotkey. " +
             "While waiting for a recognized game, it does not start the video or audio capture engine.\n\n" +
-            "While a game is active, this build records an authorized display, so other visible windows " +
-            "on that display can appear in clips. Display access is configured in Recording settings.\n\n" +
-            "Enable instant replay now?",
+            "QuickClip records the entire display containing an eligible game and follows it to any connected display, including displays connected later. " +
+            "Other apps, messages and notifications visible on that display can appear in clips.\n\n" +
+            "Enable instant replay and allow game display following?",
             "Welcome to QuickClip Personal", "Enable instant replay", "Not now", destructive: false);
         settings.ReplayOnboardingCompleted = true;
-        if (enable) settings.RecordingEnabled = true;
+        if (enable)
+        {
+            settings.AllowGameDisplayFollowing = true;
+            settings.RecordingEnabled = true;
+        }
         settings.Save();
         await Recorder.Instance.ApplySettingsAsync();
         UpdateStatus();

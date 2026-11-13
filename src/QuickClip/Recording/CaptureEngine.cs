@@ -14,6 +14,9 @@ internal static class CaptureEngine
         public NvencSpeed Preset;
         public int Diagnostics;
     }
+    [StructLayout(LayoutKind.Sequential)]
+    private readonly record struct GameWindow(IntPtr Handle, uint Thread, uint Process, long Started);
+
     private const string Dll = "QuickClipCapture.dll";
 
     [StructLayout(LayoutKind.Sequential)]
@@ -154,7 +157,7 @@ internal static class CaptureEngine
     /// <param name="separateMics">Each microphone on its own track, named by its title, instead of all on one Mic track.</param>
     public static string? Start(string monitorDevice, string aspect, int fps, int outWidth, int outHeight, string encoder, int videoKbps,
         int audioKbps, int bufferSeconds, bool cursor, bool splitChat, bool splitMusic, IReadOnlyList<Microphones.Input> mics,
-        bool separateMics, IReadOnlyList<EndpointTrack>? endpointTracks = null, VideoOptions video = default, string? displayIdentity = null)
+        bool separateMics, IReadOnlyList<EndpointTrack>? endpointTracks = null, VideoOptions video = default, string? displayIdentity = null, WindowOwner? game = null)
     {
         var strings = new List<IntPtr>();
         IntPtr Uni(string? s) { var p = s == null ? IntPtr.Zero : Marshal.StringToHGlobalUni(s); strings.Add(p); return p; }
@@ -196,8 +199,11 @@ internal static class CaptureEngine
                     DeviceId = Uni(t.DeviceId),
                     Title = Uni(t.Label),
                 }).ToArray();
-            int started = qc_start_with_display(ref config, tracks, endpointTracks == null ? -1 : tracks.Length,
-                ref video, displayIdentity, error, error.Length);
+            int count = endpointTracks == null ? -1 : tracks.Length;
+            int started = game is { } owner
+                ? qc_start_with_source(ref config, tracks, count, ref video, displayIdentity,
+                    new GameWindow(owner.Handle, owner.ThreadId, owner.ProcessId, owner.Started), error, error.Length)
+                : qc_start_with_display(ref config, tracks, count, ref video, displayIdentity, error, error.Length);
             return started != 0 ? null : new string(error).TrimEnd('\0');
         }
         finally
@@ -207,6 +213,8 @@ internal static class CaptureEngine
     }
 
     public static void Stop() => qc_stop();
+
+    internal static bool VideoSourceLost() => qc_video_source_lost() != 0;
 
     /// <summary>Starts screen capture again (the display changed, so the running capture may have gone stale).</summary>
     public static void RestartVideo() => qc_restart_video();
@@ -319,6 +327,10 @@ internal static class CaptureEngine
         uint[] chat, int chatCount, uint[] music, int musicCount, uint[] subtract, int subtractCount);
     [DllImport(Dll)] private static extern long qc_test_subtract_offset(uint pid);
     [DllImport(Dll)] private static extern void qc_test_play_noise(int milliseconds, float amplitude);
+    [DllImport(Dll, CharSet = CharSet.Unicode)] private static extern int qc_start_with_source(ref Config config,
+        [In] EndpointConfig[] endpoints, int count, ref VideoOptions video, string? displayIdentity, in GameWindow game,
+        [Out] char[] error, int errorLength);
+    [DllImport(Dll)] private static extern int qc_video_source_lost();
     [DllImport(Dll, CharSet = CharSet.Unicode)] private static extern int qc_save(string path, int seconds, string title, [Out] char[] error, int errorLength);
     [DllImport(Dll)] private static extern int qc_get_stats(out Stats stats);
     [DllImport(Dll)] private static extern int qc_get_replay_position(out ReplayPosition position);

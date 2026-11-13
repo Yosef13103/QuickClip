@@ -48,6 +48,13 @@ extern "C"
         int diagnostics;
     };
 
+    struct QcGameWindow
+    {
+        HWND handle;
+        DWORD thread, process;
+        int64_t started;
+    };
+
     struct QcReplayPosition
     {
         int64_t session, eventUs, frameUs, sequence, firstSequence, source;
@@ -151,7 +158,7 @@ namespace qc
     {
     public:
         Engine(const QcConfig& config, bool endpointMode, const QcEndpointTrack* endpoints, int endpointCount,
-            QcVideoOptions video, const wchar_t* displayIdentity);
+            QcVideoOptions video, const wchar_t* displayIdentity, const QcGameWindow* game);
         ~Engine();
         bool Start(std::string& error);
         /// Desktop records everything but `desktopExclude`'s process tree (nothing when that is 0) plus the trees of
@@ -168,6 +175,7 @@ namespace qc
         std::string VideoDiagnostics();
         /// Starts capture again on the next frame (the display changed; the old capture may be stale).
         void RequestRebuild();
+        bool VideoSourceLost() const;
         /// Records `window` (a game's) instead of the monitor, at this size and bitrate; null goes back to the monitor.
         void SetCaptureWindow(HWND window, int width, int height, int videoKbps);
         /// Tests: makes the capture thread hang for this long, as a stuck capture call would.

@@ -115,17 +115,20 @@ internal sealed class Recorder
     {
         _ = Task.Run(() =>
         {
+            RecorderState before, after;
             lock (_gate)
             {
-                if (AppProfile.IsPersonal)
+                before = State;
+                Guid session = _replaySession;
+                if (AppProfile.IsPersonal && _poll != null) ReconcilePersonal();
+                if (IsRunning && _replaySession == session)
                 {
-                    if (_poll != null) ReconcilePersonal();
-                    if (!IsRunning) return;
+                    Log.Write($"Starting screen capture again: {why}");
+                    CaptureEngine.RestartVideo();
                 }
-                else if (!IsRunning) return;
-                Log.Write($"Starting screen capture again: {why}");
-                CaptureEngine.RestartVideo();
+                after = State;
             }
+            if (after != before) StateChanged?.Invoke(after);
         });
     }
 
@@ -185,7 +188,6 @@ internal sealed class Recorder
                 _manualAuthorized.Add(requested);
             }
             _manualDisplay = requested;
-            _lifecycle.Reset();
             ReconcilePersonal();
         }
         StateChanged?.Invoke(State);
@@ -214,8 +216,8 @@ internal sealed class Recorder
     private void ReconcilePersonal()
     {
         var s = AppSettings.Current;
-        _observedGame = s.RecordingEnabled && s.PreferGameWindow
-            ? _games.ObserveEligibleGame(_observedGame, _lifecycle.Mode == RecordingMode.GameTriggered)
+        _observedGame = s.RecordingEnabled
+            ? _games.ObserveEligibleGame(_observedGame, preferRetained: true)
             : null;
 
         if (_manualDisplay != null && !ManualDesktopRequested)
@@ -224,12 +226,10 @@ internal sealed class Recorder
             _manualAuthorized.Clear();
         }
 
-        IReadOnlyList<MonitorInfo>? displays = null;
-        _lifecycle.Reconcile(s.RecordingEnabled, s.PreferGameWindow, s.AuthorizedGameDisplay, _manualDisplay,
-            _observedGame is { } observed ? [observed] : [],
-            identity => FindAuthorizedDisplay(displays ??= Monitors.List(), identity) is { } monitor
-                && (!IsRunning || string.Equals(_sessionDisplay, monitor.DeviceName, StringComparison.OrdinalIgnoreCase)),
-            "No display is authorized for game replay. Use Allow selected display during games in Recording settings.");
+        if (IsRunning && CaptureEngine.VideoSourceLost()) _lifecycle.InvalidateGraph();
+        var displays = s.RecordingEnabled && (_observedGame != null || _manualDisplay != null) ? Monitors.List() : [];
+        _lifecycle.Reconcile(s.RecordingEnabled, _manualDisplay, _observedGame, displays,
+            Monitors.ForWindow, identity => CaptureSourcePolicy.AllowsGameDisplay(s, identity));
         Error = _lifecycle.Error;
 
         if (!IsRunning) return;
@@ -253,11 +253,14 @@ internal sealed class Recorder
             return "The eligible game closed before capture could start.";
         if (activation.GameOwner == null && !ManualDesktopRequested)
             return "Manual desktop permission has expired.";
-        var monitor = FindAuthorizedDisplay(Monitors.List(), activation.Display);
-        if (monitor == null) return "The authorized display is no longer connected.";
-        StartCore(monitor.DeviceName, CaptureEngine.MonitorBackend.MonitorOnlyDuplication, activation.Display);
+        var s = AppSettings.Current;
+        if (game != null && !CaptureSourcePolicy.AllowsGameDisplay(s, activation.Display.Identity))
+            return "The game's entire display needs permission.";
+        StartCore(activation.Display.Device, CaptureEngine.MonitorBackend.MonitorOnlyDuplication,
+            activation.Display.Identity, activation.GameOwner);
         if (!IsRunning) return Error ?? "The selected display could not be recorded.";
-        if (!AppSettings.Current.RecordingEnabled || (game == null ? !ManualDesktopRequested : !Eligible(game)))
+        if (!s.RecordingEnabled || (game == null ? !ManualDesktopRequested :
+            !Eligible(game) || !CaptureSourcePolicy.AllowsGameDisplay(s, activation.Display.Identity)))
         {
             StopGraph();
             return game == null ? "Manual desktop permission has expired."
@@ -265,15 +268,13 @@ internal sealed class Recorder
         }
         _sessionGame = game?.VerifiedTarget?.Game;
         _sessionGameId = activation.GameId;
-        _sessionDisplay = monitor.DeviceName;
+        _sessionDisplay = activation.Display.Device;
         _lastFreshVideo = Environment.TickCount64;
         return null;
     }
 
-    private static MonitorInfo? FindAuthorizedDisplay(IReadOnlyList<MonitorInfo> displays, string identity) =>
-        displays.FirstOrDefault(m => string.Equals(m.CaptureIdentity, identity, StringComparison.OrdinalIgnoreCase));
-
-    private void StartCore(string? display = null, CaptureEngine.MonitorBackend? fixedBackend = null, string? displayIdentity = null)
+    private void StartCore(string? display = null, CaptureEngine.MonitorBackend? fixedBackend = null,
+        string? displayIdentity = null, WindowOwner? gameOwner = null)
     {
         var s = AppSettings.Current;
         Error = null;
@@ -288,7 +289,8 @@ internal sealed class Recorder
             CaptureEngine.Initialize();
             var monitors = Monitors.List();
             var monitor = CaptureSourcePolicy.SelectMonitor(monitors, display ?? s.RecordMonitor, AppProfile.IsPersonal);
-            if (monitor == null)
+            if (monitor == null || (displayIdentity != null &&
+                !string.Equals(monitor.CaptureIdentity, displayIdentity, StringComparison.OrdinalIgnoreCase)))
             {
                 Error = "The selected monitor is unavailable. Choose a connected display to start recording.";
                 return;
@@ -320,7 +322,7 @@ internal sealed class Recorder
 
             Error = CaptureEngine.Start(monitor.DeviceName, aspect, s.RecordFps, scaled ? w : 0, scaled ? h : 0, encoder, VideoKbps,
                 RecordingPresets.AudioKbps, s.BufferSeconds, s.CaptureCursor, splitChat, splitMusic, mics, separateMics, endpoints,
-                new() { Backend = backend, Preset = s.NvencPreset, Diagnostics = s.RecordingDiagnostics ? 1 : 0 }, displayIdentity);
+                new() { Backend = backend, Preset = s.NvencPreset, Diagnostics = s.RecordingDiagnostics ? 1 : 0 }, displayIdentity, gameOwner);
             if (Error != null) return;
             if (mics.Count > 0)
                 Log.Write($"Recording {mics.Count} microphone{(mics.Count == 1 ? "" : "s")}{(separateMics ? " on separate tracks" : "")}: " +
@@ -374,6 +376,7 @@ internal sealed class Recorder
         if (IsRunning) CaptureEngine.Stop();
         IsRunning = false;
         _runningEndpointPlan = [];
+        _replaySession = Guid.Empty;
         _replayMarkers.Clear();
         (_sessionGame, _sessionGameId, _sessionDisplay, _desktopSource) = (null, null, null, null);
         (_chatApps, _musicApps) = ([], []);
@@ -505,7 +508,8 @@ internal sealed class Recorder
     {
         lock (_gate)
         {
-            if (!IsRunning || CaptureEngine.GetReplayPosition() is not { } position) return null;
+            if (!IsRunning || (AppProfile.IsPersonal && !AppSettings.Current.RecordingEnabled) ||
+                CaptureEngine.GetReplayPosition() is not { } position) return null;
             var game = _captureTarget?.Game;
             return _replayMarkers.Add(position, _replaySession, game ?? "Desktop", game ?? _monitorTarget, label);
         }
@@ -551,7 +555,8 @@ internal sealed class Recorder
             string? gameId;
             lock (_gate)
             {
-                if (!IsRunning || CaptureEngine.GetReplayPosition() is not { } active)
+                if (!IsRunning || (AppProfile.IsPersonal && !s.RecordingEnabled) ||
+                    CaptureEngine.GetReplayPosition() is not { } active)
                     throw new IOException("The recording session has ended.");
                 position = active;
                 sessionId = _replaySession;
