@@ -122,6 +122,9 @@
                                         <ListBox x:Name="ExecutableList" ItemsSource="{Binding Executables}" DisplayMemberPath="Label" SelectedValuePath="Path"
                                                  MaxHeight="105" AutomationProperties.Name="Associated executables" />
                                         <WrapPanel>
+                                            <Button Content="Approve selected executable" Click="ApproveExecutable_Click"
+                                                    CommandParameter="{Binding SelectedValue, ElementName=ExecutableList}"
+                                                    Margin="0,4,6,0" />
                                             <Button Content="Toggle launcher role" Click="Launcher_Click"
                                                 CommandParameter="{Binding SelectedValue, ElementName=ExecutableList}"
                                                 HorizontalAlignment="Left" Margin="0,4,6,0">

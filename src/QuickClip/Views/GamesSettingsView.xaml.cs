@@ -304,6 +304,22 @@ public partial class GamesSettingsView : UserControl
             ? launchers.RemoveAll(value => string.Equals(value, path, StringComparison.OrdinalIgnoreCase)) : launchers.Add(path) });
     }
 
+    private void ApproveExecutable_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not Button { DataContext: GameRow row, CommandParameter: string path }) return;
+        if (!row.CanApprove(path))
+        {
+            Status.Text = "This executable cannot be approved. Check its detection status.";
+            return;
+        }
+        if (!ModalDialog.ConfirmAction(Window.GetWindow(this),
+            $"Allow {Path.GetFileName(path)} to trigger replay when it owns the game window?",
+            "Approve game executable", "Approve executable", "Cancel", destructive: false)) return;
+        var rules = row.Entry.Rules;
+        SaveRules(row.Entry, rules with { ApprovedExecutables = rules.ApprovedExecutables.Add(path) });
+        Status.Text = "Executable approved. A verified game window and authorized display are required.";
+    }
+
     private void BlockFile_Click(object sender, RoutedEventArgs e)
     {
         var dialog = new OpenFileDialog { Filter = "Windows executables|*.exe", Multiselect = true,
@@ -380,6 +396,7 @@ public partial class GamesSettingsView : UserControl
         string? selected = (Games.SelectedItem as GameRow)?.Entry.Id;
         var entries = GameCatalogRuntime.Rows(state);
         var offline = state.OfflineIds.ToHashSet(StringComparer.Ordinal);
+        var catalog = new GameCatalogIndex(new(entries, [], 0, false, default), state.BlockedExecutables);
         var existing = _rows.ToDictionary(row => row.Entry.Id, StringComparer.Ordinal);
         var rows = new List<GameRow>(entries.Length);
         bool refilter = false;
@@ -390,7 +407,7 @@ public partial class GamesSettingsView : UserControl
             {
                 if (!existing.TryGetValue(entry.Id, out var row)) row = new(entry);
                 else if (_query.Length > 0) refilter |= row.Matches(_query) != GameRow.Matches(entry, _query);
-                row.Update(entry, offline.Contains(entry.Id), state.BlockedExecutables);
+                row.Update(entry, offline.Contains(entry.Id), state.BlockedExecutables, catalog);
                 rows.Add(row);
             }
             if (_expanded != null && !entries.Any(entry => entry.Id == _expanded.Entry.Id))

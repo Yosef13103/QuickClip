@@ -1,6 +1,7 @@
 using System.Collections.Immutable;
 using System.ComponentModel;
 using QuickClip.Discovery;
+using QuickClip.Recording;
 
 namespace QuickClip.Views;
 
@@ -12,6 +13,7 @@ public partial class GamesSettingsView
         private bool _expanded;
         private ImmutableArray<string> _blocked = [];
         private bool _offline;
+        private GameCatalogIndex? _catalog;
         private string[] _unavailable = [];
 
         public CatalogEntry Entry { get; private set; } = entry;
@@ -44,13 +46,12 @@ public partial class GamesSettingsView
             AppClassification.Application => "Utility",
             AppClassification.Companion => "Companion app",
             AppClassification.Launcher => "Launcher",
-            AppClassification.Game => "Game",
             _ when !Entry.Executables.IsEmpty && Entry.Executables.All(CatalogPaths.IsDiscordProcess) => "Companion app",
             _ when !Entry.Executables.IsEmpty && Entry.Executables.All(path => CatalogPaths.DefaultRole(path) == CatalogMatchKind.Companion) => "Companion app",
             _ when !Entry.Executables.IsEmpty && Entry.Executables.All(path => CatalogPaths.DefaultRole(path) == CatalogMatchKind.Launcher) => "Launcher",
             _ when !Entry.Executables.IsEmpty && Entry.Executables.All(path => CatalogPaths.DefaultRole(path) == CatalogMatchKind.Application) => "Utility",
-            _ => Entry.Source == CatalogSource.Manual || Entry.RendererExecutables is { IsEmpty: false } ||
-                Entry is { Source: CatalogSource.Epic, RendererExecutables: null } ? "Game · enabled" : "Game candidate",
+            _ => Entry.Executables.Any(path => GameDetector.HasCatalogEligibility(Match(path)))
+                ? "Game · enabled" : "Game candidate",
         };
         private string? Availability => _offline ? "Source unavailable or scan incomplete · games remembered" :
             Entry.Executables.IsEmpty ? "No executable found · check the source and rescan" :
@@ -74,28 +75,37 @@ public partial class GamesSettingsView
 
         private string ExecutableRole(string path)
         {
-            if (IsExcluded || _blocked.Contains(path, StringComparer.OrdinalIgnoreCase)) return " · ignored";
-            if (CatalogPaths.IsDiscordProcess(path)) return CatalogPaths.IsDiscordUpdater(path) ? " · ignored" : " · companion";
-            if (Entry.Rules.LauncherExecutables.Contains(path, StringComparer.OrdinalIgnoreCase) ||
-                Entry.DetectedLaunchers.Contains(path, StringComparer.OrdinalIgnoreCase)) return " · launcher";
-            return CatalogPaths.DefaultRole(path) switch
+            var match = Match(path);
+            return match.Kind switch
             {
                 CatalogMatchKind.Companion => " · companion",
                 CatalogMatchKind.Launcher => " · launcher",
                 CatalogMatchKind.Application => " · utility",
-                _ => "",
+                CatalogMatchKind.Ignored => " · ignored",
+                CatalogMatchKind.Ambiguous => " · claimed by multiple catalog entries",
+                _ when _offline => " · source offline or scan incomplete",
+                _ when GameDetector.HasCatalogEligibility(match) => Entry.Rules.Activation == CatalogActivation.ForegroundOnly
+                    ? " · eligible in foreground" : " · eligible with a verified window and display permission",
+                _ => " · no renderer evidence, approve this executable if it owns the game window",
             };
         }
+
+        private CatalogMatch Match(string path) => GameDetector.ApplyProcessRole(path,
+            (_catalog ??= new(new([Entry], [], 0, false, default), _blocked)).Match(path, true));
+
+        internal bool CanApprove(string path) =>
+            Match(path) is { Kind: CatalogMatchKind.Candidate, Entry: { } match } &&
+            match.Id == Entry.Id && match.Source is CatalogSource.Folder or CatalogSource.Epic;
 
         public bool Matches(string query) => Matches(Entry, query);
         public static bool Matches(CatalogEntry entry, string query) =>
             entry.DisplayName.Contains(query, StringComparison.OrdinalIgnoreCase) ||
             entry.Executables.Any(path => path.Contains(query, StringComparison.OrdinalIgnoreCase));
 
-        public void Update(CatalogEntry value, bool offline, ImmutableArray<string> blocked)
+        public void Update(CatalogEntry value, bool offline, ImmutableArray<string> blocked, GameCatalogIndex catalog)
         {
             bool pathsChanged = !Entry.Executables.SequenceEqual(value.Executables);
-            if (!pathsChanged && Entry.Rules == value.Rules && Entry.Name == value.Name && _offline == offline && _blocked == blocked) return;
+            _catalog = catalog;
             _blocked = blocked;
             Entry = value;
             _offline = offline;

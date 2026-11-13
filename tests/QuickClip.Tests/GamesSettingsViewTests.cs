@@ -12,6 +12,26 @@ namespace QuickClip.Tests;
 public sealed class GamesSettingsViewTests
 {
     [Fact]
+    public void Collection_candidate_explains_missing_evidence_and_accepts_only_its_selected_renderer()
+    {
+        const string renderer = @"C:\Collection\osu!lazer\osu!.exe";
+        const string helper = @"C:\Collection\osu!lazer\chrome.exe";
+        var entry = new CatalogEntry("folder:osu", "osu!lazer", CatalogSource.Folder, [@"C:\Collection\osu!lazer"],
+            [renderer, helper], new()) { RendererExecutables = [] };
+        var row = new GamesSettingsView.GameRow(entry);
+        Assert.Contains("no renderer evidence", row.Executables.First().Label);
+        Assert.True(row.CanApprove(renderer));
+        Assert.False(row.CanApprove(helper));
+        var approved = entry with { Rules = new() { ApprovedExecutables = [renderer] } };
+        row.Update(approved, false, [], new(new([approved], [], 0, false, default)));
+        Assert.Contains("Game · enabled", row.Summary);
+        Assert.Contains("verified window and display permission", row.Executables.First().Label);
+        Assert.False(row.CanApprove(renderer));
+        row.Update(approved, true, [], new(new([approved], [], 0, false, default)));
+        Assert.Contains("scan incomplete", row.Executables.First().Label);
+    }
+
+    [Fact]
     public Task Games_page_loads_at_a_typical_scaled_desktop_size() => OnSta(() =>
     {
         var page = new GamesSettingsView();
