@@ -13,7 +13,7 @@ namespace QuickClip;
 /// <summary>App window: navigation between the gallery (and its player), the editor and settings, plus the recording status bar.</summary>
 public partial class MainWindow : Window
 {
-    private static readonly Brush IdleDot = Freeze(new SolidColorBrush(Color.FromRgb(0x66, 0x66, 0x66)));
+    private bool _recordingDot;
 
     private readonly DispatcherTimer _statusTimer;
     private readonly DispatcherTimer _shareHideTimer;
@@ -272,10 +272,15 @@ public partial class MainWindow : Window
         var recorder = Recorder.Instance;
         var s = AppSettings.Current;
         var hotkey = new Hotkey(s.HotkeyModifiers, s.HotkeyKey);
-        if (recorder.IsRunning)
+        bool running = recorder.IsRunning;
+        if (running != _recordingDot)
+        {
+            _recordingDot = running;
+            RecDot.SetResourceReference(System.Windows.Shapes.Shape.FillProperty, running ? "RecordingRed" : "DisabledBrush");
+        }
+        if (running)
         {
             var stats = recorder.Stats();
-            RecDot.Fill = (Brush)FindResource("RecordingRed");
             string buffered = Fmt.CompactDuration(stats.BufferSeconds);
             string hotkeyText = s.HotkeyKey == 0 ? "no save hotkey configured"
                 : App.Host?.HotkeyActive == false ? "the hotkey is unavailable (see Settings)" : $"{hotkey} saves a clip";
@@ -283,7 +288,6 @@ public partial class MainWindow : Window
         }
         else
         {
-            RecDot.Fill = IdleDot;
             RecStatus.Text = recorder.Error != null ? "Not recording: " + recorder.Error
                 : recorder.State.Mode == RecordingMode.Armed ? "Waiting for a game · not capturing"
                 : s.RecordingEnabled ? "Starting…" : "Recording is off — turn on instant replay in Settings";
@@ -430,5 +434,4 @@ public partial class MainWindow : Window
         ((App)Application.Current).OnMainWindowClosed(this);
     }
 
-    private static T Freeze<T>(T f) where T : Freezable { f.Freeze(); return f; }
 }

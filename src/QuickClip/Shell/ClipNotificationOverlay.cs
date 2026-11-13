@@ -67,7 +67,7 @@ internal sealed class ClipNotificationOverlay : IDisposable
         var accent = Application.Current?.TryFindResource(success ? "SuccessBrush" : "DangerBrush") as Brush
             ?? new SolidColorBrush(success ? Color.FromRgb(92, 237, 172) : Color.FromRgb(255, 127, 131));
         _glyph!.Text = success ? "✓" : "!";
-        _glyph.Foreground = accent;
+        _glyph.SetResourceReference(TextBlock.ForegroundProperty, success ? "SuccessBrush" : "DangerBrush");
         _glyph.FontSize = options.Size * .32;
         var icon = (Grid)_badge!.Parent;
         icon.Width = icon.Height = options.Size * .64;
@@ -76,9 +76,9 @@ internal sealed class ClipNotificationOverlay : IDisposable
         _details!.Visibility = badge ? Visibility.Collapsed : Visibility.Visible;
         icon.Margin = badge ? new Thickness(0) : new Thickness(0, 0, 10, 0);
         _badge.CornerRadius = new CornerRadius(options.Size);
-        _badge.BorderBrush = accent;
+        _badge.SetResourceReference(Border.BorderBrushProperty, success ? "SuccessBrush" : "DangerBrush");
         _ring!.BeginAnimation(UIElement.OpacityProperty, null);
-        _ring.Stroke = accent;
+        _ring.SetResourceReference(System.Windows.Shapes.Shape.StrokeProperty, success ? "SuccessBrush" : "DangerBrush");
         _ring.RenderTransform = new ScaleTransform();
         _ring.Opacity = 0;
 
@@ -109,7 +109,7 @@ internal sealed class ClipNotificationOverlay : IDisposable
         {
             _details.Children.Add(new TextBlock
             {
-                Text = line, Foreground = Brushes.White, FontSize = 12,
+                Text = line, Foreground = Application.Current?.TryFindResource("PrimaryTextBrush") as Brush ?? Brushes.White, FontSize = 12,
                 TextTrimming = TextTrimming.CharacterEllipsis, Margin = new Thickness(0, 3, 0, 0),
             });
         }
@@ -184,6 +184,7 @@ internal sealed class ClipNotificationOverlay : IDisposable
             Background = new SolidColorBrush(Color.FromArgb(236, 23, 28, 32)),
             BorderThickness = new Thickness(1), Child = _glyph,
         };
+        _badge.SetResourceReference(Border.BackgroundProperty, "OverlayBackgroundBrush");
         var icon = new Grid { VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 12, 0) };
         icon.Children.Add(_ring);
         icon.Children.Add(_badge);
@@ -200,6 +201,8 @@ internal sealed class ClipNotificationOverlay : IDisposable
             BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(10),
             Padding = new Thickness(12), Child = content,
         };
+        _card.SetResourceReference(Border.BackgroundProperty, "OverlayBackgroundBrush");
+        _card.SetResourceReference(Border.BorderBrushProperty, "BorderBrush");
         _surface.Children.Add(_card);
         _window = new Window
         {

@@ -93,6 +93,8 @@ internal sealed class AppSettings
     // Window behaviour
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public bool? EnableReplayOnStartup { get; set; }
+    public string? Theme { get; set; }
+    public string? CustomThemeJson { get; set; }
     public bool MinimizeToTray { get; set; } = true;
     public bool CloseToTray { get; set; } = true;
 

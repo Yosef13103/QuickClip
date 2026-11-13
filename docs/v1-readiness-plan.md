@@ -59,3 +59,9 @@ Owner feedback: post-PR #18 local field-test notes on November 13, 2026. Exact b
 - [ ] **Bottom status bar should show the actual verified game/process/display source**, not just `Desktop` for every game-triggered display capture. When using Desktop Duplication on a game display, say `Game: Terraria · Display 2 (entire display)` or similar instead of incorrectly implying exclusive game-window capture. On manual override say `Desktop recording · Display 1`. Respect privacy of titles in telemetry/logs.
 
 Keep the work partitioned: prioritize verified mic diagnosis and game display source-following, then finish the rest of the v1 acceptance plan. Never consider green headless CI a substitute for visible WPF and real audio/video hardware checks.
+
+
+### Personalized themes — integration readiness
+
+- Built-in Personal themes (QuickClip Dark, AMOLED, Slate, Light) and schema-validated local JSON palettes are implemented in a separate owner-preview branch, with source changes preserving dynamic font/control scaling and the newer rich notification overlay. Test theme previews, live switching, invalid imports, readable contrast, and high-contrast fallback across the entire Gallery/Editor/Settings/Player; do not assume every hardcoded application color is dynamically themed.
+- Theme preference is stored in the existing Personal profile and can be reset with `--reset-theme`. Imported themes are data-only JSON, never executable XAML or remotely fetched assets. Performance impact needs local UI/memory acceptance.
