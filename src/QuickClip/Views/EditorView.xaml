@@ -69,7 +69,14 @@
 
         <!-- Top bar -->
         <DockPanel x:Name="EditorHeader" Grid.Row="0" Grid.Column="0" Margin="0,0,0,10" LastChildFill="True">
-            <Button DockPanel.Dock="Left" Content="Gallery" Click="Back_Click" Style="{StaticResource TextButton}" />
+            <Button DockPanel.Dock="Left" Click="Back_Click" Style="{StaticResource TextButton}"
+                    AutomationProperties.Name="Back to Gallery" ToolTip="Return to your clips in Gallery">
+                <StackPanel Orientation="Horizontal">
+                    <TextBlock Text="&#xE72B;" FontFamily="{StaticResource IconFont}"
+                               VerticalAlignment="Center" Margin="0,0,7,0" />
+                    <TextBlock Text="Back to Gallery" VerticalAlignment="Center" />
+                </StackPanel>
+            </Button>
             <Button x:Name="ModeButton" DockPanel.Dock="Right" Content="View mode" Click="ToggleMode_Click" Style="{StaticResource TextButton}" />
             <Button x:Name="FullscreenButton" DockPanel.Dock="Right" Content="Fullscreen" Click="ToggleFullscreen_Click"
                     Style="{StaticResource TextButton}" ToolTip="Fullscreen (F11)" />
