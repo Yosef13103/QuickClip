@@ -86,6 +86,8 @@ public partial class EditorView
     private void SetRecoveryInteraction(bool blocked)
     {
         EditorHeader.IsEnabled = TimelineDivider.IsEnabled = InspectorDivider.IsEnabled = !blocked;
+        AllowDrop = !blocked;
+        if (blocked) SoundDropHint.Visibility = Visibility.Collapsed;
     }
 
     private bool VerifySource(string path)
