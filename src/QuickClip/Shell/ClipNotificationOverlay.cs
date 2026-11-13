@@ -82,7 +82,7 @@ internal sealed class ClipNotificationOverlay : IDisposable
         _ring.RenderTransform = new ScaleTransform();
         _ring.Opacity = 0;
 
-        bool imageOnly = options.ImageOnly && _image != null;
+        bool imageOnly = (options.Style == OverlayStyle.ImageOnly || options.ImageOnly) && _image != null;
         if (imageOnly)
         {
             _details.Visibility = Visibility.Collapsed;
