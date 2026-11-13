@@ -138,6 +138,18 @@ public partial class SettingsView
             DesktopStartedNotice.IsChecked == true, DesktopStoppedNotice.IsChecked == true, SaveFailedNotice.IsChecked == true);
         settings.ShowInactiveSaveNotifications = IdleSaveNotificationCheck.IsChecked == true;
         settings.ClipWindowsNotification = mode is ClipNotificationMode.Windows or ClipNotificationMode.Both;
+        bool imageOnlyWithoutMedia = (OverlayStyleCombo.SelectedItem as Choice)?.Value is OverlayStyle.ImageOnly &&
+            string.IsNullOrWhiteSpace(settings.ClipOverlay?.ImagePath);
+        if (imageOnlyWithoutMedia)
+        {
+            OverlayImageError.Text = "Choose a local image or transparent WebM before using Image only.";
+            OverlayImageError.Visibility = Visibility.Visible;
+        }
+        else if (OverlayImageError.Text.StartsWith("Choose a local image", StringComparison.Ordinal))
+        {
+            OverlayImageError.Text = "";
+            OverlayImageError.Visibility = Visibility.Collapsed;
+        }
         UpdateFeedbackVisibility();
         bool validDuration = QuickClip.Shell.ClipOverlayOptions.TryParseSeconds(OverlayDurationBox.Text, out double enteredSeconds);
         OverlayDurationError.Text = validDuration ? "" : "Enter a duration from 0.6 to 60 seconds.";
