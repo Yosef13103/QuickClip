@@ -31,6 +31,11 @@ This plan tracks the owner’s November 13 post-field-test feedback. The working
 - [ ] Personal custom caption uses WPF WindowChrome. Local strict Personal and Upstream Release builds and caption coordinate tests passed on Windows 10 build 19045. Verify mouse resize on all edges and corners, keyboard and system menu, maximize/restore work area, tray behavior, and editor/player fullscreen on real windows. Verify mixed-monitor DPI at 100/125/150/200% and Windows 11 Snap Layouts. The existing minimum window size can limit narrow snap zones. Launch with `--system-chrome` to use the Windows frame. High Contrast starts with the Windows frame.
 - Interface and text scaling are owned by PR #30. Keep its separate app resource values and fullscreen rail restoration. The caption height and resize border use Windows-scaled DIPs. Recheck minimum dimensions and caption control reachability after integrating #30.
 
+### Personal Windows startup
+
+- [ ] General settings control Windows startup and startup replay independently. Local strict Personal and Upstream Release builds passed. Tests use a disposable registry key and verify the separate Personal value, exact installed-path comparison, consent default and settings round-trip. The Personal Inno Setup script compiled against a fixture. Live install, sign-in, path relocation, uninstall, and side-by-side launch still require a disposable Windows user or VM.
+- `scripts/package.ps1 -Personal` creates the per-user installer and portable zip under `publish-personal`. Only the installed Release executable using its default profile can register for Windows startup. A Windows sign-in launch follows the minimize-to-tray setting. Existing users keep their saved replay behavior until they set an explicit startup preference.
+
 - [ ] Each merged PR has strict Personal and Upstream CI at the exact commit.
 - [ ] Owner-supervised game launch/exit, idle-zero-capture, Discord focus, DISPLAY1→DISPLAY2 move, consent boundary, and manual override tests on real Windows 10/11 hardware.
 - [ ] Real playback device and mic isolation, notification tone routing, and replay A/V synchronization tests.

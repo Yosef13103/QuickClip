@@ -2,6 +2,7 @@ bin/
 obj/
 deps/
 publish/
+publish-personal/
 test-media/
 .vs/
 .idea/

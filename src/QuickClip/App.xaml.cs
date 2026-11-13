@@ -95,7 +95,13 @@ public partial class App : Application
             return;
         }
 
-        bool tray = args.Contains("--tray");
+        bool windowsStartup = AppProfile.IsPersonal && args.Contains(Shell.Startup.WindowsStartupArgument);
+        if (windowsStartup && (!Shell.Startup.IsAvailable || !Shell.Startup.IsEnabled))
+        {
+            Shutdown(0);
+            return;
+        }
+        bool tray = args.Contains("--tray") || (windowsStartup && AppSettings.Current.MinimizeToTray);
         string? file = args.FirstOrDefault(a => !a.StartsWith("--", StringComparison.Ordinal));
 #if DEBUG
         // Test runs: point clips at a scratch folder without touching the saved settings.
@@ -126,6 +132,7 @@ public partial class App : Application
             return;
         }
 #endif
+        if (!AppSettings.SaveDisabled) AppSettings.Current.ApplyReplayStartupPreference();
         Host = new AppHost();
         Host.OpenRequested += () => ShowMain();
         Host.UpdateRequested += () =>
@@ -167,6 +174,7 @@ public partial class App : Application
     /// <summary>Arguments from a later launch: a file to edit, or a command for the running QuickClip.</summary>
     private void HandleArgs(string[] args)
     {
+        if (AppProfile.IsPersonal && args.Contains(Shell.Startup.WindowsStartupArgument)) return;
         if (args.Contains("--quit"))
         {
             Quit();

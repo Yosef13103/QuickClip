@@ -36,9 +36,10 @@ public partial class SettingsView : UserControl
         if (AppProfile.IsPersonal)
         {
             SettingsContent.MaxWidth = 920;
-            PersonalProfileHint.Text = $"{AppProfile.Name} {AppVersion.Current.Display} · Updates, Windows startup and Explorer integration are disabled.";
+            PersonalProfileHint.Text = $"{AppProfile.Name} {AppVersion.Current.Display} · Updates and Explorer integration are disabled.";
             PersonalProfileHint.Visibility = Visibility.Visible;
-            UpdatesCard.Visibility = StartupCheck.Visibility = ShellCheck.Visibility = Visibility.Collapsed;
+            UpdatesCard.Visibility = ShellCheck.Visibility = Visibility.Collapsed;
+            StartupHint.Visibility = ReplayAtStartupCheck.Visibility = ReplayAtStartupHint.Visibility = Visibility.Visible;
             ApplySettingsSection(RecordingSection);
         }
         // Recording settings restart the recorder; wait until the user stops fiddling.
@@ -242,7 +243,7 @@ public partial class SettingsView : UserControl
             Select(MicTracksCombo, s.SeparateMicTracks);
 
             ShowHotkeys();
-            StartupCheck.IsChecked = Startup.IsEnabled;
+            RefreshStartupSettings(s);
             MinTrayCheck.IsChecked = s.MinimizeToTray;
             CloseTrayCheck.IsChecked = s.CloseToTray;
             SoundCheck.IsChecked = s.ClipSound;
@@ -466,14 +467,8 @@ public partial class SettingsView : UserControl
         s.ShareMotionBlur = MotionBlurCheck.IsChecked == true;
         s.Save();
 
-        if (sender == StartupCheck)
-        {
-            try { Startup.Set(StartupCheck.IsChecked == true); }
-            catch (Exception ex) { Log.Write("Changing startup failed: " + ex.Message); }
-        }
-
         UpdateEstimates();
-        bool recordingSetting = sender != StartupCheck && sender != MinTrayCheck && sender != CloseTrayCheck && sender != SoundCheck
+        bool recordingSetting = sender != MinTrayCheck && sender != CloseTrayCheck && sender != SoundCheck
                                 && sender != MotionBlurCheck && sender != ConfirmDeleteCheck;
         if (sender == RecordingCheck || sender == SourceCombo)
         {
