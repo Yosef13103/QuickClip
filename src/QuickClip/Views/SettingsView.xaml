@@ -316,6 +316,16 @@
                         <TextBlock x:Name="BufferText" Grid.Column="2" VerticalAlignment="Center" Margin="14,0,0,0" FontWeight="SemiBold" />
                     </Grid>
                     <TextBlock x:Name="RamText" Margin="160,4,0,0" Style="{StaticResource Hint}" />
+                    <Border x:Name="ResourceSummary" Background="{StaticResource CardBrush}" CornerRadius="6" Padding="12" Margin="0,10,0,0">
+                        <StackPanel>
+                            <TextBlock Text="Recording summary" FontWeight="SemiBold" />
+                            <TextBlock x:Name="ResourceVideo" Style="{StaticResource Hint}" Margin="0,4,0,0" />
+                            <TextBlock x:Name="ResourceSize" Style="{StaticResource Hint}" Margin="0,4,0,0" />
+                            <TextBlock x:Name="ResourceSpace" Text="{Binding Text, ElementName=RecordingFreeSpace}" Style="{StaticResource Hint}" Margin="0,4,0,0" />
+                            <TextBlock Text="{Binding Text, ElementName=FolderBox}" ToolTip="{Binding Text, ElementName=FolderBox}"
+                                       Style="{StaticResource Hint}" Margin="0,2,0,0" />
+                        </StackPanel>
+                    </Border>
 
                     <Grid Style="{StaticResource Row}">
                         <Grid.ColumnDefinitions>
