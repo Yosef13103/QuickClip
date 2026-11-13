@@ -635,6 +635,18 @@ public partial class SettingsView : UserControl
         }
     }
 
-    private void PlayClipSound_Click(object sender, RoutedEventArgs e) => ClipSound.Play();
+    private async void PlayClipSound_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not Button button) return;
+        button.IsEnabled = false;
+        try
+        {
+            bool played = await ClipSound.PlayAsync(AppSettings.Current.ClipSoundOutputId);
+            if (AppProfile.IsPersonal) SoundOutputStatus.Text = played
+                ? SoundOverlapMessage()
+                : "The selected output could not play the chime.";
+        }
+        finally { button.IsEnabled = true; }
+    }
 
 }

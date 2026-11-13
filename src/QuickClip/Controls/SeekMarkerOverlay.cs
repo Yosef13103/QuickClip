@@ -36,9 +36,7 @@ public sealed class SeekMarkerOverlay : FrameworkElement
         var mark = _markers.Where(marker => double.IsFinite(marker.Seconds) && marker.Seconds >= 0 && marker.Seconds < _duration)
             .MinBy(marker => Math.Abs(Position(marker.Seconds, _duration, ActualWidth) - location.X));
         if (mark == null || Math.Abs(Position(mark.Seconds, _duration, ActualWidth) - location.X) > 9) return null;
-        return mark.SessionId.HasValue && mark.Label == "Clip saved"
-            ? $"Previous clip saved · {mark.TimeText}\nThis marks the save request. The sound plays after the file is ready."
-            : $"{mark.Label} · {mark.TimeText}";
+        return mark.TimelineTooltip;
     }
 
     protected override void OnRender(DrawingContext dc)

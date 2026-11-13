@@ -11,6 +11,10 @@ internal sealed record ClipBookmark(double Seconds, string Label)
     public Guid? SessionId { get; init; }
 
     internal string TimeText => Fmt.Time(Seconds);
+
+    internal string TimelineTooltip => SessionId.HasValue && Label == "Clip saved"
+        ? $"Previous clip saved · {TimeText}\nThis marks the save request. The sound plays after the file is ready."
+        : $"{Label} · {TimeText}";
 }
 
 internal sealed record ClipDetails(DateTimeOffset CapturedAt, string Game, string? Title = null)

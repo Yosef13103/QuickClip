@@ -176,7 +176,7 @@ public sealed class TimelineBar : FrameworkElement
         if (_drag == Drag.None)
         {
             var mark = BookmarkAt(s, position);
-            if (!Equals(ToolTip, mark?.Label)) ToolTip = mark?.Label;
+            if (!Equals(ToolTip, mark?.TimelineTooltip)) ToolTip = mark?.TimelineTooltip;
             double xi = s.TimeToX(s.In, w), xo = s.TimeToX(s.Out, w);
             Cursor = mark == null && (Math.Abs(x - xi) <= 7 || Math.Abs(x - xo) <= 7) ? Cursors.SizeWE : Cursors.Hand;
             return;

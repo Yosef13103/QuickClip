@@ -521,6 +521,12 @@
                         <Button Style="{StaticResource TextButton}" Content="Play" ToolTip="Hear the sound" Margin="10,0,0,0" VerticalAlignment="Center"
                                 Click="PlayClipSound_Click" />
                     </StackPanel>
+                    <StackPanel x:Name="SoundOutputPanel" Margin="0,4,0,0">
+                        <TextBlock Text="Clip sound output" Style="{StaticResource FieldLabel}" />
+                        <ComboBox x:Name="SoundOutputCombo" AutomationProperties.Name="Clip sound output"
+                                  DropDownOpened="SoundOutputOpened" SelectionChanged="SoundOutputChanged" />
+                        <TextBlock x:Name="SoundOutputStatus" Style="{StaticResource Hint}" Margin="0,4,0,0" AutomationProperties.LiveSetting="Polite" />
+                    </StackPanel>
                     <CheckBox x:Name="WindowsClipNotificationCheck" Content="Show Windows clip notifications"
                               Margin="0,8,0,0" Click="ClipFeedback_Changed" />
                     <CheckBox x:Name="IdleSaveNotificationCheck"

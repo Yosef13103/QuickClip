@@ -11,11 +11,52 @@ public partial class SettingsView
     private static readonly string[] AnchorLabels =
         ["Top-left", "Top-center", "Top-right", "Middle-left", "Center", "Middle-right", "Bottom-left", "Bottom-center", "Bottom-right"];
 
+    private bool _loadingSoundOutputs;
+
+    private void SoundOutputOpened(object sender, EventArgs e) => LoadSoundOutputs();
+
+    private void LoadSoundOutputs()
+    {
+        var choices = new List<Choice> { new("Windows default output", "") };
+        try { choices.AddRange(ClipSoundOutput.Devices().Select(device => new Choice(device.Name, device.Id))); }
+        catch (System.Runtime.InteropServices.COMException) { }
+        string selected = AppSettings.Current.ClipSoundOutputId ?? "";
+        bool missing = !choices.Any(choice => string.Equals((string)choice.Value, selected, StringComparison.OrdinalIgnoreCase));
+        if (missing) choices.Add(new("Saved output (unavailable)", selected));
+        _loadingSoundOutputs = true;
+        try
+        {
+            SoundOutputCombo.ItemsSource = choices;
+            SoundOutputCombo.SelectedItem = choices.First(choice =>
+                string.Equals((string)choice.Value, selected, StringComparison.OrdinalIgnoreCase));
+        }
+        finally { _loadingSoundOutputs = false; }
+        SoundOutputStatus.Text = missing ? "Reconnect the saved output or choose another device." : SoundOverlapMessage();
+    }
+
+    private void SoundOutputChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (_loading || _loadingSoundOutputs || SoundOutputCombo.SelectedItem is not Choice { Value: string id }) return;
+        AppSettings.Current.ClipSoundOutputId = id.Length == 0 ? null : id;
+        AppSettings.Current.Save();
+        SoundOutputStatus.Text = SoundOverlapMessage();
+    }
+
+    private static string SoundOverlapMessage()
+    {
+        var settings = AppSettings.Current;
+        return settings.ClipSoundOutputId is { Length: > 0 } id && settings.UseAudioEndpoints &&
+            (settings.EndpointTracks ?? []).Any(track => track.Enabled && track.Flow == Recording.EndpointFlow.Playback &&
+                string.Equals(track.DeviceId, id, StringComparison.OrdinalIgnoreCase))
+            ? "A recording track also captures this output. The chime may be audible in a later clip." : "";
+    }
+
     private void LoadClipFeedback(AppSettings settings)
     {
         WindowsClipNotificationCheck.IsChecked = settings.ClipWindowsNotification;
-        ClipOverlayPanel.Visibility = AppProfile.IsPersonal ? Visibility.Visible : Visibility.Collapsed;
+        SoundOutputPanel.Visibility = ClipOverlayPanel.Visibility = AppProfile.IsPersonal ? Visibility.Visible : Visibility.Collapsed;
         if (!AppProfile.IsPersonal) return;
+        LoadSoundOutputs();
         var options = (settings.ClipOverlay ?? new()).Normalize();
         WindowsClipNotificationCheck.Visibility = Visibility.Collapsed;
         ClipNotificationsCheck.IsChecked = settings.ClipNotificationsEnabled && (settings.ClipWindowsNotification || options.Enabled);

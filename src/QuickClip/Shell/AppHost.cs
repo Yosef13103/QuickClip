@@ -191,7 +191,7 @@ internal sealed class AppHost : IDisposable
         if (_window == null) return;
         var settings = AppSettings.Current;
         var feedback = ClipFeedback.From(settings, success, message);
-        if (feedback.Sound) ClipSound.Play();
+        if (feedback.Sound) _ = ClipSound.PlayAsync(settings.ClipSoundOutputId);
         if (feedback.Windows) Notify(feedback.Title, feedback.Message);
         if (feedback.Overlay)
         {

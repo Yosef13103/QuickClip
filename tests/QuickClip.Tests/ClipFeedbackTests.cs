@@ -51,6 +51,47 @@ public sealed class ClipFeedbackTests
     }
 
     [Fact]
+    public void Chime_output_round_trips_and_a_missing_endpoint_never_uses_the_default()
+    {
+        const string missing = "{0.0.0.00000000}.{00000000-0000-0000-0000-000000000000}";
+        var settings = AppSettings.Parse(new AppSettings { ClipSoundOutputId = missing }.ToJson());
+        Assert.Null(AppSettings.Parse("{}").ClipSoundOutputId);
+        Assert.Equal(missing, settings.ClipSoundOutputId);
+        Assert.False(ClipSoundOutput.Play(missing));
+    }
+
+    [Fact]
+    public void Opt_in_chime_plays_on_an_active_render_endpoint()
+    {
+        if (Environment.GetEnvironmentVariable("QUICKCLIP_TEST_CHIME_OUTPUT") != "1") return;
+        var device = Assert.Single(ClipSoundOutput.Devices().Take(1));
+        Assert.False(string.IsNullOrWhiteSpace(device.Name));
+        Assert.True(ClipSoundOutput.Play(device.Id));
+    }
+
+    [Fact]
+    public void Previous_save_tooltip_explains_request_time_without_relabeling_user_bookmarks()
+    {
+        var mark = new Gallery.ClipBookmark(12, "Clip saved");
+        Assert.StartsWith("Clip saved", mark.TimelineTooltip);
+        Assert.Contains("save request", (mark with { SessionId = Guid.NewGuid() }).TimelineTooltip);
+    }
+
+    [Fact]
+    public void Bundled_chime_has_the_pcm_layout_used_by_the_render_client()
+    {
+        var wav = ClipSound.Load();
+        Assert.Equal("RIFF"u8.ToArray(), wav[..4]);
+        Assert.Equal("WAVEfmt "u8.ToArray(), wav[8..16]);
+        Assert.Equal(16, BitConverter.ToInt32(wav, 16));
+        Assert.Equal((short)1, BitConverter.ToInt16(wav, 20)); // PCM
+        Assert.Equal((short)1, BitConverter.ToInt16(wav, 22)); // mono
+        Assert.Equal((short)16, BitConverter.ToInt16(wav, 34));
+        Assert.Equal("data"u8.ToArray(), wav[36..40]);
+        Assert.Equal(wav.Length - 44, BitConverter.ToInt32(wav, 40));
+    }
+
+    [Fact]
     public void Details_honor_each_field_and_rectangular_overlay_aligns_inside_display()
     {
         var details = new ClipNotificationDetails("Game", "Title", "Display", "30 s");
