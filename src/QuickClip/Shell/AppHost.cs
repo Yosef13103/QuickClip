@@ -148,8 +148,8 @@ internal sealed class AppHost : IDisposable
             ? receipt.GameContext is { } game ? $"{game} · {receipt.SourceDescription}" : receipt.SourceDescription
             : receipt.Game;
         string message = receipt.ActualVideoDuration is { } actual
-            ? $"{label} · {Fmt.CompactDuration(actual.TotalSeconds)} saved" : label;
-        if (receipt.IsShorterThanRequested == true) message += $" ({Fmt.CompactDuration(receipt.RequestedSeconds)} requested)";
+            ? $"{label} · {Fmt.FriendlyDuration(actual.TotalSeconds)} saved" : label;
+        if (receipt.IsShorterThanRequested == true) message += " · Only the available buffer was saved";
         var details = new ClipNotificationDetails(receipt.GameContext, Path.GetFileNameWithoutExtension(receipt.Path),
             source,
             receipt.ActualVideoDuration is { } duration ? Fmt.CompactDuration(duration.TotalSeconds) : null,
