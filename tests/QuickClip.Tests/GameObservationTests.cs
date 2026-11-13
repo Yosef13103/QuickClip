@@ -96,6 +96,22 @@ public sealed class GameObservationTests
     }
 
     [Fact]
+    public void Explicit_non_game_roles_survive_foreground_observation()
+    {
+        foreach (var (path, kind) in new[]
+        {
+            (@"C:\Apps\Discord.exe", CatalogMatchKind.Ignored),
+            (@"C:\Apps\Zoom.exe", CatalogMatchKind.Companion),
+            (@"C:\Apps\steam.exe", CatalogMatchKind.Launcher),
+        })
+        {
+            var observed = GameDetector.Observe(Original, path, new(kind, Entry), true, Known);
+            Assert.Equal(kind, observed.Match.Kind);
+            Assert.Null(observed.Target);
+        }
+    }
+
+    [Fact]
     public void Disabling_is_persisted_without_erasing_the_entry()
     {
         var id = Guid.NewGuid();

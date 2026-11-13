@@ -149,10 +149,13 @@ internal sealed partial class GameDetector
         bool fullscreen, IReadOnlySet<string> known, Func<string>? title = null)
     {
         string executable = Path.GetFileNameWithoutExtension(path);
-        if (CatalogPaths.IsDiscordProcess(path)) match = new(CatalogMatchKind.Companion);
-        else if (NotGames.Contains(executable)) match = new(CatalogMatchKind.Application, match.Entry);
-        else if (executable.ToLowerInvariant() is "launcher" or "gamelauncher" or "updater" or "update")
-            match = new(CatalogMatchKind.Launcher, match.Entry);
+        if (match.Kind is CatalogMatchKind.Unknown or CatalogMatchKind.Game or CatalogMatchKind.Candidate)
+        {
+            if (CatalogPaths.IsDiscordProcess(path)) match = new(CatalogMatchKind.Companion, match.Entry);
+            else if (NotGames.Contains(executable)) match = new(CatalogMatchKind.Application, match.Entry);
+            else if (executable.ToLowerInvariant() is "launcher" or "gamelauncher" or "updater" or "update")
+                match = new(CatalogMatchKind.Launcher, match.Entry);
+        }
 
         bool recognized = match.Kind == CatalogMatchKind.Game
             || match.Kind == CatalogMatchKind.Candidate && match.Entry?.Source != CatalogSource.Epic && (known.Contains(path) || fullscreen ||
