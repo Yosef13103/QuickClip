@@ -688,7 +688,7 @@ public partial class SettingsView : UserControl
         button.IsEnabled = false;
         try
         {
-            bool played = await ClipSound.PlayAsync(AppSettings.Current.ClipSoundOutputId, AppSettings.Current.ClipSoundVolume);
+            bool played = await ClipSound.PlayAsync(AppSettings.Current.ClipSoundOutputId, AppSettings.Current.ClipSoundVolume, AppSettings.Current.ClipSoundFilePath);
             if (AppProfile.IsPersonal) SoundOutputStatus.Text = played
                 ? SoundOverlapMessage()
                 : "The selected output could not play the chime.";

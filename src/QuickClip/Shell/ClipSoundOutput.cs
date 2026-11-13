@@ -63,7 +63,7 @@ internal static class ClipSoundOutput
         finally { Marshal.Release(rawStore); }
     }
 
-    internal static bool Play(string? endpointId, int volume = 100)
+    internal static bool Play(string? endpointId, int volume = 100, byte[]? customWav = null)
     {
         try
         {
@@ -79,7 +79,7 @@ internal static class ClipSoundOutput
                 {
                     if (device is not IClipSoundEndpoint endpoint) return false;
                     endpoint.GetDataFlow(out int flow);
-                    return flow == CoreAudio.DataFlowRender && Render(device, ScalePcm(Wav.Value, volume));
+                    return flow == CoreAudio.DataFlowRender && Render(device, ScalePcm(customWav ?? Wav.Value, volume));
                 }
                 finally { Marshal.ReleaseComObject(device); }
             }
@@ -107,6 +107,7 @@ internal static class ClipSoundOutput
 
     private static bool Render(IMMDevice device, byte[] wav)
     {
+        if (wav.Length < 46 || (wav.Length - 44) % 2 != 0) return false;
         var clientId = typeof(IClipSoundAudioClient).GUID;
         device.Activate(ref clientId, CoreAudio.ClsctxAll, IntPtr.Zero, out object clientObject);
         try
@@ -118,31 +119,45 @@ internal static class ClipSoundOutput
             uint frames = (uint)((wav.Length - 44) / 2); // 16-bit mono
             client.Initialize(0, AutoConvertPcm | NoPersist, 6_000_000, 0, format, IntPtr.Zero);
             client.GetBufferSize(out uint capacity);
-            if (frames > capacity) return false;
+            if (capacity == 0) return false;
             var renderId = typeof(IClipSoundRenderClient).GUID;
             client.GetService(ref renderId, out object renderObject);
             try
             {
                 var render = (IClipSoundRenderClient)renderObject;
-                render.GetBuffer(frames, out var buffer);
-                Marshal.Copy(wav, 44, buffer, wav.Length - 44);
-                render.ReleaseBuffer(frames, 0);
-                client.Start();
+                uint written = 0;
+                bool started = false;
                 try
                 {
                     var deadline = Stopwatch.StartNew();
-                    client.GetStreamLatency(out long latency);
-                    while (deadline.Elapsed < TimeSpan.FromSeconds(2))
+                    while (deadline.Elapsed < TimeSpan.FromSeconds(ClipSoundCustom.MaxSeconds + 3))
                     {
-                        Thread.Sleep(15);
                         client.GetCurrentPadding(out uint pending);
-                        if (pending != 0) continue;
-                        Thread.Sleep(TimeSpan.FromTicks(Math.Clamp(latency, 0, TimeSpan.TicksPerSecond)));
-                        return true;
+                        if (written == frames && pending == 0)
+                        {
+                            client.GetStreamLatency(out long latency);
+                            Thread.Sleep(TimeSpan.FromTicks(Math.Clamp(latency, 0, TimeSpan.TicksPerSecond)));
+                            return true;
+                        }
+                        uint free = capacity > pending ? capacity - pending : 0;
+                        if (written < frames && free > 0)
+                        {
+                            uint chunk = Math.Min(free, frames - written);
+                            render.GetBuffer(chunk, out var buffer);
+                            Marshal.Copy(wav, 44 + (int)(written * 2), buffer, checked((int)chunk * 2));
+                            render.ReleaseBuffer(chunk, 0);
+                            written += chunk;
+                        }
+                        if (!started)
+                        {
+                            client.Start();
+                            started = true;
+                        }
+                        Thread.Sleep(10);
                     }
                     return false;
                 }
-                finally { client.Stop(); }
+                finally { if (started) client.Stop(); }
             }
             finally { Marshal.ReleaseComObject(renderObject); }
         }
