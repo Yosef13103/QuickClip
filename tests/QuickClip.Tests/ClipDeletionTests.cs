@@ -21,15 +21,22 @@ public sealed class ClipDeletionTests
     {
         int prompts = 0, recycled = 0;
         var deletion = new ClipDeletion(_ => { recycled++; return true; }, (_, _) => null, (_, _) => { });
-        string first = Path.GetFullPath("a.mp4"), second = Path.GetFullPath("b.mp4");
-        var result = await deletion.DeleteAsync([first, second, first], paths =>
+        var directory = Directory.CreateTempSubdirectory("qc-batch-");
+        try
         {
-            prompts++;
-            Assert.Equal(2, paths.Count);
-            Assert.True(deletion.DeleteAsync([first], _ => throw new Exception("reentrant confirmation")).GetAwaiter().GetResult().Cancelled);
-            return true;
-        });
-        Assert.Equal((2, 0, 1, 2), (result.Deleted, result.Failed, prompts, recycled));
+            string first = Path.Combine(directory.FullName, "a.mp4"), second = Path.Combine(directory.FullName, "b.mp4");
+            File.WriteAllText(first, "fixture");
+            File.WriteAllText(second, "fixture");
+            var result = await deletion.DeleteAsync([first, second, first], paths =>
+            {
+                prompts++;
+                Assert.Equal(2, paths.Count);
+                Assert.True(deletion.DeleteAsync([first], _ => throw new Exception("reentrant confirmation")).GetAwaiter().GetResult().Cancelled);
+                return true;
+            });
+            Assert.Equal((2, 0, 1, 2), (result.Deleted, result.Failed, prompts, recycled));
+        }
+        finally { directory.Delete(recursive: true); }
     }
 
     [Fact]
@@ -45,15 +52,46 @@ public sealed class ClipDeletionTests
                 (entry, destination) => File.Move(entry.DataPath, destination));
             Assert.Equal(1, (await deletion.DeleteAsync([original], _ => true)).Deleted);
             File.WriteAllText(original, "replacement");
-            Assert.Equal(1, deletion.Undo().Failed);
+            Assert.Equal(1, (await deletion.UndoAsync()).Failed);
             Assert.Equal("replacement", File.ReadAllText(original));
             Assert.True(deletion.CanUndo);
             File.Delete(original);
-            Assert.Equal(1, deletion.Undo().Deleted);
+            Assert.Equal(1, (await deletion.UndoAsync()).Deleted);
             Assert.Equal("original", File.ReadAllText(original));
             Assert.False(deletion.CanUndo);
         }
         finally { Directory.Delete(dir, true); }
+    }
+
+    [Fact]
+    public async Task Partial_batch_uses_an_sta_worker_and_retains_recovery_for_successes()
+    {
+        var directory = Directory.CreateTempSubdirectory("qc-partial-recycle-");
+        try
+        {
+            string clip = Path.Combine(directory.FullName, "clip.mp4");
+            string bin = Path.Combine(directory.FullName, "recycled.mp4");
+            string missing = Path.Combine(directory.FullName, "missing.mp4");
+            var archive = directory.CreateSubdirectory("SteelSeries Moments");
+            string protectedClip = Path.Combine(archive.FullName, "protected.mp4");
+            File.WriteAllText(clip, "fixture");
+            File.WriteAllText(protectedClip, "archive");
+            var deletion = new ClipDeletion(path =>
+            {
+                Assert.Equal(ApartmentState.STA, Thread.CurrentThread.GetApartmentState());
+                Assert.Equal(clip, path);
+                File.Move(path, bin);
+                return true;
+            }, (_, _) => new(bin, bin + ".note", clip, DateTime.UtcNow),
+                (receipt, destination) => File.Move(receipt.DataPath, destination));
+
+            var result = await deletion.DeleteAsync([clip, missing, protectedClip], paths => paths.Count == 3);
+            Assert.Equal((1, 2), (result.Deleted, result.Failed));
+            Assert.Equal("archive", File.ReadAllText(protectedClip));
+            Assert.Equal(1, (await deletion.UndoAsync()).Deleted);
+            Assert.Equal("fixture", File.ReadAllText(clip));
+        }
+        finally { directory.Delete(recursive: true); }
     }
 
     [Theory]

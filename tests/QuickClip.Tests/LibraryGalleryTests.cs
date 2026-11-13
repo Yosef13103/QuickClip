@@ -5,6 +5,36 @@ namespace QuickClip.Tests;
 
 public sealed class LibraryGalleryTests
 {
+    [Theory]
+    [InlineData(120)]
+    [InlineData(1200)]
+    public async Task Synthetic_library_reuses_headers_after_incremental_refresh(int count)
+    {
+        var scratch = Directory.CreateTempSubdirectory("qc-large-gallery-");
+        try
+        {
+            string root = scratch.CreateSubdirectory("clips").FullName;
+            string[] folders = Enumerable.Range(0, 10)
+                .Select(i => Directory.CreateDirectory(Path.Combine(root, $"Game {i}")).FullName).ToArray();
+            for (int i = 0; i < count; i++)
+                File.WriteAllText(Path.Combine(folders[i % folders.Length], $"clip-{i:D4}.mp4"), "fixture");
+
+            int probes = 0;
+            var index = new LibraryIndex(Path.Combine(scratch.FullName, "library.sqlite3"), null,
+                _ => { Interlocked.Increment(ref probes); return new ClipHeader(4, null); });
+            var id = await index.RegisterRootAsync(root);
+            await index.ReconcileAsync(id);
+            Assert.Equal(count, (await index.ReadGalleryAsync(id, null)).Count);
+            Assert.Equal(count, probes);
+
+            File.WriteAllText(Path.Combine(folders[0], "new.mp4"), "new fixture");
+            await index.ReconcileAsync(id);
+            Assert.Equal(count + 1, (await index.ReadGalleryAsync(id, null)).Count);
+            Assert.Equal(count + 1, probes);
+        }
+        finally { scratch.Delete(recursive: true); }
+    }
+
     [Fact]
     public async Task Imports_legacy_annotations_and_saves_one_revision_without_changing_media()
     {
