@@ -179,19 +179,19 @@ public partial class SettingsView
 
     private async void ChooseOverlayImage_Click(object sender, RoutedEventArgs e)
     {
-        var dialog = new OpenFileDialog { Title = "Choose an overlay image", Filter = "Images|*.png;*.jpg;*.jpeg;*.gif;*.webp" };
+        var dialog = new OpenFileDialog { Title = "Choose an overlay image", Filter = "Overlay animations and images|*.png;*.jpg;*.jpeg;*.gif;*.webp;*.webm" };
         if (dialog.ShowDialog(Window.GetWindow(this)) != true) return;
         var button = (Button)sender;
         button.IsEnabled = false;
         ClearOverlayImage.IsEnabled = false;
         try
         {
-            var asset = await Task.Run(() => ClipOverlayImage.LoadAsset(dialog.FileName));
+            var asset = await ClipOverlayImage.LoadAssetAsync(dialog.FileName);
             if (asset == null)
             {
                 ShowOverlayImage(AppSettings.Current.ClipOverlay?.ImagePath);
-                OverlayImageError.Text = "Could not load this image. Use a valid PNG, JPG, WebP or GIF up to 16 MiB " +
-                    "and 2048 × 2048 pixels. GIFs are limited to 120 frames and 32 million source frame-pixels.";
+                OverlayImageError.Text = "Could not load this asset. Use a local PNG, JPG, WebP, GIF or transparent WebM up to 16 MiB. " +
+                    "GIFs allow 120 frames / 32 million source frame-pixels; WebM needs VP8/VP9 alpha and must be 30 seconds or shorter.";
                 OverlayImageError.Visibility = Visibility.Visible;
                 return;
             }
