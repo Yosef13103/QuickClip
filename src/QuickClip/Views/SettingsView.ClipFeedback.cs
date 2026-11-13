@@ -85,7 +85,8 @@ public partial class SettingsView
         SaveFailedNotice.IsChecked = events.Failed;
         IdleSaveNotificationCheck.IsChecked = settings.ShowInactiveSaveNotifications;
         SetChoices(OverlayStyleCombo, [new("Compact banner", OverlayStyle.Compact), new("QuickClip badge", OverlayStyle.Badge),
-            new("Detailed banner", OverlayStyle.Detailed)], options.Style);
+            new("Detailed banner", OverlayStyle.Detailed), new("Image only (transparent)", OverlayStyle.ImageOnly)],
+            options.ImageOnly ? OverlayStyle.ImageOnly : options.Style);
         OverlayShowResolution.IsChecked = options.ShowResolution;
         OverlayShowFps.IsChecked = options.ShowFps;
         OverlayShowHotkey.IsChecked = options.ShowHotkey;
@@ -93,7 +94,6 @@ public partial class SettingsView
         OverlayShowGame.IsChecked = options.ShowGame;
         OverlayShowSource.IsChecked = options.ShowSource;
         OverlayShowDuration.IsChecked = options.ShowDuration;
-        OverlayImageOnly.IsChecked = options.ImageOnly;
         ShowOverlayImage(options.ImagePath);
         UpdateFeedbackVisibility();
         var displays = new List<Choice> { new("Main display", "") };
@@ -153,7 +153,7 @@ public partial class SettingsView
                 ShowResolution = OverlayShowResolution.IsChecked == true,
                 ShowFps = OverlayShowFps.IsChecked == true,
                 ShowHotkey = OverlayShowHotkey.IsChecked == true,
-                ImageOnly = OverlayImageOnly.IsChecked == true,
+                ImageOnly = (OverlayStyleCombo.SelectedItem as Choice)?.Value is OverlayStyle.ImageOnly,
                 ShowTitle = OverlayShowTitle.IsChecked == true,
                 ShowGame = OverlayShowGame.IsChecked == true,
                 ShowSource = OverlayShowSource.IsChecked == true,
@@ -220,7 +220,7 @@ public partial class SettingsView
 
     private void ShowOverlayImage(string? path)
     {
-        ClearOverlayImage.IsEnabled = OverlayImageOnly.IsEnabled = path != null;
+        ClearOverlayImage.IsEnabled = path != null;
         OverlayImageStatus.Text = path == null ? "" : Path.GetFileName(path);
     }
 
