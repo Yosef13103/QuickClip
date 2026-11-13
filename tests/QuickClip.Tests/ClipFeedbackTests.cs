@@ -134,7 +134,7 @@ public sealed class ClipFeedbackTests
     public void All_enabled_compact_fields_remain_available_for_wrapping()
     {
         var details = new ClipNotificationDetails("Game", "Title", "Display", "60 seconds", "3440 x 1440", "144 FPS", "Alt+F10");
-        Assert.Equal(7, details.Lines(new ClipOverlayOptions { Style = OverlayStyle.Compact }).Length);
+        Assert.Equal(7, details.Lines(new ClipOverlayOptions { Style = OverlayStyle.Compact, ShowHotkey = true }).Length);
     }
 
     [Fact]
