@@ -31,6 +31,9 @@ internal sealed class AppHost : IDisposable
     private bool _updateBalloonShown;   // the last notification was about an update
     private AppVersion? _notifiedVersion;
     private readonly ClipNotificationOverlay _clipOverlay = new();
+    private readonly CaptureAlertPolicy _captureAlerts = new();
+    private DispatcherTimer? _captureAlertTimer;
+    private RecorderState? _recentRecorderState;
     private Dictionary<RecordingCommand, HotkeyRegistration> _hotkeys = [];
     private readonly Dictionary<RecordingCommand, int> _hotkeyIds = [];
     private Action<Hotkey>? _captureHotkey;
@@ -129,14 +132,14 @@ internal sealed class AppHost : IDisposable
         return result;
     }
 
-    public void Notify(string title, string text)
+    public void Notify(string title, string text, bool warning = false)
     {
         _updateBalloonShown = _sourceBalloonShown = false;
         var data = NewIconData();
         data.uFlags = NIF_INFO;
         data.szInfoTitle = Truncate(title, 63);
         data.szInfo = Truncate(text, 255);
-        data.dwInfoFlags = NIIF_INFO | NIIF_NOSOUND;
+        data.dwInfoFlags = (warning ? NIIF_WARNING : NIIF_INFO) | NIIF_NOSOUND;
         Shell_NotifyIcon(NIM_MODIFY, ref data);
     }
 
@@ -179,11 +182,65 @@ internal sealed class AppHost : IDisposable
                 _desktopRunning = desktopRunning;
             }
         }
-        string? guidance = state.Running ? null : SourceGuidance(state.Error);
+        // Critical recorder failures use independently enabled Windows and overlay channels.
+        // The old source guidance path is Windows-only, so exclude these modes to avoid
+        // an early Windows toast and a later duplicate critical alert.
+        _recentRecorderState = state;
+        if (state.Mode == RecordingMode.Recovering)
+        {
+            _captureAlertTimer ??= new DispatcherTimer(TimeSpan.FromSeconds(5),
+                DispatcherPriority.Background, (_, _) =>
+                {
+                    if (_recentRecorderState is { } latest) CheckCaptureAlert(latest);
+                }, _dispatcher);
+            _captureAlertTimer.Start();
+        }
+        else _captureAlertTimer?.Stop();
+
+        CheckCaptureAlert(state);
+        string? guidance = state.Mode is RecordingMode.Recovering or RecordingMode.Unavailable
+            ? null : state.Running ? null : SourceGuidance(state.Error);
         if (guidance != null && guidance != _lastSourceGuidance)
             NotifySource("Recording source unavailable", guidance);
         _lastSourceGuidance = guidance;
     });
+
+    private void CheckCaptureAlert(RecorderState state)
+    {
+        var alert = _captureAlerts.Observe(state.Mode, AppSettings.Current.RecordingEnabled,
+            !string.IsNullOrWhiteSpace(state.Error));
+        if (alert == CaptureAlertKind.None || _window == null) return;
+        bool interrupted = alert == CaptureAlertKind.Interrupted;
+        string title = interrupted ? "QuickClip recording interrupted" : "QuickClip recording restored";
+        string message = interrupted
+            ? state.Mode == RecordingMode.Recovering
+                ? "Capture has not recovered. QuickClip is retrying automatically. The old replay buffer was cleared. " + state.Error
+                : "QuickClip cannot record the authorized source. Check Recording settings. " + state.Error
+            : "Capture resumed on an authorized display with a fresh replay buffer.";
+
+        var channels = CriticalCaptureChannels(AppSettings.Current);
+        if (channels.Windows) Notify(title, message, warning: interrupted);
+        if (channels.Overlay)
+        {
+            // A serious warning must stay readable even when the normal clip style is
+            // image-only, a custom GIF/WebM, or a tiny short-duration badge.
+            var options = CriticalCaptureOverlayOptions(AppSettings.Current.ClipOverlay);
+            _ = ShowOverlayAsync(options, title, !interrupted, null, message);
+        }
+    }
+
+    internal static (bool Windows, bool Overlay) CriticalCaptureChannels(AppSettings settings) =>
+        (settings.ClipWindowsNotification, settings.ClipOverlay?.Enabled == true);
+
+    internal static ClipOverlayOptions CriticalCaptureOverlayOptions(ClipOverlayOptions? configured) =>
+        (configured ?? new()) with
+        {
+            Style = OverlayStyle.Compact,
+            ImageOnly = false,
+            ImagePath = null,
+            Seconds = 5,
+            Size = Math.Max(72, (configured ?? new()).Size),
+        };
 
     private static string? SourceGuidance(string? error) => AppProfile.IsPersonal ? error : null;
 
@@ -235,6 +292,7 @@ internal sealed class AppHost : IDisposable
         var r = Recorder.Instance;
         string state = r.IsRunning
             ? (ActiveSaveShortcut is { } shortcut ? $"Recording · {shortcut} saves a clip" : "Recording")
+            : r.State.Mode == RecordingMode.Recovering ? "Recovering display capture…"
             : r.Error != null ? "Not recording: " + r.Error
             : r.State.Mode == RecordingMode.Armed ? "Waiting for a game · not capturing" : "Recording is off";
         var data = NewIconData();
@@ -423,6 +481,7 @@ internal sealed class AppHost : IDisposable
     {
         if (AppProfile.IsPersonal) GameCatalogRuntime.Discovery.Dispose();
         _updateTimer?.Stop();
+        _captureAlertTimer?.Stop();
         Recorder.Instance.ReplaySaved -= OnReplaySaved;
         Recorder.Instance.SaveFailed -= OnSaveFailed;
         Recorder.Instance.StateChanged -= OnRecorderState;
@@ -441,7 +500,7 @@ internal sealed class AppHost : IDisposable
 
     private const int NIM_ADD = 0, NIM_MODIFY = 1, NIM_DELETE = 2, NIM_SETVERSION = 4;
     private const int NIF_MESSAGE = 0x1, NIF_ICON = 0x2, NIF_TIP = 0x4, NIF_INFO = 0x10, NIF_SHOWTIP = 0x80;
-    private const int NIIF_INFO = 0x1, NIIF_NOSOUND = 0x10;
+    private const int NIIF_INFO = 0x1, NIIF_WARNING = 0x2, NIIF_NOSOUND = 0x10;
 
     [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
     private struct NOTIFYICONDATAW

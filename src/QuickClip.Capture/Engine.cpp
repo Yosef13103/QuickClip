@@ -16,6 +16,7 @@ extern "C" {
 
 namespace qc
 {
+    static std::atomic<int> authorizedVideoWorkers{ 0 };
     // ---------------------------------------------------------------------------------------------
     // PacketRing
     // ---------------------------------------------------------------------------------------------
@@ -364,6 +365,41 @@ namespace qc
         QcGameWindow game{};
         HANDLE gameProcess = nullptr;
         std::atomic<bool> videoSourceLost{ false };
+        bool AuthorizedDuplication() const { return !displayIdentity.empty() && videoOptions.backend == 3; }
+        void InvalidateVideo()
+        {
+            std::lock_guard guard(videoLock);
+            InvalidateVideoLocked();
+        }
+        void InvalidateVideoLocked()
+        {
+            if (!videoSourceLost.exchange(true)) ring.Clear();
+        }
+        void CheckAuthorizedVideoStall(int64_t now)
+        {
+            std::lock_guard guard(videoLock);
+            const int64_t last = lastFrameUs;
+            if (last != 0 && now - last >= 10'000'000) InvalidateVideoLocked();
+        }
+        void PushVideoLocked(AVPacket* packet, int64_t timeUs, bool key, int64_t source, int64_t now)
+        {
+            ring.Push(packet, 0, timeUs, key, source);
+            if (AuthorizedDuplication())
+            {
+                lastFrameUs = now;
+                hasVideoOutput = true;
+            }
+        }
+        void PushAudio(AVPacket* packet, int stream, int64_t timeUs)
+        {
+            if (AuthorizedDuplication())
+            {
+                std::lock_guard guard(videoLock);
+                if (videoSourceLost) av_packet_free(&packet);
+                else ring.Push(packet, stream, timeUs, true);
+            }
+            else ring.Push(packet, stream, timeUs, true);
+        }
         int aspectWidth = 0, aspectHeight = 0;     // record the centered part with this shape; 0 = the whole monitor
         int fps = 60, outWidth = 0, outHeight = 0, videoKbps = 0;
         bool cursor = true;
@@ -383,6 +419,7 @@ namespace qc
         std::mutex videoLock;                      // held while a capture thread checks its generation and pushes
         std::atomic<int> runningVideoThreads{ 0 };
         std::atomic<int64_t> lastFrameUs{ 0 };     // engine clock; 0 until the first frame
+        std::atomic<bool> hasVideoOutput{ false };
         std::atomic<bool> usingDuplication{ true };
         std::atomic<bool> usingFallback{ false };  // Graphics Capture only because Desktop Duplication wasn't available
         std::atomic<bool> rebuildRequested{ false };
@@ -485,7 +522,7 @@ namespace qc
                 // Both sources crop on the GPU: Desktop Duplication copies just that rectangle, Graphics Capture
                 // samples (and scales) only the area inside its crop margins.
                 char dda[256], wgc[384];
-                snprintf(dda, sizeof dda, "output_idx=%d:framerate=%d:draw_mouse=%d:video_size=%dx%d:offset_x=%d:offset_y=%d",
+                snprintf(dda, sizeof dda, "output_idx=%d:framerate=%d:draw_mouse=%d:video_size=%dx%d:offset_x=%d:offset_y=%d:dup_frames=1",
                     m.output, s.fps, s.cursor ? 1 : 0, a.width, a.height, a.x, a.y);
                 snprintf(wgc, sizeof wgc, "hmonitor=%llu:max_framerate=%d:capture_cursor=%d:width=%d:height=%d:resize_mode=scale"
                     ":crop_left=%d:crop_top=%d:crop_right=%d:crop_bottom=%d",
@@ -638,8 +675,7 @@ namespace qc
             auto verifySource = [&](bool checkDisplay) {
                 if (GameOnMonitor(s->game, s->gameProcess, boundMonitor) &&
                     (!checkDisplay || MatchesDisplayIdentity(s->monitorDevice, s->displayIdentity))) return true;
-                std::lock_guard guard(s->videoLock);
-                if (current()) s->videoSourceLost = true;
+                if (current()) s->InvalidateVideo();
                 return false;
             };
             auto closeCapture = [&] {
@@ -734,8 +770,7 @@ namespace qc
                         }
                         if (!s->displayIdentity.empty() && (!boundMonitor || !verifySource(true)))
                         {
-                            std::lock_guard guard(s->videoLock);
-                            if (current()) s->videoSourceLost = true;
+                            if (current()) s->InvalidateVideo();
                             break;
                         }
                         if (error != lastError) Log("starting capture again failed: %s", error.c_str());
@@ -826,6 +861,12 @@ namespace qc
                 if (checkDisplay) nextDisplayCheck = gotFrameUs + 250'000;
                 if (ret < 0)
                 {
+                    if (s->AuthorizedDuplication() && ret == AVERROR(EAGAIN))
+                    {
+                        Sleep(1);
+                        continue;
+                    }
+                    if (s->AuthorizedDuplication()) { s->InvalidateVideo(); break; }
                     Log("capture interrupted (%s); starting it again", AvError(ret).c_str());
                     closeCapture();
                     Sleep(500);
@@ -847,6 +888,7 @@ namespace qc
                 if (!pipe.scaler.Apply(frame, scaleError))
                 {
                     av_frame_unref(frame);
+                    if (s->AuthorizedDuplication()) { s->InvalidateVideo(); break; }
                     Log("%s; restarting capture", scaleError.c_str());
                     closeCapture();
                     Sleep(500);
@@ -900,6 +942,7 @@ namespace qc
                 av_frame_unref(frame);
                 if (ret < 0)
                 {
+                    if (s->AuthorizedDuplication()) { s->InvalidateVideo(); break; }
                     Log("encoding failed (%s); starting capture again", AvError(ret).c_str());
                     closeCapture();
                     continue;
@@ -915,12 +958,14 @@ namespace qc
                 {
                     bool key = (packet->flags & AV_PKT_FLAG_KEY) != 0;
                     int flatBelow = s->testFlatBelow > 0 ? s->testFlatBelow.load() : std::max(4096, pipe.encoder->width * pipe.encoder->height / 1000);
-                    if (key && flat.Keyframe(packet->size, flatBelow, now)) flatPicture = true;
+                    if (!s->AuthorizedDuplication() && key && flat.Keyframe(packet->size, flatBelow, now)) flatPicture = true;
                     int64_t timeUs = packet->pts * 1000000 / s->fps;
                     const int64_t ringStartUs = diagnostics ? NowUs() : 0;
                     {
                         std::lock_guard guard(s->videoLock);
-                        if (current()) s->ring.Push(av_packet_clone(packet), 0, timeUs, key, source);
+                        if (current())
+                            if (AVPacket* copy = av_packet_clone(packet))
+                                s->PushVideoLocked(copy, timeUs, key, source, NowUs());
                     }
                     if (diagnostics)
                     {
@@ -929,7 +974,7 @@ namespace qc
                     }
                     av_packet_unref(packet);
                 }
-                s->lastFrameUs = now;
+                if (!s->AuthorizedDuplication()) s->lastFrameUs = now;
                 const int64_t pipelineEndUs = NowUs();
                 paceEncodeUs += pipelineEndUs - gotFrameUs;
                 if (diagnostics) timing.drainUs += pipelineEndUs - submitEndUs;
@@ -1076,8 +1121,34 @@ namespace qc
             }
         }
 
-        videoThread_ = std::thread(VideoLoop, shared_, 0);
-        WaitForSingleObject(shared_->videoStarted, 15000);
+        if (shared_->AuthorizedDuplication())
+        {
+            if (++authorizedVideoWorkers > 2)
+            {
+                --authorizedVideoWorkers;
+                error = "Waiting for an earlier display capture to release its device.";
+                return false;
+            }
+            try
+            {
+                videoThread_ = std::thread([state = shared_] {
+                    VideoLoop(state, 0);
+                    --authorizedVideoWorkers;
+                });
+            }
+            catch (const std::system_error&)
+            {
+                --authorizedVideoWorkers;
+                error = "Could not start the display capture worker.";
+                return false;
+            }
+        }
+        else videoThread_ = std::thread(VideoLoop, shared_, 0);
+        if (WaitForSingleObject(shared_->videoStarted, 15000) != WAIT_OBJECT_0)
+        {
+            error = "Screen capture initialization timed out.";
+            return false;
+        }
         if (!shared_->startError.empty() || !shared_->video)
         {
             error = shared_->startError.empty() ? "Screen capture didn't start." : shared_->startError;
@@ -1112,9 +1183,15 @@ namespace qc
         return shared_->videoSourceLost;
     }
 
+    bool Engine::HasVideoOutput() const
+    {
+        return shared_->hasVideoOutput && !VideoSourceLost();
+    }
+
     void Engine::RequestRebuild()
     {
-        shared_->rebuildRequested = true;
+        if (shared_->AuthorizedDuplication()) shared_->InvalidateVideo();
+        else shared_->rebuildRequested = true;
     }
 
     void Engine::SetCaptureWindow(HWND window, int width, int height, int videoKbps)
@@ -1167,6 +1244,11 @@ namespace qc
         {
             Sleep(250);
             int64_t now = NowUs(), quiet = now - shared_->lastFrameUs;
+            if (shared_->AuthorizedDuplication())
+            {
+                if (!VideoSourceLost()) shared_->CheckAuthorizedVideoStall(now);
+                continue;
+            }
             if (quiet < 1'000'000) retryUs = 3'000'000;
             // Desktop Duplication repeats the last frame while nothing changes, so it never goes quiet; Graphics
             // Capture only sends a frame when something does. As a stand-in for Desktop Duplication, though, it
@@ -1278,7 +1360,7 @@ namespace qc
                 tracks_[i]->mixer->Take(upTo, samples);
                 int stream = static_cast<int>(i) + 1;
                 tracks_[i]->encoder.Encode(samples, [&](AVPacket* p) {
-                    shared_->ring.Push(p, stream, p->pts * 1000000 / SampleRate, true);
+                    shared_->PushAudio(p, stream, p->pts * 1000000 / SampleRate);
                 });
             }
         }
@@ -1290,6 +1372,54 @@ namespace qc
         position.session = shared_->replaySession;
         position.eventUs = NowUs() - shared_->t0;
         shared_->ring.Position(position);
+    }
+
+    bool Engine::TestAuthorizedVideoInvalidation(bool stall)
+    {
+        Shared state(30'000'000);
+        state.displayIdentity = L"fixture";
+        state.videoOptions.backend = 3;
+        state.lastFrameUs = 1;
+        const auto packet = []() -> AVPacket* {
+            auto* p = av_packet_alloc();
+            if (p && av_new_packet(p, 1) < 0) av_packet_free(&p);
+            if (p) p->data[0] = 0;
+            return p;
+        };
+        // Identical payloads model duplicated static frames. Marker freshness may
+        // expire long before the packet watchdog decides the source is stalled.
+        for (int64_t now : { 1'000'000LL, 8'000'000LL, 15'000'000LL })
+        {
+            state.CheckAuthorizedVideoStall(now);
+            if (state.videoSourceLost) return false;
+            auto* p = packet();
+            if (!p) return false;
+            state.PushVideoLocked(p, now, true, 1, now);
+        }
+        QcReplayPosition position{};
+        position.eventUs = 15'000'000;
+        state.ring.Position(position);
+        if (!state.hasVideoOutput || position.sequence != 3) return false;
+        auto* audio = packet();
+        if (!audio) return false;
+        state.PushAudio(audio, 1, 15'000'000);
+        if (stall)
+        {
+            state.CheckAuthorizedVideoStall(24'999'999);
+            if (state.videoSourceLost) return false;
+            state.CheckAuthorizedVideoStall(25'000'000);
+        }
+        else state.InvalidateVideo();
+        audio = packet();
+        if (!audio) return false;
+        state.PushAudio(audio, 1, 25'000'000);
+        int64_t bytes = -1;
+        double seconds = -1;
+        state.ring.Stats(bytes, seconds);
+        position = {};
+        position.eventUs = 25'000'000;
+        state.ring.Position(position);
+        return state.videoSourceLost && bytes == 0 && position.sequence == 0;
     }
 
     bool Engine::Save(const std::wstring& path, int seconds, const std::wstring& title, std::string& error,
@@ -1317,9 +1447,9 @@ namespace qc
         std::shared_ptr<StreamInfo> video;
         {
             // A size change clears the ring under the same lock. Snapshot matching stream parameters and packets.
-            std::lock_guard guard(shared_->infoLock);
+            std::scoped_lock guard(shared_->infoLock, shared_->videoLock);
             video = shared_->video;
-            if (video) entries = shared_->ring.Snapshot(endUs - static_cast<int64_t>(seconds) * 1000000, endUs, startUs,
+            if (video && !VideoSourceLost()) entries = shared_->ring.Snapshot(endUs - static_cast<int64_t>(seconds) * 1000000, endUs, startUs,
                 span, anchors, count, bounded ? 1'000'000 / shared_->fps : 0);
         }
         if (entries.empty())
@@ -1413,6 +1543,12 @@ namespace qc
                 }
                 avformat_close_input(&saved);
             }
+        }
+        if (VideoSourceLost())
+        {
+            error = "The recording source changed before the replay could be saved.";
+            DeleteFileW(path.c_str());
+            return false;
         }
         return true;
     }
