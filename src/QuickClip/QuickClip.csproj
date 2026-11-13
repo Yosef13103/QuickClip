@@ -14,6 +14,7 @@
     <Product Condition="'$(QuickClipProfile)' == 'Personal'">QuickClip Personal</Product>
     <Product Condition="'$(QuickClipProfile)' == 'Upstream'">QuickClip</Product>
     <DefineConstants Condition="'$(QuickClipProfile)' == 'Personal'">$(DefineConstants);QUICKCLIP_PERSONAL</DefineConstants>
+    <ApplicationManifest Condition="'$(QuickClipProfile)' == 'Personal'">Personal.manifest</ApplicationManifest>
     <!-- Fluent theme (ThemeMode) is still flagged as experimental. -->
     <NoWarn>$(NoWarn);WPF0001</NoWarn>
     <DepsDir>$(MSBuildThisFileDirectory)..\..\deps\</DepsDir>

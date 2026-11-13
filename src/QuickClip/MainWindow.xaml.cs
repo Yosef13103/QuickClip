@@ -27,6 +27,7 @@ public partial class MainWindow : Window
     {
         InitializeComponent();
         Title = AppProfile.Name;
+        InitializeTitleBar();
         Width = Math.Min(Width, SystemParameters.WorkArea.Width * 0.95);
         Height = Math.Min(Height, SystemParameters.WorkArea.Height * 0.95);
 
@@ -196,6 +197,7 @@ public partial class MainWindow : Window
         if (on)
         {
             _stateBeforeFullScreen = WindowState;
+            UpdateTitleBar(fullscreen: true);
             WindowStyle = WindowStyle.None;
             ResizeMode = ResizeMode.NoResize;
             // Maximizing again after dropping the border makes the window cover the taskbar too.
@@ -207,6 +209,7 @@ public partial class MainWindow : Window
             WindowStyle = WindowStyle.SingleBorderWindow;
             ResizeMode = ResizeMode.CanResize;
             if (WindowState != WindowState.Minimized) WindowState = _stateBeforeFullScreen;
+            UpdateTitleBar(fullscreen: false);
         }
     }
 
@@ -218,6 +221,7 @@ public partial class MainWindow : Window
 
     private void SetFullScreenChrome(bool on)
     {
+        TitleBar.Visibility = _personalChrome != null && !on ? Visibility.Visible : Visibility.Collapsed;
         RailColumn.Width = new GridLength(on ? 0 : 80);
         Rail.Visibility = StatusBar.Visibility = on ? Visibility.Collapsed : Visibility.Visible;
     }
