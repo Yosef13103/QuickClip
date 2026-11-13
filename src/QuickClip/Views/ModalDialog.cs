@@ -60,7 +60,7 @@ internal static class ModalDialog
         return ok && (allowEmpty || text.Length > 0) ? text : null;
     }
 
-    private static bool Run(Window owner, string title, FrameworkElement content, string accept, string? cancel,
+    internal static bool Run(Window owner, string title, FrameworkElement content, string accept, string? cancel,
         bool safeDefault = false, bool destructive = false, IInputElement? initialFocus = null)
     {
         var host = (Panel)owner.Content;

@@ -27,8 +27,7 @@
                     <ListBox x:Name="Roots" MaxHeight="105" AutomationProperties.Name="Approved folders" />
                     <WrapPanel Margin="0,5,0,0">
                         <Button Content="Approve Steam library…" Click="Steam_Click" Margin="0,0,6,0" />
-                        <Button Content="Add one game folder…" Click="Folder_Click" Margin="0,0,6,0" />
-                        <Button Content="Add game collection…" Click="Collection_Click" Margin="0,0,6,0" />
+                        <Button Content="Approve game collection…" Click="Collection_Click" Margin="0,0,6,0" />
                         <Button Content="Remove or restore source" Click="RemoveRoot_Click" />
                     </WrapPanel>
                     <ListBox x:Name="ScanIssues" MaxHeight="80" AutomationProperties.Name="Last scan issues" />
@@ -47,7 +46,7 @@
             <WrapPanel Margin="0,4,0,0">
                 <Button x:Name="ScanButton" Content="Scan Now" Click="Scan_Click" Margin="0,0,6,0" />
                 <Button x:Name="CancelButton" Content="Pause scan" Click="Cancel_Click" IsEnabled="False" Margin="0,0,6,0" />
-                <Button Content="Add game or app…" Click="Add_Click" Margin="0,0,6,0" />
+                <Button Content="Add Game…" Click="Add_Click" Margin="0,0,6,0" />
             </WrapPanel>
             <TextBlock x:Name="Status" Style="{StaticResource Hint}" Margin="0,6,0,0" AutomationProperties.LiveSetting="Polite" />
             <TextBlock x:Name="LastScan" Style="{StaticResource Hint}" />

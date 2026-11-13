@@ -64,15 +64,14 @@ public partial class GamesSettingsView : UserControl
     private void Cancel_Click(object sender, RoutedEventArgs e) => Discovery.Pause();
 
     private void Steam_Click(object sender, RoutedEventArgs e) => Approve(true);
-    private void Folder_Click(object sender, RoutedEventArgs e) => Approve(false);
-    private void Collection_Click(object sender, RoutedEventArgs e) => Approve(false, collection: true);
+    private void Collection_Click(object sender, RoutedEventArgs e) => Approve(false);
 
-    private void Approve(bool steam, bool collection = false)
+    private void Approve(bool steam)
     {
         var dialog = new OpenFolderDialog
         {
             Title = steam ? "Approve a Steam library containing steamapps" :
-                collection ? "Choose a folder containing multiple games" : "Choose one game's install folder",
+                "Choose a folder containing multiple games",
         };
         if (dialog.ShowDialog(Window.GetWindow(this)) != true) return;
         if (CatalogPaths.LocalPath(dialog.FolderName) is not { Length: > 3 } path)
@@ -89,7 +88,7 @@ public partial class GamesSettingsView : UserControl
         if (steam ? request.SteamLibraryRoots.Contains(path, StringComparer.OrdinalIgnoreCase)
             : request.GameRoots.Any(root => string.Equals(root.Path, path, StringComparison.OrdinalIgnoreCase))) return;
         SetState(State with { Request = steam ? request with { SteamLibraryRoots = request.SteamLibraryRoots.Add(path) }
-            : request with { GameRoots = request.GameRoots.Add(new(path, collection)) } });
+            : request with { GameRoots = request.GameRoots.Add(new(path, IsCollection: true)) } });
         Status.Text = "Folder approved. Select Scan Now to scan it.";
     }
 
@@ -107,7 +106,19 @@ public partial class GamesSettingsView : UserControl
             : root.Automatic ? "Launcher source excluded." : "Approval removed.";
     }
 
-    private void Add_Click(object sender, RoutedEventArgs e) => PickExecutables(null);
+    private void Add_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not Button button) return;
+        var menu = new ContextMenu { PlacementTarget = button, Placement = PlacementMode.Bottom };
+        var file = new MenuItem { Header = "Executable or shortcut (more accurate)…" };
+        file.Click += (_, _) => PickExecutables(null);
+        var folder = new MenuItem { Header = "Game installation folder…" };
+        folder.Click += async (_, _) => await PickGameFolderAsync();
+        menu.Items.Add(file);
+        menu.Items.Add(folder);
+        menu.IsOpen = true;
+    }
+
     private void Edit_Click(object sender, RoutedEventArgs e)
     {
         if (sender is FrameworkElement { DataContext: GameRow { Entry: { Source: CatalogSource.Manual } entry } })
@@ -121,35 +132,125 @@ public partial class GamesSettingsView : UserControl
         return null;
     }
 
-    private void PickExecutables(CatalogEntry? entry)
+    private void PickExecutables(CatalogEntry? entry, string? directory = null)
     {
-        var dialog = new OpenFileDialog { Filter = "Windows executables|*.exe", Multiselect = true,
-            Title = "Select game or application executables", CheckFileExists = true };
-        if (dialog.ShowDialog(Window.GetWindow(this)) != true) return;
+        var dialog = new OpenFileDialog { Filter = "Executable or shortcut|*.exe;*.lnk", Multiselect = true,
+            Title = "Select game executables or shortcuts", CheckFileExists = true, DereferenceLinks = false,
+            InitialDirectory = directory ?? "" };
+        if (dialog.ShowDialog(Window.GetWindow(this)) == true) AddSelection(dialog.FileNames, entry);
+    }
+
+    private async Task PickGameFolderAsync()
+    {
+        var owner = Window.GetWindow(this);
+        var dialog = new OpenFolderDialog { Title = "Choose one game's installation folder" };
+        if (dialog.ShowDialog(owner) != true) return;
+        try
+        {
+            var (paths, limited) = await Task.Run(() => ManualGameInput.FindCandidates(dialog.FolderName));
+            if (paths.Count == 0)
+            {
+                Status.Text = limited ? "The folder search was incomplete. Choose the executable directly."
+                    : "No likely game executable was found. Choose the executable directly.";
+                PickExecutables(null, dialog.FolderName);
+                return;
+            }
+            if (owner is not { IsVisible: true, Content: Panel }) return;
+            var list = new ListBox { SelectionMode = SelectionMode.Extended, MaxHeight = 260, MinHeight = 70,
+                ItemsSource = paths.Select(path => Path.GetRelativePath(dialog.FolderName, path)).ToArray() };
+            if (paths.Count == 1) list.SelectedIndex = 0;
+            var panel = new StackPanel();
+            panel.Children.Add(new TextBlock { Text = limited ? "Search incomplete. Select the game's executable or browse for it."
+                : "Select the executable or executables that belong to this game.", TextWrapping = TextWrapping.Wrap });
+            panel.Children.Add(list);
+            var browse = new Button { Content = "Browse for another executable…", HorizontalAlignment = HorizontalAlignment.Left };
+            panel.Children.Add(browse);
+            string[]? other = null;
+            browse.Click += (_, _) =>
+            {
+                var picker = new OpenFileDialog { Filter = "Executable or shortcut|*.exe;*.lnk", Multiselect = true,
+                    CheckFileExists = true, DereferenceLinks = false, InitialDirectory = dialog.FolderName };
+                if (picker.ShowDialog(owner) != true) return;
+                other = picker.FileNames;
+                list.UnselectAll();
+                browse.Content = other.Length == 1 ? Path.GetFileName(other[0]) : $"{other.Length} executables selected";
+            };
+            list.SelectionChanged += (_, _) =>
+            {
+                if (list.SelectedItems.Count > 0) other = null;
+            };
+            if (!ModalDialog.Run(owner, "Choose game executables", panel, "Continue", "Cancel", safeDefault: true)) return;
+            AddSelection(other ?? list.SelectedItems.Cast<string>()
+                .Select(path => Path.Combine(dialog.FolderName, path)).ToArray(), null);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { Status.Text = ex.Message; }
+    }
+
+    private void AddSelection(IReadOnlyList<string> inputs, CatalogEntry? entry)
+    {
+        if (inputs.Count == 0)
+        {
+            Status.Text = "Select at least one game executable.";
+            return;
+        }
+        ManualGameInput.Selection[] selections;
+        try { selections = inputs.Select(ManualGameInput.Read).ToArray(); }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            Status.Text = ex.Message;
+            return;
+        }
+
+        var owner = Window.GetWindow(this);
+        foreach (var item in selections.Where(item => item.Shortcut != null).DistinctBy(item => item.Executable, StringComparer.OrdinalIgnoreCase))
+        {
+            if (!ModalDialog.ConfirmAction(owner,
+                $"{Path.GetFileName(item.Shortcut)} points to this executable:\n{item.Executable}",
+                "Confirm shortcut target", "Use executable", "Cancel", destructive: false)) return;
+        }
+        var paths = selections.Select(item => item.Executable).Distinct(StringComparer.OrdinalIgnoreCase).ToImmutableArray();
+        var state = State;
+        var request = state.Request;
+        var existing = GameCatalogRuntime.Rows(state).Where(row => row.Id != entry?.Id &&
+            row.Executables.Intersect(paths, StringComparer.OrdinalIgnoreCase).Any()).ToArray();
+        if (existing.Length > 0)
+        {
+            if (existing is [var match] && paths.All(path => match.Executables.Contains(path, StringComparer.OrdinalIgnoreCase)))
+            {
+                if ((match.Source is CatalogSource.Steam or CatalogSource.Epic or CatalogSource.Folder) &&
+                    match.Rules is { Inclusion: not CatalogInclusion.Exclude, Classification: AppClassification.Automatic } &&
+                    paths.All(path => CatalogPaths.DefaultRole(path) == CatalogMatchKind.Unknown &&
+                        !match.Rules.LauncherExecutables.Contains(path, StringComparer.OrdinalIgnoreCase) &&
+                        !state.BlockedExecutables.Contains(path, StringComparer.OrdinalIgnoreCase)) &&
+                    ModalDialog.ConfirmAction(owner, $"Enable automatic game detection for {match.DisplayName}?",
+                        "Game already in the catalog", "Enable detection", "Keep current settings", destructive: false))
+                    SaveRules(match, match.Rules with { Classification = AppClassification.Game });
+                Search.Text = "";
+                Games.SelectedItem = _rows.FirstOrDefault(row => row.Entry.Id == match.Id);
+                if (Games.SelectedItem is { } selected) Games.ScrollIntoView(selected);
+                Status.Text = $"Already in the catalog as {match.DisplayName}. Use its details to change detection or its name.";
+            }
+            else Status.Text = "Some executables already belong to another catalog entry. Select only new executables.";
+            return;
+        }
+        string name = entry?.DisplayName ?? ManualGameInput.FriendlyName(paths[0]);
+        if (entry == null)
+        {
+            if (TextPrompt.Ask(owner, "Game display name", name, "Add Game") is not { Length: > 0 } confirmed) return;
+            name = confirmed.Trim();
+        }
+        if (string.IsNullOrWhiteSpace(name)) return;
         Guid id = entry == null ? Guid.NewGuid() : Guid.ParseExact(entry.Id[7..], "N");
-        string? selectionError = ValidateManualGameExecutables(dialog.FileNames);
-        if (selectionError != null)
+        SetState(state with { Request = request with
         {
-            Status.Text = selectionError;
-            return;
-        }
-        var paths = dialog.FileNames.Select(path => CatalogPaths.LocalPath(path)!)
-            .Distinct(StringComparer.OrdinalIgnoreCase).ToImmutableArray();
-        var request = State.Request;
-        if (request.ManualEntries.Any(item => item.Id != id && item.Executables.Intersect(paths, StringComparer.OrdinalIgnoreCase).Any()))
-        {
-            Status.Text = "One of those executables already belongs to another manual entry.";
-            return;
-        }
-        string name = entry?.Name ?? Path.GetFileNameWithoutExtension(paths[0]);
-        var manual = new ManualCatalogEntry(id, name, paths);
-        SetState(State with { Request = request with
-        {
-            ManualEntries = request.ManualEntries.RemoveAll(item => item.Id == id).Add(manual),
+            ManualEntries = request.ManualEntries.RemoveAll(item => item.Id == id).Add(new(id, name, paths)),
         } });
-        Games.SelectedItem = Games.Items.OfType<GameRow>().FirstOrDefault(row => row.Entry.Id == "manual:" + id.ToString("N"));
-        if (paths.Any(CatalogPaths.IsDiscordProcess))
-            Status.Text = "Discord is a companion app and does not trigger game recording.";
+        Search.Text = "";
+        Games.SelectedItem = _rows.FirstOrDefault(row => row.Entry.Id == "manual:" + id.ToString("N"));
+        Status.Text = paths.Any(path => state.BlockedExecutables.Contains(path, StringComparer.OrdinalIgnoreCase))
+            ? "Entry saved. Blocked paths stay ignored until restored under Ignored executables."
+            : paths.Any(path => CatalogPaths.DefaultRole(path) == CatalogMatchKind.Companion)
+                ? "Companion apps do not trigger game recording." : "Entry saved.";
     }
 
     private void Remove_Click(object sender, RoutedEventArgs e)
