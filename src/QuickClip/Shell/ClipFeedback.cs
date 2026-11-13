@@ -5,7 +5,7 @@ namespace QuickClip.Shell;
 
 internal enum OverlayAnchor { TopLeft, TopCenter, TopRight, MiddleLeft, Center, MiddleRight, BottomLeft, BottomCenter, BottomRight }
 internal enum OverlayAnimation { Ripple, Fade, Slide, None }
-internal enum OverlayStyle { Compact, Badge, Detailed }
+internal enum OverlayStyle { Compact, Badge, Detailed, ImageOnly }
 internal enum ClipEvent { ReplayEnabled, Saved, DesktopStarted, DesktopStopped, Failed, Inactive }
 internal sealed record ClipEventOptions(bool ReplayEnabled = true, bool Saved = true, bool DesktopStarted = true,
     bool DesktopStopped = true, bool Failed = true)
