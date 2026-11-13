@@ -100,6 +100,62 @@ public sealed class RecordingLifecycleTests
     }
     private static readonly MonitorInfo Display2 = new("DISPLAY2", "", -1920, 0, 1920, 1080) { CaptureIdentity = "B" };
 
+    [Fact]
+    public void Recovery_caps_retries_resets_after_health_and_stops_while_paused()
+    {
+        var backend = new Backend { StartError = "Temporary device failure" };
+        var clock = new RecoveryClock();
+        var lifecycle = new RecordingLifecycle(backend.Start, backend.Stop, clock);
+        void Poll(bool enabled = true) =>
+            lifecycle.Reconcile(enabled, null, Game(1), [Display1], _ => "DISPLAY1", _ => true);
+        Poll();
+        foreach (int delay in new[] { 2, 4, 8, 16, 30, 30 })
+        {
+            int starts = backend.Starts.Count;
+            clock.Advance(delay - 1);
+            Poll();
+            Assert.Equal(starts, backend.Starts.Count);
+            clock.Advance(1);
+            Poll();
+            Assert.Equal(starts + 1, backend.Starts.Count);
+        }
+
+        backend.StartError = null;
+        clock.Advance(30);
+        Poll();
+        lifecycle.MarkHealthy();
+        lifecycle.FailActive("Display mode changed");
+        clock.Advance(2);
+        Poll();
+        Assert.Equal(RecordingMode.GameTriggered, lifecycle.Mode);
+        Assert.Equal("A", backend.Active?.Display.Identity);
+        lifecycle.FailActive("Suspended");
+        int beforePause = backend.Starts.Count;
+        clock.Advance(30);
+        Poll(false);
+        Assert.Equal(RecordingMode.Off, lifecycle.Mode);
+        Assert.Equal(beforePause, backend.Starts.Count);
+        Poll();
+        Assert.Equal(RecordingMode.GameTriggered, lifecycle.Mode);
+        Assert.Equal(beforePause + 1, backend.Starts.Count);
+    }
+
+    [Fact]
+    public void Permission_denial_never_opens_the_backend_on_later_polls()
+    {
+        var backend = new Backend();
+        var clock = new RecoveryClock();
+        var lifecycle = new RecordingLifecycle(backend.Start, backend.Stop, clock);
+        for (int i = 0; i < 4; i++)
+        {
+            lifecycle.Reconcile(true, null, Game(1), [Display1], _ => "DISPLAY1", _ => false);
+            Assert.Equal(RecordingMode.Unavailable, lifecycle.Mode);
+            Assert.Contains("permission", lifecycle.Error);
+            clock.Advance(60);
+        }
+        Assert.Empty(backend.Starts);
+    }
+
     [Theory]
     [InlineData("DISPLAY1", false)]
     [InlineData("DISPLAY2", false)]

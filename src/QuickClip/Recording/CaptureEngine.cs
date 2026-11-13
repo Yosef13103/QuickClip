@@ -216,6 +216,7 @@ internal static partial class CaptureEngine
 
     internal static bool VideoSourceLost() => qc_video_source_lost() != 0;
     internal static bool HasVideoOutput() => qc_has_video_output() != 0;
+    internal static bool TestAuthorizedVideoInvalidation(bool stall) => qc_test_authorized_video_invalidation(stall ? 1 : 0) != 0;
 
     /// <summary>Starts screen capture again (the display changed, so the running capture may have gone stale).</summary>
     public static void RestartVideo() => qc_restart_video();
@@ -333,6 +334,7 @@ internal static partial class CaptureEngine
         [Out] char[] error, int errorLength);
     [DllImport(Dll)] private static extern int qc_video_source_lost();
     [DllImport(Dll)] private static extern int qc_has_video_output();
+    [DllImport(Dll)] private static extern int qc_test_authorized_video_invalidation(int stall);
     [DllImport(Dll, CharSet = CharSet.Unicode)] private static extern int qc_save(string path, int seconds, string title, [Out] char[] error, int errorLength);
     [DllImport(Dll)] private static extern int qc_get_stats(out Stats stats);
     [DllImport(Dll)] private static extern int qc_get_replay_position(out ReplayPosition position);

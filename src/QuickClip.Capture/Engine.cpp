@@ -369,7 +369,36 @@ namespace qc
         void InvalidateVideo()
         {
             std::lock_guard guard(videoLock);
+            InvalidateVideoLocked();
+        }
+        void InvalidateVideoLocked()
+        {
             if (!videoSourceLost.exchange(true)) ring.Clear();
+        }
+        void CheckAuthorizedVideoStall(int64_t now)
+        {
+            std::lock_guard guard(videoLock);
+            const int64_t last = lastFrameUs;
+            if (last != 0 && now - last >= 10'000'000) InvalidateVideoLocked();
+        }
+        void PushVideoLocked(AVPacket* packet, int64_t timeUs, bool key, int64_t source, int64_t now)
+        {
+            ring.Push(packet, 0, timeUs, key, source);
+            if (AuthorizedDuplication())
+            {
+                lastFrameUs = now;
+                hasVideoOutput = true;
+            }
+        }
+        void PushAudio(AVPacket* packet, int stream, int64_t timeUs)
+        {
+            if (AuthorizedDuplication())
+            {
+                std::lock_guard guard(videoLock);
+                if (videoSourceLost) av_packet_free(&packet);
+                else ring.Push(packet, stream, timeUs, true);
+            }
+            else ring.Push(packet, stream, timeUs, true);
         }
         int aspectWidth = 0, aspectHeight = 0;     // record the centered part with this shape; 0 = the whole monitor
         int fps = 60, outWidth = 0, outHeight = 0, videoKbps = 0;
@@ -832,6 +861,11 @@ namespace qc
                 if (checkDisplay) nextDisplayCheck = gotFrameUs + 250'000;
                 if (ret < 0)
                 {
+                    if (s->AuthorizedDuplication() && ret == AVERROR(EAGAIN))
+                    {
+                        Sleep(1);
+                        continue;
+                    }
                     if (s->AuthorizedDuplication()) { s->InvalidateVideo(); break; }
                     Log("capture interrupted (%s); starting it again", AvError(ret).c_str());
                     closeCapture();
@@ -931,14 +965,7 @@ namespace qc
                         std::lock_guard guard(s->videoLock);
                         if (current())
                             if (AVPacket* copy = av_packet_clone(packet))
-                            {
-                                s->ring.Push(copy, 0, timeUs, key, source);
-                                if (s->AuthorizedDuplication())
-                                {
-                                    s->lastFrameUs = NowUs();
-                                    s->hasVideoOutput = true;
-                                }
-                            }
+                                s->PushVideoLocked(copy, timeUs, key, source, NowUs());
                     }
                     if (diagnostics)
                     {
@@ -1219,8 +1246,7 @@ namespace qc
             int64_t now = NowUs(), quiet = now - shared_->lastFrameUs;
             if (shared_->AuthorizedDuplication())
             {
-                if (!VideoSourceLost() && shared_->lastFrameUs != 0 && quiet >= 10'000'000)
-                    shared_->InvalidateVideo();
+                if (!VideoSourceLost()) shared_->CheckAuthorizedVideoStall(now);
                 continue;
             }
             if (quiet < 1'000'000) retryUs = 3'000'000;
@@ -1334,13 +1360,7 @@ namespace qc
                 tracks_[i]->mixer->Take(upTo, samples);
                 int stream = static_cast<int>(i) + 1;
                 tracks_[i]->encoder.Encode(samples, [&](AVPacket* p) {
-                    if (shared_->AuthorizedDuplication())
-                    {
-                        std::lock_guard guard(shared_->videoLock);
-                        if (VideoSourceLost()) av_packet_free(&p);
-                        else shared_->ring.Push(p, stream, p->pts * 1000000 / SampleRate, true);
-                    }
-                    else shared_->ring.Push(p, stream, p->pts * 1000000 / SampleRate, true);
+                    shared_->PushAudio(p, stream, p->pts * 1000000 / SampleRate);
                 });
             }
         }
@@ -1352,6 +1372,54 @@ namespace qc
         position.session = shared_->replaySession;
         position.eventUs = NowUs() - shared_->t0;
         shared_->ring.Position(position);
+    }
+
+    bool Engine::TestAuthorizedVideoInvalidation(bool stall)
+    {
+        Shared state(30'000'000);
+        state.displayIdentity = L"fixture";
+        state.videoOptions.backend = 3;
+        state.lastFrameUs = 1;
+        const auto packet = []() -> AVPacket* {
+            auto* p = av_packet_alloc();
+            if (p && av_new_packet(p, 1) < 0) av_packet_free(&p);
+            if (p) p->data[0] = 0;
+            return p;
+        };
+        // Identical payloads model duplicated static frames. Marker freshness may
+        // expire long before the packet watchdog decides the source is stalled.
+        for (int64_t now : { 1'000'000LL, 8'000'000LL, 15'000'000LL })
+        {
+            state.CheckAuthorizedVideoStall(now);
+            if (state.videoSourceLost) return false;
+            auto* p = packet();
+            if (!p) return false;
+            state.PushVideoLocked(p, now, true, 1, now);
+        }
+        QcReplayPosition position{};
+        position.eventUs = 15'000'000;
+        state.ring.Position(position);
+        if (!state.hasVideoOutput || position.sequence != 3) return false;
+        auto* audio = packet();
+        if (!audio) return false;
+        state.PushAudio(audio, 1, 15'000'000);
+        if (stall)
+        {
+            state.CheckAuthorizedVideoStall(24'999'999);
+            if (state.videoSourceLost) return false;
+            state.CheckAuthorizedVideoStall(25'000'000);
+        }
+        else state.InvalidateVideo();
+        audio = packet();
+        if (!audio) return false;
+        state.PushAudio(audio, 1, 25'000'000);
+        int64_t bytes = -1;
+        double seconds = -1;
+        state.ring.Stats(bytes, seconds);
+        position = {};
+        position.eventUs = 25'000'000;
+        state.ring.Position(position);
+        return state.videoSourceLost && bytes == 0 && position.sequence == 0;
     }
 
     bool Engine::Save(const std::wstring& path, int seconds, const std::wstring& title, std::string& error,

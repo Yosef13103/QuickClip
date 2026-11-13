@@ -12,6 +12,16 @@ namespace QuickClip.Tests;
 public sealed class CaptureEngineTests(MediaFixture media, Xunit.Abstractions.ITestOutputHelper output)
 {
     [Fact]
+    public void Authorized_replay_discards_native_packets_on_stall_or_source_loss()
+    {
+        if (Environment.GetEnvironmentVariable("QUICKCLIP_CI") == "1") Assert.True(CaptureEngine.IsAvailable);
+        if (!CaptureEngine.IsAvailable) return;
+        CaptureEngine.Initialize();
+        Assert.True(CaptureEngine.TestAuthorizedVideoInvalidation(stall: true));
+        Assert.True(CaptureEngine.TestAuthorizedVideoInvalidation(stall: false));
+    }
+
+    [Fact]
     public void Display_dimensions_use_physical_source_modes_and_report_all_apis()
     {
         Assert.Equal((1920, 1080), Monitors.PhysicalSize(2400, 1350, 1920, 1080));
