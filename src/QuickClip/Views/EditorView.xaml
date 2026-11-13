@@ -492,18 +492,17 @@
         <!-- The video HwndHost is hidden when missing, so the overlay is truly above all Editor controls. -->
         <Grid x:Name="MissingSourceOverlay" Grid.Row="0" Grid.RowSpan="5" Grid.Column="0"
               Grid.ColumnSpan="3" Panel.ZIndex="40" Background="#CB111318"
-              Visibility="Collapsed" Focusable="True">
+              Visibility="Collapsed" Focusable="True"
+              KeyboardNavigation.TabNavigation="Cycle" KeyboardNavigation.ControlTabNavigation="Cycle">
             <Border Background="{StaticResource PanelBrush}" BorderBrush="#4A535E" BorderThickness="1"
                     CornerRadius="10" Padding="24" MaxWidth="500" Margin="18"
                     HorizontalAlignment="Center" VerticalAlignment="Center">
                 <StackPanel>
-                    <TextBlock Text="Recording unavailable" FontWeight="SemiBold" FontSize="{DynamicResource QuickClipText21}" />
+                    <TextBlock x:Name="MissingSourceOverlayTitle" Text="Recording unavailable" FontWeight="SemiBold" FontSize="{DynamicResource QuickClipText21}" />
                     <TextBlock x:Name="MissingSourceOverlayMessage" TextWrapping="Wrap" Margin="0,12,0,14"
                                Foreground="{StaticResource SubtleText}" AutomationProperties.LiveSetting="Polite" />
-                    <TextBlock Text="Your source file has not been deleted or changed by QuickClip."
-                               FontSize="{DynamicResource QuickClipText12}" Foreground="{StaticResource SubtleText}" TextWrapping="Wrap" />
                     <WrapPanel Margin="0,18,0,0" HorizontalAlignment="Left">
-                        <Button Content="Try again" Click="RetrySource_Click" Margin="0,0,8,8" Padding="12,7" />
+                        <Button x:Name="RetryMissingSourceButton" Content="Retry" Click="RetrySource_Click" Margin="0,0,8,8" Padding="12,7" />
                         <Button Content="Open another file" Click="Open_Click" Margin="0,0,8,8" Padding="12,7" />
                         <Button x:Name="ClearMissingSourceButton" Content="Clear editor" Click="ClearUnavailableSource_Click"
                                 ToolTip="Forget this missing file in the editor; do not delete any recording"

@@ -35,6 +35,8 @@ internal sealed class AppHost : IDisposable
     private readonly Dictionary<RecordingCommand, int> _hotkeyIds = [];
     private Action<Hotkey>? _captureHotkey;
     private bool _confirmingDesktop;
+    private bool _replayEnabled;
+    private bool _desktopRunning;
 
     public event Action? OpenRequested;
     /// <summary>The user clicked the "update available" notification.</summary>
@@ -63,6 +65,7 @@ internal sealed class AppHost : IDisposable
         RegisterHotkey();
 
         var recorder = Recorder.Instance;
+        _replayEnabled = AppSettings.Current.RecordingEnabled;
         recorder.ReplaySaved += OnReplaySaved;
         recorder.SaveFailed += OnSaveFailed;
         recorder.StateChanged += OnRecorderState;
@@ -139,19 +142,43 @@ internal sealed class AppHost : IDisposable
 
     private void OnReplaySaved(ReplaySaveReceipt receipt) => _dispatcher.BeginInvoke(() =>
     {
+        string source = receipt.GameContext is { Length: > 0 } ? $"Game · {receipt.SourceDescription}" :
+            receipt.DesktopSource != null ? $"Desktop · {receipt.SourceDescription}" : receipt.SourceDescription;
         string label = AppProfile.IsPersonal
             ? receipt.GameContext is { } game ? $"{game} · {receipt.SourceDescription}" : receipt.SourceDescription
             : receipt.Game;
         string message = receipt.ActualVideoDuration is { } actual
             ? $"{label} · {Fmt.CompactDuration(actual.TotalSeconds)} saved" : label;
         if (receipt.IsShorterThanRequested == true) message += $" ({Fmt.CompactDuration(receipt.RequestedSeconds)} requested)";
-        ShowClipFeedback(success: true, message);
+        var details = new ClipNotificationDetails(receipt.GameContext, Path.GetFileNameWithoutExtension(receipt.Path),
+            source,
+            receipt.ActualVideoDuration is { } duration ? Fmt.CompactDuration(duration.TotalSeconds) : null,
+            receipt.VideoOutput is { Width: > 0, Height: > 0 } video ? $"{video.Width} × {video.Height}" : null,
+            receipt.VideoOutput?.AverageFps is > 0 and var fps && double.IsFinite(fps) ? $"{fps:0.##} FPS" : null,
+            HotkeyActive ? $"Save clip · {new Hotkey(AppSettings.Current.HotkeyModifiers, AppSettings.Current.HotkeyKey)}" : null);
+        ShowClipFeedback(ClipEvent.Saved, message, details);
     });
 
     private void OnRecorderState(RecorderState state) => _dispatcher.BeginInvoke(() =>
     {
         if (_window == null) return;
         UpdateTooltip();
+        if (AppProfile.IsPersonal)
+        {
+            bool enabled = AppSettings.Current.RecordingEnabled;
+            if (enabled && !_replayEnabled)
+                ShowClipFeedback(ClipEvent.ReplayEnabled, "Ready to buffer eligible games.",
+                    new(null, null, null, null, Hotkey: HotkeyActive
+                        ? $"Save clip · {new Hotkey(AppSettings.Current.HotkeyModifiers, AppSettings.Current.HotkeyKey)}" : null));
+            _replayEnabled = enabled;
+            bool desktopRunning = state.Running && state.Mode == RecordingMode.ManualDesktop;
+            if (desktopRunning != _desktopRunning)
+            {
+                ShowClipFeedback(desktopRunning ? ClipEvent.DesktopStarted : ClipEvent.DesktopStopped,
+                    desktopRunning ? state.Summary : "Manual desktop capture has ended.");
+                _desktopRunning = desktopRunning;
+            }
+        }
         string? guidance = state.Running ? null : SourceGuidance(state.Error);
         if (guidance != null && guidance != _lastSourceGuidance)
             NotifySource("Recording source unavailable", guidance);
@@ -169,37 +196,37 @@ internal sealed class AppHost : IDisposable
     internal static bool SuppressIdleClipWarning(bool isPersonal, bool notifyWhenInactive, RecordingMode mode) =>
         isPersonal && !notifyWhenInactive && mode is RecordingMode.Off or RecordingMode.Armed;
 
-    private void OnSaveFailed(string error) => _dispatcher.BeginInvoke(() =>
+    private void OnSaveFailed(string error)
     {
-        if (SuppressIdleClipWarning(AppProfile.IsPersonal, AppSettings.Current.ShowInactiveSaveNotifications,
-            Recorder.Instance.State.Mode))
-        {
-            Log.Write("Save Clip ignored without active recording: " + error);
-            return;
-        }
-        if (AppProfile.IsPersonal && !Recorder.Instance.IsRunning)
-            NotifySource("Clip not saved", SourceGuidance(Recorder.Instance.Error) ?? error);
-        else ShowClipFeedback(success: false, error);
-    });
+        var state = Recorder.Instance.State;
+        var kind = AppProfile.IsPersonal && !state.Running && state.Error == null &&
+            state.Mode is RecordingMode.Off or RecordingMode.Armed ? ClipEvent.Inactive : ClipEvent.Failed;
+        _dispatcher.BeginInvoke(() => ShowClipFeedback(kind, error));
+    }
 
-    internal void ShowClipFeedback(bool success, string message)
+    private void ShowClipFeedback(ClipEvent kind, string message, ClipNotificationDetails? details = null)
     {
         if (_window == null) return;
         var settings = AppSettings.Current;
-        var feedback = ClipFeedback.From(settings, success, message);
-        if (feedback.Sound) ClipSound.Play();
+        var feedback = ClipFeedback.From(settings, kind, message);
+        if (feedback.Sound) _ = ClipSound.PlayAsync(settings.ClipSoundOutputId, settings.ClipSoundVolume);
         if (feedback.Windows) Notify(feedback.Title, feedback.Message);
         if (feedback.Overlay)
         {
-            try { _clipOverlay.Show(settings.ClipOverlay, feedback.Success); }
-            catch (Exception ex) { Log.Write("Clip indicator unavailable: " + ex.GetType().Name); }
+            _ = ShowOverlayAsync(settings.ClipOverlay, feedback.Title, feedback.Success, details, details == null ? feedback.Message : null);
         }
     }
 
-    internal void TestClipOverlay()
+    internal void HideClipOverlay() => _clipOverlay.Hide();
+
+    internal void TestClipOverlay() => _ = ShowOverlayAsync(AppSettings.Current.ClipOverlay ?? new(), "Clip saved", true,
+        new("Example game", "Example clip", "Game · Entire display", "30 s", "1920 × 1080", "60 FPS", "Save clip · Alt+F10"));
+
+    private async Task ShowOverlayAsync(ClipOverlayOptions options, string title, bool success,
+        ClipNotificationDetails? details, string? message = null)
     {
-        try { _clipOverlay.Show(AppSettings.Current.ClipOverlay ?? new(), success: true); }
-        catch (Exception ex) { Log.Write("Clip indicator preview unavailable: " + ex.GetType().Name); }
+        try { await _clipOverlay.ShowAsync(options, title, success, details, message); }
+        catch (Exception ex) { Log.Write("Clip overlay unavailable: " + ex.GetType().Name); }
     }
 
     private void UpdateTooltip()

@@ -58,7 +58,7 @@
         <StackPanel x:Name="ControlBar" Grid.Row="2" Background="{StaticResource PanelBrush}" MouseMove="ControlBar_MouseMove">
             <Grid Margin="14,8,14,0">
                 <Slider x:Name="SeekBar" Minimum="0" Maximum="1" IsMoveToPointEnabled="True" Focusable="False"
-                        ValueChanged="SeekBar_ValueChanged" />
+                        ValueChanged="SeekBar_ValueChanged" PreviewMouseMove="SeekBar_MouseMove" />
                 <!-- Bookmarks, including earlier saves from the same replay session. Never intercept seeking. -->
                 <controls:SeekMarkerOverlay x:Name="SeekMarkers" IsHitTestVisible="False" />
             </Grid>

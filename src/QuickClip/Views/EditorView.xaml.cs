@@ -191,6 +191,7 @@ public partial class EditorView : UserControl
 
     private void ToggleMode_Click(object sender, RoutedEventArgs e)
     {
+        if (MissingSourceOverlay.Visibility == Visibility.Visible) return;
         if (_fullscreen) ExitFullscreen();
         _viewMode = !_viewMode;
         ApplyMode();
@@ -198,7 +199,7 @@ public partial class EditorView : UserControl
 
     private void ToggleFullscreen_Click(object sender, RoutedEventArgs e)
     {
-        if (_media?.Video == null) return;
+        if (_media?.Video == null || !SourceReady && !_fullscreen) return;
         SetFullscreen(!_fullscreen);
     }
 
@@ -583,6 +584,7 @@ public partial class EditorView : UserControl
             _sourceSuspended = false;
             Video.Visibility = Visibility.Visible;
             UnavailableSource.Visibility = MissingSourceOverlay.Visibility = Visibility.Collapsed;
+            SetRecoveryInteraction(false);
             if (differentClip && (_viewMode || _fullscreen))
             {
                 _viewMode = false;
@@ -1273,6 +1275,12 @@ public partial class EditorView : UserControl
         }
         var mods = Keyboard.Modifiers;
         bool ctrl = mods.HasFlag(ModifierKeys.Control), shift = mods.HasFlag(ModifierKeys.Shift);
+        if (MissingSourceOverlay.Visibility == Visibility.Visible)
+        {
+            if (ctrl && e.Key == Key.O) { _ = PromptOpenAsync(); e.Handled = true; }
+            else if (e.Key == Key.Escape && _fullscreen) { ExitFullscreen(); e.Handled = true; }
+            return;
+        }
         if (!SourceReady && e.Key is not (Key.F11 or Key.Escape) && !(ctrl && e.Key == Key.O)) return;
         bool handled = true;
         switch (e.Key)
@@ -1949,6 +1957,7 @@ public partial class EditorView : UserControl
             _exportPath = null;
             cts.Dispose();
             ProgressPanel.Visibility = Visibility.Collapsed;
+            if (MissingSourceOverlay.Visibility == Visibility.Visible) ClearMissingSourceButton.IsEnabled = true;
             UpdateUiState();
         }
     }

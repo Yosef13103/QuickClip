@@ -564,19 +564,61 @@
                         <TextBlock Text="Closing the window keeps QuickClip running in the tray" TextWrapping="Wrap" />
                     </CheckBox>
                     <CheckBox x:Name="ConfirmDeleteCheck" Content="Confirm before sending clips to the Recycle Bin" Margin="0,8,0,0" Checked="Changed" Unchecked="Changed" />
-                    <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
-                        <CheckBox x:Name="SoundCheck" Content="Play a sound when a clip is saved" VerticalAlignment="Center" Checked="Changed" Unchecked="Changed" />
-                        <Button Style="{StaticResource TextButton}" Content="Play" ToolTip="Hear the sound" Margin="10,0,0,0" VerticalAlignment="Center"
-                                Click="PlayClipSound_Click" />
+                    <WrapPanel Margin="0,8,0,0">
+                        <CheckBox x:Name="SoundCheck" Focusable="True" Content="Play a sound when a clip is saved" VerticalAlignment="Center" Checked="Changed" Unchecked="Changed" />
+                        <Button Style="{StaticResource TextButton}" Content="Test sound" ToolTip="Hear the sound" Margin="10,0,0,0" VerticalAlignment="Center"
+                                Focusable="True" Click="PlayClipSound_Click" />
+                    </WrapPanel>
+                    <StackPanel x:Name="SoundOutputPanel" Margin="0,4,0,0">
+                        <DockPanel Margin="0,0,0,4">
+                            <TextBlock DockPanel.Dock="Right" Margin="8,0,0,0" VerticalAlignment="Center"
+                                       Text="{Binding Value, ElementName=SoundVolumeSlider, StringFormat={}{0:0}%}" />
+                            <Slider x:Name="SoundVolumeSlider" Minimum="0" Maximum="100" TickFrequency="1"
+                                    IsSnapToTickEnabled="True" ValueChanged="SoundVolumeChanged" AutomationProperties.Name="Notification sound volume" />
+                        </DockPanel>
+                        <TextBlock Text="Clip sound output" Style="{StaticResource FieldLabel}" />
+                        <ComboBox x:Name="SoundOutputCombo" AutomationProperties.Name="Clip sound output"
+                                  DropDownOpened="SoundOutputOpened" SelectionChanged="SoundOutputChanged" />
+                        <TextBlock x:Name="SoundOutputStatus" Style="{StaticResource Hint}" Margin="0,4,0,0" AutomationProperties.LiveSetting="Polite" />
                     </StackPanel>
                     <CheckBox x:Name="WindowsClipNotificationCheck" Content="Show Windows clip notifications"
                               Margin="0,8,0,0" Click="ClipFeedback_Changed" />
-                    <CheckBox x:Name="IdleSaveNotificationCheck" Margin="0,8,0,0" Checked="Changed" Unchecked="Changed">
-                        <TextBlock Text="Warn when Save Clip is pressed with no active game or recording" TextWrapping="Wrap" />
-                    </CheckBox>
+
                     <StackPanel x:Name="ClipOverlayPanel" Margin="0,12,0,0">
-                        <CheckBox x:Name="ClipOverlayCheck" Content="Show on-screen clip indicator" Click="ClipFeedback_Changed" />
-                        <StackPanel x:Name="ClipOverlayOptions" Margin="18,8,0,0" Visibility="Collapsed">
+                        <CheckBox x:Name="ClipNotificationsCheck" Content="Show clip notifications" Focusable="True" Click="ClipFeedback_Changed" />
+                        <TextBlock Text="Notification style" Style="{StaticResource FieldLabel}" />
+                        <ComboBox x:Name="ClipNotificationModeCombo" AutomationProperties.Name="Notification style" SelectionChanged="ClipFeedback_Changed" />
+                        <TextBlock Text="Windows controls placement of its notifications." Style="{StaticResource Hint}" Margin="0,4,0,0" />
+                        <StackPanel x:Name="ClipEventsPanel" Margin="0,8,0,0">
+                            <TextBlock Text="Notify me when" Style="{StaticResource FieldLabel}" />
+                            <WrapPanel>
+                                <CheckBox x:Name="ReplayEnabledNotice" Content="Instant replay is enabled" Focusable="True" Margin="0,0,12,4" Click="ClipFeedback_Changed" />
+                                <CheckBox x:Name="ClipSavedNotice" Content="A clip is saved" Focusable="True" Margin="0,0,12,4" Click="ClipFeedback_Changed" />
+                                <CheckBox x:Name="DesktopStartedNotice" Content="Desktop recording starts" Focusable="True" Margin="0,0,12,4" Click="ClipFeedback_Changed" />
+                                <CheckBox x:Name="DesktopStoppedNotice" Content="Desktop recording stops" Focusable="True" Margin="0,0,12,4" Click="ClipFeedback_Changed" />
+                                <CheckBox x:Name="SaveFailedNotice" Content="Saving fails" Focusable="True" Margin="0,0,12,4" Click="ClipFeedback_Changed" />
+                                <CheckBox x:Name="IdleSaveNotificationCheck" Content="Save Clip is pressed without active recording" Focusable="True" Margin="0,0,12,4" Click="ClipFeedback_Changed" />
+                            </WrapPanel>
+                        </StackPanel>
+                        <StackPanel x:Name="ClipOverlayOptions" Margin="0,8,0,0" Visibility="Collapsed">
+                            <TextBlock Text="Overlay style" Style="{StaticResource FieldLabel}" />
+                            <ComboBox x:Name="OverlayStyleCombo" AutomationProperties.Name="Overlay style" SelectionChanged="ClipFeedback_Changed" />
+                            <TextBlock Text="Overlay details" Style="{StaticResource FieldLabel}" />
+                            <WrapPanel>
+                                <CheckBox x:Name="OverlayShowTitle" Content="Clip title" Focusable="True" Margin="0,0,14,0" Click="ClipFeedback_Changed" />
+                                <CheckBox x:Name="OverlayShowGame" Content="Game" Focusable="True" Margin="0,0,14,0" Click="ClipFeedback_Changed" />
+                                <CheckBox x:Name="OverlayShowSource" Content="Source" Focusable="True" Margin="0,0,14,0" Click="ClipFeedback_Changed" />
+                                <CheckBox x:Name="OverlayShowDuration" Content="Duration" Focusable="True" Margin="0,0,14,0" Click="ClipFeedback_Changed" />
+                                <CheckBox x:Name="OverlayShowResolution" Content="Resolution" Focusable="True" Margin="0,0,14,0" Click="ClipFeedback_Changed" />
+                                <CheckBox x:Name="OverlayShowFps" Content="FPS" Focusable="True" Margin="0,0,14,0" Click="ClipFeedback_Changed" />
+                                <CheckBox x:Name="OverlayShowHotkey" Content="Save hotkey hint" Focusable="True" Click="ClipFeedback_Changed" />
+                            </WrapPanel>
+                            <WrapPanel Margin="0,8,0,0">
+                                <Button Content="Choose overlay image…" Margin="0,0,8,0" Click="ChooseOverlayImage_Click" />
+                                <Button x:Name="ClearOverlayImage" Content="Use default icon" Click="ClearOverlayImage_Click" />
+                            </WrapPanel>
+                            <CheckBox x:Name="OverlayImageOnly" Content="Show the image by itself" Focusable="True" Click="ClipFeedback_Changed" Margin="0,4,0,0" />
+                            <TextBlock x:Name="OverlayImageStatus" Style="{StaticResource Hint}" AutomationProperties.LiveSetting="Polite" />
                             <Grid Margin="0,8,0,0">
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="*" />
@@ -599,7 +641,10 @@
                                     <ComboBox x:Name="OverlayDurationCombo" SelectionChanged="ClipFeedback_Changed" AutomationProperties.Name="Indicator duration" />
                                 </StackPanel>
                             </Grid>
-                            <Button Content="Test indicator" HorizontalAlignment="Left" Margin="0,10,0,0" Click="TestClipOverlay_Click" />
+                            <WrapPanel Margin="0,10,0,0">
+                                <Button Content="Preview overlay" Margin="0,0,8,0" Click="TestClipOverlay_Click" />
+                                <Button Content="Reset overlay appearance" Click="ResetClipOverlay_Click" />
+                            </WrapPanel>
                             <TextBlock Style="{StaticResource Hint}" TextWrapping="Wrap"
                                        Text="Visible over windowed and borderless games. Exclusive fullscreen and capture exclusion depend on Windows and the capture backend." />
                         </StackPanel>

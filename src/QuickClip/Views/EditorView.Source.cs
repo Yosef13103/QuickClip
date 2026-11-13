@@ -68,15 +68,27 @@ public partial class EditorView
         }
         bool showBlockingPrompt = AppProfile.IsPersonal && !ready && _media != null;
         MissingSourceOverlay.Visibility = showBlockingPrompt ? Visibility.Visible : Visibility.Collapsed;
+        SetRecoveryInteraction(showBlockingPrompt);
         if (showBlockingPrompt)
+        {
+            if (IsVisible && !MissingSourceOverlay.IsKeyboardFocusWithin) RetryMissingSourceButton.Focus();
+            MissingSourceOverlayTitle.Text = state == EditorSourceState.Missing ? "Recording is missing" : "Recording unavailable";
             MissingSourceOverlayMessage.Text = EditorSource.Message(state) +
-                "\n\nYou can restore the recording, open something else, or clear this view.";
+                "\n\nClear editor closes this clip without deleting any recording.";
+        }
         Video.Visibility = ready ? Visibility.Visible : Visibility.Hidden;
         UnavailableSource.Visibility = ready || showBlockingPrompt ? Visibility.Collapsed : Visibility.Visible;
         Timeline.HasMedia = ready && _media != null;
         UpdateUiState();
         if (AppProfile.IsPersonal) ClearMissingSourceButton.IsEnabled = _media != null && _exportCts == null;
         UpdateViewSeek();
+    }
+
+    private void SetRecoveryInteraction(bool blocked)
+    {
+        EditorHeader.IsEnabled = TimelineDivider.IsEnabled = InspectorDivider.IsEnabled = !blocked;
+        AllowDrop = !blocked;
+        if (blocked) SoundDropHint.Visibility = Visibility.Collapsed;
     }
 
     private bool VerifySource(string path)
@@ -118,6 +130,7 @@ public partial class EditorView
         _sourceSuspended = false;
 
         MissingSourceOverlay.Visibility = UnavailableSource.Visibility = Visibility.Collapsed;
+        SetRecoveryInteraction(false);
         Video.Visibility = Visibility.Visible;
         RevealButton.Visibility = UndoButton.Visibility = Visibility.Collapsed;
         StatusText.Text = "";
@@ -150,6 +163,7 @@ public partial class EditorView
         if (!wasUnavailable && !_sourceSuspended) return;
         var media = _media;
         _recheckingSource = true;
+        RetryMissingSourceButton.IsEnabled = false;
         try
         {
             if (wasUnavailable) await MediaInfo.ProbeAsync(path);
@@ -167,6 +181,10 @@ public partial class EditorView
                 SetSourceState(state == EditorSourceState.Ready ? EditorSourceState.Unreadable : state);
             }
         }
-        finally { _recheckingSource = false; }
+        finally
+        {
+            _recheckingSource = false;
+            RetryMissingSourceButton.IsEnabled = true;
+        }
     }
 }

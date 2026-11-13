@@ -70,6 +70,10 @@ internal sealed class AppSettings
     public Shell.Hotkey DesktopHotkey { get; set; }
     public Shell.Hotkey SwitchMonitorHotkey { get; set; }
     public bool ClipSound { get; set; } = true;
+    public int ClipSoundVolume { get; set; } = 100;
+    public string? ClipSoundOutputId { get; set; }
+    public Shell.ClipEventOptions ClipEvents { get; set; } = new();
+    public bool ClipNotificationsEnabled { get; set; } = true;
     public bool ClipWindowsNotification { get; set; } = true;
     // Suppress expected no-game/off hotkey warnings by default in Personal, not actual capture errors.
     public bool ShowInactiveSaveNotifications { get; set; } = !AppProfile.IsPersonal;

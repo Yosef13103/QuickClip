@@ -15,49 +15,127 @@ internal sealed class ClipNotificationOverlay : IDisposable
     private Window? _window;
     private Grid? _surface;
     private Ellipse? _ring;
+    private StackPanel? _details;
+    private Border? _card;
+    private string? _imagePath;
+    private ClipOverlayImage.Asset? _image;
+    private Image? _imageView;
+    private DispatcherTimer? _frameTimer;
+    private int _frame;
+    private System.Diagnostics.Stopwatch? _imageClock;
+    private TimeSpan _nextFrame;
+    private TimeSpan _imageCycle;
+    private int _showRevision;
+    private Task<ClipOverlayImage.Asset?>? _imageLoad;
+    private bool _disposed;
     private Border? _badge;
     private TextBlock? _glyph;
     private DispatcherTimer? _timer;
     private IntPtr _handle;
 
-    internal void Show(ClipOverlayOptions options, bool success)
+    internal bool IsVisible => _window?.IsVisible == true;
+    internal bool IsAnimatingImage => _frameTimer?.IsEnabled == true;
+
+    internal async Task ShowAsync(ClipOverlayOptions options, string title, bool success, ClipNotificationDetails? details = null, string? error = null)
     {
+        if (_disposed) return;
+        Hide();
+        int revision = _showRevision;
         options = options.Normalize();
+        if (!string.Equals(_imagePath, options.ImagePath, StringComparison.OrdinalIgnoreCase))
+        {
+            _imagePath = options.ImagePath;
+            _image = null;
+            string? path = options.ImagePath;
+            _imageLoad = path == null ? null : Task.Run(() => ClipOverlayImage.LoadAsset(path));
+        }
+        if (_imageLoad != null)
+        {
+            var asset = await _imageLoad;
+            if (revision != _showRevision || _disposed) return;
+            _image = asset;
+            _imageLoad = null;
+            if (asset == null) _imagePath = null; // Retry an unavailable file on a later notification.
+        }
         var displays = Displays();
-        var display = displays.FirstOrDefault(d => string.Equals(d.Device, options.Display, StringComparison.OrdinalIgnoreCase))
-            ?? displays.FirstOrDefault(d => d.Primary) ?? displays.FirstOrDefault();
+        var display = SelectDisplay(displays, options.Display);
         if (display == null) return;
         EnsureWindow();
         _timer!.Stop();
         _surface!.BeginAnimation(UIElement.OpacityProperty, null);
         _surface.Opacity = 0;
-        var accent = new SolidColorBrush(success ? Color.FromRgb(92, 237, 172) : Color.FromRgb(255, 127, 131));
+        var accent = Application.Current?.TryFindResource(success ? "SuccessBrush" : "DangerBrush") as Brush
+            ?? new SolidColorBrush(success ? Color.FromRgb(92, 237, 172) : Color.FromRgb(255, 127, 131));
         _glyph!.Text = success ? "✓" : "!";
         _glyph.Foreground = accent;
         _glyph.FontSize = options.Size * .32;
-        _badge!.Width = _badge.Height = options.Size * .68;
+        var icon = (Grid)_badge!.Parent;
+        icon.Width = icon.Height = options.Size * .64;
+        _badge.Width = _badge.Height = options.Size * .55;
+        bool badge = options.Style == OverlayStyle.Badge;
+        _details!.Visibility = badge ? Visibility.Collapsed : Visibility.Visible;
+        icon.Margin = badge ? new Thickness(0) : new Thickness(0, 0, 10, 0);
         _badge.CornerRadius = new CornerRadius(options.Size);
         _badge.BorderBrush = accent;
-        _ring!.Stroke = accent;
+        _ring!.BeginAnimation(UIElement.OpacityProperty, null);
+        _ring.Stroke = accent;
         _ring.RenderTransform = new ScaleTransform();
         _ring.Opacity = 0;
 
-        _window!.Width = _window.Height = options.Size;
+        bool imageOnly = options.ImageOnly && _image != null;
+        if (imageOnly)
+        {
+            _details.Visibility = Visibility.Collapsed;
+            icon.Margin = new Thickness(0);
+            icon.Width = options.Size * 2;
+            icon.Height = options.Size;
+            _badge.Width = icon.Width;
+            _badge.Height = icon.Height;
+            _badge.BorderThickness = new Thickness(0);
+        }
+        else _badge.BorderThickness = new Thickness(1);
+        _imageView = _image == null ? null : new Image { Source = _image.First, Stretch = Stretch.Uniform };
+        _badge.Child = _imageView ?? (UIElement)_glyph;
+        _details!.Children.Clear();
+        _details.Children.Add(new TextBlock
+        {
+            Text = title,
+            Foreground = accent, FontSize = 14, FontWeight = FontWeights.SemiBold,
+        });
+        var lines = error != null ? new[] { error } : details?.Lines(options) ?? [];
+        if (options.Style == OverlayStyle.Compact && lines.Length > 1)
+            lines = [string.Join(" · ", lines)];
+        foreach (var line in lines)
+        {
+            _details.Children.Add(new TextBlock
+            {
+                Text = line, Foreground = Brushes.White, FontSize = 12,
+                TextTrimming = TextTrimming.CharacterEllipsis, Margin = new Thickness(0, 3, 0, 0),
+            });
+        }
+        double width = badge ? options.Size : (options.Style == OverlayStyle.Detailed ? 390 : 320) * options.Size / 72;
+        if (imageOnly) width = options.Size * 2 + 12;
+        _card!.Padding = new Thickness(badge ? options.Size * .12 : 10);
+        _card.Measure(new Size(width, double.PositiveInfinity));
+        double height = imageOnly ? options.Size + 20 : badge ? options.Size : _card.DesiredSize.Height;
+        _surface.RenderTransform = new TranslateTransform();
+        _window!.Width = width;
+        _window.Height = height;
         if (!_window.IsVisible) _window.Show();
         var prior = SetThreadDpiAwarenessContext(new IntPtr(-4));
         try
         {
             GetDpiForMonitor(display.Handle, 0, out uint dpi, out _);
             double scale = dpi == 0 ? 1 : dpi / 96d;
-            int pixels = (int)Math.Round(options.Size * scale);
+            var pixels = new Size(Math.Round(width * scale), Math.Round(height * scale));
             Point position = ClipOverlayOptions.Place(display.Bounds, pixels, 18 * scale, options.Anchor);
-            SetWindowPos(_handle, new IntPtr(-1), (int)Math.Round(position.X), (int)Math.Round(position.Y), pixels, pixels, 0x0210);
+            SetWindowPos(_handle, new IntPtr(-1), (int)Math.Round(position.X), (int)Math.Round(position.Y),
+                (int)pixels.Width, (int)pixels.Height, 0x0210);
         }
         finally { if (prior != IntPtr.Zero) SetThreadDpiAwarenessContext(prior); }
         if (OperatingSystem.IsWindowsVersionAtLeast(10, 0, 19041))
-            SetWindowDisplayAffinity(_handle, 0x11); // WDA_EXCLUDEFROMCAPTURE, where the capture API supports it
-
-        if (SystemParameters.ClientAreaAnimation)
+            SetWindowDisplayAffinity(_handle, 0x11);
+        if (MotionEnabled(SystemParameters.ClientAreaAnimation, options.Animation))
         {
             var fade = new DoubleAnimationUsingKeyFrames();
             fade.KeyFrames.Add(new LinearDoubleKeyFrame(0, KeyTime.FromTimeSpan(TimeSpan.Zero)));
@@ -65,6 +143,13 @@ internal sealed class ClipNotificationOverlay : IDisposable
             fade.KeyFrames.Add(new LinearDoubleKeyFrame(options.Opacity, KeyTime.FromTimeSpan(TimeSpan.FromSeconds(options.Seconds - .22))));
             fade.KeyFrames.Add(new LinearDoubleKeyFrame(0, KeyTime.FromTimeSpan(TimeSpan.FromSeconds(options.Seconds))));
             _surface.BeginAnimation(UIElement.OpacityProperty, fade);
+            if (options.Animation == OverlayAnimation.Slide)
+            {
+                int column = (int)options.Anchor % 3;
+                var slide = _surface.RenderTransform;
+                var duration = TimeSpan.FromSeconds(.16);
+                slide.BeginAnimation(TranslateTransform.XProperty, new DoubleAnimation((column - 1) * 12, 0, duration));
+            }
             if (options.Animation == OverlayAnimation.Ripple)
             {
                 var pulse = new DoubleAnimation(.64, 1, TimeSpan.FromSeconds(.55));
@@ -74,6 +159,15 @@ internal sealed class ClipNotificationOverlay : IDisposable
             }
         }
         else _surface.Opacity = options.Opacity;
+        if (SystemParameters.ClientAreaAnimation && options.Animation != OverlayAnimation.None && _image?.Frames.Length > 1)
+        {
+            _frame = 0;
+            _imageClock = System.Diagnostics.Stopwatch.StartNew();
+            _nextFrame = _image.Frames[0].Delay;
+            _imageCycle = TimeSpan.FromTicks(_image.Frames.Sum(frame => frame.Delay.Ticks));
+            _frameTimer!.Interval = _nextFrame;
+            _frameTimer.Start();
+        }
         _timer.Interval = TimeSpan.FromSeconds(options.Seconds);
         _timer.Start();
     }
@@ -90,8 +184,23 @@ internal sealed class ClipNotificationOverlay : IDisposable
             Background = new SolidColorBrush(Color.FromArgb(236, 23, 28, 32)),
             BorderThickness = new Thickness(1), Child = _glyph,
         };
-        _surface.Children.Add(_ring);
-        _surface.Children.Add(_badge);
+        var icon = new Grid { VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 12, 0) };
+        icon.Children.Add(_ring);
+        icon.Children.Add(_badge);
+        _details = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
+        var content = new DockPanel();
+        DockPanel.SetDock(icon, Dock.Left);
+        content.Children.Add(icon);
+        content.Children.Add(_details);
+        _card = new Border
+        {
+            Background = Application.Current?.TryFindResource("OverlayBackgroundBrush") as Brush
+                ?? new SolidColorBrush(Color.FromArgb(245, 23, 28, 32)),
+            BorderBrush = new SolidColorBrush(Color.FromRgb(58, 70, 75)),
+            BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(10),
+            Padding = new Thickness(12), Child = content,
+        };
+        _surface.Children.Add(_card);
         _window = new Window
         {
             WindowStyle = WindowStyle.None, ResizeMode = ResizeMode.NoResize, ShowInTaskbar = false,
@@ -99,21 +208,66 @@ internal sealed class ClipNotificationOverlay : IDisposable
             Background = Brushes.Transparent, Content = _surface, Width = 72, Height = 72,
         };
         _handle = new WindowInteropHelper(_window).EnsureHandle();
+        if (OperatingSystem.IsWindowsVersionAtLeast(10, 0, 19041))
+            SetWindowDisplayAffinity(_handle, 0x11); // WDA_EXCLUDEFROMCAPTURE, where the capture API supports it
         const int exStyle = -20;
         SetWindowLong(_handle, exStyle, GetWindowLong(_handle, exStyle) | 0x080000A0);
         _timer = new DispatcherTimer(DispatcherPriority.Background);
-        _timer.Tick += (_, _) =>
+        _timer.Tick += (_, _) => Hide();
+        _frameTimer = new DispatcherTimer(DispatcherPriority.Background);
+        _frameTimer.Tick += (_, _) =>
         {
-            _timer.Stop();
-            _window.Hide();
+            if (_imageView == null || _image == null || _imageClock == null) return;
+            var elapsed = _imageClock.Elapsed;
+            if (elapsed >= _nextFrame + _imageCycle)
+                _nextFrame += TimeSpan.FromTicks((elapsed - _nextFrame).Ticks / _imageCycle.Ticks * _imageCycle.Ticks);
+            while (elapsed >= _nextFrame)
+            {
+                _frame = (_frame + 1) % _image.Frames.Length;
+                _nextFrame += _image.Frames[_frame].Delay;
+            }
+            _imageView.Source = _image.Frames[_frame].Bitmap;
+            _frameTimer.Interval = _nextFrame - elapsed;
         };
+    }
+
+    internal static bool MotionEnabled(bool windowsAnimations, OverlayAnimation animation) =>
+        windowsAnimations && animation != OverlayAnimation.None;
+
+    internal void Hide()
+    {
+        _showRevision++;
+        _timer?.Stop();
+        _frameTimer?.Stop();
+        _imageClock = null;
+        _imageView = null;
+        _window?.Hide();
+        _surface?.BeginAnimation(UIElement.OpacityProperty, null);
+        if (_surface != null) _surface.RenderTransform = null;
+        if (_ring != null)
+        {
+            _ring.BeginAnimation(UIElement.OpacityProperty, null);
+            _ring.RenderTransform = null;
+        }
+        _details?.Children.Clear();
+        if (_badge != null) _badge.Child = _glyph;
     }
 
     public void Dispose()
     {
-        _timer?.Stop();
+        _disposed = true;
+        Hide();
+        _image = null;
+        _imageLoad = null;
         _window?.Close();
         _window = null;
+    }
+
+    internal static Display? SelectDisplay(IEnumerable<Display> displays, string? preferred)
+    {
+        var available = displays as IReadOnlyList<Display> ?? displays.ToArray();
+        return available.FirstOrDefault(d => string.Equals(d.Device, preferred, StringComparison.OrdinalIgnoreCase))
+            ?? available.FirstOrDefault(d => d.Primary) ?? available.FirstOrDefault();
     }
 
     internal sealed record Display(IntPtr Handle, string Device, Rect Bounds, bool Primary)

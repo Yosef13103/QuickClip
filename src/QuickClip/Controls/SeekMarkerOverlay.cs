@@ -30,6 +30,15 @@ public sealed class SeekMarkerOverlay : FrameworkElement
         return inset + Math.Clamp(seconds / duration, 0, 1) * (width - 2 * inset);
     }
 
+    internal string? TooltipAt(Point location)
+    {
+        if (_duration <= 0 || ActualWidth <= 0 || Math.Abs(location.Y - ActualHeight / 2) > 9) return null;
+        var mark = _markers.Where(marker => double.IsFinite(marker.Seconds) && marker.Seconds >= 0 && marker.Seconds < _duration)
+            .MinBy(marker => Math.Abs(Position(marker.Seconds, _duration, ActualWidth) - location.X));
+        if (mark == null || Math.Abs(Position(mark.Seconds, _duration, ActualWidth) - location.X) > 9) return null;
+        return mark.TimelineTooltip;
+    }
+
     protected override void OnRender(DrawingContext dc)
     {
         if (_duration <= 0 || ActualWidth <= 0 || ActualHeight <= 0) return;

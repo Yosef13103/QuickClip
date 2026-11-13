@@ -286,6 +286,12 @@ public partial class PlayerView : UserControl
         DurationText.Text = " / " + Fmt.Time(_duration, millis: false);
     }
 
+    private void SeekBar_MouseMove(object sender, System.Windows.Input.MouseEventArgs e)
+    {
+        var tip = SeekMarkers.TooltipAt(e.GetPosition(SeekMarkers));
+        if (!Equals(SeekBar.ToolTip, tip)) SeekBar.ToolTip = tip;
+    }
+
     private void SeekBar_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
     {
         if (_showingPosition) return;

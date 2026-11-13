@@ -1,4 +1,6 @@
+using System.IO;
 using System.Windows;
+using Microsoft.Win32;
 using System.Windows.Controls;
 using QuickClip.Shell;
 
@@ -9,21 +11,98 @@ public partial class SettingsView
     private static readonly string[] AnchorLabels =
         ["Top-left", "Top-center", "Top-right", "Middle-left", "Center", "Middle-right", "Bottom-left", "Bottom-center", "Bottom-right"];
 
+    private bool _loadingSoundOutputs;
+    private System.Windows.Threading.DispatcherTimer? _soundVolumeSave;
+
+    private void SoundOutputOpened(object sender, EventArgs e) => LoadSoundOutputs();
+
+    private void LoadSoundOutputs()
+    {
+        var choices = new List<Choice> { new("System Default", "") };
+        try { choices.AddRange(ClipSoundOutput.Devices().Select(device => new Choice(device.Name, device.Id))); }
+        catch (System.Runtime.InteropServices.COMException) { }
+        string selected = AppSettings.Current.ClipSoundOutputId ?? "";
+        bool missing = !choices.Any(choice => string.Equals((string)choice.Value, selected, StringComparison.OrdinalIgnoreCase));
+        if (missing) choices.Add(new("Saved output (unavailable)", selected));
+        _loadingSoundOutputs = true;
+        try
+        {
+            SoundOutputCombo.ItemsSource = choices;
+            SoundOutputCombo.SelectedItem = choices.First(choice =>
+                string.Equals((string)choice.Value, selected, StringComparison.OrdinalIgnoreCase));
+        }
+        finally { _loadingSoundOutputs = false; }
+        SoundOutputStatus.Text = missing ? "Reconnect the saved output or choose another device." : SoundOverlapMessage();
+    }
+
+    private void SoundVolumeChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
+    {
+        if (_loading || !IsInitialized || !AppProfile.IsPersonal) return;
+        AppSettings.Current.ClipSoundVolume = (int)e.NewValue;
+        _soundVolumeSave ??= new(TimeSpan.FromMilliseconds(300), System.Windows.Threading.DispatcherPriority.Background,
+            (_, _) => { _soundVolumeSave!.Stop(); AppSettings.Current.Save(); }, Dispatcher);
+        _soundVolumeSave.Stop();
+        _soundVolumeSave.Start();
+    }
+
+    private void SoundOutputChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (_loading || _loadingSoundOutputs || SoundOutputCombo.SelectedItem is not Choice { Value: string id }) return;
+        AppSettings.Current.ClipSoundOutputId = id.Length == 0 ? null : id;
+        AppSettings.Current.Save();
+        SoundOutputStatus.Text = SoundOverlapMessage();
+    }
+
+    private static string SoundOverlapMessage()
+    {
+        var settings = AppSettings.Current;
+        return settings.ClipSoundOutputId is { Length: > 0 } id && settings.UseAudioEndpoints &&
+            (settings.EndpointTracks ?? []).Any(track => track.Enabled && track.Flow == Recording.EndpointFlow.Playback &&
+                string.Equals(track.DeviceId, id, StringComparison.OrdinalIgnoreCase))
+            ? "A recording track also captures this output. The chime may be audible in a later clip." : "";
+    }
+
     private void LoadClipFeedback(AppSettings settings)
     {
         WindowsClipNotificationCheck.IsChecked = settings.ClipWindowsNotification;
-        ClipOverlayPanel.Visibility = AppProfile.IsPersonal ? Visibility.Visible : Visibility.Collapsed;
+        SoundOutputPanel.Visibility = ClipOverlayPanel.Visibility = AppProfile.IsPersonal ? Visibility.Visible : Visibility.Collapsed;
         if (!AppProfile.IsPersonal) return;
+        LoadSoundOutputs();
+        SoundVolumeSlider.Value = Math.Clamp(settings.ClipSoundVolume, 0, 100);
         var options = (settings.ClipOverlay ?? new()).Normalize();
-        ClipOverlayCheck.IsChecked = options.Enabled;
-        ClipOverlayOptions.Visibility = options.Enabled ? Visibility.Visible : Visibility.Collapsed;
+        WindowsClipNotificationCheck.Visibility = Visibility.Collapsed;
+        ClipNotificationsCheck.IsChecked = settings.ClipNotificationsEnabled && (settings.ClipWindowsNotification || options.Enabled);
+        SetChoices(ClipNotificationModeCombo,
+            [new("Windows notification", ClipNotificationMode.Windows), new("QuickClip overlay", ClipNotificationMode.Overlay),
+             new("Windows and QuickClip overlay", ClipNotificationMode.Both)],
+            options.Enabled ? settings.ClipWindowsNotification ? ClipNotificationMode.Both : ClipNotificationMode.Overlay : ClipNotificationMode.Windows);
+        var events = settings.ClipEvents ?? new();
+        ReplayEnabledNotice.IsChecked = events.ReplayEnabled;
+        ClipSavedNotice.IsChecked = events.Saved;
+        DesktopStartedNotice.IsChecked = events.DesktopStarted;
+        DesktopStoppedNotice.IsChecked = events.DesktopStopped;
+        SaveFailedNotice.IsChecked = events.Failed;
+        IdleSaveNotificationCheck.IsChecked = settings.ShowInactiveSaveNotifications;
+        SetChoices(OverlayStyleCombo, [new("Compact banner", OverlayStyle.Compact), new("QuickClip badge", OverlayStyle.Badge),
+            new("Detailed banner", OverlayStyle.Detailed)], options.Style);
+        OverlayShowResolution.IsChecked = options.ShowResolution;
+        OverlayShowFps.IsChecked = options.ShowFps;
+        OverlayShowHotkey.IsChecked = options.ShowHotkey;
+        OverlayShowTitle.IsChecked = options.ShowTitle;
+        OverlayShowGame.IsChecked = options.ShowGame;
+        OverlayShowSource.IsChecked = options.ShowSource;
+        OverlayShowDuration.IsChecked = options.ShowDuration;
+        OverlayImageOnly.IsChecked = options.ImageOnly;
+        ShowOverlayImage(options.ImagePath);
+        UpdateFeedbackVisibility();
         var displays = new List<Choice> { new("Main display", "") };
         displays.AddRange(ClipNotificationOverlay.Displays().Select(d => new Choice(d.Label, d.Device)));
         if (!string.IsNullOrWhiteSpace(options.Display) && !displays.Any(d => Equals(d.Value, options.Display)))
             displays.Add(new("Saved display (disconnected)", options.Display));
         SetChoices(OverlayDisplayCombo, displays, options.Display ?? "");
         SetChoices(OverlayAnchorCombo, Enum.GetValues<OverlayAnchor>().Select(a => new Choice(AnchorLabels[(int)a], a)), options.Anchor);
-        SetChoices(OverlayAnimationCombo, [new("Ripple", OverlayAnimation.Ripple), new("Fade", OverlayAnimation.Fade)], options.Animation);
+        SetChoices(OverlayAnimationCombo, [new("Slide in", OverlayAnimation.Slide), new("Fade", OverlayAnimation.Fade),
+            new("Ripple", OverlayAnimation.Ripple), new("No animation", OverlayAnimation.None)], options.Animation);
         SetNumbers(OverlaySizeCombo, [48, 60, 72, 88, 104], options.Size, value => $"{value:0} DIP");
         SetNumbers(OverlayOpacityCombo, [.3, .5, .7, .9, 1], options.Opacity, value => $"{value:P0}");
         SetNumbers(OverlayDurationCombo, [.8, 1.4, 2, 3, 5], options.Seconds, value => $"{value:0.#} s");
@@ -42,23 +121,102 @@ public partial class SettingsView
     {
         if (_loading || !IsInitialized) return;
         var settings = AppSettings.Current;
-        settings.ClipWindowsNotification = WindowsClipNotificationCheck.IsChecked == true;
-        if (AppProfile.IsPersonal)
-            ClipOverlayOptions.Visibility = ClipOverlayCheck.IsChecked == true ? Visibility.Visible : Visibility.Collapsed;
-        if (AppProfile.IsPersonal && OverlayAnchorCombo.SelectedItem is Choice { Value: OverlayAnchor anchor } &&
+        if (!AppProfile.IsPersonal)
+        {
+            settings.ClipWindowsNotification = WindowsClipNotificationCheck.IsChecked == true;
+            settings.Save();
+            return;
+        }
+
+        if (ClipNotificationModeCombo.SelectedItem is not Choice { Value: ClipNotificationMode mode }) return;
+        settings.ClipNotificationsEnabled = ClipNotificationsCheck.IsChecked == true;
+        settings.ClipEvents = new(ReplayEnabledNotice.IsChecked == true, ClipSavedNotice.IsChecked == true,
+            DesktopStartedNotice.IsChecked == true, DesktopStoppedNotice.IsChecked == true, SaveFailedNotice.IsChecked == true);
+        settings.ShowInactiveSaveNotifications = IdleSaveNotificationCheck.IsChecked == true;
+        settings.ClipWindowsNotification = mode is ClipNotificationMode.Windows or ClipNotificationMode.Both;
+        UpdateFeedbackVisibility();
+        if (OverlayAnchorCombo.SelectedItem is Choice { Value: OverlayAnchor anchor } &&
             OverlaySizeCombo.SelectedItem is Choice { Value: double size } &&
             OverlayOpacityCombo.SelectedItem is Choice { Value: double opacity } &&
             OverlayDurationCombo.SelectedItem is Choice { Value: double duration } &&
             OverlayAnimationCombo.SelectedItem is Choice { Value: OverlayAnimation animation })
         {
-            settings.ClipOverlay = new ClipOverlayOptions
+            settings.ClipOverlay = (settings.ClipOverlay ?? new()) with
             {
-                Enabled = ClipOverlayCheck.IsChecked == true,
+                Enabled = mode is ClipNotificationMode.Overlay or ClipNotificationMode.Both,
+                Style = (OverlayStyleCombo.SelectedItem as Choice)?.Value is OverlayStyle style ? style : OverlayStyle.Compact,
+                ShowResolution = OverlayShowResolution.IsChecked == true,
+                ShowFps = OverlayShowFps.IsChecked == true,
+                ShowHotkey = OverlayShowHotkey.IsChecked == true,
+                ImageOnly = OverlayImageOnly.IsChecked == true,
+                ShowTitle = OverlayShowTitle.IsChecked == true,
+                ShowGame = OverlayShowGame.IsChecked == true,
+                ShowSource = OverlayShowSource.IsChecked == true,
+                ShowDuration = OverlayShowDuration.IsChecked == true,
                 Display = (OverlayDisplayCombo.SelectedItem as Choice)?.Value as string,
                 Anchor = anchor, Size = size, Opacity = opacity, Seconds = duration, Animation = animation,
             };
         }
         settings.Save();
+    }
+
+    private void UpdateFeedbackVisibility()
+    {
+        bool enabled = ClipNotificationsCheck.IsChecked == true;
+        ClipNotificationModeCombo.IsEnabled = ClipEventsPanel.IsEnabled = enabled;
+        bool showOverlay = enabled && ClipNotificationModeCombo.SelectedItem is Choice
+            { Value: ClipNotificationMode.Overlay or ClipNotificationMode.Both };
+        if (!showOverlay) App.Host?.HideClipOverlay();
+        ClipOverlayOptions.Visibility = showOverlay ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    private async void ChooseOverlayImage_Click(object sender, RoutedEventArgs e)
+    {
+        var dialog = new OpenFileDialog { Title = "Choose an overlay image", Filter = "Images|*.png;*.jpg;*.jpeg;*.gif;*.webp" };
+        if (dialog.ShowDialog(Window.GetWindow(this)) != true) return;
+        var button = (Button)sender;
+        button.IsEnabled = false;
+        ClearOverlayImage.IsEnabled = false;
+        try
+        {
+            if (await Task.Run(() => ClipOverlayImage.Load(dialog.FileName)) == null)
+            {
+                ShowOverlayImage(AppSettings.Current.ClipOverlay?.ImagePath);
+                OverlayImageStatus.Text = "Choose a supported local image up to 4 MB and 2048 × 2048. Animated GIFs also have a frame and decoded-size limit.";
+                return;
+            }
+            SaveOverlayImage(dialog.FileName);
+            App.Host?.TestClipOverlay();
+        }
+        finally { button.IsEnabled = true; }
+    }
+
+    private void ClearOverlayImage_Click(object sender, RoutedEventArgs e) => SaveOverlayImage(null);
+
+    private void SaveOverlayImage(string? path)
+    {
+        var settings = AppSettings.Current;
+        settings.ClipOverlay = (settings.ClipOverlay ?? new()) with { ImagePath = path };
+        settings.Save();
+        ShowOverlayImage(path);
+    }
+
+    private void ShowOverlayImage(string? path)
+    {
+        ClearOverlayImage.IsEnabled = OverlayImageOnly.IsEnabled = path != null;
+        OverlayImageStatus.Text = path == null ? "" : Path.GetFileName(path);
+    }
+
+    private void ResetClipOverlay_Click(object sender, RoutedEventArgs e)
+    {
+        var settings = AppSettings.Current;
+        settings.ClipOverlay = new() { Enabled = settings.ClipOverlay?.Enabled == true };
+        settings.Save();
+        bool wasLoading = _loading;
+        _loading = true;
+        try { LoadClipFeedback(settings); }
+        finally { _loading = wasLoading; }
+        App.Host?.TestClipOverlay();
     }
 
     private void TestClipOverlay_Click(object sender, RoutedEventArgs e) => App.Host?.TestClipOverlay();
