@@ -117,6 +117,25 @@ public sealed class ClipFeedbackTests
         Assert.True(ClipNotificationOverlay.MotionEnabled(true, OverlayAnimation.Slide));
     }
 
+    [Theory]
+    [InlineData(OverlayAnchor.TopLeft, -344)]
+    [InlineData(OverlayAnchor.TopCenter, 344)]
+    [InlineData(OverlayAnchor.TopRight, 344)]
+    [InlineData(OverlayAnchor.BottomLeft, -344)]
+    [InlineData(OverlayAnchor.BottomRight, 344)]
+    public void Slide_animation_enters_and_exits_by_more_than_card_width(OverlayAnchor anchor, double expected)
+    {
+        Assert.Equal(expected, ClipNotificationOverlay.SlideOffset(320, anchor));
+        Assert.True(Math.Abs(ClipNotificationOverlay.SlideOffset(320, anchor)) > 320);
+    }
+
+    [Fact]
+    public void All_enabled_compact_fields_remain_available_for_wrapping()
+    {
+        var details = new ClipNotificationDetails("Game", "Title", "Display", "60 seconds", "3440 x 1440", "144 FPS", "Alt+F10");
+        Assert.Equal(7, details.Lines(new ClipOverlayOptions { Style = OverlayStyle.Compact }).Length);
+    }
+
     [Fact]
     public void Chime_gain_preserves_the_asset_and_applies_to_the_pcm_only()
     {
