@@ -56,11 +56,13 @@ public sealed class EpicManifestTests : IDisposable
         var state = GameCatalogRuntime.WithScan(new() { Request = request }, result);
         var game = Assert.Single(GameCatalogRuntime.Rows(state));
         Assert.Equal((CatalogSource.Epic, "Fixture Title", exe), (game.Source, game.Name, Assert.Single(game.Executables)));
-        var match = new GameCatalogIndex(result).Match(exe, true);
+        var index = new GameCatalogIndex(new([game], [], 0, false, default));
         var window = new WindowOwner(new IntPtr(1), 2, 3, 4);
-        Assert.Null(GameDetector.Observe(window, exe, match, true, new HashSet<string> { exe }).VerifiedTarget);
-        Assert.NotNull(GameDetector.Observe(window, exe, match with { Kind = CatalogMatchKind.Game }, false,
-            new HashSet<string>()).VerifiedTarget);
+        var sibling = new PassiveGameWindow(window with { ProcessId = 99 }, Path.Combine(bin, "Other.exe"), 200);
+        var renderer = new PassiveGameWindow(window, exe, 100);
+        Assert.Equal(window, GameDetector.ResolveEligibleGame(null, null, _ => true,
+            () => [sibling, renderer], index.Match)?.VerifiedTarget?.Owner);
+        Assert.Null(GameDetector.ResolveEligibleGame(null, null, _ => true, () => [sibling], index.Match));
 
         var excluded = request with { ExcludedDirectories = [manifests], GameRoots = [] };
         Assert.Empty((await Scan(excluded)).Entries);

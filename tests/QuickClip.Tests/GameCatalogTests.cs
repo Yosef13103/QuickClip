@@ -30,6 +30,10 @@ public sealed class GameCatalogTests : IDisposable
         Assert.Equal("Game", candidate.DisplayName);
         Assert.Equal(new[] { game, adjacent }, candidate.Executables);
         Assert.True(first.LimitReached);
+        var rows = GameCatalogRuntime.Rows(new() { Request = request, Snapshot = first });
+        var index = new GameCatalogIndex(first with { Entries = rows });
+        Assert.Equal(CatalogMatchKind.Game, index.Match(game, false).Kind);
+        Assert.Equal(CatalogMatchKind.Candidate, index.Match(adjacent, true).Kind);
 
         var second = await GameCatalogService.ScanAsync(request with
         {

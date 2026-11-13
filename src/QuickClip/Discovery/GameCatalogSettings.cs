@@ -52,14 +52,19 @@ internal static class GameCatalogRuntime
     {
         var rules = new Dictionary<string, CatalogRules>(StringComparer.Ordinal);
         foreach (var entry in settings.Request.Overrides) rules[entry.Id] = entry.Rules;
-        var roots = settings.Request.GameRoots.Select(root => root.Path).Concat(settings.Request.SteamLibraryRoots)
-            .Concat(settings.Snapshot?.SteamLibraries ?? []).ToArray();
+        var folderRoots = settings.Request.GameRoots.Select(root => CatalogPaths.LocalPath(root.Path)).OfType<string>().ToArray();
+        var steamRoots = settings.Request.SteamLibraryRoots.Concat(settings.Snapshot?.SteamLibraries ?? [])
+            .Select(CatalogPaths.LocalPath).OfType<string>().ToArray();
         bool Approved(CatalogEntry entry, string path) =>
-            (entry.Source == CatalogSource.Epic
-                ? settings.Snapshot?.EpicManifestDirectory is { } epic &&
-                !settings.Request.ExcludedDirectories.Any(root => CatalogPaths.IsWithin(epic, root)) &&
-                entry.InstallDirectories.Any(root => CatalogPaths.IsWithin(path, root))
-                : roots.Any(root => CatalogPaths.IsWithin(path, root))) &&
+            (entry.Source switch
+            {
+                CatalogSource.Epic => settings.Snapshot?.EpicManifestDirectory is { } epic &&
+                    !settings.Request.ExcludedDirectories.Any(root => CatalogPaths.IsWithin(epic, root)) &&
+                    entry.InstallDirectories.Any(root => CatalogPaths.IsWithin(path, root)),
+                CatalogSource.Folder => folderRoots.Any(root => CatalogPaths.IsWithin(path, root)),
+                CatalogSource.Steam => steamRoots.Any(root => CatalogPaths.IsWithin(path, root)),
+                _ => false,
+            }) &&
             !settings.Request.ExcludedDirectories.Any(root => CatalogPaths.IsWithin(path, root));
         var discovered = (settings.Snapshot?.Entries ?? []).Where(entry => entry.Source != CatalogSource.Manual)
             .Select(entry => entry with

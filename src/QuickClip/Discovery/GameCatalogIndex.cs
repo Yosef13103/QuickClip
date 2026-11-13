@@ -63,11 +63,22 @@ internal sealed class GameCatalogIndex
             return new(CatalogMatchKind.Launcher, entry);
         if (rules.Classification == AppClassification.Application) return new(CatalogMatchKind.Application, entry);
         if (rules.Classification == AppClassification.Companion) return new(CatalogMatchKind.Companion, entry);
-        if (rules.Classification == AppClassification.Automatic &&
-            CatalogPaths.DefaultRole(path) is var role && role != CatalogMatchKind.Unknown)
+        if (CatalogPaths.DefaultRole(path) is var role && role != CatalogMatchKind.Unknown)
             return new(role, entry);
         if (rules.Activation == CatalogActivation.ForegroundOnly && !isForeground) return new(CatalogMatchKind.Inactive, entry);
-        bool game = rules.Classification == AppClassification.Game || entry.Source == CatalogSource.Manual;
+        bool game = rules.Classification == AppClassification.Game ||
+            entry.Source is CatalogSource.Manual or CatalogSource.Epic ||
+            rules.ApprovedExecutables.Contains(path, StringComparer.OrdinalIgnoreCase) ||
+            entry.Source == CatalogSource.Folder && MatchesInstallName(entry, path);
         return new(game ? CatalogMatchKind.Game : CatalogMatchKind.Candidate, entry);
+    }
+
+    // A collection can contain arbitrary EXEs. A default Folder match needs a
+    // renderer whose name corroborates the particular install, beyond root membership.
+    private static bool MatchesInstallName(CatalogEntry entry, string path)
+    {
+        string name = Path.GetFileNameWithoutExtension(path);
+        return entry.InstallDirectories.Any(install => CatalogPaths.IsWithin(path, install) &&
+            name.Equals(Path.GetFileName(install), StringComparison.OrdinalIgnoreCase));
     }
 }

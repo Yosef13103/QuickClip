@@ -49,13 +49,11 @@ public partial class GamesSettingsView
             _ when !Entry.Executables.IsEmpty && Entry.Executables.All(path => CatalogPaths.DefaultRole(path) == CatalogMatchKind.Companion) => "Companion app",
             _ when !Entry.Executables.IsEmpty && Entry.Executables.All(path => CatalogPaths.DefaultRole(path) == CatalogMatchKind.Launcher) => "Launcher",
             _ when !Entry.Executables.IsEmpty && Entry.Executables.All(path => CatalogPaths.DefaultRole(path) == CatalogMatchKind.Application) => "Utility",
-            _ => Entry.Source == CatalogSource.Manual ? "Game · enabled" : "Game candidate",
+            _ => Entry.Source is CatalogSource.Manual or CatalogSource.Epic ? "Game · enabled" : "Game candidate",
         };
         private string? Availability => _offline ? "Source unavailable or scan incomplete · games remembered" :
             Entry.Executables.IsEmpty ? "No executable found · check the source and rescan" :
-            _unavailable.Length > 0 ? "Executable unavailable · check the drive or edit executables" :
-            Entry.Source == CatalogSource.Epic && Entry.Rules.Classification == AppClassification.Automatic
-                ? "Game window unverified · check executable and detection rules" : null;
+            _unavailable.Length > 0 ? "Executable unavailable · check the drive or edit executables" : null;
         public string Summary => Availability is { } issue ? $"{Source} · {Eligibility} · {issue}" : $"{Source} · {Eligibility}";
 
         public sealed record ClassificationChoice(AppClassification Value, string Label);
@@ -78,13 +76,13 @@ public partial class GamesSettingsView
             if (IsExcluded || _blocked.Contains(path, StringComparer.OrdinalIgnoreCase)) return " · ignored";
             if (CatalogPaths.IsDiscordProcess(path)) return CatalogPaths.IsDiscordUpdater(path) ? " · ignored" : " · companion";
             if (Entry.Rules.LauncherExecutables.Contains(path, StringComparer.OrdinalIgnoreCase)) return " · launcher";
-            return Entry.Rules.Classification == AppClassification.Automatic ? CatalogPaths.DefaultRole(path) switch
+            return CatalogPaths.DefaultRole(path) switch
             {
                 CatalogMatchKind.Companion => " · companion",
                 CatalogMatchKind.Launcher => " · launcher",
                 CatalogMatchKind.Application => " · utility",
                 _ => "",
-            } : "";
+            };
         }
 
         public bool Matches(string query) => Matches(Entry, query);

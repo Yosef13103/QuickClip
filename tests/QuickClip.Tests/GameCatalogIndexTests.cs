@@ -72,13 +72,13 @@ public sealed class GameCatalogIndexTests
     }
 
     [Fact]
-    public void Helpers_from_an_old_scan_do_not_match_as_games_and_can_be_overridden_explicitly()
+    public void Known_helpers_do_not_match_as_games_even_with_explicit_classification()
     {
         const string path = @"C:\Games\Cyberpunk 2077\bin\x64\CrashReporter\7za.exe";
         var entry = new CatalogEntry("steam:1", "Cyberpunk 2077", CatalogSource.Steam, [], [path], new());
         Assert.Equal(CatalogMatchKind.Application, BuildIndex(entry).Match(path, true).Kind);
         Assert.Equal(CatalogMatchKind.Application, BuildIndex().Match(path, true).Kind);
-        Assert.Equal(CatalogMatchKind.Game, BuildIndex(entry with
+        Assert.Equal(CatalogMatchKind.Application, BuildIndex(entry with
         {
             Source = CatalogSource.Manual,
             Rules = new(Classification: AppClassification.Game),

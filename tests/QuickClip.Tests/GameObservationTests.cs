@@ -11,6 +11,102 @@ public sealed class GameObservationTests
         [@"C:\Games\Fixture"], [Renderer], new());
     private static readonly IReadOnlySet<string> Known = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { Renderer };
 
+    [Theory]
+    [InlineData("Folder", false)]
+    [InlineData("Folder", true)]
+    [InlineData("Epic", false)]
+    [InlineData("Epic", true)]
+    [InlineData("Steam", false)]
+    [InlineData("Steam", true)]
+    [InlineData("Manual", false)]
+    [InlineData("Manual", true)]
+    public void Eligible_catalog_executable_triggers_only_with_current_owner_and_display_consent(string source, bool foreground)
+    {
+        string path = source switch
+        {
+            "Folder" => @"D:\Collection\Fixture\Bin\Fixture.exe",
+            "Epic" => @"D:\Epic\Fixture\Bin\Play.exe",
+            "Steam" => @"D:\Steam\steamapps\common\Fixture\Game.exe",
+            _ => @"D:\Freeware\osu!lazer\osu!.exe",
+        };
+        string install = Path.GetDirectoryName(Path.GetDirectoryName(path))!;
+        var discovered = new CatalogEntry(source + ":fixture", "Fixture", Enum.Parse<CatalogSource>(source),
+            [install], [path], new());
+        var settings = new GameCatalogSettings
+        {
+            Request = new()
+            {
+                GameRoots = [new(@"D:\Collection", IsCollection: true)],
+                ManualEntries = source == "Manual" ? [new(Guid.NewGuid(), "osu!lazer", [path])] : [],
+            },
+            Snapshot = new([discovered], [], 0, false, default)
+            {
+                SteamLibraries = [@"D:\Steam"],
+                EpicManifestDirectory = @"C:\Epic\Manifests",
+            },
+        };
+        var index = Index(settings);
+        var focused = foreground ? GameDetector.Observe(Original, path, index.Match(path, true), false, new HashSet<string>()) : null;
+        GameCaptureObservation? Resolve(Func<WindowOwner, bool> isCurrent) =>
+            GameDetector.ResolveEligibleGame(null, focused, isCurrent, () => [new(Original, path, 100)], index.Match);
+        Assert.Null(Resolve(_ => false));
+        var game = Resolve(owner => owner == Original);
+        Assert.Equal(Original, game?.VerifiedTarget?.Owner);
+        Assert.Equal(foreground, game?.IsForeground);
+
+        var starts = new List<CaptureActivation>();
+        var lifecycle = new RecordingLifecycle(activation => { starts.Add(activation); return null; }, () => { });
+        var display = new MonitorInfo("DISPLAY1", "", 0, 0, 1920, 1080) { CaptureIdentity = "fixture-display" };
+        lifecycle.Reconcile(true, null, game, [display], _ => display.DeviceName, _ => false);
+        Assert.Equal(RecordingMode.Unavailable, lifecycle.Mode);
+        Assert.Empty(starts);
+        lifecycle.Reconcile(true, null, game, [display], _ => display.DeviceName, identity => identity == display.CaptureIdentity);
+        Assert.Equal(RecordingMode.GameTriggered, lifecycle.Mode);
+        Assert.Equal(Original, Assert.Single(starts).GameOwner);
+    }
+
+    [Fact]
+    public void Folder_approval_is_exact_and_vetoes_are_rechecked()
+    {
+        const string root = @"C:\Collection";
+        const string install = @"C:\Collection\Fixture";
+        const string renderer = @"C:\Collection\Fixture\Fixture.exe";
+        const string alternate = @"C:\Collection\Fixture\Alternate.exe";
+        const string helper = @"C:\Collection\Fixture\Helper.exe";
+        const string launcher = @"C:\Collection\Fixture\Bootstrap.exe";
+        const string discord = @"C:\Collection\Fixture\Discord.exe";
+        const string browser = @"C:\Collection\Fixture\chrome.exe";
+        var entry = new CatalogEntry("folder:fixture", "Fixture", CatalogSource.Folder, [install],
+            [renderer, alternate, helper, launcher, discord, browser], new());
+        var state = new GameCatalogSettings
+        {
+            Request = new()
+            {
+                GameRoots = [new(root, IsCollection: true)],
+                Overrides = [new(entry.Id, new() { ApprovedExecutables = [alternate, launcher, discord, browser],
+                    LauncherExecutables = [launcher] })],
+            },
+            Snapshot = new([entry], [], 0, false, default) { SteamLibraries = [root] },
+        };
+        var saved = AppSettings.Parse(new AppSettings { Games = state }.ToJson()).Games;
+        var index = Index(saved);
+        GameCaptureObservation? Resolve(GameCatalogIndex source, string path) =>
+            GameDetector.ResolveEligibleGame(null, null, _ => true, () => [new(Original, path, 100)], source.Match);
+        Assert.NotNull(Resolve(index, renderer));
+        Assert.NotNull(Resolve(index, alternate));
+        Assert.Null(Resolve(index, helper));
+        Assert.Null(Resolve(index, launcher));
+        Assert.Null(Resolve(index, discord));
+        Assert.Null(Resolve(index, browser));
+        Assert.Null(Resolve(index, @"C:\Other\Fixture.exe"));
+        Assert.Null(Resolve(Index(saved with { BlockedExecutables = [renderer] }), renderer));
+        Assert.Null(Resolve(Index(saved with { Request = saved.Request with { GameRoots = [] } }), renderer));
+        Assert.Null(Resolve(Index(saved with { Request = saved.Request with { ExcludedDirectories = [install] } }), renderer));
+    }
+
+    private static GameCatalogIndex Index(GameCatalogSettings settings) =>
+        new(new(GameCatalogRuntime.Rows(settings), [], 0, false, default), settings.BlockedExecutables);
+
     [Fact]
     public void Armed_observation_requires_verified_identity_and_rechecks_retained_veto()
     {

@@ -217,14 +217,19 @@ public partial class GamesSettingsView : UserControl
         {
             if (existing is [var match] && paths.All(path => match.Executables.Contains(path, StringComparer.OrdinalIgnoreCase)))
             {
-                if ((match.Source is CatalogSource.Steam or CatalogSource.Epic or CatalogSource.Folder) &&
+                if (match.Source == CatalogSource.Folder &&
                     match.Rules is { Inclusion: not CatalogInclusion.Exclude, Classification: AppClassification.Automatic } &&
+                    paths.Any(path => !match.Rules.ApprovedExecutables.Contains(path, StringComparer.OrdinalIgnoreCase)) &&
                     paths.All(path => CatalogPaths.DefaultRole(path) == CatalogMatchKind.Unknown &&
                         !match.Rules.LauncherExecutables.Contains(path, StringComparer.OrdinalIgnoreCase) &&
                         !state.BlockedExecutables.Contains(path, StringComparer.OrdinalIgnoreCase)) &&
-                    ModalDialog.ConfirmAction(owner, $"Enable automatic game detection for {match.DisplayName}?",
+                    ModalDialog.ConfirmAction(owner, $"Enable automatic game detection for the selected executable(s) in {match.DisplayName}?",
                         "Game already in the catalog", "Enable detection", "Keep current settings", destructive: false))
-                    SaveRules(match, match.Rules with { Classification = AppClassification.Game });
+                    SaveRules(match, match.Rules with
+                    {
+                        ApprovedExecutables = [.. match.Rules.ApprovedExecutables.Concat(paths)
+                            .Distinct(StringComparer.OrdinalIgnoreCase)],
+                    });
                 Search.Text = "";
                 Games.SelectedItem = _rows.FirstOrDefault(row => row.Entry.Id == match.Id);
                 if (Games.SelectedItem is { } selected) Games.ScrollIntoView(selected);
