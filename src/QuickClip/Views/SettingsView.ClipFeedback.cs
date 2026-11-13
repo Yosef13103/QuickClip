@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.IO;
 using System.Windows;
 using Microsoft.Win32;
@@ -105,7 +106,10 @@ public partial class SettingsView
             new("Ripple", OverlayAnimation.Ripple), new("No animation", OverlayAnimation.None)], options.Animation);
         SetNumbers(OverlaySizeCombo, [48, 60, 72, 88, 104], options.Size, value => $"{value:0} DIP");
         SetNumbers(OverlayOpacityCombo, [.3, .5, .7, .9, 1], options.Opacity, value => $"{value:P0}");
-        SetNumbers(OverlayDurationCombo, [.8, 1.4, 2, 3, 5], options.Seconds, value => $"{value:0.#} s");
+        OverlayDurationBox.Text = options.Seconds.ToString("0.##", CultureInfo.CurrentCulture);
+        OverlayDurationError.Text = "";
+        OverlayImageError.Text = "";
+        OverlayImageError.Visibility = Visibility.Collapsed;
     }
 
     private void SetChoices(ComboBox combo, IEnumerable<Choice> choices, object selected)
@@ -135,10 +139,11 @@ public partial class SettingsView
         settings.ShowInactiveSaveNotifications = IdleSaveNotificationCheck.IsChecked == true;
         settings.ClipWindowsNotification = mode is ClipNotificationMode.Windows or ClipNotificationMode.Both;
         UpdateFeedbackVisibility();
+        bool validDuration = ClipOverlayOptions.TryParseSeconds(OverlayDurationBox.Text, out double enteredSeconds);
+        OverlayDurationError.Text = validDuration ? "" : "Enter a duration from 0.6 to 60 seconds.";
         if (OverlayAnchorCombo.SelectedItem is Choice { Value: OverlayAnchor anchor } &&
             OverlaySizeCombo.SelectedItem is Choice { Value: double size } &&
             OverlayOpacityCombo.SelectedItem is Choice { Value: double opacity } &&
-            OverlayDurationCombo.SelectedItem is Choice { Value: double duration } &&
             OverlayAnimationCombo.SelectedItem is Choice { Value: OverlayAnimation animation })
         {
             settings.ClipOverlay = (settings.ClipOverlay ?? new()) with
@@ -154,7 +159,9 @@ public partial class SettingsView
                 ShowSource = OverlayShowSource.IsChecked == true,
                 ShowDuration = OverlayShowDuration.IsChecked == true,
                 Display = (OverlayDisplayCombo.SelectedItem as Choice)?.Value as string,
-                Anchor = anchor, Size = size, Opacity = opacity, Seconds = duration, Animation = animation,
+                Anchor = anchor, Size = size, Opacity = opacity,
+                Seconds = validDuration ? enteredSeconds : (settings.ClipOverlay ?? new()).Seconds,
+                Animation = animation,
             };
         }
         settings.Save();
@@ -179,12 +186,20 @@ public partial class SettingsView
         ClearOverlayImage.IsEnabled = false;
         try
         {
-            if (await Task.Run(() => ClipOverlayImage.Load(dialog.FileName)) == null)
+            var asset = await Task.Run(() => ClipOverlayImage.LoadAsset(dialog.FileName));
+            if (asset == null)
             {
                 ShowOverlayImage(AppSettings.Current.ClipOverlay?.ImagePath);
-                OverlayImageStatus.Text = "Choose a supported local image up to 4 MB and 2048 × 2048. Animated GIFs also have a frame and decoded-size limit.";
+                OverlayImageError.Text = "Could not load this image. Use a valid PNG, JPG, WebP or GIF up to 16 MiB " +
+                    "and 2048 × 2048 pixels. GIFs are limited to 120 frames and 32 million source frame-pixels.";
+                OverlayImageError.Visibility = Visibility.Visible;
                 return;
             }
+            // Choose the animation's natural duration on import; custom seconds remain editable.
+            if (asset.Frames.Length > 1)
+                OverlayDurationBox.Text = Math.Clamp(asset.Frames.Sum(frame => frame.Delay.TotalSeconds),
+                    ClipOverlayOptions.MinSeconds, ClipOverlayOptions.MaxSeconds)
+                    .ToString("0.##", CultureInfo.CurrentCulture);
             SaveOverlayImage(dialog.FileName);
             App.Host?.TestClipOverlay();
         }
@@ -199,6 +214,8 @@ public partial class SettingsView
         settings.ClipOverlay = (settings.ClipOverlay ?? new()) with { ImagePath = path };
         settings.Save();
         ShowOverlayImage(path);
+        OverlayImageError.Text = "";
+        OverlayImageError.Visibility = Visibility.Collapsed;
     }
 
     private void ShowOverlayImage(string? path)
