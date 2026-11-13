@@ -26,6 +26,11 @@ This plan tracks the owner’s November 13 post-field-test feedback. The working
 
 ## Release readiness
 
+### Personal title bar
+
+- [ ] Personal custom caption uses WPF WindowChrome. Local strict Personal and Upstream Release builds and caption coordinate tests passed on Windows 10 build 19045. Verify mouse resize on all edges and corners, keyboard and system menu, maximize/restore work area, tray behavior, and editor/player fullscreen on real windows. Verify mixed-monitor DPI at 100/125/150/200% and Windows 11 Snap Layouts. The existing minimum window size can limit narrow snap zones. Launch with `--system-chrome` to use the Windows frame. High Contrast starts with the Windows frame.
+- Interface and text scaling are owned by PR #30. Keep its separate app resource values and fullscreen rail restoration. The caption height and resize border use Windows-scaled DIPs. Recheck minimum dimensions and caption control reachability after integrating #30.
+
 - [ ] Each merged PR has strict Personal and Upstream CI at the exact commit.
 - [ ] Owner-supervised game launch/exit, idle-zero-capture, Discord focus, DISPLAY1→DISPLAY2 move, consent boundary, and manual override tests on real Windows 10/11 hardware.
 - [ ] Real playback device and mic isolation, notification tone routing, and replay A/V synchronization tests.
