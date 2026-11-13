@@ -83,6 +83,19 @@ public sealed class RecordingHotkeysTests
     }
 
     [Fact]
+    public void Personal_hotkeys_respect_first_run_and_block_saves_during_master_shutdown()
+    {
+        var settings = new AppSettings { RecordingEnabled = false };
+        Assert.False(RecordingHotkeys.CanDispatch(RecordingCommand.ToggleMaster, settings, true, false));
+        Assert.False(RecordingHotkeys.CanDispatch(RecordingCommand.SaveClip, settings, true, true));
+        Assert.True(RecordingHotkeys.CanDispatch(RecordingCommand.SaveClip, settings, true, false));
+        settings.ReplayOnboardingCompleted = true;
+        Assert.True(RecordingHotkeys.CanDispatch(RecordingCommand.ToggleMaster, settings, true, false));
+        settings.RecordingEnabled = true;
+        Assert.True(RecordingHotkeys.CanDispatch(RecordingCommand.SaveClip, settings, true, true));
+    }
+
+    [Fact]
     public void Manual_approval_expires_even_if_the_master_switch_is_immediately_turned_back_on()
     {
         var settings = new AppSettings { RecordingEnabled = true, AuthorizedGameDisplay = "game-display" };

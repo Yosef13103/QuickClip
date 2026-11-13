@@ -252,7 +252,7 @@ internal sealed class AppHost : IDisposable
                 RecordingHotkeys.Read(AppSettings.Current, command) == key)
             {
                 if (_captureHotkey is { } capture) capture(key);
-                else if (command != RecordingCommand.SaveClip || AppSettings.Current.RecordingEnabled || !Recorder.Instance.IsRunning)
+                else if (RecordingHotkeys.CanDispatch(command, AppSettings.Current, AppProfile.IsPersonal, Recorder.Instance.IsRunning))
                     RunRecordingCommand(command);
                 handled = true;
             }

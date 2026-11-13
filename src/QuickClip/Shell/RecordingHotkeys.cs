@@ -28,6 +28,15 @@ internal static class RecordingHotkeys
         }
     }
 
+    internal static bool CanDispatch(RecordingCommand command, AppSettings settings, bool personal, bool isRecording)
+    {
+        if (!personal) return true;
+        if (command == RecordingCommand.ToggleMaster && !settings.LoadedFromFile && !settings.ReplayOnboardingCompleted)
+            return false;
+        // Preserve expected idle feedback while blocking saves from a session still shutting down.
+        return command != RecordingCommand.SaveClip || settings.RecordingEnabled || !isRecording;
+    }
+
     internal static HotkeyRegistration Validate(Hotkey key)
     {
         if (key.IsEmpty) return HotkeyRegistration.Unbound;
