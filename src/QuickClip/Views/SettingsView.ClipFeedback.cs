@@ -15,6 +15,48 @@ public partial class SettingsView
     private bool _loadingSoundOutputs;
     private System.Windows.Threading.DispatcherTimer? _soundVolumeSave;
 
+    private void ShowSelectedClipSound(string? path)
+    {
+        SelectedClipSound.Text = string.IsNullOrWhiteSpace(path) ? "Default camera-shutter sound" : Path.GetFileName(path);
+        ResetClipSoundButton.IsEnabled = !string.IsNullOrWhiteSpace(path);
+        bool missing = !string.IsNullOrWhiteSpace(path) && !File.Exists(path);
+        ClipSoundFileError.Text = missing ? "The selected sound file is missing. Choose a new sound or restore the default." : "";
+        ClipSoundFileError.Visibility = missing ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    private async void ChooseClipSound_Click(object sender, RoutedEventArgs e)
+    {
+        var dialog = new OpenFileDialog
+        {
+            Title = "Choose a custom clip-save sound",
+            Filter = "Audio|*.wav;*.mp3;*.flac;*.ogg;*.opus;*.m4a;*.aac;*.aiff;*.aif",
+        };
+        if (dialog.ShowDialog(Window.GetWindow(this)) != true) return;
+        ChooseClipSoundButton.IsEnabled = false;
+        try
+        {
+            byte[]? sound = await ClipSoundCustom.LoadAsync(dialog.FileName);
+            if (sound == null)
+            {
+                ClipSoundFileError.Text = "Could not load that sound. Choose a valid local audio file up to 16 MiB; the first 3 seconds are used.";
+                ClipSoundFileError.Visibility = Visibility.Visible;
+                return;
+            }
+            AppSettings.Current.ClipSoundFilePath = dialog.FileName;
+            AppSettings.Current.Save();
+            ShowSelectedClipSound(dialog.FileName);
+            SoundOutputStatus.Text = SoundOverlapMessage();
+        }
+        finally { ChooseClipSoundButton.IsEnabled = true; }
+    }
+
+    private void ResetClipSound_Click(object sender, RoutedEventArgs e)
+    {
+        AppSettings.Current.ClipSoundFilePath = null;
+        AppSettings.Current.Save();
+        ShowSelectedClipSound(null);
+    }
+
     private void SoundOutputOpened(object sender, EventArgs e) => LoadSoundOutputs();
 
     private void LoadSoundOutputs()
@@ -69,6 +111,7 @@ public partial class SettingsView
         SoundOutputPanel.Visibility = ClipOverlayPanel.Visibility = AppProfile.IsPersonal ? Visibility.Visible : Visibility.Collapsed;
         if (!AppProfile.IsPersonal) return;
         LoadSoundOutputs();
+        ShowSelectedClipSound(settings.ClipSoundFilePath);
         SoundVolumeSlider.Value = Math.Clamp(settings.ClipSoundVolume, 0, 100);
         var options = (settings.ClipOverlay ?? new()).Normalize();
         WindowsClipNotificationCheck.Visibility = Visibility.Collapsed;
