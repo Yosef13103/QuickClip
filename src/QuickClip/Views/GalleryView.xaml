@@ -36,7 +36,7 @@
                             <Separator />
                             <MenuItem Header="Select" Click="SelectClip_Click" />
                             <Separator />
-                            <MenuItem Header="Delete" Click="DeleteClip_Click" />
+                            <MenuItem Header="Delete" Foreground="{DynamicResource DangerBrush}" Click="DeleteClip_Click" />
                         </ContextMenu>
                     </Border.ContextMenu>
                     <StackPanel>
@@ -176,7 +176,7 @@
                                             <MenuItem Header="Rename…" Click="RenameProject_Click" />
                                             <MenuItem Header="Open folder" Click="OpenProjectFolder_Click" />
                                             <Separator />
-                                            <MenuItem Header="Delete project" Click="DeleteProject_Click" />
+                                            <MenuItem Header="Delete project" Foreground="{DynamicResource DangerBrush}" Click="DeleteProject_Click" />
                                         </ContextMenu>
                                     </DockPanel.ContextMenu>
                                     <TextBlock DockPanel.Dock="Right" Text="{Binding ClipCount}" Foreground="{DynamicResource SubtleText}" Margin="8,0,0,0" />
