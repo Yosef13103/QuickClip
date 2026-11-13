@@ -90,7 +90,7 @@ internal static class ClipOverlayImage
                     int source = (y * w + x) * 4;
                     if (patch[source + 3] == 0) continue;
                     int target = (top + y) * stride + (left + x) * 4;
-                    Buffer.BlockCopy(patch, source, canvas, target, 4);
+                    patch.AsSpan(source, 4).CopyTo(canvas.AsSpan(target, 4));
                 }
 
             var full = BitmapSource.Create(width, height, 96, 96, System.Windows.Media.PixelFormats.Bgra32, null, canvas, stride);

@@ -32,6 +32,7 @@ internal sealed class ClipNotificationOverlay : IDisposable
     private TextBlock? _glyph;
     private DispatcherTimer? _timer;
     private IntPtr _handle;
+    private HwndSource? _source;
 
     internal bool IsVisible => _window?.IsVisible == true;
     internal bool IsAnimatingImage => _frameTimer?.IsEnabled == true;
@@ -208,6 +209,8 @@ internal sealed class ClipNotificationOverlay : IDisposable
             Background = Brushes.Transparent, Content = _surface, Width = 72, Height = 72,
         };
         _handle = new WindowInteropHelper(_window).EnsureHandle();
+        _source = HwndSource.FromHwnd(_handle);
+        _source?.AddHook(OnWindowMessage);
         if (OperatingSystem.IsWindowsVersionAtLeast(10, 0, 19041))
             SetWindowDisplayAffinity(_handle, 0x11); // WDA_EXCLUDEFROMCAPTURE, where the capture API supports it
         const int exStyle = -20;
@@ -229,6 +232,13 @@ internal sealed class ClipNotificationOverlay : IDisposable
             _imageView.Source = _image.Frames[_frame].Bitmap;
             _frameTimer.Interval = _nextFrame - elapsed;
         };
+    }
+
+    private IntPtr OnWindowMessage(IntPtr hwnd, int message, IntPtr wParam, IntPtr lParam, ref bool handled)
+    {
+        if (message == 0x007E && _window?.IsVisible == true) // WM_DISPLAYCHANGE
+            _window.Dispatcher.BeginInvoke(Hide);
+        return IntPtr.Zero;
     }
 
     internal static bool MotionEnabled(bool windowsAnimations, OverlayAnimation animation) =>
@@ -259,6 +269,8 @@ internal sealed class ClipNotificationOverlay : IDisposable
         Hide();
         _image = null;
         _imageLoad = null;
+        _source?.RemoveHook(OnWindowMessage);
+        _source = null;
         _window?.Close();
         _window = null;
     }
