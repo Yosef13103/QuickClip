@@ -279,6 +279,16 @@ namespace qc
             return !EnumDisplayDevicesW(device.c_str(), 1, &monitor, EDD_GET_DEVICE_INTERFACE_NAME);
         }
 
+        bool GameOnMonitor(const QcGameWindow& game, HANDLE process, HMONITOR monitor)
+        {
+            if (!game.handle) return true;
+            DWORD pid = 0;
+            return process && WaitForSingleObject(process, 0) == WAIT_TIMEOUT &&
+                GetWindowThreadProcessId(game.handle, &pid) == game.thread && pid == game.process &&
+                IsWindowVisible(game.handle) && !IsIconic(game.handle) &&
+                MonitorFromWindow(game.handle, MONITOR_DEFAULTTONULL) == monitor;
+        }
+
         struct Area
         {
             int x = 0, y = 0, width = 0, height = 0;
@@ -351,6 +361,9 @@ namespace qc
 
         std::wstring monitorDevice;
         std::wstring displayIdentity;
+        QcGameWindow game{};
+        HANDLE gameProcess = nullptr;
+        std::atomic<bool> videoSourceLost{ false };
         int aspectWidth = 0, aspectHeight = 0;     // record the centered part with this shape; 0 = the whole monitor
         int fps = 60, outWidth = 0, outHeight = 0, videoKbps = 0;
         bool cursor = true;
@@ -392,7 +405,11 @@ namespace qc
         std::deque<int64_t> frameTimes;
         std::string videoDescription, videoSample;
 
-        ~Shared() { CloseHandle(videoStarted); }
+        ~Shared()
+        {
+            if (gameProcess) CloseHandle(gameProcess);
+            CloseHandle(videoStarted);
+        }
     };
 
     namespace
@@ -615,7 +632,16 @@ namespace qc
                 int64_t submitUs = 0, drainUs = 0, ringUs = 0, packets = 0;
                 int64_t maxWaitUs = 0, maxSubmitUs = 0;
             } timing;
-            auto current = [&] { return !s->stop && s->generation == generation; };
+            HMONITOR boundMonitor = nullptr;
+            int64_t nextDisplayCheck = 0;
+            auto current = [&] { return !s->stop && !s->videoSourceLost && s->generation == generation; };
+            auto verifySource = [&](bool checkDisplay) {
+                if (GameOnMonitor(s->game, s->gameProcess, boundMonitor) &&
+                    (!checkDisplay || MatchesDisplayIdentity(s->monitorDevice, s->displayIdentity))) return true;
+                std::lock_guard guard(s->videoLock);
+                if (current()) s->videoSourceLost = true;
+                return false;
+            };
             auto closeCapture = [&] {
                 pipe.Close();
                 av_buffer_unref(&device);
@@ -651,7 +677,9 @@ namespace qc
                     {
                         ok = FindMonitor(s->monitorDevice, monitor)
                             && MatchesDisplayIdentity(s->monitorDevice, s->displayIdentity);
-                        if (!ok) error = "The selected monitor is missing or could not be verified.";
+                        boundMonitor = reinterpret_cast<HMONITOR>(monitor.hmonitor);
+                        if (ok && !GameOnMonitor(s->game, s->gameProcess, boundMonitor)) ok = false;
+                        if (!ok) error = "The authorized display or game location changed before capture could start.";
                     }
                     if (ok)
                     {
@@ -686,6 +714,15 @@ namespace qc
                     }
                     duplicationBusy = 0;
                     if (window) ok = ok && pipe.OpenEncoder(*s, kbps, error);
+                    MonitorTarget confirmed;
+                    if (ok && !s->displayIdentity.empty() &&
+                        (!verifySource(true) || !FindMonitor(s->monitorDevice, confirmed) ||
+                            confirmed.hmonitor != monitor.hmonitor || confirmed.adapter != monitor.adapter ||
+                            confirmed.output != monitor.output))
+                    {
+                        ok = false;
+                        error = "The authorized display or game location changed while capture was starting.";
+                    }
                     if (!ok)
                     {
                         closeCapture();
@@ -693,6 +730,12 @@ namespace qc
                         {
                             s->startError = error;
                             SetEvent(s->videoStarted);
+                            break;
+                        }
+                        if (!s->displayIdentity.empty() && (!boundMonitor || !verifySource(true)))
+                        {
+                            std::lock_guard guard(s->videoLock);
+                            if (current()) s->videoSourceLost = true;
                             break;
                         }
                         if (error != lastError) Log("starting capture again failed: %s", error.c_str());
@@ -761,6 +804,8 @@ namespace qc
                     }
                 }
 
+                if (s->game.handle && !verifySource(false)) break;
+
                 // Tests: hang the way a capture call that doesn't return would.
                 if (int freeze = s->testFreezeMs.exchange(0); freeze > 0) Sleep(freeze);
 
@@ -772,6 +817,13 @@ namespace qc
                     av_frame_unref(frame);
                     break;
                 }
+                bool checkDisplay = !s->displayIdentity.empty() && (ret < 0 || gotFrameUs >= nextDisplayCheck);
+                if ((s->game.handle || checkDisplay) && !verifySource(checkDisplay))
+                {
+                    av_frame_unref(frame);
+                    break;
+                }
+                if (checkDisplay) nextDisplayCheck = gotFrameUs + 250'000;
                 if (ret < 0)
                 {
                     Log("capture interrupted (%s); starting it again", AvError(ret).c_str());
@@ -868,7 +920,7 @@ namespace qc
                     const int64_t ringStartUs = diagnostics ? NowUs() : 0;
                     {
                         std::lock_guard guard(s->videoLock);
-                        if (s->generation == generation) s->ring.Push(av_packet_clone(packet), 0, timeUs, key, source);
+                        if (current()) s->ring.Push(av_packet_clone(packet), 0, timeUs, key, source);
                     }
                     if (diagnostics)
                     {
@@ -942,7 +994,7 @@ namespace qc
     // ---------------------------------------------------------------------------------------------
 
     Engine::Engine(const QcConfig& c, bool endpointMode, const QcEndpointTrack* endpoints, int endpointCount,
-        QcVideoOptions video, const wchar_t* displayIdentity)
+        QcVideoOptions video, const wchar_t* displayIdentity, const QcGameWindow* game)
         : shared_(std::make_shared<Shared>(static_cast<int64_t>(c.bufferSeconds) * 1000000)),
           monitor_(c.monitorDevice ? c.monitorDevice : L""),
           splitChat_(c.splitChat != 0), splitMusic_(c.splitMusic != 0), micSeparate_(c.micSeparate != 0),
@@ -950,6 +1002,7 @@ namespace qc
     {
         shared_->videoOptions = video;
         if (displayIdentity) shared_->displayIdentity = displayIdentity;
+        if (game) shared_->game = *game;
         for (int i = 0; !endpointMode_ && i < c.micCount; i++)
         {
             const wchar_t* id = c.micDeviceIds ? c.micDeviceIds[i] : nullptr;
@@ -976,6 +1029,18 @@ namespace qc
         {
             error = "The selected monitor is missing or could not be verified.";
             return false;
+        }
+        if (const auto& game = shared_->game; game.handle)
+        {
+            shared_->gameProcess = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION | SYNCHRONIZE, FALSE, game.process);
+            FILETIME created{}, exited{}, kernel{}, user{};
+            if (!shared_->gameProcess || !GetProcessTimes(shared_->gameProcess, &created, &exited, &kernel, &user) ||
+                ((static_cast<uint64_t>(created.dwHighDateTime) << 32) | created.dwLowDateTime) != static_cast<uint64_t>(game.started) ||
+                !GameOnMonitor(game, shared_->gameProcess, reinterpret_cast<HMONITOR>(monitor.hmonitor)))
+            {
+                error = "The game moved or closed before capture could start.";
+                return false;
+            }
         }
         shared_->monitorDevice = monitor_;
         shared_->t0 = NowUs();
@@ -1042,6 +1107,11 @@ namespace qc
         return true;
     }
 
+    bool Engine::VideoSourceLost() const
+    {
+        return shared_->videoSourceLost;
+    }
+
     void Engine::RequestRebuild()
     {
         shared_->rebuildRequested = true;
@@ -1077,7 +1147,7 @@ namespace qc
     void Engine::RestartVideo()
     {
         std::lock_guard restart(videoRestartLock_);
-        if (shared_->stop) return;
+        if (shared_->stop || VideoSourceLost()) return;
         int generation;
         {
             std::lock_guard guard(shared_->videoLock);
@@ -1104,7 +1174,7 @@ namespace qc
             int64_t limit = shared_->usingDuplication ? retryUs
                 : std::max<int64_t>(retryUs, shared_->usingFallback ? 5'000'000 : 15'000'000);
             // A game window sends nothing while it's minimized; starting again wouldn't change that.
-            if (shared_->windowMode) continue;
+            if (shared_->windowMode || VideoSourceLost()) continue;
             if (shared_->lastFrameUs == 0 || quiet < limit || now - lastRestartUs < limit) continue;
             if (shared_->runningVideoThreads >= 4) continue; // several are stuck already; wait for one to come back
             Log("no picture for %.1f s; starting capture again", quiet / 1e6);
@@ -1225,6 +1295,11 @@ namespace qc
     bool Engine::Save(const std::wstring& path, int seconds, const std::wstring& title, std::string& error,
         QcReplaySpan* span, QcReplayAnchor* anchors, int count, int64_t requestUs, QcReplayVideo* savedVideo)
     {
+        if (VideoSourceLost())
+        {
+            error = "The recording source changed before the replay could be saved.";
+            return false;
+        }
         // The clip ends now, when it was asked for. Audio is encoded ~200 ms behind, so wait for every
         // track to get past this moment (they always do unless something is badly stuck).
         int64_t endUs = NowUs() - shared_->t0;

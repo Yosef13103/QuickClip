@@ -43,13 +43,13 @@ namespace
     }
 
     int StartEngine(const QcConfig& config, bool endpointMode, const QcEndpointTrack* endpoints, int count, wchar_t* error, int length,
-        QcVideoOptions video = {}, const wchar_t* displayIdentity = nullptr)
+        QcVideoOptions video = {}, const wchar_t* displayIdentity = nullptr, const QcGameWindow* game = nullptr)
     {
         std::unique_lock guard(g_engineLock);
         g_engine.reset();
         try
         {
-            auto engine = std::make_unique<qc::Engine>(config, endpointMode, endpoints, count, video, displayIdentity);
+            auto engine = std::make_unique<qc::Engine>(config, endpointMode, endpoints, count, video, displayIdentity, game);
             std::string message;
             if (engine->Start(message))
             {
@@ -176,8 +176,8 @@ extern "C"
         return StartEngine(*config, false, nullptr, 0, error, errorLength);
     }
 
-    __declspec(dllexport) int qc_start_with_display(const QcConfig* config, const QcEndpointTrack* endpoints, int count,
-        const QcVideoOptions* video, const wchar_t* displayIdentity, wchar_t* error, int errorLength)
+    __declspec(dllexport) int qc_start_with_source(const QcConfig* config, const QcEndpointTrack* endpoints, int count,
+        const QcVideoOptions* video, const wchar_t* displayIdentity, const QcGameWindow* game, wchar_t* error, int errorLength)
     {
         if (!config || !video || count < -1 || count > 16 || (count > 0 && !endpoints) ||
             video->backend < 0 || video->backend > 4 || video->nvencPreset < 0 || video->nvencPreset > 2)
@@ -205,7 +205,18 @@ extern "C"
             CopyError("Authorized display capture requires a named display and Desktop Duplication.", error, errorLength);
             return 0;
         }
-        return StartEngine(*config, count >= 0, endpoints, std::max(0, count), error, errorLength, *video, displayIdentity);
+        if (game && (!displayIdentity || !game->handle || !game->thread || !game->process || game->started <= 0))
+        {
+            CopyError("The game window and its authorized display could not be verified.", error, errorLength);
+            return 0;
+        }
+        return StartEngine(*config, count >= 0, endpoints, std::max(0, count), error, errorLength, *video, displayIdentity, game);
+    }
+
+    __declspec(dllexport) int qc_start_with_display(const QcConfig* config, const QcEndpointTrack* endpoints, int count,
+        const QcVideoOptions* video, const wchar_t* displayIdentity, wchar_t* error, int errorLength)
+    {
+        return qc_start_with_source(config, endpoints, count, video, displayIdentity, nullptr, error, errorLength);
     }
 
     __declspec(dllexport) int qc_start_with_video(const QcConfig* config, const QcEndpointTrack* endpoints, int count,
@@ -306,10 +317,16 @@ extern "C"
         return 1;
     }
 
+    __declspec(dllexport) int qc_video_source_lost()
+    {
+        std::shared_lock guard(g_engineLock);
+        return g_engine && g_engine->VideoSourceLost();
+    }
+
     __declspec(dllexport) int qc_get_replay_position(QcReplayPosition* position)
     {
         std::shared_lock guard(g_engineLock);
-        if (!g_engine || !position) return 0;
+        if (!g_engine || !position || g_engine->VideoSourceLost()) return 0;
         g_engine->GetReplayPosition(*position);
         return 1;
     }
@@ -327,7 +344,7 @@ extern "C"
         std::shared_lock guard(g_engineLock);
         QcReplayPosition position{};
         if (g_engine) g_engine->GetReplayPosition(position);
-        if (!g_engine || position.session != session)
+        if (!g_engine || position.session != session || g_engine->VideoSourceLost())
         {
             CopyError("The recording session ended before the replay could be saved.", error, errorLength);
             return 0;

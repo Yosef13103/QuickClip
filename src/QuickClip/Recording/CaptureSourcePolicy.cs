@@ -72,6 +72,18 @@ internal static class CaptureSourcePolicy
         return true;
     }
 
+    internal static MonitorInfo? ResolveGameDisplay(GameCaptureObservation game,
+        IReadOnlyList<MonitorInfo> displays, Func<WindowOwner, string?> windowDisplay)
+    {
+        if (game.VerifiedTarget?.Owner != game.Owner || windowDisplay(game.Owner) is not { } device) return null;
+        return displays.FirstOrDefault(m => m.CaptureIdentity != null &&
+            string.Equals(m.DeviceName, device, StringComparison.OrdinalIgnoreCase));
+    }
+
+    internal static bool AllowsGameDisplay(AppSettings settings, string identity) =>
+        settings.AllowGameDisplayFollowing || (settings.PreferGameWindow &&
+            string.Equals(settings.AuthorizedGameDisplay, identity, StringComparison.OrdinalIgnoreCase));
+
     internal static MonitorInfo? SelectMonitor(IReadOnlyList<MonitorInfo> monitors, string device, bool requireSelected)
     {
         if (!string.IsNullOrEmpty(device))

@@ -222,8 +222,8 @@ public partial class SettingsView : UserControl
             DiagnosticsCheck.IsChecked = s.RecordingDiagnostics;
             CursorCheck.IsChecked = s.CaptureCursor;
             if (!AppProfile.IsPersonal) RecordingCheck.Content = "Enable QuickClip recording";
-            GameSourceItem.Content = AppProfile.IsPersonal ? "Record eligible games automatically" : "Automatic - Game First";
-            DisplaySourceItem.Content = AppProfile.IsPersonal ? "Manual desktop capture only" : "Selected monitor";
+            RecordingSourceLabel.Visibility = SourceCombo.Visibility = AppProfile.IsPersonal ? Visibility.Collapsed : Visibility.Visible;
+            if (AppProfile.IsPersonal) MonitorLabel.Text = "Manual desktop display";
             SourceCombo.SelectedIndex = s.PreferGameWindow ? 0 : 1;
             ShowGameWindowState();
 
@@ -316,16 +316,19 @@ public partial class SettingsView : UserControl
         if (AppProfile.IsPersonal)
         {
             var settings = AppSettings.Current;
-            var display = _monitors.FirstOrDefault(m => Equals(m.DeviceName, (MonitorCombo.SelectedItem as Choice)?.Value));
-            bool authorized = !string.IsNullOrEmpty(settings.AuthorizedGameDisplay);
-            GameDisplayConsent.Visibility = gameWindow ? Visibility.Visible : Visibility.Collapsed;
-            GameDisplayConsent.IsEnabled = authorized || display?.CaptureIdentity != null;
-            GameDisplayConsent.Content = authorized ? "Revoke game display permission" : "Allow selected display during games…";
+            GameDisplayConsent.Visibility = ManualDesktopButton.Visibility = Visibility.Visible;
+            GameDisplayConsent.Content = settings.AllowGameDisplayFollowing
+                ? "Revoke game display permission" : "Allow game display following…";
+            RevokeLegacyDisplayConsent.Visibility = !settings.AllowGameDisplayFollowing && settings.AuthorizedGameDisplay != null
+                ? Visibility.Visible : Visibility.Collapsed;
             BackendCombo.IsEnabled = false;
-            CaptureTargetHint.Text = gameWindow
-                ? "Waits for an eligible game. With display permission, Desktop Duplication records everything visible on that display while the game is open."
-                    + (authorized ? " Permission is set for the previously confirmed display." : " No display permission has been granted.")
-                : "No automatic capture. Use Start manual desktop capture in the tray to explicitly record the selected display.";
+            CaptureTargetHint.Text = "Instant replay waits for an eligible game. Desktop Duplication records the game's display, including other visible apps and notifications. Switching displays starts a fresh replay buffer."
+                + (settings.AllowGameDisplayFollowing ? "" : settings.AuthorizedGameDisplay != null
+                    ? settings.PreferGameWindow ? " Your existing permission covers one display." : " Your previous settings disabled automatic capture. Allow game display following to start it."
+                    : " Game display permission is required.");
+            ManualDesktopButton.IsEnabled = settings.RecordingEnabled;
+            ManualDesktopButton.Content = Recorder.Instance.ManualDesktopRequested
+                ? "Stop manual desktop capture" : "Start manual desktop capture…";
             return;
         }
         CaptureTargetHint.Text = gameWindow
@@ -415,19 +418,36 @@ public partial class SettingsView : UserControl
     private void GameDisplayConsent_Click(object sender, RoutedEventArgs e)
     {
         var settings = AppSettings.Current;
-        if (settings.AuthorizedGameDisplay != null) settings.AuthorizedGameDisplay = null;
+        if (settings.AllowGameDisplayFollowing)
+        {
+            settings.AllowGameDisplayFollowing = false;
+            settings.AuthorizedGameDisplay = null;
+        }
         else
         {
-            var display = _monitors.FirstOrDefault(m => Equals(m.DeviceName, (MonitorCombo.SelectedItem as Choice)?.Value));
-            if (display?.CaptureIdentity == null || ModalDialog.Show(Window.GetWindow(this),
-                $"Allow game-triggered recording of everything visible on {display.Label}? Other apps, messages and notifications on this display can appear in saved clips.",
-                "Allow entire-display game recording?", MessageBoxButton.YesNo, MessageBoxImage.Warning, MessageBoxResult.No) != MessageBoxResult.Yes) return;
-            if (!CaptureSourcePolicy.AcceptGameDisplay(settings, display, confirmed: true)) return;
+            if (!ModalDialog.ConfirmAction(Window.GetWindow(this),
+                "Allow QuickClip to record the entire display containing an eligible game? Capture follows the game to any connected display, including displays connected later. Other apps, messages and notifications visible on that display can appear in clips.",
+                "Allow game display following?", "Allow", "Cancel", destructive: false)) return;
+            settings.AllowGameDisplayFollowing = true;
         }
-        settings.Save();
+        ApplyDisplayPermission();
+    }
+
+    private void RevokeLegacyDisplayConsent_Click(object sender, RoutedEventArgs e)
+    {
+        AppSettings.Current.AuthorizedGameDisplay = null;
+        ApplyDisplayPermission();
+    }
+
+    private void ApplyDisplayPermission()
+    {
+        AppSettings.Current.Save();
         ShowGameWindowState();
         _ = Recorder.Instance.ApplySettingsAsync();
     }
+
+    private void ManualDesktop_Click(object sender, RoutedEventArgs e) =>
+        App.Host?.ToggleManualDesktop(Recorder.Instance);
 
     private void Changed(object sender, RoutedEventArgs e)
     {
@@ -451,7 +471,7 @@ public partial class SettingsView : UserControl
         if (NvencPresetCombo.SelectedItem is Choice { Value: CaptureEngine.NvencSpeed preset }) s.NvencPreset = preset;
         s.RecordingDiagnostics = DiagnosticsCheck.IsChecked == true;
         s.CaptureCursor = CursorCheck.IsChecked == true;
-        s.PreferGameWindow = SourceCombo.SelectedIndex == 0;
+        if (!AppProfile.IsPersonal) s.PreferGameWindow = SourceCombo.SelectedIndex == 0;
         ShowGameWindowState();
         UpdateCropPreview();
         s.SplitChatAudio = SplitChatCheck.IsChecked == true;
@@ -597,6 +617,7 @@ public partial class SettingsView : UserControl
 
     private void OnRecorderState(RecorderState state) => Dispatcher.BeginInvoke(() =>
     {
+        if (AppProfile.IsPersonal) ShowGameWindowState();
         bool recordingEnabled = AppSettings.Current.RecordingEnabled;
         if (RecordingCheck.IsChecked != recordingEnabled)
         {
