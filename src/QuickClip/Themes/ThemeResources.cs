@@ -102,18 +102,22 @@ internal sealed class ThemeResources
 
         Map(ThemeColor.Background, "ApplicationBackgroundBrush", "WindowBackground");
         Map(ThemeColor.PrimaryText, "TextFillColorPrimaryBrush", "ToolTipForeground", "ToolTipForegroundBrush",
-            "ComboBoxForeground", "TextBoxForeground", SystemColors.WindowTextBrushKey);
+            "ComboBoxForeground", "ComboBoxItemForeground", "MenuFlyoutItemForeground", "ButtonForeground",
+            "TextBoxForeground", SystemColors.WindowTextBrushKey);
         Map(ThemeColor.SecondaryText, "TextFillColorSecondaryBrush", "TextFillColorTertiaryBrush", "ScrollBarThumbFill");
         Map(ThemeColor.Disabled, "TextFillColorDisabledBrush", "AccentFillColorDisabledBrush");
         Map(ThemeColor.Surface, "ControlFillColorDefaultBrush", "ComboBoxBackground", "TextBoxBackground");
         Map(ThemeColor.ElevatedSurface, "ControlFillColorSecondaryBrush", "ControlFillColorInputActiveBrush",
-            "ComboBoxDropDownBackground", "TextBoxBackgroundFocused", "ScrollBarTrackFill");
+            "ComboBoxDropDownBackground", "TextBoxBackgroundFocused", "ScrollBarTrackFill",
+            "ComboBoxItemBackground", "MenuFlyoutPresenterBackground", "MenuFlyoutItemBackground");
         Map(ThemeColor.Selection, "ControlFillColorTertiaryBrush", "ComboBoxItemBackgroundSelected",
-            "ButtonBackgroundPointerOver", "ButtonBackgroundPressed");
+            "ComboBoxItemBackgroundPointerOver", "MenuFlyoutItemBackgroundPointerOver",
+            "MenuFlyoutItemBackgroundSelected", "ButtonBackgroundPointerOver", "ButtonBackgroundPressed");
         Map(ThemeColor.Border, "ControlStrokeColorDefaultBrush", "ControlStrokeColorSecondaryBrush", "ToolTipBorderBrush");
         Map(ThemeColor.OverlayBackground, "ToolTipBackground", "ToolTipBackgroundBrush");
         Map(ThemeColor.Accent, "AccentFillColorDefaultBrush", "AccentFillColorSelectedTextBackgroundBrush",
-            "AccentButtonBackground", SystemColors.HighlightBrushKey);
+            "AccentButtonBackground", "SliderThumbFill", "SliderThumbFillPointerOver",
+            "SliderTrackValueFill", "SliderTrackValueFillPointerOver", SystemColors.HighlightBrushKey);
         Map(ThemeColor.AccentHover, "AccentFillColorSecondaryBrush", "AccentFillColorTertiaryBrush",
             "AccentButtonBackgroundPointerOver", "AccentButtonBackgroundPressed");
         brushes["AccentButtonForeground"] = brushes["TextOnAccentFillColorPrimaryBrush"] =
