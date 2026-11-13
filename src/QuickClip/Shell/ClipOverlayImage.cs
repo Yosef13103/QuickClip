@@ -5,8 +5,15 @@ namespace QuickClip.Shell;
 
 internal static class ClipOverlayImage
 {
-    internal const int MaxBytes = 4 * 1024 * 1024;
+    internal const int MaxBytes = 16 * 1024 * 1024;
     internal const int MaxDimension = 2048;
+    internal const int MaxGifFrames = 120;
+    internal const long MaxGifSourceFramePixels = 32L * 1024 * 1024;
+
+    internal static bool WithinGifBudget(int width, int height, int frames) =>
+        width is >= 1 and <= MaxDimension && height is >= 1 and <= MaxDimension &&
+        frames is >= 1 and <= MaxGifFrames &&
+        (long)width * height * frames <= MaxGifSourceFramePixels;
 
     internal sealed record Frame(BitmapSource Bitmap, TimeSpan Delay);
     internal sealed record Asset(Frame[] Frames)
@@ -60,12 +67,12 @@ internal static class ClipOverlayImage
 
     private static Asset? DecodeGif(GifBitmapDecoder decoder, byte[] data)
     {
-        if (data.Length < 13 || decoder.Frames.Count is < 1 or > 120) return null;
+        if (data.Length < 13) return null;
         int width = data[6] | data[7] << 8;
         int height = data[8] | data[9] << 8;
-        const int maxWorkingPixels = 8 * 1024 * 1024;
-        if (width is < 1 or > MaxDimension || height is < 1 or > MaxDimension ||
-            (long)width * height * decoder.Frames.Count > maxWorkingPixels) return null;
+        // Budget source frame compositing separately from the bounded 256px output frame cache.
+        // The owner's 495x498, 101-frame GIF needs about 24.9M source frame-pixels.
+        if (!WithinGifBudget(width, height, decoder.Frames.Count)) return null;
 
         int stride = width * 4;
         var canvas = new byte[stride * height];
