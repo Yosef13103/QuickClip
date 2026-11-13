@@ -15,12 +15,16 @@ internal sealed class ClipNotificationOverlay : IDisposable
     private Window? _window;
     private Grid? _surface;
     private Ellipse? _ring;
+    private StackPanel? _details;
+    private Border? _card;
+    private string? _imagePath;
+    private ImageSource? _image;
     private Border? _badge;
     private TextBlock? _glyph;
     private DispatcherTimer? _timer;
     private IntPtr _handle;
 
-    internal void Show(ClipOverlayOptions options, bool success)
+    internal void Show(ClipOverlayOptions options, bool success, ClipNotificationDetails? details = null, string? error = null)
     {
         options = options.Normalize();
         var displays = Displays();
@@ -36,28 +40,61 @@ internal sealed class ClipNotificationOverlay : IDisposable
         _glyph.Foreground = accent;
         _glyph.FontSize = options.Size * .32;
         _badge!.Width = _badge.Height = options.Size * .68;
+        var icon = (Grid)_badge.Parent;
+        icon.Width = icon.Height = options.Size;
         _badge.CornerRadius = new CornerRadius(options.Size);
         _badge.BorderBrush = accent;
-        _ring!.Stroke = accent;
+        _ring!.BeginAnimation(UIElement.OpacityProperty, null);
+        _ring.Stroke = accent;
         _ring.RenderTransform = new ScaleTransform();
         _ring.Opacity = 0;
 
-        _window!.Width = _window.Height = options.Size;
+        if (!string.Equals(_imagePath, options.ImagePath, StringComparison.OrdinalIgnoreCase))
+        {
+            _imagePath = options.ImagePath;
+            _image = ClipOverlayImage.Load(_imagePath);
+        }
+        _badge.Child = _image == null ? _glyph : new Image
+        {
+            Source = _image, Stretch = Stretch.Uniform,
+            Margin = new Thickness(4),
+        };
+        _details!.Children.Clear();
+        _details.Children.Add(new TextBlock
+        {
+            Text = success ? "Clip saved" : "Clip not saved",
+            Foreground = accent, FontSize = 14, FontWeight = FontWeights.SemiBold,
+        });
+        foreach (var line in error != null ? new[] { error } : details?.Lines(options) ?? [])
+        {
+            _details.Children.Add(new TextBlock
+            {
+                Text = line, Foreground = Brushes.White, FontSize = 12,
+                TextTrimming = TextTrimming.CharacterEllipsis, Margin = new Thickness(0, 3, 0, 0),
+            });
+        }
+        _card!.Measure(new Size(320, double.PositiveInfinity));
+        double width = 320;
+        double height = Math.Max(options.Size, _card.DesiredSize.Height);
+        _surface.RenderTransform = new TranslateTransform();
+        _window!.Width = width;
+        _window.Height = height;
         if (!_window.IsVisible) _window.Show();
         var prior = SetThreadDpiAwarenessContext(new IntPtr(-4));
         try
         {
             GetDpiForMonitor(display.Handle, 0, out uint dpi, out _);
             double scale = dpi == 0 ? 1 : dpi / 96d;
-            int pixels = (int)Math.Round(options.Size * scale);
+            var pixels = new Size(Math.Round(width * scale), Math.Round(height * scale));
             Point position = ClipOverlayOptions.Place(display.Bounds, pixels, 18 * scale, options.Anchor);
-            SetWindowPos(_handle, new IntPtr(-1), (int)Math.Round(position.X), (int)Math.Round(position.Y), pixels, pixels, 0x0210);
+            SetWindowPos(_handle, new IntPtr(-1), (int)Math.Round(position.X), (int)Math.Round(position.Y),
+                (int)pixels.Width, (int)pixels.Height, 0x0210);
         }
         finally { if (prior != IntPtr.Zero) SetThreadDpiAwarenessContext(prior); }
         if (OperatingSystem.IsWindowsVersionAtLeast(10, 0, 19041))
             SetWindowDisplayAffinity(_handle, 0x11); // WDA_EXCLUDEFROMCAPTURE, where the capture API supports it
 
-        if (SystemParameters.ClientAreaAnimation)
+        if (SystemParameters.ClientAreaAnimation && options.Animation != OverlayAnimation.None)
         {
             var fade = new DoubleAnimationUsingKeyFrames();
             fade.KeyFrames.Add(new LinearDoubleKeyFrame(0, KeyTime.FromTimeSpan(TimeSpan.Zero)));
@@ -65,6 +102,15 @@ internal sealed class ClipNotificationOverlay : IDisposable
             fade.KeyFrames.Add(new LinearDoubleKeyFrame(options.Opacity, KeyTime.FromTimeSpan(TimeSpan.FromSeconds(options.Seconds - .22))));
             fade.KeyFrames.Add(new LinearDoubleKeyFrame(0, KeyTime.FromTimeSpan(TimeSpan.FromSeconds(options.Seconds))));
             _surface.BeginAnimation(UIElement.OpacityProperty, fade);
+            if (options.Animation == OverlayAnimation.Slide)
+            {
+                int column = (int)options.Anchor % 3;
+                int row = (int)options.Anchor / 3;
+                var slide = _surface.RenderTransform;
+                var duration = TimeSpan.FromSeconds(.16);
+                slide.BeginAnimation(TranslateTransform.XProperty, new DoubleAnimation((column - 1) * 12, 0, duration));
+                slide.BeginAnimation(TranslateTransform.YProperty, new DoubleAnimation(column == 1 ? (row - 1) * 12 : 0, 0, duration));
+            }
             if (options.Animation == OverlayAnimation.Ripple)
             {
                 var pulse = new DoubleAnimation(.64, 1, TimeSpan.FromSeconds(.55));
@@ -90,8 +136,22 @@ internal sealed class ClipNotificationOverlay : IDisposable
             Background = new SolidColorBrush(Color.FromArgb(236, 23, 28, 32)),
             BorderThickness = new Thickness(1), Child = _glyph,
         };
-        _surface.Children.Add(_ring);
-        _surface.Children.Add(_badge);
+        var icon = new Grid { VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 12, 0) };
+        icon.Children.Add(_ring);
+        icon.Children.Add(_badge);
+        _details = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
+        var content = new DockPanel();
+        DockPanel.SetDock(icon, Dock.Left);
+        content.Children.Add(icon);
+        content.Children.Add(_details);
+        _card = new Border
+        {
+            Background = new SolidColorBrush(Color.FromArgb(245, 23, 28, 32)),
+            BorderBrush = new SolidColorBrush(Color.FromRgb(58, 70, 75)),
+            BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(10),
+            Padding = new Thickness(12), Child = content,
+        };
+        _surface.Children.Add(_card);
         _window = new Window
         {
             WindowStyle = WindowStyle.None, ResizeMode = ResizeMode.NoResize, ShowInTaskbar = false,

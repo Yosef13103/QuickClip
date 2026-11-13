@@ -1949,6 +1949,7 @@ public partial class EditorView : UserControl
             _exportPath = null;
             cts.Dispose();
             ProgressPanel.Visibility = Visibility.Collapsed;
+            if (MissingSourceOverlay.Visibility == Visibility.Visible) ClearMissingSourceButton.IsEnabled = true;
             UpdateUiState();
         }
     }

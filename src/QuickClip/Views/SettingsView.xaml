@@ -527,8 +527,23 @@
                               Content="Warn when Save Clip is pressed with no active game or recording"
                               Margin="0,8,0,0" Checked="Changed" Unchecked="Changed" />
                     <StackPanel x:Name="ClipOverlayPanel" Margin="0,12,0,0">
-                        <CheckBox x:Name="ClipOverlayCheck" Content="Show on-screen clip indicator" Click="ClipFeedback_Changed" />
-                        <StackPanel x:Name="ClipOverlayOptions" Margin="18,8,0,0" Visibility="Collapsed">
+                        <CheckBox x:Name="ClipNotificationsCheck" Content="Show clip notifications" Focusable="True" Click="ClipFeedback_Changed" />
+                        <TextBlock Text="Notification style" Style="{StaticResource FieldLabel}" />
+                        <ComboBox x:Name="ClipNotificationModeCombo" AutomationProperties.Name="Notification style" SelectionChanged="ClipFeedback_Changed" />
+                        <TextBlock Text="Windows controls placement of its notifications." Style="{StaticResource Hint}" Margin="0,4,0,0" />
+                        <StackPanel x:Name="ClipOverlayOptions" Margin="0,8,0,0" Visibility="Collapsed">
+                            <TextBlock Text="Overlay details" Style="{StaticResource FieldLabel}" />
+                            <WrapPanel>
+                                <CheckBox x:Name="OverlayShowTitle" Content="Clip title" Focusable="True" Margin="0,0,14,0" Click="ClipFeedback_Changed" />
+                                <CheckBox x:Name="OverlayShowGame" Content="Game" Focusable="True" Margin="0,0,14,0" Click="ClipFeedback_Changed" />
+                                <CheckBox x:Name="OverlayShowSource" Content="Source" Focusable="True" Margin="0,0,14,0" Click="ClipFeedback_Changed" />
+                                <CheckBox x:Name="OverlayShowDuration" Content="Duration" Focusable="True" Click="ClipFeedback_Changed" />
+                            </WrapPanel>
+                            <WrapPanel Margin="0,8,0,0">
+                                <Button Content="Choose overlay image…" Margin="0,0,8,0" Click="ChooseOverlayImage_Click" />
+                                <Button x:Name="ClearOverlayImage" Content="Use default icon" Click="ClearOverlayImage_Click" />
+                            </WrapPanel>
+                            <TextBlock x:Name="OverlayImageStatus" Style="{StaticResource Hint}" AutomationProperties.LiveSetting="Polite" />
                             <Grid Margin="0,8,0,0">
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="*" />

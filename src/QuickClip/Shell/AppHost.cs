@@ -147,7 +147,9 @@ internal sealed class AppHost : IDisposable
         string message = receipt.ActualVideoDuration is { } actual
             ? $"{label} · {Fmt.CompactDuration(actual.TotalSeconds)} saved" : label;
         if (receipt.IsShorterThanRequested == true) message += $" ({Fmt.CompactDuration(receipt.RequestedSeconds)} requested)";
-        ShowClipFeedback(success: true, message);
+        var details = new ClipNotificationDetails(receipt.GameContext, Path.GetFileNameWithoutExtension(receipt.Path),
+            receipt.SourceDescription, receipt.ActualVideoDuration is { } duration ? Fmt.CompactDuration(duration.TotalSeconds) : null);
+        ShowClipFeedback(success: true, message, details);
     });
 
     private void OnRecorderState(RecorderState state) => _dispatcher.BeginInvoke(() =>
@@ -184,7 +186,7 @@ internal sealed class AppHost : IDisposable
         else ShowClipFeedback(success: false, error);
     });
 
-    internal void ShowClipFeedback(bool success, string message)
+    internal void ShowClipFeedback(bool success, string message, ClipNotificationDetails? details = null)
     {
         if (_window == null) return;
         var settings = AppSettings.Current;
@@ -193,14 +195,15 @@ internal sealed class AppHost : IDisposable
         if (feedback.Windows) Notify(feedback.Title, feedback.Message);
         if (feedback.Overlay)
         {
-            try { _clipOverlay.Show(settings.ClipOverlay, feedback.Success); }
+            try { _clipOverlay.Show(settings.ClipOverlay, feedback.Success, details, feedback.Success ? null : feedback.Message); }
             catch (Exception ex) { Log.Write("Clip indicator unavailable: " + ex.GetType().Name); }
         }
     }
 
     internal void TestClipOverlay()
     {
-        try { _clipOverlay.Show(AppSettings.Current.ClipOverlay ?? new(), success: true); }
+        try { _clipOverlay.Show(AppSettings.Current.ClipOverlay ?? new(), success: true,
+            new("Example game", "Example clip", "Entire display", "30 s")); }
         catch (Exception ex) { Log.Write("Clip indicator preview unavailable: " + ex.GetType().Name); }
     }
 

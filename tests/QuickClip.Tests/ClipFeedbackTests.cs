@@ -36,6 +36,29 @@ public sealed class ClipFeedbackTests
         Assert.Equal(OverlayAnimation.Fade, settings.ClipOverlay.Animation);
     }
 
+    [Fact]
+    public void Notification_master_suppresses_visual_channels_and_keeps_sound_separate()
+    {
+        var settings = new AppSettings
+        {
+            ClipNotificationsEnabled = false, ClipWindowsNotification = true,
+            ClipOverlay = new() { Enabled = true },
+        };
+        var feedback = ClipFeedback.From(settings, true, "Fixture");
+        Assert.Equal(!AppProfile.IsPersonal, feedback.Windows);
+        Assert.False(feedback.Overlay);
+        Assert.True(feedback.Sound);
+    }
+
+    [Fact]
+    public void Details_honor_each_field_and_rectangular_overlay_aligns_inside_display()
+    {
+        var details = new ClipNotificationDetails("Game", "Title", "Display", "30 s");
+        Assert.Equal(new[] { "Game", "30 s" }, details.Lines(new() { ShowTitle = false, ShowSource = false }));
+        Assert.Equal(new Point(-340, 960),
+            ClipOverlayOptions.Place(new Rect(-1920, 0, 1920, 1080), new Size(320, 100), 20, OverlayAnchor.BottomRight));
+    }
+
     [Theory]
     [InlineData(true, true, true)]
     [InlineData(false, true, false)]
