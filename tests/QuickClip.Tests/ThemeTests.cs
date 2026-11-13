@@ -153,6 +153,27 @@ public sealed class ThemeTests
         }
     }
 
+    [Theory]
+    [InlineData("Dark")]
+    [InlineData("Amoled")]
+    [InlineData("Slate")]
+    [InlineData("Light")]
+    public void Native_mpv_letterbox_uses_the_active_surface_palette(string name)
+    {
+        if (!AppProfile.IsPersonal || SystemParameters.HighContrast) return;
+        var color = Mpv.MpvPlayer.ThemeLetterboxColor(new AppSettings { Theme = name });
+        var palette = ThemePalette.Get(ThemeResources.ThemeChoiceFrom(name));
+        Assert.Equal(ThemePalette.Hex(palette[ThemeColor.Surface]), color);
+    }
+
+    [Fact]
+    public void Native_letterbox_falls_back_safely_for_invalid_custom_palettes()
+    {
+        if (!AppProfile.IsPersonal || SystemParameters.HighContrast) return;
+        Assert.Equal(ThemePalette.Hex(ThemePalette.Get(ThemeChoice.Dark)[ThemeColor.Surface]),
+            Mpv.MpvPlayer.ThemeLetterboxColor(new AppSettings { Theme = "Custom", CustomThemeJson = "invalid" }));
+    }
+
     private static string ExportedPalette()
     {
         using var stream = new MemoryStream();
