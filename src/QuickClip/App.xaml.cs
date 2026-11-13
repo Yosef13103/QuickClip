@@ -66,6 +66,7 @@ public partial class App : Application
         }
 #endif
         _renderOffscreen = renderTest;
+        (AppProfile.IsPersonal ? AppSettings.Current.InterfaceScale ?? new() : new InterfaceScale()).Apply(Resources);
 
         // One QuickClip per user: a second launch (e.g. "Edit with QuickClip") hands its file to the first.
         if (!renderTest && !SingleInstance.TryBecomePrimary())

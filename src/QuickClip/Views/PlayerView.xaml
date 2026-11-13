@@ -47,8 +47,8 @@
                 </Button>
             </StackPanel>
             <StackPanel Margin="12,10,12,10" VerticalAlignment="Center">
-                <TextBlock x:Name="TitleText" FontSize="15" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
-                <TextBlock x:Name="InfoText" FontSize="12" Foreground="{StaticResource SubtleText}" TextTrimming="CharacterEllipsis" />
+                <TextBlock x:Name="TitleText" FontSize="{DynamicResource QuickClipText15}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
+                <TextBlock x:Name="InfoText" FontSize="{DynamicResource QuickClipText12}" Foreground="{StaticResource SubtleText}" TextTrimming="CharacterEllipsis" />
             </StackPanel>
         </DockPanel>
 
@@ -66,8 +66,8 @@
                 <StackPanel DockPanel.Dock="Left" Orientation="Horizontal" VerticalAlignment="Center">
                     <Button x:Name="PlayButton" Style="{StaticResource IconButton}" Content="&#xE768;" Padding="16,6" Click="Play_Click"
                             ToolTip="Play / pause (Space)" />
-                    <TextBlock x:Name="TimeText" Margin="10,0,0,0" VerticalAlignment="Center" FontFamily="Consolas" FontSize="14" Text="0:00" />
-                    <TextBlock x:Name="DurationText" VerticalAlignment="Center" FontFamily="Consolas" FontSize="13"
+                    <TextBlock x:Name="TimeText" Margin="10,0,0,0" VerticalAlignment="Center" FontFamily="Consolas" FontSize="{DynamicResource QuickClipText14}" Text="0:00" />
+                    <TextBlock x:Name="DurationText" VerticalAlignment="Center" FontFamily="Consolas" FontSize="{DynamicResource QuickClipText13}"
                                Foreground="{StaticResource SubtleText}" Text=" / 0:00" />
                 </StackPanel>
                 <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">

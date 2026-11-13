@@ -10,6 +10,7 @@ internal sealed class AppSettings
 {
     public GameCatalogSettings Games { get; set; } = new();
     // The editor's encoder, quality, size and frame rate start at "same as original" for every clip.
+    public InterfaceScale InterfaceScale { get; set; } = new();
     public string Format { get; set; } = "source";
     public string Encoder { get; set; } = "";                    // the last one picked, used for the original's codec
     public double TargetSizeMB { get; set; } = 25;

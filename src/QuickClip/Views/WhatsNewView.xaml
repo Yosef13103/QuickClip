@@ -12,9 +12,9 @@
             <DockPanel>
                 <StackPanel DockPanel.Dock="Top">
                     <StackPanel Orientation="Horizontal">
-                        <TextBlock FontFamily="{StaticResource IconFont}" Text="&#xE789;" FontSize="20" VerticalAlignment="Center" Margin="0,2,10,0"
+                        <TextBlock FontFamily="{StaticResource IconFont}" Text="&#xE789;" FontSize="{DynamicResource QuickClipVisual20}" VerticalAlignment="Center" Margin="0,2,10,0"
                                    Foreground="{DynamicResource AccentFillColorDefaultBrush}" />
-                        <TextBlock x:Name="TitleText" FontSize="22" FontWeight="SemiBold" Text="What's new" TextWrapping="Wrap" />
+                        <TextBlock x:Name="TitleText" FontSize="{DynamicResource QuickClipText22}" FontWeight="SemiBold" Text="What's new" TextWrapping="Wrap" />
                     </StackPanel>
                     <TextBlock x:Name="SubtitleText" Style="{StaticResource Hint}" Margin="0,4,0,0" TextWrapping="Wrap" />
                 </StackPanel>
