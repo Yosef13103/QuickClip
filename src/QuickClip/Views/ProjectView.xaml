@@ -10,7 +10,7 @@
             </ResourceDictionary.MergedDictionaries>
 
             <DataTemplate x:Key="ClipRow" DataType="{x:Type views:ProjectClip}">
-                <Border x:Name="Row" Height="60" Margin="0,0,0,4" Padding="4,4,2,4" CornerRadius="6" Background="{StaticResource CardBrush}"
+                <Border x:Name="Row" Height="60" Margin="0,0,0,4" Padding="4,4,2,4" CornerRadius="6" Background="{DynamicResource CardBrush}"
                         BorderThickness="3,0,0,0" BorderBrush="Transparent" Cursor="Hand">
                     <Grid>
                         <Grid.ColumnDefinitions>
@@ -19,7 +19,7 @@
                             <ColumnDefinition Width="*" />
                             <ColumnDefinition Width="Auto" />
                         </Grid.ColumnDefinitions>
-                        <TextBlock FontFamily="{StaticResource IconFont}" Text="&#xE76F;" Foreground="{StaticResource SubtleText}"
+                        <TextBlock FontFamily="{StaticResource IconFont}" Text="&#xE76F;" Foreground="{DynamicResource SubtleText}"
                                    VerticalAlignment="Center" Margin="4,0,8,0" Cursor="SizeAll" ToolTip="Drag to reorder" />
                         <Border Grid.Column="1" Width="88" Height="50" CornerRadius="4" Background="#111">
                             <Border CornerRadius="4">
@@ -30,7 +30,7 @@
                         </Border>
                         <StackPanel Grid.Column="2" Margin="10,0,4,0" VerticalAlignment="Center">
                             <TextBlock Text="{Binding Title}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" ToolTip="{Binding Title}" />
-                            <TextBlock FontSize="{DynamicResource QuickClipText12}" Foreground="{StaticResource SubtleText}">
+                            <TextBlock FontSize="{DynamicResource QuickClipText12}" Foreground="{DynamicResource SubtleText}">
                                 <Run Text="{Binding Number, Mode=OneWay}" /><Run Text="  ·  " /><Run Text="{Binding DurationText, Mode=OneWay}" />
                             </TextBlock>
                         </StackPanel>
@@ -46,7 +46,7 @@
                         <Setter TargetName="Row" Property="Opacity" Value="0.45" />
                     </DataTrigger>
                     <Trigger SourceName="Row" Property="IsMouseOver" Value="True">
-                        <Setter TargetName="Row" Property="Background" Value="#2C2C2C" />
+                        <Setter TargetName="Row" Property="Background" Value="{DynamicResource SelectionBrush}" />
                     </Trigger>
                 </DataTemplate.Triggers>
             </DataTemplate>
@@ -78,7 +78,7 @@
         </DockPanel>
 
         <!-- Music -->
-        <Border DockPanel.Dock="Top" Background="{StaticResource PanelBrush}" CornerRadius="6" Padding="14,6,8,6" Margin="0,0,0,12">
+        <Border DockPanel.Dock="Top" Background="{DynamicResource PanelBrush}" CornerRadius="6" Padding="14,6,8,6" Margin="0,0,0,12">
             <DockPanel>
                 <TextBlock DockPanel.Dock="Left" FontFamily="{StaticResource IconFont}" Text="&#xEC4F;" FontSize="{DynamicResource QuickClipVisual16}" VerticalAlignment="Center" Margin="0,0,12,0" />
                 <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
@@ -133,7 +133,7 @@
                     <Border Background="Black" CornerRadius="6,6,0,0">
                         <controls:VideoHost x:Name="Video" />
                     </Border>
-                    <StackPanel Grid.Row="1" Background="{StaticResource PanelBrush}">
+                    <StackPanel Grid.Row="1" Background="{DynamicResource PanelBrush}">
                         <Slider x:Name="SeekBar" Margin="14,8,14,0" Minimum="0" Maximum="1" IsMoveToPointEnabled="True" Focusable="False"
                                 ValueChanged="SeekBar_ValueChanged" />
                         <DockPanel Margin="10,2,14,8">
@@ -142,7 +142,7 @@
                                     ToolTip="Play / pause the montage (Space)" />
                             <TextBlock x:Name="TimeText" Margin="10,0,0,0" VerticalAlignment="Center" FontFamily="Consolas" FontSize="{DynamicResource QuickClipText14}" Text="0:00" />
                             <TextBlock x:Name="DurationText" VerticalAlignment="Center" FontFamily="Consolas" FontSize="{DynamicResource QuickClipText13}"
-                                       Foreground="{StaticResource SubtleText}" Text=" / 0:00" />
+                                       Foreground="{DynamicResource SubtleText}" Text=" / 0:00" />
                         </DockPanel>
                     </StackPanel>
                 </Grid>
@@ -151,7 +151,7 @@
             <StackPanel x:Name="EmptyState" VerticalAlignment="Center" HorizontalAlignment="Center" MaxWidth="440" Margin="0,0,0,80"
                         Visibility="Collapsed">
                 <TextBlock FontFamily="{StaticResource IconFont}" Text="&#xE8F1;" FontSize="{DynamicResource QuickClipVisual40}" HorizontalAlignment="Center"
-                           Foreground="{StaticResource SubtleText}" />
+                           Foreground="{DynamicResource SubtleText}" />
                 <TextBlock Text="No clips in this project yet" FontSize="{DynamicResource QuickClipText18}" FontWeight="SemiBold" HorizontalAlignment="Center" Margin="0,14,0,6" />
                 <TextBlock Style="{StaticResource Hint}" TextAlignment="Center"
                            Text="Tick clips in the gallery (hover a clip to see its checkbox), then choose Add to project." />

@@ -6,7 +6,7 @@
         <ResourceDictionary Source="/QuickClip;component/Themes/Styles.xaml" />
     </UserControl.Resources>
 
-    <Grid x:Name="Root" Focusable="True" FocusVisualStyle="{x:Null}" Background="#282828">
+    <Grid x:Name="Root" Focusable="True" FocusVisualStyle="{x:Null}" Background="{DynamicResource BackgroundBrush}">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
@@ -14,7 +14,7 @@
         </Grid.RowDefinitions>
 
         <!-- Clip name and actions (hidden in full screen) -->
-        <DockPanel x:Name="Header" Background="{StaticResource PanelBrush}">
+        <DockPanel x:Name="Header" Background="{DynamicResource PanelBrush}">
             <Button DockPanel.Dock="Left" Style="{StaticResource IconButton}" Content="&#xE72B;" Margin="10,0,0,0" VerticalAlignment="Center"
                     Click="Back_Click" ToolTip="Back to the gallery (Esc)" />
             <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center" Margin="0,0,10,0">
@@ -48,14 +48,14 @@
             </StackPanel>
             <StackPanel Margin="12,10,12,10" VerticalAlignment="Center">
                 <TextBlock x:Name="TitleText" FontSize="{DynamicResource QuickClipText15}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
-                <TextBlock x:Name="InfoText" FontSize="{DynamicResource QuickClipText12}" Foreground="{StaticResource SubtleText}" TextTrimming="CharacterEllipsis" />
+                <TextBlock x:Name="InfoText" FontSize="{DynamicResource QuickClipText12}" Foreground="{DynamicResource SubtleText}" TextTrimming="CharacterEllipsis" />
             </StackPanel>
         </DockPanel>
 
         <controls:VideoHost x:Name="Video" Grid.Row="1" />
 
         <!-- Playback controls (hide themselves in full screen while playing) -->
-        <StackPanel x:Name="ControlBar" Grid.Row="2" Background="{StaticResource PanelBrush}" MouseMove="ControlBar_MouseMove">
+        <StackPanel x:Name="ControlBar" Grid.Row="2" Background="{DynamicResource PanelBrush}" MouseMove="ControlBar_MouseMove">
             <Grid Margin="14,8,14,0">
                 <Slider x:Name="SeekBar" Minimum="0" Maximum="1" IsMoveToPointEnabled="True" Focusable="False"
                         ValueChanged="SeekBar_ValueChanged" PreviewMouseMove="SeekBar_MouseMove" />
@@ -68,7 +68,7 @@
                             ToolTip="Play / pause (Space)" />
                     <TextBlock x:Name="TimeText" Margin="10,0,0,0" VerticalAlignment="Center" FontFamily="Consolas" FontSize="{DynamicResource QuickClipText14}" Text="0:00" />
                     <TextBlock x:Name="DurationText" VerticalAlignment="Center" FontFamily="Consolas" FontSize="{DynamicResource QuickClipText13}"
-                               Foreground="{StaticResource SubtleText}" Text=" / 0:00" />
+                               Foreground="{DynamicResource SubtleText}" Text=" / 0:00" />
                 </StackPanel>
                 <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
                     <controls:AppVolumeControl x:Name="Volume" VerticalAlignment="Center" Margin="0,0,12,0" />

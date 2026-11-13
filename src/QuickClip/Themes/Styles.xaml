@@ -2,11 +2,6 @@
                     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
     <!-- Shared by every page. Merged per view (not in App.xaml) so the Fluent theme's styles exist for BasedOn. -->
     <FontFamily x:Key="IconFont">Segoe Fluent Icons, Segoe MDL2 Assets</FontFamily>
-    <SolidColorBrush x:Key="PanelBrush" Color="#1C1C1C" />
-    <SolidColorBrush x:Key="CardBrush" Color="#232323" />
-    <SolidColorBrush x:Key="RailBrush" Color="#171717" />
-    <SolidColorBrush x:Key="SubtleText" Color="#9A9A9A" />
-    <SolidColorBrush x:Key="RecordingRed" Color="#FF4D4D" />
 
     <Style x:Key="IconButton" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
         <Setter Property="Focusable" Value="False" />
@@ -44,8 +39,8 @@
     </Style>
     <Style x:Key="DangerButtonStyle" TargetType="Button" BasedOn="{StaticResource TextButton}">
         <Setter Property="Focusable" Value="True" />
-        <Setter Property="Background" Value="#AE2D37" />
-        <Setter Property="Foreground" Value="White" />
+        <Setter Property="Background" Value="{DynamicResource DangerBrush}" />
+        <Setter Property="Foreground" Value="{DynamicResource OnDangerBrush}" />
         <Setter Property="Padding" Value="11,6" />
         <Setter Property="Template">
             <Setter.Value>
@@ -56,14 +51,14 @@
                     </Border>
                     <ControlTemplate.Triggers>
                         <Trigger Property="IsMouseOver" Value="True">
-                            <Setter TargetName="Surface" Property="Background" Value="#C33744" />
+                            <Setter TargetName="Surface" Property="Background" Value="{DynamicResource DangerHoverBrush}" />
                         </Trigger>
                         <Trigger Property="IsKeyboardFocused" Value="True">
-                            <Setter TargetName="Surface" Property="BorderBrush" Value="White" />
-                            <Setter TargetName="Surface" Property="Background" Value="#C33744" />
+                            <Setter TargetName="Surface" Property="BorderBrush" Value="{DynamicResource OnDangerBrush}" />
+                            <Setter TargetName="Surface" Property="Background" Value="{DynamicResource DangerHoverBrush}" />
                         </Trigger>
                         <Trigger Property="IsPressed" Value="True">
-                            <Setter TargetName="Surface" Property="Background" Value="#8C222C" />
+                            <Setter TargetName="Surface" Property="Background" Value="{DynamicResource DangerPressedBrush}" />
                         </Trigger>
                         <Trigger Property="IsEnabled" Value="False">
                             <Setter TargetName="Surface" Property="Opacity" Value="0.45" />
@@ -76,17 +71,17 @@
     <Style x:Key="SectionHeader" TargetType="TextBlock">
         <Setter Property="FontSize" Value="{DynamicResource QuickClipText12}" />
         <Setter Property="FontWeight" Value="SemiBold" />
-        <Setter Property="Foreground" Value="{StaticResource SubtleText}" />
+        <Setter Property="Foreground" Value="{DynamicResource SubtleText}" />
         <Setter Property="Margin" Value="0,14,0,6" />
     </Style>
     <Style x:Key="FieldLabel" TargetType="TextBlock">
         <Setter Property="FontSize" Value="{DynamicResource QuickClipText12}" />
-        <Setter Property="Foreground" Value="{StaticResource SubtleText}" />
+        <Setter Property="Foreground" Value="{DynamicResource SubtleText}" />
         <Setter Property="Margin" Value="0,7,0,3" />
     </Style>
     <Style x:Key="Hint" TargetType="TextBlock">
         <Setter Property="FontSize" Value="{DynamicResource QuickClipText12}" />
-        <Setter Property="Foreground" Value="{StaticResource SubtleText}" />
+        <Setter Property="Foreground" Value="{DynamicResource SubtleText}" />
         <Setter Property="TextWrapping" Value="Wrap" />
     </Style>
     <Style x:Key="CompactBox" TargetType="TextBox" BasedOn="{StaticResource {x:Type TextBox}}">
@@ -115,17 +110,17 @@
                     <Border x:Name="Bg" Margin="6,3" Padding="0,9,0,7" CornerRadius="6" Background="Transparent">
                         <StackPanel HorizontalAlignment="Center">
                             <TextBlock x:Name="Glyph" Text="{TemplateBinding Tag}" FontFamily="{StaticResource IconFont}" FontSize="{DynamicResource QuickClipVisual19}"
-                                       HorizontalAlignment="Center" Foreground="{StaticResource SubtleText}" />
+                                       HorizontalAlignment="Center" Foreground="{DynamicResource SubtleText}" />
                             <ContentPresenter Margin="0,5,0,0" HorizontalAlignment="Center" TextElement.FontSize="{DynamicResource QuickClipText11}"
-                                              TextElement.Foreground="{StaticResource SubtleText}" />
+                                              TextElement.Foreground="{DynamicResource SubtleText}" />
                         </StackPanel>
                     </Border>
                     <ControlTemplate.Triggers>
                         <Trigger Property="IsMouseOver" Value="True">
-                            <Setter TargetName="Bg" Property="Background" Value="#14FFFFFF" />
+                            <Setter TargetName="Bg" Property="Background" Value="{DynamicResource ElevatedSurfaceBrush}" />
                         </Trigger>
                         <Trigger Property="IsChecked" Value="True">
-                            <Setter TargetName="Bg" Property="Background" Value="#22FFFFFF" />
+                            <Setter TargetName="Bg" Property="Background" Value="{DynamicResource SelectionBrush}" />
                             <Setter TargetName="Glyph" Property="Foreground" Value="{DynamicResource AccentFillColorDefaultBrush}" />
                         </Trigger>
                     </ControlTemplate.Triggers>

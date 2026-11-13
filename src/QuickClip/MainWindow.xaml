@@ -7,7 +7,7 @@
         Width="1360" Height="900" MinWidth="980" MinHeight="640"
         FontSize="{DynamicResource QuickClipText14}" UseLayoutRounding="True"
         WindowStartupLocation="CenterScreen"
-        Icon="Assets/QuickClip.ico">
+        Icon="Assets/QuickClip.ico" Background="{DynamicResource BackgroundBrush}">
 
     <Window.Resources>
         <ResourceDictionary>
@@ -51,7 +51,7 @@
         </ResourceDictionary>
     </Window.Resources>
 
-    <Grid>
+    <Grid Background="{DynamicResource BackgroundBrush}">
         <Grid.ColumnDefinitions>
             <ColumnDefinition x:Name="RailColumn" Width="80" />
             <ColumnDefinition Width="*" />
@@ -115,7 +115,7 @@
         </Grid>
 
         <!-- Recording status -->
-        <Border x:Name="StatusBar" Grid.Row="2" Grid.Column="1" Background="{StaticResource PanelBrush}" BorderBrush="#2A2A2A" BorderThickness="0,1,0,0" Padding="16,7,10,7">
+        <Border x:Name="StatusBar" Grid.Row="2" Grid.Column="1" Background="{DynamicResource PanelBrush}" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,1,0,0" Padding="16,7,10,7">
             <DockPanel>
                 <Button x:Name="SaveClipButton" DockPanel.Dock="Right" Style="{StaticResource SaveClipAction}" Margin="12,0,0,0"
                         AutomationProperties.Name="Save clip" Click="SaveClip_Click">
@@ -146,7 +146,7 @@
                     <Button x:Name="ShareCloseButton" Style="{StaticResource IconButton}" Content="&#xE711;" FontSize="{DynamicResource QuickClipVisual10}" Padding="6,4" Margin="4,0,0,0"
                             Click="ShareClose_Click" />
                 </StackPanel>
-                <Ellipse x:Name="RecDot" DockPanel.Dock="Left" Width="9" Height="9" Margin="0,0,9,0" VerticalAlignment="Center" Fill="#666" />
+                <Ellipse x:Name="RecDot" DockPanel.Dock="Left" Width="9" Height="9" Margin="0,0,9,0" VerticalAlignment="Center" Fill="{DynamicResource DisabledBrush}" />
                 <TextBlock x:Name="RecStatus" VerticalAlignment="Center" ToolTip="{Binding Text, RelativeSource={RelativeSource Self}}" FontSize="{DynamicResource QuickClipText12.5}" TextTrimming="CharacterEllipsis" Text="Starting…" />
             </DockPanel>
         </Border>

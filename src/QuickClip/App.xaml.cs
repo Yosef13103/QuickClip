@@ -3,6 +3,7 @@ using System.Windows;
 using System.Windows.Threading;
 using QuickClip.Recording;
 using QuickClip.Shell;
+using QuickClip.Themes;
 
 namespace QuickClip;
 
@@ -10,6 +11,7 @@ public partial class App : Application
 {
     /// <summary>Tray icon, hotkey and recorder; alive for the whole session.</summary>
     internal static AppHost? Host { get; private set; }
+    internal ThemeResources Themes { get; } = new();
 
     private bool _quitting;
 
@@ -67,6 +69,8 @@ public partial class App : Application
 #endif
         _renderOffscreen = renderTest;
         (AppProfile.IsPersonal ? AppSettings.Current.InterfaceScale ?? new() : new InterfaceScale()).Apply(Resources);
+        Themes.Attach(this);
+        Themes.Apply(this, AppSettings.Current);
 
         // One QuickClip per user: a second launch (e.g. "Edit with QuickClip") hands its file to the first.
         if (!renderTest && !SingleInstance.TryBecomePrimary())
@@ -101,6 +105,7 @@ public partial class App : Application
             Shutdown(0);
             return;
         }
+        if (AppProfile.IsPersonal && args.Contains("--reset-theme", StringComparer.OrdinalIgnoreCase)) ResetTheme();
         bool tray = args.Contains("--tray") || (windowsStartup && AppSettings.Current.MinimizeToTray);
         string? file = args.FirstOrDefault(a => !a.StartsWith("--", StringComparison.Ordinal));
 #if DEBUG
@@ -175,6 +180,11 @@ public partial class App : Application
     private void HandleArgs(string[] args)
     {
         if (AppProfile.IsPersonal && args.Contains(Shell.Startup.WindowsStartupArgument)) return;
+        if (AppProfile.IsPersonal && args.Contains("--reset-theme", StringComparer.OrdinalIgnoreCase))
+        {
+            ResetTheme();
+            return;
+        }
         if (args.Contains("--quit"))
         {
             Quit();
@@ -188,6 +198,14 @@ public partial class App : Application
         string? file = args.FirstOrDefault(a => !a.StartsWith("--", StringComparison.Ordinal));
         if (args.Contains("--tray") && file == null) return;
         ShowMain(file);
+    }
+
+    private void ResetTheme()
+    {
+        var settings = AppSettings.Current;
+        settings.Theme = nameof(ThemeChoice.Dark);
+        Themes.Apply(this, settings);
+        settings.Save();
     }
 
     private bool _renderOffscreen;
