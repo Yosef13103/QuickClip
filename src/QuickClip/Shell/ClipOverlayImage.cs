@@ -23,6 +23,11 @@ internal static class ClipOverlayImage
 
     internal static BitmapSource? Load(string? path) => LoadAsset(path)?.First;
 
+    internal static Task<Asset?> LoadAssetAsync(string? path, CancellationToken cancellationToken = default) =>
+        string.Equals(Path.GetExtension(path), ".webm", StringComparison.OrdinalIgnoreCase)
+            ? WebmOverlayAnimation.LoadAsync(path!, cancellationToken)
+            : Task.Run(() => LoadAsset(path), cancellationToken);
+
     internal static Asset? LoadAsset(string? path)
     {
         if (string.IsNullOrEmpty(path) || Discovery.CatalogPaths.LocalPath(path) == null) return null;
