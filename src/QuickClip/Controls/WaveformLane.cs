@@ -20,6 +20,18 @@ public sealed class WaveformLane : FrameworkElement
     private static readonly Pen PlayheadPen = Freeze(new Pen(TimelineBar.PlayheadBrush, 1.5));
     private static readonly Pen HandlePen = Freeze(new Pen(TimelineBar.HandleBrush, 2));
     private static readonly Typeface LabelFace = new("Segoe UI");
+    private static DependencyProperty ThemeBrush(string name, Brush fallback) =>
+        DependencyProperty.Register(name, typeof(Brush), typeof(WaveformLane),
+            new FrameworkPropertyMetadata(fallback, FrameworkPropertyMetadataOptions.AffectsRender));
+
+    private static readonly DependencyProperty ThemeLaneProperty = ThemeBrush("ThemeLane", LaneBrush);
+    private static readonly DependencyProperty ThemeInactiveProperty = ThemeBrush("ThemeInactive", DisabledBrush);
+    private static readonly DependencyProperty ThemeTextProperty = ThemeBrush("ThemeText", LabelBrush);
+    private static readonly DependencyProperty ThemeTextBackProperty = ThemeBrush("ThemeTextBack", LabelBackBrush);
+    private static readonly DependencyProperty ThemeGridProperty = ThemeBrush("ThemeGrid", CenterPen.Brush);
+    private static readonly DependencyProperty ThemeHandleProperty = ThemeBrush("ThemeHandle", TimelineBar.HandleBrush);
+    private static readonly DependencyProperty ThemePlayheadProperty = ThemeBrush("ThemePlayhead", TimelineBar.PlayheadBrush);
+    private Brush Themed(DependencyProperty resource) => (Brush)GetValue(resource);
     private const double SnapPixels = 7;
 
     public static readonly DependencyProperty TrackProperty = DependencyProperty.Register(
@@ -45,6 +57,13 @@ public sealed class WaveformLane : FrameworkElement
         ClipToBounds = true;
         Focusable = false;
         Cursor = Cursors.Hand;
+        SetResourceReference(ThemeLaneProperty, "SurfaceBrush");
+        SetResourceReference(ThemeInactiveProperty, "DisabledBrush");
+        SetResourceReference(ThemeTextProperty, "PrimaryTextBrush");
+        SetResourceReference(ThemeTextBackProperty, "ElevatedSurfaceBrush");
+        SetResourceReference(ThemeGridProperty, "BorderBrush");
+        SetResourceReference(ThemeHandleProperty, "WarningBrush");
+        SetResourceReference(ThemePlayheadProperty, "PrimaryTextBrush");
     }
 
     private void OnTrackChanged(AudioTrack? old, AudioTrack? now)
@@ -100,7 +119,7 @@ public sealed class WaveformLane : FrameworkElement
     protected override void OnRender(DrawingContext dc)
     {
         double w = ActualWidth, h = ActualHeight;
-        dc.DrawRoundedRectangle(LaneBrush, null, new Rect(0, 0, w, h), 4, 4);
+        dc.DrawRoundedRectangle(Themed(ThemeLaneProperty), null, new Rect(0, 0, w, h), 4, 4);
         var track = Track;
         if (track == null || w <= 0 || h <= 0) return;
         var s = track.Timeline;
@@ -125,32 +144,32 @@ public sealed class WaveformLane : FrameworkElement
             }
         }
 
-        dc.DrawLine(CenterPen, new Point(0, h / 2), new Point(w, h / 2));
+        dc.DrawLine(new Pen(Themed(ThemeGridProperty), 1), new Point(0, h / 2), new Point(w, h / 2));
         if (_cache != null)
-            dc.DrawGeometry(track.Include ? track.Brush : DisabledBrush, null, _cache);
+            dc.DrawGeometry(track.Include ? track.Brush : Themed(ThemeInactiveProperty), null, _cache);
 
         if (!block.IsEmpty && block.Width > 36)
         {
             string start = track.Offset >= 0 ? Fmt.Time(track.Offset) : "−" + Fmt.Time(-track.Offset);
             var text = new FormattedText($"♪ {track.Name}  ·  {start}", CultureInfo.CurrentCulture, FlowDirection.LeftToRight,
-                LabelFace, 11, LabelBrush, VisualTreeHelper.GetDpi(this).PixelsPerDip)
+                LabelFace, 11, Themed(ThemeTextProperty), VisualTreeHelper.GetDpi(this).PixelsPerDip)
             {
                 MaxTextWidth = Math.Max(1, block.Width - 10),
                 MaxLineCount = 1,
                 Trimming = TextTrimming.CharacterEllipsis,
             };
-            dc.DrawRoundedRectangle(LabelBackBrush, null, new Rect(block.X + 3, 3, text.Width + 8, text.Height + 2), 3, 3);
+            dc.DrawRoundedRectangle(Themed(ThemeTextBackProperty), null, new Rect(block.X + 3, 3, text.Width + 8, text.Height + 2), 3, 3);
             dc.DrawText(text, new Point(block.X + 7, 4));
         }
 
         double xi = s.TimeToX(s.In, w), xo = s.TimeToX(s.Out, w);
         if (xi > 0) dc.DrawRectangle(TimelineBar.OutsideShade, null, new Rect(0, 0, Math.Min(xi, w), h));
         if (xo < w) dc.DrawRectangle(TimelineBar.OutsideShade, null, new Rect(Math.Max(0, xo), 0, w - Math.Max(0, xo), h));
-        if (xi >= 0 && xi <= w) dc.DrawLine(HandlePen, new Point(xi + 1, 0), new Point(xi + 1, h));
-        if (xo >= 0 && xo <= w) dc.DrawLine(HandlePen, new Point(xo - 1, 0), new Point(xo - 1, h));
+        if (xi >= 0 && xi <= w) dc.DrawLine(new Pen(Themed(ThemeHandleProperty), 2), new Point(xi + 1, 0), new Point(xi + 1, h));
+        if (xo >= 0 && xo <= w) dc.DrawLine(new Pen(Themed(ThemeHandleProperty), 2), new Point(xo - 1, 0), new Point(xo - 1, h));
 
         double xp = Math.Round(s.TimeToX(s.Position, w)) + 0.5;
-        if (xp >= 0 && xp <= w) dc.DrawLine(PlayheadPen, new Point(xp, 0), new Point(xp, h));
+        if (xp >= 0 && xp <= w) dc.DrawLine(new Pen(Themed(ThemePlayheadProperty), 1.5), new Point(xp, 0), new Point(xp, h));
     }
 
     private static Geometry? BuildGeometry(AudioTrack track, double w, double h)
