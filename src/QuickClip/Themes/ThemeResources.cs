@@ -87,6 +87,9 @@ internal sealed class ThemeResources
         brushes["DangerPressedBrush"] = Frozen(danger);
         brushes["OnDangerBrush"] = OnColor(danger);
         brushes["SwitchThumbBrush"] = OnColor(colors[ThemeColor.Accent]);
+        // Semantic foregrounds are available to all palettes, including the legacy Dark and high-contrast paths.
+        brushes["OnAccentBrush"] = OnColor(colors[ThemeColor.Accent]);
+        brushes["OnAccentHoverBrush"] = OnColor(colors[ThemeColor.AccentHover]);
         if (ReferenceEquals(colors, ThemePalette.Get(ThemeChoice.Dark)) && !overrideFluent)
         {
             brushes["DangerBrush"] = Frozen(Color.FromRgb(0xAE, 0x2D, 0x37));
