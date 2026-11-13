@@ -5,7 +5,7 @@ namespace QuickClip.Discovery;
 internal enum CatalogSource { Folder, Steam, Manual, Epic }
 internal enum CatalogConfidence { Low, Medium, High }
 internal enum CatalogInclusion { Default, Include, Exclude }
-internal enum AppClassification { Automatic, Game, Application, Companion }
+internal enum AppClassification { Automatic, Game, Application, Companion, Launcher }
 internal enum CatalogActivation { Default, ForegroundOnly }
 internal enum CatalogCapturePreference { Default, Window, Monitor }
 

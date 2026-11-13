@@ -151,6 +151,16 @@ public sealed class GameCatalogTests : IDisposable
     }
 
     [Fact]
+    public async Task Scan_excludes_bundled_crash_reporter_executables()
+    {
+        string game = FileAt("Cyberpunk 2077", "bin", "x64", "Cyberpunk2077.exe");
+        FileAt("Cyberpunk 2077", "bin", "x64", "CrashReporter", "7za.exe");
+        FileAt("Cyberpunk 2077", "bin", "x64", "CrashReporter", "Helper.exe");
+        var result = await GameCatalogService.ScanAsync(new() { GameRoots = [new(At("Cyberpunk 2077"))] });
+        Assert.Equal(game, Assert.Single(Assert.Single(result.Entries).Executables));
+    }
+
+    [Fact]
     public async Task Steam_config_adds_secondary_library_without_manual_approval_and_honors_exclusions()
     {
         FileAt("Steam", "steamapps", "common", "First", "First.exe");

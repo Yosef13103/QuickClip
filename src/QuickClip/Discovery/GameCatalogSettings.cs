@@ -7,6 +7,7 @@ internal sealed record GameCatalogSettings
     public bool AutoScan { get; init; } = true;
     public CatalogRequest Request { get; init; } = new();
     public CatalogResult? Snapshot { get; init; }
+    public ImmutableArray<string> BlockedExecutables { get; init; } = [];
     public ImmutableArray<string> OfflineIds { get; init; } = [];
 }
 
@@ -26,10 +27,10 @@ internal static class GameCatalogRuntime
 
     public static CatalogMatch Match(string path, bool foreground)
     {
-        if (CatalogPaths.IsDiscordProcess(path)) return new(CatalogMatchKind.Companion);
-        if (!AppProfile.IsPersonal) return new(CatalogMatchKind.Unknown);
+        if (!AppProfile.IsPersonal) return new(CatalogPaths.IsDiscordProcess(path)
+            ? CatalogMatchKind.Companion : CatalogMatchKind.Unknown);
         var settings = AppSettings.Current.Games;
-        if (settings == null) return new(CatalogMatchKind.Unknown);
+        if (settings == null) return new(CatalogPaths.DefaultRole(path));
         if (settings.Request.ExcludedDirectories.Any(root => CatalogPaths.IsWithin(path, root)))
             return new(CatalogMatchKind.Ignored);
         lock (Gate)
@@ -37,7 +38,7 @@ internal static class GameCatalogRuntime
             if (!ReferenceEquals(settings, _settings))
             {
                 var rows = Rows(settings);
-                _index = new(new(rows, [], 0, false, default));
+                _index = new(new(rows, [], 0, false, default), settings.BlockedExecutables);
                 _settings = settings;
             }
             var match = _index!.Match(path, foreground);
@@ -64,7 +65,8 @@ internal static class GameCatalogRuntime
             .Select(entry => entry with
             {
                 InstallDirectories = [.. entry.InstallDirectories.Where(path => Approved(entry, path))],
-                Executables = [.. entry.Executables.Where(path => Approved(entry, path))],
+                Executables = [.. entry.Executables.Where(path => Approved(entry, path) &&
+                    CatalogPaths.DefaultRole(path) == CatalogMatchKind.Unknown)],
             }).Where(entry => entry.InstallDirectories.Length > 0);
         var manual = settings.Request.ManualEntries.Select(entry => new CatalogEntry(
             "manual:" + entry.Id.ToString("N"), entry.DisplayName, CatalogSource.Manual, [], entry.Executables, new()));

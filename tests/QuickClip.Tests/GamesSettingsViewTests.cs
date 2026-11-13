@@ -34,7 +34,7 @@ public sealed class GamesSettingsViewTests
         Assert.Equal(count, page.Games.Items.Count);
         var first = Assert.IsType<GamesSettingsView.GameRow>(page.Games.Items[0]);
         var second = Assert.IsType<GamesSettingsView.GameRow>(page.Games.Items[1]);
-        Assert.Equal("Manual · Enabled", first.Summary);
+        Assert.Equal("Manual · Game · enabled", first.Summary);
         var container = Assert.IsType<ListBoxItem>(page.Games.ItemContainerGenerator.ContainerFromIndex(0));
         double collapsedHeight = container.ActualHeight;
         var capture = Descendants<Button>(container).Single(button =>
@@ -84,13 +84,16 @@ public sealed class GamesSettingsViewTests
     });
 
     [Fact]
-    public void Manual_game_file_selection_accepts_large_collections_but_not_companion_apps()
+    public void Manual_file_selection_accepts_large_collections_and_companion_apps()
     {
         var collection = Enumerable.Range(0, 128)
             .Select(i => $@"C:\TestLibrary\Game{i:000}.exe").ToArray();
         Assert.Null(GamesSettingsView.ValidateManualGameExecutables(collection));
-        Assert.Contains("companion", GamesSettingsView.ValidateManualGameExecutables([@"C:\Apps\Discord.exe"])!,
-            StringComparison.OrdinalIgnoreCase);
+        Assert.Null(GamesSettingsView.ValidateManualGameExecutables([@"C:\Apps\Discord.exe"]));
+        var discord = new GamesSettingsView.GameRow(new("manual:discord", "Discord", CatalogSource.Manual,
+            [], [@"C:\Apps\Discord.exe"], new()));
+        Assert.Contains("Companion app", discord.Summary);
+        Assert.EndsWith(" · companion", Assert.Single(discord.Executables).Label);
         Assert.NotNull(GamesSettingsView.ValidateManualGameExecutables([@"C:\Apps\not-video.txt"]));
     }
 

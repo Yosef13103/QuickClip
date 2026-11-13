@@ -41,6 +41,24 @@ internal static class CatalogPaths
 
     public static bool IsExecutable(string path) => Path.GetExtension(path).Equals(".exe", StringComparison.OrdinalIgnoreCase);
 
+    public static CatalogMatchKind DefaultRole(string path)
+    {
+        if (IsDiscordUpdater(path)) return CatalogMatchKind.Ignored;
+        if (IsDiscordProcess(path)) return CatalogMatchKind.Companion;
+        string name = Path.GetFileNameWithoutExtension(path).ToUpperInvariant();
+        if (name == "ZOOM") return CatalogMatchKind.Companion;
+        if (name is "STEAM" or "EPICGAMESLAUNCHER" or "LAUNCHER" or "GAMELAUNCHER")
+            return CatalogMatchKind.Launcher;
+        if (name is "7ZA" or "SETUP" or "INSTALL" or "INSTALLER" or "UPDATE" or "UPDATER"
+            or "CRASHPAD_HANDLER" or "UNITYCRASHHANDLER32" or "UNITYCRASHHANDLER64" or "CRASHREPORTCLIENT"
+            || name.StartsWith("UNINS", StringComparison.Ordinal)
+            || name.StartsWith("VC_REDIST", StringComparison.Ordinal)
+            || name.EndsWith("CRASHREPORTER", StringComparison.Ordinal)
+            || path.Split('\\', '/').SkipLast(1).Contains("CrashReporter", StringComparer.OrdinalIgnoreCase))
+            return CatalogMatchKind.Application;
+        return CatalogMatchKind.Unknown;
+    }
+
     public static bool IsDiscordUpdater(string path) =>
         Path.GetFileNameWithoutExtension(path).Equals("Update", StringComparison.OrdinalIgnoreCase)
         && IsDiscord(Path.GetFileName(Path.GetDirectoryName(path)) ?? "");
