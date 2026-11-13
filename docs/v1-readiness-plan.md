@@ -26,6 +26,11 @@ This plan tracks the owner’s November 13 post-field-test feedback. The working
 
 ## Release readiness
 
+### Personal Windows startup
+
+- [ ] General settings control Windows startup and startup replay independently. Local strict Personal and Upstream Release builds passed. Tests use a disposable registry key and verify the separate Personal value, exact installed-path comparison, consent default and settings round-trip. The Personal Inno Setup script compiled against a fixture. Live install, sign-in, path relocation, uninstall, and side-by-side launch still require a disposable Windows user or VM.
+- `scripts/package.ps1 -Personal` creates the per-user installer and portable zip under `publish-personal`. Only the installed Release executable using its default profile can register for Windows startup. A Windows sign-in launch follows the minimize-to-tray setting. Existing users keep their saved replay behavior until they set an explicit startup preference.
+
 - [ ] Each merged PR has strict Personal and Upstream CI at the exact commit.
 - [ ] Owner-supervised game launch/exit, idle-zero-capture, Discord focus, DISPLAY1→DISPLAY2 move, consent boundary, and manual override tests on real Windows 10/11 hardware.
 - [ ] Real playback device and mic isolation, notification tone routing, and replay A/V synchronization tests.

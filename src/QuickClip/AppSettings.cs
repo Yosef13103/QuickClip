@@ -85,8 +85,18 @@ internal sealed class AppSettings
     public bool ConfirmClipDeletion { get; set; } = true;
 
     // Window behaviour
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public bool? EnableReplayOnStartup { get; set; }
     public bool MinimizeToTray { get; set; } = true;
     public bool CloseToTray { get; set; } = true;
+
+    internal void ApplyReplayStartupPreference()
+    {
+        if (!AppProfile.IsPersonal || EnableReplayOnStartup is not bool enabled ||
+            !(LoadedFromFile || ReplayOnboardingCompleted)) return;
+        RecordingEnabled = enabled;
+        if (enabled) PreferGameWindow = true;
+    }
 
     public bool CheckForUpdates { get; set; } = !AppProfile.IsPersonal;
     public string? UpdateChannel { get; set; }

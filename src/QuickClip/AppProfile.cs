@@ -21,6 +21,7 @@ internal static class AppProfile
     private static readonly Lazy<string?> PortableRoot = new(ReadPortableRoot);
     internal static string? TestRoot { private get; set; }
     private static string? DataRoot => TestRoot ?? PortableRoot.Value;
+    internal static bool UsesDefaultDataRoot => DataRoot == null;
 
     public static string SettingsDirectory => DirectoryFor(Environment.SpecialFolder.ApplicationData, "settings", Name);
     public static string LocalDirectory => DirectoryFor(Environment.SpecialFolder.LocalApplicationData, "local", Name);
