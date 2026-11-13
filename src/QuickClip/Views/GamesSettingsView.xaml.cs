@@ -117,26 +117,24 @@ public partial class GamesSettingsView : UserControl
     internal static string? ValidateManualGameExecutables(IReadOnlyList<string> paths)
     {
         if (paths.Count == 0 || paths.Any(path => CatalogPaths.LocalPath(path) == null || !CatalogPaths.IsExecutable(path)))
-            return "Choose one or more local Windows game executable files (.exe).";
-        if (paths.Any(CatalogPaths.IsDiscordProcess))
-            return "Discord is a companion app, not a game. It cannot trigger automatic game recording.";
-        return null; // No arbitrary count limit: large collections of manually associated executables are valid.
+            return "Choose one or more local Windows executable files (.exe).";
+        return null;
     }
 
     private void PickExecutables(CatalogEntry? entry)
     {
         var dialog = new OpenFileDialog { Filter = "Windows executables|*.exe", Multiselect = true,
-            Title = "Select the game executable(s)", CheckFileExists = true };
+            Title = "Select game or application executables", CheckFileExists = true };
         if (dialog.ShowDialog(Window.GetWindow(this)) != true) return;
         Guid id = entry == null ? Guid.NewGuid() : Guid.ParseExact(entry.Id[7..], "N");
-        var paths = dialog.FileNames.Select(CatalogPaths.LocalPath).OfType<string>()
-            .Distinct(StringComparer.OrdinalIgnoreCase).ToImmutableArray();
-        string? selectionError = ValidateManualGameExecutables(paths);
+        string? selectionError = ValidateManualGameExecutables(dialog.FileNames);
         if (selectionError != null)
         {
             Status.Text = selectionError;
             return;
         }
+        var paths = dialog.FileNames.Select(path => CatalogPaths.LocalPath(path)!)
+            .Distinct(StringComparer.OrdinalIgnoreCase).ToImmutableArray();
         var request = State.Request;
         if (request.ManualEntries.Any(item => item.Id != id && item.Executables.Intersect(paths, StringComparer.OrdinalIgnoreCase).Any()))
         {
@@ -150,6 +148,8 @@ public partial class GamesSettingsView : UserControl
             ManualEntries = request.ManualEntries.RemoveAll(item => item.Id == id).Add(manual),
         } });
         Games.SelectedItem = Games.Items.OfType<GameRow>().FirstOrDefault(row => row.Entry.Id == "manual:" + id.ToString("N"));
+        if (paths.Any(CatalogPaths.IsDiscordProcess))
+            Status.Text = "Discord is a companion app and does not trigger game recording.";
     }
 
     private void Remove_Click(object sender, RoutedEventArgs e)
@@ -197,6 +197,38 @@ public partial class GamesSettingsView : UserControl
             ? launchers.RemoveAll(value => string.Equals(value, path, StringComparison.OrdinalIgnoreCase)) : launchers.Add(path) });
     }
 
+    private void BlockFile_Click(object sender, RoutedEventArgs e)
+    {
+        var dialog = new OpenFileDialog { Filter = "Windows executables|*.exe", Multiselect = true,
+            Title = "Select executables to ignore for automatic game detection", CheckFileExists = true };
+        if (dialog.ShowDialog(Window.GetWindow(this)) == true) BlockExecutables(dialog.FileNames);
+    }
+
+    private void BlockSelected_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is Button { CommandParameter: string path }) BlockExecutables([path]);
+    }
+
+    private void BlockExecutables(IReadOnlyList<string> paths)
+    {
+        if (ValidateManualGameExecutables(paths) is { } error)
+        {
+            Status.Text = error;
+            return;
+        }
+        var blocked = State.BlockedExecutables.Concat(paths.Select(path => CatalogPaths.LocalPath(path)!))
+            .Distinct(StringComparer.OrdinalIgnoreCase).ToImmutableArray();
+        SetState(State with { BlockedExecutables = blocked });
+        Status.Text = "Selected executables are ignored for automatic game detection.";
+    }
+
+    private void RestoreFile_Click(object sender, RoutedEventArgs e)
+    {
+        if (BlockedFiles.SelectedItem is not string path) return;
+        SetState(State with { BlockedExecutables = State.BlockedExecutables.Remove(path) });
+        Status.Text = "Executable restored to its catalog rules.";
+    }
+
     private void SaveRules(CatalogEntry entry, CatalogRules rules)
     {
         var request = State.Request;
@@ -231,6 +263,7 @@ public partial class GamesSettingsView : UserControl
             .Concat(state.Request.ExcludedDirectories.Select(path => new RootRow(path, false, Excluded: true))).ToArray();
         LastScan.Text = state.Snapshot is { } scan ? $"Last scan {scan.CompletedAt.ToLocalTime():g} · {scan.Entries.Length:N0} games found"
             : "No completed scan.";
+        BlockedFiles.ItemsSource = state.BlockedExecutables;
         ScanIssues.ItemsSource = state.Snapshot?.Issues.Select(ScanIssueText).ToArray();
         RenderRows(state);
     }
@@ -250,7 +283,7 @@ public partial class GamesSettingsView : UserControl
             {
                 if (!existing.TryGetValue(entry.Id, out var row)) row = new(entry);
                 else if (_query.Length > 0) refilter |= row.Matches(_query) != GameRow.Matches(entry, _query);
-                row.Update(entry, offline.Contains(entry.Id));
+                row.Update(entry, offline.Contains(entry.Id), state.BlockedExecutables);
                 rows.Add(row);
             }
             if (_expanded != null && !entries.Any(entry => entry.Id == _expanded.Entry.Id))
@@ -271,7 +304,7 @@ public partial class GamesSettingsView : UserControl
     private void UpdateCount()
     {
         if (Count != null && _gamesView != null)
-            Count.Text = $"Detected games · {_gamesView.Count:N0} / {_rows.Count:N0}";
+            Count.Text = $"Catalog · {_gamesView.Count:N0} / {_rows.Count:N0}";
     }
 
     private async void Details_Click(object sender, RoutedEventArgs e)

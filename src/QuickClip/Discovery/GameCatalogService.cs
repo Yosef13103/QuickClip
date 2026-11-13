@@ -379,13 +379,7 @@ internal static class GameCatalogService
 
         private static bool IsRendererCandidate(string path)
         {
-            if (!CatalogPaths.IsExecutable(path) || CatalogPaths.IsDiscordProcess(path)) return false;
-            string name = Path.GetFileNameWithoutExtension(path).ToUpperInvariant();
-            return name is not ("SETUP" or "INSTALL" or "INSTALLER" or "LAUNCHER" or "GAMELAUNCHER" or "UPDATE" or "UPDATER"
-                or "CRASHPAD_HANDLER" or "UNITYCRASHHANDLER32" or "UNITYCRASHHANDLER64" or "CRASHREPORTCLIENT")
-                && !name.StartsWith("UNINS", StringComparison.Ordinal)
-                && !name.StartsWith("VC_REDIST", StringComparison.Ordinal)
-                && !name.EndsWith("CRASHREPORTER", StringComparison.Ordinal);
+            return CatalogPaths.IsExecutable(path) && CatalogPaths.DefaultRole(path) == CatalogMatchKind.Unknown;
         }
 
         private void AddManual(ManualCatalogEntry manual)
