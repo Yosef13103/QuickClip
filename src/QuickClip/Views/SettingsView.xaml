@@ -92,7 +92,8 @@
             <ColumnDefinition x:Name="SectionsColumn" Width="176" />
             <ColumnDefinition Width="*" />
         </Grid.ColumnDefinitions>
-        <Border Grid.Column="0" Background="{DynamicResource RailBrush}" Padding="8,16,8,16">
+        <Border Grid.Column="0" Background="{DynamicResource RailBrush}" BorderBrush="{DynamicResource BorderBrush}"
+                BorderThickness="1,0,1,0" Padding="8,16,8,16">
             <!-- Left navigation uses comfortable centered spacing; shrink/scroll when DPI requires. -->
             <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled"
                           VerticalContentAlignment="Center" HorizontalContentAlignment="Stretch">
@@ -112,43 +113,39 @@
                             <Setter Property="Template">
                                 <Setter.Value>
                                     <ControlTemplate TargetType="RadioButton">
-                                        <Border x:Name="RailButton" Background="Transparent" CornerRadius="7"
-                                                BorderThickness="1" BorderBrush="Transparent" Padding="0,5" Margin="0,2">
+                                        <Border x:Name="RailButton" Background="Transparent" CornerRadius="8"
+                                                BorderThickness="1" BorderBrush="Transparent"
+                                                Padding="5,11,5,10" Margin="5,4">
                                             <Grid>
-                                                <Grid.ColumnDefinitions>
-                                                    <ColumnDefinition Width="7" />
-                                                    <ColumnDefinition Width="*" />
-                                                </Grid.ColumnDefinitions>
-                                                <Border x:Name="SelectedAccent" Background="#83BEDD"
-                                                        Width="3" Height="18" HorizontalAlignment="Left" CornerRadius="2" Visibility="Collapsed" />
-                                                <Grid x:Name="ItemContent" Grid.Column="1" Margin="5,0,0,0">
-                                                    <Grid.ColumnDefinitions>
-                                                        <ColumnDefinition Width="Auto" />
-                                                        <ColumnDefinition Width="*" />
-                                                    </Grid.ColumnDefinitions>
-                                                    <TextBlock x:Name="SectionGlyph" Text="{TemplateBinding Tag}" FontFamily="{StaticResource IconFont}"
-                                                               FontSize="{DynamicResource QuickClipVisual16}" VerticalAlignment="Center" />
-                                                    <TextBlock x:Name="SectionLabel" Grid.Column="1" Text="{TemplateBinding Content}" Margin="10,0,4,0"
-                                                               FontSize="{DynamicResource QuickClipText13}" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" />
-                                                </Grid>
+                                                <Border x:Name="SelectedAccent" Background="{DynamicResource AccentBrush}"
+                                                        Width="3" Height="25" HorizontalAlignment="Left" VerticalAlignment="Center"
+                                                        CornerRadius="2" Visibility="Collapsed" />
+                                                <StackPanel x:Name="ItemContent" HorizontalAlignment="Center" VerticalAlignment="Center">
+                                                    <TextBlock x:Name="SectionGlyph" Text="{TemplateBinding Tag}"
+                                                               FontFamily="{StaticResource IconFont}"
+                                                               FontSize="{DynamicResource QuickClipVisual19}"
+                                                               HorizontalAlignment="Center" Foreground="{DynamicResource SubtleText}" />
+                                                    <TextBlock x:Name="SectionLabel" Text="{TemplateBinding Content}"
+                                                               Margin="0,6,0,0" FontSize="{DynamicResource QuickClipText13}"
+                                                               TextAlignment="Center" HorizontalAlignment="Center"
+                                                               TextTrimming="CharacterEllipsis"
+                                                               Foreground="{DynamicResource SecondaryTextBrush}" />
+                                                </StackPanel>
                                             </Grid>
                                         </Border>
                                         <ControlTemplate.Triggers>
                                             <Trigger Property="IsMouseOver" Value="True">
-                                                <Setter TargetName="RailButton" Property="Background" Value="#14FFFFFF" />
+                                                <Setter TargetName="RailButton" Property="Background" Value="{DynamicResource ElevatedSurfaceBrush}" />
                                             </Trigger>
                                             <Trigger Property="IsChecked" Value="True">
-                                                <Setter TargetName="RailButton" Property="Background" Value="#22FFFFFF" />
-                                                <Setter TargetName="SectionGlyph" Property="Foreground" Value="{DynamicResource AccentHoverBrush}" />
+                                                <Setter TargetName="RailButton" Property="Background" Value="{DynamicResource SelectionBrush}" />
+                                                <Setter TargetName="SectionGlyph" Property="Foreground" Value="{DynamicResource AccentBrush}" />
+                                                <Setter TargetName="SectionLabel" Property="Foreground" Value="{DynamicResource PrimaryTextBrush}" />
                                                 <Setter TargetName="SelectedAccent" Property="Visibility" Value="Visible" />
-                                                <Setter Property="Foreground" Value="{DynamicResource PrimaryTextBrush}" />
                                             </Trigger>
                                             <DataTrigger Binding="{Binding Tag, RelativeSource={RelativeSource AncestorType=StackPanel}}" Value="True">
-                                                <Setter TargetName="ItemContent" Property="Grid.ColumnSpan" Value="2" />
-                                                <Setter TargetName="ItemContent" Property="Grid.Column" Value="0" />
-                                                <Setter TargetName="ItemContent" Property="Margin" Value="0" />
-                                                <Setter TargetName="ItemContent" Property="HorizontalAlignment" Value="Center" />
                                                 <Setter TargetName="SectionLabel" Property="Visibility" Value="Collapsed" />
+                                                <Setter TargetName="RailButton" Property="Padding" Value="4,12" />
                                             </DataTrigger>
                                             <Trigger Property="IsKeyboardFocused" Value="True">
                                                 <Setter TargetName="RailButton" Property="BorderBrush" Value="{DynamicResource AccentHoverBrush}" />
