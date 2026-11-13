@@ -81,8 +81,8 @@ internal static class CaptureSourcePolicy
     }
 
     internal static bool AllowsGameDisplay(AppSettings settings, string identity) =>
-        settings.AllowGameDisplayFollowing ||
-        string.Equals(settings.AuthorizedGameDisplay, identity, StringComparison.OrdinalIgnoreCase);
+        settings.AllowGameDisplayFollowing || (settings.PreferGameWindow &&
+            string.Equals(settings.AuthorizedGameDisplay, identity, StringComparison.OrdinalIgnoreCase));
 
     internal static MonitorInfo? SelectMonitor(IReadOnlyList<MonitorInfo> monitors, string device, bool requireSelected)
     {

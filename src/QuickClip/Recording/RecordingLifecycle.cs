@@ -24,7 +24,8 @@ internal sealed class RecordingLifecycle(Func<CaptureActivation, string?> start,
     {
         CaptureActivation? desired = null;
         string? unavailable = null;
-        if (!enabled || _lastGame?.GameOwner != game?.Owner || _lastGame?.GameId != game?.Match.Entry?.Id)
+        if (!enabled || (game?.VerifiedTarget != null && _lastGame?.GameOwner is { } prior &&
+            (prior.ProcessId != game.Owner.ProcessId || prior.Started != game.Owner.Started || _lastGame.GameId != game.Match.Entry?.Id)))
             _lastGame = null;
 
         if (enabled && manualIdentity != null)
@@ -83,10 +84,11 @@ internal sealed class RecordingLifecycle(Func<CaptureActivation, string?> start,
         Mode = RecordingMode.Unavailable;
     }
 
-    public void Reset()
+    public void Reset(bool forgetGame = true)
     {
         StopGraph();
-        (_failed, _failure, _lastGame) = (null, null, null);
+        (_failed, _failure) = (null, null);
+        if (forgetGame) _lastGame = null;
         Error = null;
         Mode = RecordingMode.Off;
     }

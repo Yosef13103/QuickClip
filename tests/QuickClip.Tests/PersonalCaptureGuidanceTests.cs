@@ -74,8 +74,11 @@ public sealed class PersonalCaptureGuidanceTests
     public void Legacy_consent_stays_scoped_until_explicit_following_is_saved()
     {
         var legacy = AppSettings.Parse("""{"RecordingEnabled":true,"PreferGameWindow":false,"AuthorizedGameDisplay":"physical-a"}""");
+        Assert.False(CaptureSourcePolicy.AllowsGameDisplay(legacy, "PHYSICAL-A"));
+        legacy.PreferGameWindow = true;
         Assert.True(CaptureSourcePolicy.AllowsGameDisplay(legacy, "PHYSICAL-A"));
         Assert.False(CaptureSourcePolicy.AllowsGameDisplay(legacy, "physical-b"));
+        legacy.PreferGameWindow = false;
         legacy.AllowGameDisplayFollowing = true;
         var reloaded = AppSettings.Parse(legacy.ToJson());
         Assert.True(CaptureSourcePolicy.AllowsGameDisplay(reloaded, "physical-b"));

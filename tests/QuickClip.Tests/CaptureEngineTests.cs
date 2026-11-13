@@ -23,6 +23,23 @@ public sealed class CaptureEngineTests(MediaFixture media, Xunit.Abstractions.IT
         Assert.All(Monitors.List(), m => Assert.True(m.Width > 0 && m.Height > 0));
     }
 
+    [Fact]
+    public void Game_source_requires_a_verified_window_and_authorized_DDA()
+    {
+        if (Environment.GetEnvironmentVariable("QUICKCLIP_CI") == "1") Assert.True(CaptureEngine.IsAvailable);
+        if (!CaptureEngine.IsAvailable) return;
+        CaptureEngine.Initialize();
+        var owner = new WindowOwner(IntPtr.Zero, 10, 20, 30);
+        string? Start(WindowOwner game, CaptureEngine.MonitorBackend backend) =>
+            CaptureEngine.Start("fixture-display", "", 30, 0, 0, "libx264", 2000,
+                RecordingPresets.AudioKbps, 10, false, false, false, [], false, [],
+                new() { Backend = backend }, "fixture-identity", game);
+        Assert.Equal("Authorized display capture requires a named display and Desktop Duplication.",
+            Start(owner, CaptureEngine.MonitorBackend.MonitorOnlyGraphics));
+        Assert.Equal("The game window and its authorized display could not be verified.",
+            Start(owner, CaptureEngine.MonitorBackend.MonitorOnlyDuplication));
+    }
+
     [OptInFact("QUICKCLIP_TEST_CAPTURE")]
     public async Task Duplication_scales_on_GPU_and_saves_valid_video_only_clip()
     {

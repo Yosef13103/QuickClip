@@ -714,7 +714,11 @@ namespace qc
                     }
                     duplicationBusy = 0;
                     if (window) ok = ok && pipe.OpenEncoder(*s, kbps, error);
-                    if (ok && !s->displayIdentity.empty() && !verifySource(true))
+                    MonitorTarget confirmed;
+                    if (ok && !s->displayIdentity.empty() &&
+                        (!verifySource(true) || !FindMonitor(s->monitorDevice, confirmed) ||
+                            confirmed.hmonitor != monitor.hmonitor || confirmed.adapter != monitor.adapter ||
+                            confirmed.output != monitor.output))
                     {
                         ok = false;
                         error = "The authorized display or game location changed while capture was starting.";

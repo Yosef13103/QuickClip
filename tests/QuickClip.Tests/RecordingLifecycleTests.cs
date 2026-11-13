@@ -128,10 +128,18 @@ public sealed class RecordingLifecycleTests
         var lifecycle = new RecordingLifecycle(backend.Start, backend.Stop);
         var game = Game(1);
         lifecycle.Reconcile(true, null, game, [Display1, Display2], _ => "DISPLAY2", _ => true);
-        lifecycle.Reconcile(true, null, game, [Display1], _ => "DISPLAY1", _ => true);
+        lifecycle.Reconcile(true, null, null, [Display1], _ => null, _ => true);
+        Assert.Null(backend.Active);
+        lifecycle.Reset(forgetGame: false);
+        var relocated = game with
+        {
+            Owner = game.Owner with { Handle = (IntPtr)99 },
+            Target = game.Target! with { Owner = game.Owner with { Handle = (IntPtr)99 } },
+        };
+        lifecycle.Reconcile(true, null, relocated, [Display1], _ => "DISPLAY1", _ => true);
         Assert.Equal(RecordingMode.Unavailable, lifecycle.Mode);
         Assert.Null(backend.Active);
-        lifecycle.Reconcile(true, null, game, [Display1, Display2 with { CaptureIdentity = "Replacement" }], _ => "DISPLAY1", _ => true);
+        lifecycle.Reconcile(true, null, relocated, [Display1, Display2 with { CaptureIdentity = "Replacement" }], _ => "DISPLAY1", _ => true);
         Assert.Single(backend.Starts);
         lifecycle.Reconcile(true, null, game, [Display1, Display2], _ => "DISPLAY2", _ => true);
         Assert.Equal("B", backend.Active?.Display.Identity);

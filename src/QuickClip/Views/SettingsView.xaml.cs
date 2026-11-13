@@ -317,10 +317,13 @@ public partial class SettingsView : UserControl
             GameDisplayConsent.Visibility = ManualDesktopButton.Visibility = Visibility.Visible;
             GameDisplayConsent.Content = settings.AllowGameDisplayFollowing
                 ? "Revoke game display permission" : "Allow game display following…";
+            RevokeLegacyDisplayConsent.Visibility = !settings.AllowGameDisplayFollowing && settings.AuthorizedGameDisplay != null
+                ? Visibility.Visible : Visibility.Collapsed;
             BackendCombo.IsEnabled = false;
             CaptureTargetHint.Text = "Instant replay waits for an eligible game. Desktop Duplication records the game's display, including other visible apps and notifications. Switching displays starts a fresh replay buffer."
                 + (settings.AllowGameDisplayFollowing ? "" : settings.AuthorizedGameDisplay != null
-                    ? " Your existing permission covers one display." : " Game display permission is required.");
+                    ? settings.PreferGameWindow ? " Your existing permission covers one display." : " Your previous settings disabled automatic capture. Allow game display following to start it."
+                    : " Game display permission is required.");
             ManualDesktopButton.IsEnabled = settings.RecordingEnabled;
             ManualDesktopButton.Content = Recorder.Instance.ManualDesktopRequested
                 ? "Stop manual desktop capture" : "Start manual desktop capture…";
@@ -420,14 +423,23 @@ public partial class SettingsView : UserControl
         }
         else
         {
-            var result = ModalDialog.Show(Window.GetWindow(this),
+            if (!ModalDialog.ConfirmAction(Window.GetWindow(this),
                 "Allow QuickClip to record the entire display containing an eligible game? Capture follows the game to any connected display, including displays connected later. Other apps, messages and notifications visible on that display can appear in clips.",
-                "Allow game display following?", settings.AuthorizedGameDisplay == null ? MessageBoxButton.YesNo : MessageBoxButton.YesNoCancel,
-                MessageBoxImage.Warning, MessageBoxResult.No);
-            if (result == MessageBoxResult.Yes) settings.AllowGameDisplayFollowing = true;
-            else return;
+                "Allow game display following?", "Allow", "Cancel", destructive: false)) return;
+            settings.AllowGameDisplayFollowing = true;
         }
-        settings.Save();
+        ApplyDisplayPermission();
+    }
+
+    private void RevokeLegacyDisplayConsent_Click(object sender, RoutedEventArgs e)
+    {
+        AppSettings.Current.AuthorizedGameDisplay = null;
+        ApplyDisplayPermission();
+    }
+
+    private void ApplyDisplayPermission()
+    {
+        AppSettings.Current.Save();
         ShowGameWindowState();
         _ = Recorder.Instance.ApplySettingsAsync();
     }

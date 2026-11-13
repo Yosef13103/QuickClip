@@ -137,9 +137,10 @@ internal sealed class Recorder
     {
         lock (_gate)
         {
-            StopCore();
+            bool enabled = AppSettings.Current.RecordingEnabled;
+            StopCore(forgetGame: !enabled);
             Error = null;
-            if (AppSettings.Current.RecordingEnabled)
+            if (enabled)
             {
                 if (AppProfile.IsPersonal) ReconcilePersonal();
                 else StartCore();
@@ -362,12 +363,12 @@ internal sealed class Recorder
         }
     }
 
-    private void StopCore()
+    private void StopCore(bool forgetGame = true)
     {
         ++_pollGeneration;
         _poll?.Dispose();
         _poll = null;
-        if (AppProfile.IsPersonal) _lifecycle.Reset();
+        if (AppProfile.IsPersonal) _lifecycle.Reset(forgetGame);
         else StopGraph();
     }
 

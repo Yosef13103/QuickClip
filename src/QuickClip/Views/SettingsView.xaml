@@ -237,6 +237,8 @@
                     <TextBlock x:Name="CaptureTargetHint" Style="{StaticResource Hint}" Margin="0,6,0,4" TextWrapping="Wrap" />
                     <Button x:Name="GameDisplayConsent" Visibility="Collapsed" HorizontalAlignment="Left"
                             Margin="0,4,0,0" Click="GameDisplayConsent_Click" />
+                    <Button x:Name="RevokeLegacyDisplayConsent" Visibility="Collapsed" HorizontalAlignment="Left"
+                            Margin="0,4,0,0" Content="Revoke existing display permission" Click="RevokeLegacyDisplayConsent_Click" />
                     <Button x:Name="ManualDesktopButton" Visibility="Collapsed" HorizontalAlignment="Left"
                             Margin="0,8,0,0" Click="ManualDesktop_Click" />
 
