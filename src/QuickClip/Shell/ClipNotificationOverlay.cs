@@ -66,13 +66,15 @@ internal sealed class ClipNotificationOverlay : IDisposable
         _surface.Opacity = 0;
         var accent = Application.Current?.TryFindResource(success ? "SuccessBrush" : "DangerBrush") as Brush
             ?? new SolidColorBrush(success ? Color.FromRgb(92, 237, 172) : Color.FromRgb(255, 127, 131));
-        _glyph!.Text = success ? "✓" : "!";
+        // Success is conveyed by the message, not a decorative checkmark.
+        _glyph!.Text = success ? (options.Style == OverlayStyle.Badge ? "●" : "") : "!";
         _glyph.SetResourceReference(TextBlock.ForegroundProperty, success ? "SuccessBrush" : "DangerBrush");
         _glyph.FontSize = options.Size * .32;
         var icon = (Grid)_badge!.Parent;
         icon.Width = icon.Height = options.Size * .64;
         _badge.Width = _badge.Height = options.Size * .55;
         bool badge = options.Style == OverlayStyle.Badge;
+        icon.Visibility = badge || _image != null || !success ? Visibility.Visible : Visibility.Collapsed;
         _details!.Visibility = badge ? Visibility.Collapsed : Visibility.Visible;
         icon.Margin = badge ? new Thickness(0) : new Thickness(0, 0, 10, 0);
         _badge.CornerRadius = new CornerRadius(options.Size);
@@ -92,8 +94,13 @@ internal sealed class ClipNotificationOverlay : IDisposable
             _badge.Width = icon.Width;
             _badge.Height = icon.Height;
             _badge.BorderThickness = new Thickness(0);
+            _badge.Background = Brushes.Transparent;
         }
-        else _badge.BorderThickness = new Thickness(1);
+        else
+        {
+            _badge.BorderThickness = new Thickness(1);
+            _badge.SetResourceReference(Border.BackgroundProperty, "OverlayBackgroundBrush");
+        }
         _imageView = _image == null ? null : new Image { Source = _image.First, Stretch = Stretch.Uniform };
         _badge.Child = _imageView ?? (UIElement)_glyph;
         _details!.Children.Clear();
@@ -101,23 +108,34 @@ internal sealed class ClipNotificationOverlay : IDisposable
         {
             Text = title,
             Foreground = accent, FontSize = 14, FontWeight = FontWeights.SemiBold,
+            TextWrapping = TextWrapping.Wrap,
         });
         var lines = error != null ? new[] { error } : details?.Lines(options) ?? [];
-        if (options.Style == OverlayStyle.Compact && lines.Length > 1)
-            lines = [string.Join(" · ", lines)];
         foreach (var line in lines)
         {
             _details.Children.Add(new TextBlock
             {
                 Text = line, Foreground = Application.Current?.TryFindResource("PrimaryTextBrush") as Brush ?? Brushes.White, FontSize = 12,
-                TextTrimming = TextTrimming.CharacterEllipsis, Margin = new Thickness(0, 3, 0, 0),
+                TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 3, 0, 0),
             });
         }
         double width = badge ? options.Size : (options.Style == OverlayStyle.Detailed ? 390 : 320) * options.Size / 72;
-        if (imageOnly) width = options.Size * 2 + 12;
-        _card!.Padding = new Thickness(badge ? options.Size * .12 : 10);
+        if (imageOnly) width = options.Size * 2;
+        if (imageOnly)
+        {
+            // Image-only means just the asset: no banner background, outline or extra padding.
+            _card!.Background = Brushes.Transparent;
+            _card.BorderThickness = new Thickness(0);
+            _card.Padding = new Thickness(0);
+        }
+        else
+        {
+            _card!.SetResourceReference(Border.BackgroundProperty, "OverlayBackgroundBrush");
+            _card.BorderThickness = new Thickness(1);
+            _card.Padding = new Thickness(badge ? options.Size * .12 : 10);
+        }
         _card.Measure(new Size(width, double.PositiveInfinity));
-        double height = imageOnly ? options.Size + 20 : badge ? options.Size : _card.DesiredSize.Height;
+        double height = imageOnly ? options.Size : badge ? options.Size : _card.DesiredSize.Height;
         _surface.RenderTransform = new TranslateTransform();
         _window!.Width = width;
         _window.Height = height;
@@ -137,25 +155,39 @@ internal sealed class ClipNotificationOverlay : IDisposable
             SetWindowDisplayAffinity(_handle, 0x11);
         if (MotionEnabled(SystemParameters.ClientAreaAnimation, options.Animation))
         {
-            var fade = new DoubleAnimationUsingKeyFrames();
-            fade.KeyFrames.Add(new LinearDoubleKeyFrame(0, KeyTime.FromTimeSpan(TimeSpan.Zero)));
-            fade.KeyFrames.Add(new LinearDoubleKeyFrame(options.Opacity, KeyTime.FromTimeSpan(TimeSpan.FromSeconds(.13))));
-            fade.KeyFrames.Add(new LinearDoubleKeyFrame(options.Opacity, KeyTime.FromTimeSpan(TimeSpan.FromSeconds(options.Seconds - .22))));
-            fade.KeyFrames.Add(new LinearDoubleKeyFrame(0, KeyTime.FromTimeSpan(TimeSpan.FromSeconds(options.Seconds))));
-            _surface.BeginAnimation(UIElement.OpacityProperty, fade);
             if (options.Animation == OverlayAnimation.Slide)
             {
-                int column = (int)options.Anchor % 3;
-                var slide = _surface.RenderTransform;
-                var duration = TimeSpan.FromSeconds(.16);
-                slide.BeginAnimation(TranslateTransform.XProperty, new DoubleAnimation((column - 1) * 12, 0, duration));
+                // Translate the whole card fully outside its own width (not a 12px fade/slide).
+                // Keep it opaque while visible and slide back out at the end.
+                _surface.Opacity = options.Opacity;
+                double offset = SlideOffset(width, options.Anchor);
+                double enterEnd = Math.Min(.24, options.Seconds / 3);
+                double exitStart = Math.Max(enterEnd, options.Seconds - .24);
+                var slide = new DoubleAnimationUsingKeyFrames();
+                slide.KeyFrames.Add(new DiscreteDoubleKeyFrame(offset, KeyTime.FromTimeSpan(TimeSpan.Zero)));
+                slide.KeyFrames.Add(new EasingDoubleKeyFrame(0, KeyTime.FromTimeSpan(TimeSpan.FromSeconds(enterEnd)),
+                    new CubicEase { EasingMode = EasingMode.EaseOut }));
+                slide.KeyFrames.Add(new DiscreteDoubleKeyFrame(0, KeyTime.FromTimeSpan(TimeSpan.FromSeconds(exitStart))));
+                slide.KeyFrames.Add(new EasingDoubleKeyFrame(offset, KeyTime.FromTimeSpan(TimeSpan.FromSeconds(options.Seconds)),
+                    new CubicEase { EasingMode = EasingMode.EaseIn }));
+                _surface.RenderTransform.BeginAnimation(TranslateTransform.XProperty, slide);
             }
-            if (options.Animation == OverlayAnimation.Ripple)
+            else
             {
-                var pulse = new DoubleAnimation(.64, 1, TimeSpan.FromSeconds(.55));
+                var fade = new DoubleAnimationUsingKeyFrames();
+                fade.KeyFrames.Add(new LinearDoubleKeyFrame(0, KeyTime.FromTimeSpan(TimeSpan.Zero)));
+                fade.KeyFrames.Add(new LinearDoubleKeyFrame(options.Opacity, KeyTime.FromTimeSpan(TimeSpan.FromSeconds(.13))));
+                fade.KeyFrames.Add(new LinearDoubleKeyFrame(options.Opacity, KeyTime.FromTimeSpan(TimeSpan.FromSeconds(options.Seconds - .22))));
+                fade.KeyFrames.Add(new LinearDoubleKeyFrame(0, KeyTime.FromTimeSpan(TimeSpan.FromSeconds(options.Seconds))));
+                _surface.BeginAnimation(UIElement.OpacityProperty, fade);
+            }
+            if (options.Animation == OverlayAnimation.Ripple && !imageOnly)
+            {
+                var pulse = new DoubleAnimation(1, 1.65, TimeSpan.FromSeconds(.65));
                 _ring.RenderTransform.BeginAnimation(ScaleTransform.ScaleXProperty, pulse);
                 _ring.RenderTransform.BeginAnimation(ScaleTransform.ScaleYProperty, pulse);
-                _ring.BeginAnimation(UIElement.OpacityProperty, new DoubleAnimation(.85, 0, TimeSpan.FromSeconds(.55)));
+                _ring.BeginAnimation(UIElement.OpacityProperty,
+                    new DoubleAnimation(.95, 0, TimeSpan.FromSeconds(.65)));
             }
         }
         else _surface.Opacity = options.Opacity;
@@ -236,6 +268,9 @@ internal sealed class ClipNotificationOverlay : IDisposable
 
     internal static bool MotionEnabled(bool windowsAnimations, OverlayAnimation animation) =>
         windowsAnimations && animation != OverlayAnimation.None;
+
+    internal static double SlideOffset(double cardWidth, OverlayAnchor anchor) =>
+        ((int)anchor % 3 == 0 ? -1 : 1) * (cardWidth + 24);
 
     internal void Hide()
     {
