@@ -118,13 +118,14 @@ public sealed class ClipFeedbackTests
     }
 
     [Theory]
-    [InlineData(OverlayAnchor.TopLeft, -344)]
-    [InlineData(OverlayAnchor.TopCenter, 344)]
-    [InlineData(OverlayAnchor.TopRight, 344)]
-    [InlineData(OverlayAnchor.BottomLeft, -344)]
-    [InlineData(OverlayAnchor.BottomRight, 344)]
-    public void Slide_animation_enters_and_exits_by_more_than_card_width(OverlayAnchor anchor, double expected)
+    [InlineData("TopLeft", -344)]
+    [InlineData("TopCenter", 344)]
+    [InlineData("TopRight", 344)]
+    [InlineData("BottomLeft", -344)]
+    [InlineData("BottomRight", 344)]
+    public void Slide_animation_enters_and_exits_by_more_than_card_width(string anchorName, double expected)
     {
+        var anchor = Enum.Parse<OverlayAnchor>(anchorName);
         Assert.Equal(expected, ClipNotificationOverlay.SlideOffset(320, anchor));
         Assert.True(Math.Abs(ClipNotificationOverlay.SlideOffset(320, anchor)) > 320);
     }
