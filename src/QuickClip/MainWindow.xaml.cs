@@ -2,6 +2,7 @@ using System.ComponentModel;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
+using System.Windows.Media.Animation;
 using System.Windows.Threading;
 using QuickClip.Recording;
 using QuickClip.Shell;
@@ -277,11 +278,18 @@ public partial class MainWindow : Window
         {
             _recordingDot = running;
             RecDot.SetResourceReference(System.Windows.Shapes.Shape.FillProperty, running ? "RecordingRed" : "DisabledBrush");
+            SaveActionDot.SetResourceReference(System.Windows.Shapes.Shape.FillProperty, running ? "RecordingRed" : "DisabledBrush");
+            SaveActionDot.BeginAnimation(UIElement.OpacityProperty, null);
+            SaveActionDot.Opacity = 1;
+            if (running)
+                SaveActionDot.BeginAnimation(UIElement.OpacityProperty,
+                    new DoubleAnimation(1, 0.35, TimeSpan.FromSeconds(0.75))
+                    { AutoReverse = true, RepeatBehavior = RepeatBehavior.Forever });
         }
         if (running)
         {
             var stats = recorder.Stats();
-            string buffered = Fmt.CompactDuration(stats.BufferSeconds);
+            string buffered = Fmt.FriendlyDuration(stats.BufferSeconds);
             string hotkeyText = s.HotkeyKey == 0 ? "no save hotkey configured"
                 : App.Host?.HotkeyActive == false ? "the hotkey is unavailable (see Settings)" : $"{hotkey} saves a clip";
             RecStatus.Text = $"Recording  ·  {recorder.State.Summary}  ·  {buffered} buffered ({Fmt.Size(stats.BufferBytes)})  ·  {hotkeyText}";
