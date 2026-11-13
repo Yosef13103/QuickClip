@@ -1048,10 +1048,10 @@ namespace qc
         shared_->replaySession = ++nextReplaySession;
         shared_->startedUtcUs = av_gettime();
 
-        auto addTrack = [&](const char* title) {
+        auto addTrack = [&](const char* title, bool measureSignal = false) {
             auto track = std::make_unique<Track>();
             track->title = title;
-            track->mixer = std::make_unique<TrackMixer>(shared_->t0);
+            track->mixer = std::make_unique<TrackMixer>(shared_->t0, measureSignal);
             if (!track->encoder.Open(audioKbps_, error)) return -1;
             tracks_.push_back(std::move(track));
             return static_cast<int>(tracks_.size()) - 1;
@@ -1060,7 +1060,7 @@ namespace qc
         if (endpointMode_)
         {
             for (const auto& endpoint : endpoints_)
-                if (addTrack(endpoint.title.c_str()) < 0) return false;
+                if (addTrack(endpoint.title.c_str(), true) < 0) return false;
         }
         else
         {
@@ -1070,7 +1070,7 @@ namespace qc
             // Microphones on one track are mixed together, each keeping its own place on the timeline.
             for (size_t i = 0; i < mics_.size(); i++)
             {
-                int track = micSeparate_ ? addTrack(mics_[i].title.c_str()) : i == 0 ? addTrack("Mic") : micTracks[0];
+                int track = micSeparate_ ? addTrack(mics_[i].title.c_str(), true) : i == 0 ? addTrack("Mic", true) : micTracks[0];
                 if (track < 0) return false;
                 micTracks.push_back(track);
             }
@@ -1087,7 +1087,7 @@ namespace qc
         auto captureEndpoint = [&](const Endpoint& endpoint, size_t track)
         {
             endpointSources_.push_back(std::make_unique<AudioSource>(endpoint.kind, 0, endpoint.deviceId, SampleRate,
-                std::make_unique<MixerSink>(*tracks_[track]->mixer, SampleRate), endpointMode_ ? static_cast<int>(track) : -1,
+                std::make_unique<MixerSink>(*tracks_[track]->mixer, SampleRate), static_cast<int>(track),
                 endpointMode_ && shared_->videoOptions.diagnostics != 0));
         };
         if (endpointMode_)
@@ -1428,6 +1428,17 @@ namespace qc
         if (!endpointMode_) return 0;
         int count = std::min(capacity, static_cast<int>(endpointSources_.size()));
         for (int i = 0; i < count; ++i) statuses[i] = endpointSources_[i]->Status();
+        return count;
+    }
+
+    int Engine::GetAudioSignals(QcAudioSignal* signals, int capacity) const
+    {
+        int count = std::min(capacity, static_cast<int>(endpointSources_.size()));
+        for (int i = 0; i < count; ++i)
+        {
+            signals[i] = endpointSources_[i]->SignalStatus();
+            signals[i].nonzeroMixerBlocks = tracks_[signals[i].trackIndex]->mixer->NonzeroBlocks();
+        }
         return count;
     }
 

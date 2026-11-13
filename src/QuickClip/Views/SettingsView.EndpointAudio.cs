@@ -73,6 +73,7 @@ public partial class SettingsView
 
     internal void RenderEndpointRows(IReadOnlyList<EndpointTrack> tracks, IReadOnlyList<AudioEndpoint> endpoints, bool availabilityChecked)
     {
+        ClearMicrophoneMeters(_endpointMeters);
         EndpointRows.Children.Clear();
         for (int i = 0; i < tracks.Count; i++)
         {
@@ -118,6 +119,8 @@ public partial class SettingsView
                 TextTrimming = TextTrimming.CharacterEllipsis,
                 Style = (Style)FindResource("Hint"),
             });
+            if (AppProfile.IsPersonal && track.Flow == EndpointFlow.Microphone)
+                fields.Children.Add(AddMicrophoneMeter(_endpointMeters, () => track.DeviceId, $"microphone {caption}").Panel);
             row.Children.Add(fields);
             EndpointRows.Children.Add(row);
         }
@@ -126,6 +129,7 @@ public partial class SettingsView
         PopulatePicker(MicrophonePicker, MicrophonePlaceholder, EndpointFlow.Microphone, "Choose a microphone");
         UpdateEndpointNotice();
         UpdateAddEndpointButton();
+        UpdateMicrophoneMonitoring();
 
         void PopulatePicker(ComboBox picker, TextBlock placeholder, EndpointFlow flow, string prompt)
         {

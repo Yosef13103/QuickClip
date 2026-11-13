@@ -3,7 +3,7 @@ using System.Runtime.InteropServices;
 namespace QuickClip.Recording;
 
 /// <summary>P/Invoke surface of QuickClipCapture.dll (src/QuickClip.Capture). Struct layouts mirror Engine.h.</summary>
-internal static class CaptureEngine
+internal static partial class CaptureEngine
 {
     internal enum MonitorBackend { Automatic, DesktopDuplication, GraphicsCapture, MonitorOnlyDuplication, MonitorOnlyGraphics }
     internal enum NvencSpeed { BalancedP4, FasterP3, FastestP2 }
@@ -125,7 +125,7 @@ internal static class CaptureEngine
             if (_initialized) return;
             SetDllDirectory(Path.Combine(AppContext.BaseDirectory, "ffmpeg"));
             qc_set_log(LogDelegate);
-            _initialized = true;
+            Volatile.Write(ref _initialized, true);
         }
     }
 

@@ -172,6 +172,7 @@ namespace qc
         void GetReplayPosition(QcReplayPosition& position);
         void GetStats(QcStats& stats);
         int GetEndpointStatus(QcEndpointStatus* statuses, int capacity) const;
+        int GetAudioSignals(QcAudioSignal* signals, int capacity) const;
         std::string VideoDiagnostics();
         /// Starts capture again on the next frame (the display changed; the old capture may be stale).
         void RequestRebuild();
