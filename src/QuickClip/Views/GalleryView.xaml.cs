@@ -504,8 +504,11 @@ public partial class GalleryView : UserControl
             return;
         }
         var s = AppSettings.Current;
-        EmptyText.Text = $"Press {new Hotkey(s.HotkeyModifiers, s.HotkeyKey)} while you play to save the last " +
-                         $"{RecordingPresets.DurationLabel(s.BufferSeconds)}. Clips are filed by game in {s.ClipsFolder}.";
+        string save = App.Host?.ActiveSaveShortcut is { } shortcut
+            ? $"Press {shortcut} while you play"
+            : "Use Save clip while recording, or set a shortcut in Settings";
+        EmptyText.Text = $"{save} to save the last {RecordingPresets.DurationLabel(s.BufferSeconds)}. " +
+                         $"Clips are filed by game in {s.ClipsFolder}.";
     }
 
     internal static int ColumnsForWidth(double available) =>

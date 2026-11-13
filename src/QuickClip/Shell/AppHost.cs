@@ -32,6 +32,8 @@ internal sealed class AppHost : IDisposable
     private AppVersion? _notifiedVersion;
     private readonly ClipNotificationOverlay _clipOverlay = new();
     private Dictionary<RecordingCommand, HotkeyRegistration> _hotkeys = [];
+    private readonly Dictionary<RecordingCommand, int> _hotkeyIds = [];
+    private Action<Hotkey>? _captureHotkey;
     private bool _confirmingDesktop;
 
     public event Action? OpenRequested;
@@ -43,6 +45,9 @@ internal sealed class AppHost : IDisposable
     /// <summary>True if the configured shortcut is registered (false if another app already uses it).</summary>
     public bool HotkeyActive => HotkeyState(RecordingCommand.SaveClip) == HotkeyRegistration.Registered;
     internal HotkeyRegistration HotkeyState(RecordingCommand command) => _hotkeys.GetValueOrDefault(command);
+
+    internal Hotkey? ActiveSaveShortcut => HotkeyActive
+        ? RecordingHotkeys.Read(AppSettings.Current, RecordingCommand.SaveClip) : null;
 
     public void Start()
     {
@@ -82,49 +87,42 @@ internal sealed class AppHost : IDisposable
         _updateBalloonShown = true;
     }
 
-    /// <summary>Re-reads the shortcut from settings. Returns false if it's taken.</summary>
-    public bool RegisterHotkey()
+    private void RegisterHotkey()
     {
-        if (_window == null) return false;
-        SuspendHotkey();
         _hotkeys = RecordingHotkeys.Register(AppSettings.Current, AppProfile.IsPersonal, (command, key) =>
-            RegisterHotKey(_window.Handle, (int)command, (uint)key.Modifiers | 0x4000 /* MOD_NOREPEAT */, (uint)key.VirtualKey));
+            RegisterShortcut((int)command, key));
         UpdateTooltip();
-        return HotkeyActive;
     }
 
-    /// <summary>Lets the settings page capture key presses without triggering a save.</summary>
-    public void SuspendHotkey()
-    {
-        if (_window != null)
-            foreach (var (command, status) in _hotkeys)
-                if (status == HotkeyRegistration.Registered) UnregisterHotKey(_window.Handle, (int)command);
-        _hotkeys.Clear();
-    }
+    private bool RegisterShortcut(int id, Hotkey key) =>
+        _window != null && RegisterHotKey(_window.Handle, id, (uint)key.Modifiers | 0x4000 /* MOD_NOREPEAT */, (uint)key.VirtualKey);
+
+    private bool UnregisterShortcut(int id) => _window != null && UnregisterHotKey(_window.Handle, id);
+
+    internal void CaptureShortcut(Action<Hotkey>? capture) => _captureHotkey = capture;
 
     internal HotkeyRegistration SetHotkey(RecordingCommand command, Hotkey key)
     {
-        if (_window == null || !Enum.IsDefined(command) || (!AppProfile.IsPersonal && command != RecordingCommand.SaveClip))
-            return HotkeyRegistration.Unavailable;
+        if (_window == null || !_hotkeys.ContainsKey(command)) return HotkeyRegistration.Unavailable;
         var settings = AppSettings.Current;
-        if (key.IsEmpty) key = default;
-        else
-        {
-            if (!RecordingHotkeys.IsValid(key)) return HotkeyRegistration.Invalid;
-            if (AppProfile.IsPersonal && Enum.GetValues<RecordingCommand>()
-                .Any(other => other != command && RecordingHotkeys.Read(settings, other) == key))
-                return HotkeyRegistration.Duplicate;
-        }
-        var old = RecordingHotkeys.Read(settings, command);
-        RecordingHotkeys.Write(settings, command, key);
-        RegisterHotkey();
-        var result = HotkeyState(command);
-        if (result is HotkeyRegistration.Registered or HotkeyRegistration.Unbound) settings.Save();
-        else
-        {
-            RecordingHotkeys.Write(settings, command, old);
-            RegisterHotkey();
-        }
+        var validation = RecordingHotkeys.Validate(key);
+        if (validation is HotkeyRegistration.Invalid or HotkeyRegistration.Reserved) return validation;
+        if (!key.IsEmpty && _hotkeys.Keys.Any(other => other != command && RecordingHotkeys.Read(settings, other) == key))
+            return HotkeyRegistration.Duplicate;
+
+        var status = HotkeyState(command);
+        if (key == RecordingHotkeys.Read(settings, command) &&
+            status is HotkeyRegistration.Registered or HotkeyRegistration.Unbound) return status;
+
+        int id = _hotkeyIds.GetValueOrDefault(command, (int)command);
+        var result = RecordingHotkeys.Replace(key, ref id, status == HotkeyRegistration.Registered,
+            RegisterShortcut, UnregisterShortcut);
+        if (result == HotkeyRegistration.Unavailable) return result;
+        _hotkeyIds[command] = id;
+        _hotkeys[command] = result;
+        RecordingHotkeys.Write(settings, command, key.IsEmpty ? default : key);
+        settings.Save();
+        UpdateTooltip();
         return result;
     }
 
@@ -209,7 +207,7 @@ internal sealed class AppHost : IDisposable
         if (!_iconAdded) return;
         var r = Recorder.Instance;
         string state = r.IsRunning
-            ? $"Recording · {new Hotkey(AppSettings.Current.HotkeyModifiers, AppSettings.Current.HotkeyKey)} saves a clip"
+            ? (ActiveSaveShortcut is { } shortcut ? $"Recording · {shortcut} saves a clip" : "Recording")
             : r.Error != null ? "Not recording: " + r.Error
             : r.State.Mode == RecordingMode.Armed ? "Waiting for a game · not capturing" : "Recording is off";
         var data = NewIconData();
@@ -245,12 +243,17 @@ internal sealed class AppHost : IDisposable
     {
         if (msg == WM_HOTKEY)
         {
-            var command = (RecordingCommand)wParam.ToInt32();
+            int id = wParam.ToInt32();
+            var command = (RecordingCommand)(id & 0xFF);
             var chord = lParam.ToInt32();
-            if (HotkeyState(command) == HotkeyRegistration.Registered &&
-                RecordingHotkeys.Read(AppSettings.Current, command) == new Hotkey(chord & 0xF, (chord >> 16) & 0xFFFF))
+            var key = new Hotkey(chord & 0xF, (chord >> 16) & 0xFFFF);
+            if (id == _hotkeyIds.GetValueOrDefault(command, (int)command) &&
+                HotkeyState(command) == HotkeyRegistration.Registered &&
+                RecordingHotkeys.Read(AppSettings.Current, command) == key)
             {
-                RunRecordingCommand(command);
+                if (_captureHotkey is { } capture) capture(key);
+                else if (command != RecordingCommand.SaveClip || AppSettings.Current.RecordingEnabled || !Recorder.Instance.IsRunning)
+                    RunRecordingCommand(command);
                 handled = true;
             }
         }
@@ -292,7 +295,7 @@ internal sealed class AppHost : IDisposable
             sourceItem.ToolTip = guidance;
             menu.Items.Add(sourceItem);
         }
-        menu.Items.Add(Item($"Save clip ({new Hotkey(s.HotkeyModifiers, s.HotkeyKey)})",
+        menu.Items.Add(Item(ActiveSaveShortcut is { } shortcut ? $"Save clip ({shortcut})" : "Save clip",
             () => RunRecordingCommand(RecordingCommand.SaveClip), enabled: recorder.IsRunning));
         menu.Items.Add(new Separator());
         menu.Items.Add(Item(s.RecordingEnabled ? "Turn recording off" : "Turn recording on",
@@ -398,7 +401,10 @@ internal sealed class AppHost : IDisposable
         Recorder.Instance.StateChanged -= OnRecorderState;
         _clipOverlay.Dispose();
         if (_window == null) return;
-        SuspendHotkey();
+        _captureHotkey = null;
+        foreach (var (command, status) in _hotkeys)
+            if (status == HotkeyRegistration.Registered)
+                UnregisterShortcut(_hotkeyIds.GetValueOrDefault(command, (int)command));
         var data = NewIconData();
         Shell_NotifyIcon(NIM_DELETE, ref data);
         if (_icon != IntPtr.Zero) DestroyIcon(_icon);

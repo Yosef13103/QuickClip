@@ -49,6 +49,39 @@ public sealed class RecordingHotkeysTests
         Assert.Single(RecordingHotkeys.Register(settings, false, (_, _) => true));
     }
 
+    [Theory]
+    [InlineData(Hotkey.Control, 0x11, (int)HotkeyRegistration.Invalid)]
+    [InlineData(0, 0xA4, (int)HotkeyRegistration.Invalid)]
+    [InlineData(0, 0x7B, (int)HotkeyRegistration.Reserved)]
+    [InlineData(0, 0x2C, (int)HotkeyRegistration.Reserved)]
+    [InlineData(Hotkey.Windows, 0x41, (int)HotkeyRegistration.Reserved)]
+    [InlineData(Hotkey.Alt, 0x09, (int)HotkeyRegistration.Reserved)]
+    [InlineData(Hotkey.Alt, 0x79, (int)HotkeyRegistration.Registered)]
+    public void Rejects_modifier_keys_and_reserved_chords(int modifiers, int vk, int expected)
+    {
+        Assert.Equal((HotkeyRegistration)expected, RecordingHotkeys.Validate(new(modifiers, vk)));
+    }
+
+    [Fact]
+    public void Failed_replacement_keeps_the_old_registration_and_clear_removes_only_its_id()
+    {
+        var original = RecordingHotkeys.Default(RecordingCommand.SaveClip);
+        var taken = new Hotkey(Hotkey.Control, 0x79);
+        var replacement = new Hotkey(Hotkey.Shift, 0x79);
+        int id = 1;
+        var active = new Dictionary<int, Hotkey> { [1] = original, [2] = taken };
+        bool Register(int next, Hotkey key) => !active.ContainsValue(key) && active.TryAdd(next, key);
+        Assert.Equal(HotkeyRegistration.Unavailable, RecordingHotkeys.Replace(taken, ref id, true, Register, active.Remove));
+        Assert.Equal(1, id);
+        Assert.Equal(original, active[id]);
+        Assert.Equal(HotkeyRegistration.Registered, RecordingHotkeys.Replace(replacement, ref id, true, Register, active.Remove));
+        Assert.False(active.ContainsKey(1));
+        Assert.Equal(replacement, active[id]);
+        Assert.Equal(HotkeyRegistration.Unbound, RecordingHotkeys.Replace(default, ref id, true, Register, active.Remove));
+        Assert.Single(active);
+        Assert.Equal(taken, active[2]);
+    }
+
     [Fact]
     public void Manual_approval_expires_even_if_the_master_switch_is_immediately_turned_back_on()
     {
