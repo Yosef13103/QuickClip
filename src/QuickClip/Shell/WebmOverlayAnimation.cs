@@ -97,6 +97,8 @@ internal static class WebmOverlayAnimation
                 "-f", "rawvideo", "-pix_fmt", "bgra", "pipe:1",
             };
             using var process = new Process { StartInfo = Proc.StartInfo(Deps.FFmpeg, args) };
+            try
+            {
             if (!process.Start()) return null;
             using var stop = timeout.Token.Register(() => Proc.KillQuietly(process));
             Task<string> stderr = process.StandardError.ReadToEndAsync(timeout.Token);
@@ -127,6 +129,8 @@ internal static class WebmOverlayAnimation
                 return null;
             }
             return new([.. frames]);
+            }
+            finally { Proc.KillQuietly(process); }
         }
         catch (Exception ex) when (ex is OperationCanceledException or IOException or UnauthorizedAccessException or
             ArgumentException or InvalidOperationException or Win32Exception or OverflowException or JsonException)
