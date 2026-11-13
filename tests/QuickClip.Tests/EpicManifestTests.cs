@@ -40,7 +40,12 @@ public sealed class EpicManifestTests : IDisposable
         var first = await scan.ContinueAsync(1, TimeSpan.FromSeconds(20), default);
         Assert.True(first.InProgress);
         Assert.InRange(first.Entries.Length, 1, count - 1);
-        var final = await scan.ContinueAsync(1, TimeSpan.FromSeconds(20), default);
+        // Renderer evidence now requires an additional *resumable install scan* after
+        // reading the manifest; one batch is not guaranteed to finish all installs.
+        CatalogResult final = first;
+        int slices = 0;
+        while (final.InProgress && slices++ < count + 5)
+            final = await scan.ContinueAsync(1, TimeSpan.FromSeconds(20), default);
         Assert.False(final.InProgress);
         Assert.Equal(count, final.Entries.Length);
         Assert.Equal(count, final.VisitedEntries);
