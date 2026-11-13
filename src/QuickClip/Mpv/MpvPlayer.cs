@@ -1,5 +1,7 @@
 using System.Globalization;
 using System.Runtime.InteropServices;
+using System.Windows;
+using QuickClip.Themes;
 using static QuickClip.Mpv.MpvNative;
 
 namespace QuickClip.Mpv;
@@ -50,9 +52,10 @@ internal sealed class MpvPlayer : IDisposable
         SetOption("drag-and-drop", "no");
         SetOption("load-scripts", "no");
         SetOption("ytdl", "no");
-        // Tint the non-video letterbox region so a black frame remains distinguishable.
-        // This changes only the renderer surround; source pixels and exports are untouched.
-        SetOption("background-color", "#282828");
+        // mpv gpu-next owns the native letterbox surface, not WPF.
+        // Use the palette's surface color without touching video pixels or exports.
+        SetOption("border-background", "color");
+        SetOption("background-color", ThemeLetterboxColor(AppSettings.Current));
         SetOption("demuxer-max-back-bytes", "200MiB");
         // The volume mixer shows the audio stream under these (by default "<file> - mpv").
         SetOption("audio-client-name", "QuickClip");
@@ -75,6 +78,23 @@ internal sealed class MpvPlayer : IDisposable
         _eventThread = new Thread(EventLoop) { IsBackground = true, Name = "mpv events" };
         _eventThread.Start();
     }
+
+    internal static string ThemeLetterboxColor(AppSettings settings)
+    {
+        if (!AppProfile.IsPersonal) return "#282828";
+        if (SystemParameters.HighContrast) return ThemePalette.Hex(SystemColors.WindowColor);
+        var theme = ThemeResources.ThemeChoiceFrom(settings.Theme);
+        if (theme == ThemeChoice.Custom)
+        {
+            var custom = ThemeResources.ReadSaved(settings.CustomThemeJson);
+            return custom != null && !ThemePalette.ReadabilityWarnings(custom.Palette).Any()
+                ? ThemePalette.Hex(custom.Palette[ThemeColor.Surface])
+                : ThemePalette.Hex(ThemePalette.Get(ThemeChoice.Dark)[ThemeColor.Surface]);
+        }
+        return ThemePalette.Hex(ThemePalette.Get(theme)[ThemeColor.Surface]);
+    }
+
+    internal void RefreshTheme() => SetProperty("background-color", ThemeLetterboxColor(AppSettings.Current));
 
     public void SetOption(string name, string value)
     {

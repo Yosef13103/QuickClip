@@ -108,6 +108,72 @@ public sealed class ThemeTests
         return (resources, discarded);
     }
 
+    [Theory]
+    [InlineData("Dark")]
+    [InlineData("Amoled")]
+    [InlineData("Slate")]
+    [InlineData("Light")]
+    public void All_themes_expose_readable_save_clip_action_colors(string name)
+    {
+        var resources = new ResourceDictionary();
+        new ThemeResources().Apply(resources, ThemeResources.ThemeChoiceFrom(name));
+        foreach (string suffix in new[] { "", "Hover" })
+        {
+            var background = Assert.IsType<SolidColorBrush>(resources[suffix.Length == 0 ? "AccentBrush" : "AccentHoverBrush"]);
+            var foreground = Assert.IsType<SolidColorBrush>(resources[suffix.Length == 0 ? "OnAccentBrush" : "OnAccentHoverBrush"]);
+            Assert.True(ThemePalette.Contrast(background.Color, foreground.Color) >= 4.5,
+                $"{name} {suffix} Save Clip colors are not readable.");
+        }
+        Assert.IsType<SolidColorBrush>(resources["DangerBrush"]);
+        Assert.IsType<SolidColorBrush>(resources["OnDangerBrush"]);
+    }
+
+    [Theory]
+    [InlineData("Dark")]
+    [InlineData("Amoled")]
+    [InlineData("Slate")]
+    [InlineData("Light")]
+    public void Semantic_controls_share_accessible_colors_without_per_theme_hardcoding(string name)
+    {
+        var resources = new ResourceDictionary();
+        var choice = ThemeResources.ThemeChoiceFrom(name);
+        new ThemeResources().Apply(resources, choice);
+        Assert.Equal(ThemePalette.Get(choice)[ThemeColor.Surface],
+            Assert.IsType<SolidColorBrush>(resources["SurfaceBrush"]).Color);
+        Assert.Equal(ThemePalette.Get(choice)[ThemeColor.PrimaryText],
+            Assert.IsType<SolidColorBrush>(resources["PrimaryTextBrush"]).Color);
+        Assert.Equal(ThemePalette.Get(choice)[ThemeColor.Selection],
+            Assert.IsType<SolidColorBrush>(resources["SelectionBrush"]).Color);
+        if (choice != ThemeChoice.Dark)
+        {
+            Assert.Same(resources["AccentBrush"], resources["SliderThumbFill"]);
+            Assert.Same(resources["AccentBrush"], resources["SliderTrackValueFill"]);
+            Assert.Same(resources["SelectionBrush"], resources["ComboBoxItemBackgroundSelected"]);
+            Assert.Same(resources["ElevatedSurfaceBrush"], resources["MenuFlyoutPresenterBackground"]);
+        }
+    }
+
+    [Theory]
+    [InlineData("Dark")]
+    [InlineData("Amoled")]
+    [InlineData("Slate")]
+    [InlineData("Light")]
+    public void Native_mpv_letterbox_uses_the_active_surface_palette(string name)
+    {
+        if (!AppProfile.IsPersonal || SystemParameters.HighContrast) return;
+        var color = Mpv.MpvPlayer.ThemeLetterboxColor(new AppSettings { Theme = name });
+        var palette = ThemePalette.Get(ThemeResources.ThemeChoiceFrom(name));
+        Assert.Equal(ThemePalette.Hex(palette[ThemeColor.Surface]), color);
+    }
+
+    [Fact]
+    public void Native_letterbox_falls_back_safely_for_invalid_custom_palettes()
+    {
+        if (!AppProfile.IsPersonal || SystemParameters.HighContrast) return;
+        Assert.Equal(ThemePalette.Hex(ThemePalette.Get(ThemeChoice.Dark)[ThemeColor.Surface]),
+            Mpv.MpvPlayer.ThemeLetterboxColor(new AppSettings { Theme = "Custom", CustomThemeJson = "invalid" }));
+    }
+
     private static string ExportedPalette()
     {
         using var stream = new MemoryStream();

@@ -36,14 +36,14 @@
                             <Separator />
                             <MenuItem Header="Select" Click="SelectClip_Click" />
                             <Separator />
-                            <MenuItem Header="Delete" Click="DeleteClip_Click" />
+                            <MenuItem Header="Delete" Foreground="{DynamicResource DangerBrush}" Click="DeleteClip_Click" />
                         </ContextMenu>
                     </Border.ContextMenu>
                     <StackPanel>
                         <Grid Height="{Binding PosterHeight, RelativeSource={RelativeSource AncestorType=views:GalleryView}}"
                               ClipToBounds="True" MouseEnter="Poster_MouseEnter" MouseLeave="Poster_MouseLeave"
                               Unloaded="Poster_MouseLeave" SizeChanged="Poster_SizeChanged">
-                            <Border CornerRadius="7,7,0,0" Background="#111" />
+                            <Border CornerRadius="7,7,0,0" Background="{DynamicResource SurfaceBrush}" />
                             <Border CornerRadius="7,7,0,0">
                                 <Border.Background>
                                     <ImageBrush ImageSource="{Binding Thumbnail}" Stretch="UniformToFill" />
@@ -148,7 +148,7 @@
             <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
                 <StackPanel Margin="10,6,10,10">
                     <TextBlock Text="FOLDERS" Style="{StaticResource SectionHeader}" Margin="8,14,0,8" />
-                    <ListBox x:Name="FolderList" Template="{StaticResource PlainList}" SelectionChanged="FolderList_SelectionChanged">
+                    <ListBox x:Name="FolderList" Template="{StaticResource PlainList}" ItemContainerStyle="{StaticResource ThemedNavigationItem}" SelectionChanged="FolderList_SelectionChanged">
                         <ListBox.ItemTemplate>
                             <DataTemplate>
                                 <DockPanel>
@@ -165,7 +165,7 @@
                                 AllowDrop="True" DragEnter="NewProject_DragOver" DragOver="NewProject_DragOver" Drop="NewProject_Drop" />
                         <TextBlock Text="PROJECTS" Style="{StaticResource SectionHeader}" Margin="0" VerticalAlignment="Center" />
                     </DockPanel>
-                    <ListBox x:Name="ProjectList" Template="{StaticResource PlainList}" SelectionChanged="ProjectList_SelectionChanged">
+                    <ListBox x:Name="ProjectList" Template="{StaticResource PlainList}" ItemContainerStyle="{StaticResource ThemedNavigationItem}" SelectionChanged="ProjectList_SelectionChanged">
                         <ListBox.ItemTemplate>
                             <DataTemplate>
                                 <!-- Clips dragged here from the gallery (or files from Explorer) are added to the project -->
@@ -176,7 +176,7 @@
                                             <MenuItem Header="Rename…" Click="RenameProject_Click" />
                                             <MenuItem Header="Open folder" Click="OpenProjectFolder_Click" />
                                             <Separator />
-                                            <MenuItem Header="Delete project" Click="DeleteProject_Click" />
+                                            <MenuItem Header="Delete project" Foreground="{DynamicResource DangerBrush}" Click="DeleteProject_Click" />
                                         </ContextMenu>
                                     </DockPanel.ContextMenu>
                                     <TextBlock DockPanel.Dock="Right" Text="{Binding ClipCount}" Foreground="{DynamicResource SubtleText}" Margin="8,0,0,0" />

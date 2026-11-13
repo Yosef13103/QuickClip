@@ -15,8 +15,8 @@
                 <ResourceDictionary Source="/QuickClip;component/Themes/Styles.xaml" />
             </ResourceDictionary.MergedDictionaries>
             <Style x:Key="SaveClipAction" TargetType="Button">
-                <Setter Property="Background" Value="#29484D" />
-                <Setter Property="Foreground" Value="#F2F7F7" />
+                <Setter Property="Background" Value="{DynamicResource AccentBrush}" />
+                <Setter Property="Foreground" Value="{DynamicResource OnAccentBrush}" />
                 <Setter Property="MinHeight" Value="{DynamicResource QuickClipVisual36}" />
                 <Setter Property="MinWidth" Value="{DynamicResource QuickClipVisual116}" />
                 <Setter Property="Padding" Value="14,6" />
@@ -25,23 +25,24 @@
                     <Setter.Value>
                         <ControlTemplate TargetType="Button">
                             <Border x:Name="Surface" Background="{TemplateBinding Background}" CornerRadius="6"
-                                    BorderBrush="#46646A" BorderThickness="1" Padding="{TemplateBinding Padding}">
+                                    BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" Padding="{TemplateBinding Padding}">
                                 <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
                             </Border>
                             <ControlTemplate.Triggers>
                                 <Trigger Property="IsMouseOver" Value="True">
-                                    <Setter TargetName="Surface" Property="Background" Value="#345B62" />
+                                    <Setter TargetName="Surface" Property="Background" Value="{DynamicResource AccentHoverBrush}" />
+                                    <Setter Property="Foreground" Value="{DynamicResource OnAccentHoverBrush}" />
                                 </Trigger>
                                 <Trigger Property="IsPressed" Value="True">
-                                    <Setter TargetName="Surface" Property="Background" Value="#243F44" />
+                                    <Setter TargetName="Surface" Property="Background" Value="{DynamicResource AccentHoverBrush}" />
                                 </Trigger>
                                 <Trigger Property="IsKeyboardFocused" Value="True">
-                                    <Setter TargetName="Surface" Property="BorderBrush" Value="#A6D8DF" />
+                                    <Setter TargetName="Surface" Property="BorderBrush" Value="{DynamicResource PrimaryTextBrush}" />
                                 </Trigger>
                                 <Trigger Property="IsEnabled" Value="False">
-                                    <Setter TargetName="Surface" Property="Background" Value="#272A2B" />
-                                    <Setter TargetName="Surface" Property="BorderBrush" Value="#373B3D" />
-                                    <Setter Property="Foreground" Value="#A4AAAD" />
+                                    <Setter TargetName="Surface" Property="Background" Value="{DynamicResource DisabledBrush}" />
+                                    <Setter TargetName="Surface" Property="BorderBrush" Value="{DynamicResource BorderBrush}" />
+                                    <Setter Property="Foreground" Value="{DynamicResource SecondaryTextBrush}" />
                                 </Trigger>
                             </ControlTemplate.Triggers>
                         </ControlTemplate>
@@ -64,7 +65,7 @@
 
         <Border x:Name="TitleBar" Grid.ColumnSpan="2" Height="40" Visibility="Collapsed"
                 Background="{DynamicResource RailBrush}">
-            <DockPanel Margin="6,6,6,0">
+            <DockPanel Margin="6,0,6,0">
                 <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
                     <StackPanel.Resources>
                         <Style TargetType="Button" BasedOn="{StaticResource IconButton}">

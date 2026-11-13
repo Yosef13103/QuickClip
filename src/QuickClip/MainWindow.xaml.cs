@@ -177,7 +177,11 @@ public partial class MainWindow : Window
         GalleryNav.IsChecked = page == Gallery || page == _player;
         EditorNav.IsChecked = page == _editor;
         SettingsNav.IsChecked = page == _settings;
-        if (page == _editor) Dispatcher.BeginInvoke(_editor.FocusEditor, DispatcherPriority.Input);
+        if (page == _editor)
+        {
+            _editor.RefreshTheme();
+            Dispatcher.BeginInvoke(_editor.FocusEditor, DispatcherPriority.Input);
+        }
         if (page == _player) Dispatcher.BeginInvoke(_player.FocusPlayer, DispatcherPriority.Input);
         if (page == _settings) _settings.Refresh();
         UpdateTitle();

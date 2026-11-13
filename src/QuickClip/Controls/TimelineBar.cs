@@ -19,6 +19,18 @@ public sealed class TimelineBar : FrameworkElement
     private static readonly Pen TickPen = Freeze(new Pen(TickBrush, 1));
     private static readonly Pen PlayheadPen = Freeze(new Pen(PlayheadBrush, 1.5));
     private static readonly Brush BookmarkBrush = Freeze(new SolidColorBrush(Color.FromRgb(0x80, 0xCC, 0xFF)));
+    private static DependencyProperty ThemeBrush(string name, Brush fallback) =>
+        DependencyProperty.Register(name, typeof(Brush), typeof(TimelineBar),
+            new FrameworkPropertyMetadata(fallback, FrameworkPropertyMetadataOptions.AffectsRender));
+
+    private static readonly DependencyProperty ThemeSurfaceProperty = ThemeBrush("ThemeSurface", BackgroundBrush);
+    private static readonly DependencyProperty ThemeTextProperty = ThemeBrush("ThemeText", LabelBrush);
+    private static readonly DependencyProperty ThemeGridProperty = ThemeBrush("ThemeGrid", TickBrush);
+    private static readonly DependencyProperty ThemeHandleProperty = ThemeBrush("ThemeHandle", HandleBrush);
+    private static readonly DependencyProperty ThemePlayheadProperty = ThemeBrush("ThemePlayhead", PlayheadBrush);
+    private static readonly DependencyProperty ThemeBookmarkProperty = ThemeBrush("ThemeBookmark", BookmarkBrush);
+
+    private Brush Themed(DependencyProperty property) => (Brush)GetValue(property);
     private const double BookmarkHeight = 11;
     private static readonly Typeface LabelFace = new("Segoe UI");
 
@@ -60,16 +72,26 @@ public sealed class TimelineBar : FrameworkElement
         Cursor = Cursors.Hand;
         ClipToBounds = true;
         Focusable = false;
+        SetResourceReference(ThemeSurfaceProperty, "SurfaceBrush");
+        SetResourceReference(ThemeTextProperty, "SecondaryTextBrush");
+        SetResourceReference(ThemeGridProperty, "BorderBrush");
+        SetResourceReference(ThemeHandleProperty, "WarningBrush");
+        SetResourceReference(ThemePlayheadProperty, "PrimaryTextBrush");
+        SetResourceReference(ThemeBookmarkProperty, "AccentBrush");
     }
 
     protected override void OnRender(DrawingContext dc)
     {
         double w = ActualWidth, h = ActualHeight;
-        dc.DrawRoundedRectangle(BackgroundBrush, null, new Rect(0, 0, w, h), 4, 4);
+        dc.DrawRoundedRectangle(Themed(ThemeSurfaceProperty), null, new Rect(0, 0, w, h), 4, 4);
         var s = _state;
         if (s == null || !HasMedia || w <= 0) return;
 
         double dpi = VisualTreeHelper.GetDpi(this).PixelsPerDip;
+
+        // Dynamic resources invalidate the control when the theme changes.
+        var tickPen = new Pen(Themed(ThemeGridProperty), 1);
+        var playheadPen = new Pen(Themed(ThemePlayheadProperty), 1.5);
 
         // Ticks + labels
         double step = TickSteps.FirstOrDefault(st => st / s.ViewSpan * w >= 80, TickSteps[^1]);
@@ -80,10 +102,10 @@ public sealed class TimelineBar : FrameworkElement
             double x = Math.Round(s.TimeToX(t, w)) + 0.5;
             if (x < 0 || x > w) continue;
             bool major = Math.Abs(t / step - Math.Round(t / step)) < 1e-6;
-            dc.DrawLine(TickPen, new Point(x, h - (major ? 12 : 6)), new Point(x, h));
+            dc.DrawLine(tickPen, new Point(x, h - (major ? 12 : 6)), new Point(x, h));
             if (major)
             {
-                var ft = new FormattedText(Label(t, step), CultureInfo.InvariantCulture, FlowDirection.LeftToRight, LabelFace, 10.5, LabelBrush, dpi);
+                var ft = new FormattedText(Label(t, step), CultureInfo.InvariantCulture, FlowDirection.LeftToRight, LabelFace, 10.5, Themed(ThemeTextProperty), dpi);
                 dc.DrawText(ft, new Point(x + 3, h - 14 - ft.Height + 2));
             }
         }
@@ -101,7 +123,7 @@ public sealed class TimelineBar : FrameworkElement
         double xp = Math.Round(s.TimeToX(s.Position, w)) + 0.5;
         if (xp >= -6 && xp <= w + 6)
         {
-            dc.DrawLine(PlayheadPen, new Point(xp, 0), new Point(xp, h));
+            dc.DrawLine(playheadPen, new Point(xp, 0), new Point(xp, h));
             var tri = new StreamGeometry();
             using (var g = tri.Open())
             {
@@ -110,24 +132,24 @@ public sealed class TimelineBar : FrameworkElement
                 g.LineTo(new Point(xp, 8), false, false);
             }
             tri.Freeze();
-            dc.DrawGeometry(PlayheadBrush, null, tri);
+            dc.DrawGeometry(Themed(ThemePlayheadProperty), null, tri);
         }
 
         foreach (var mark in _bookmarks)
         {
             if (mark.Seconds >= s.Duration || mark.Seconds < s.ViewStart || mark.Seconds > s.ViewEnd) continue;
             double x = BookmarkX(s, mark, w);
-            dc.DrawRoundedRectangle(BookmarkBrush, null, new Rect(x - 4, 0, 8, BookmarkHeight), 2, 2);
+            dc.DrawRoundedRectangle(Themed(ThemeBookmarkProperty), null, new Rect(x - 4, 0, 8, BookmarkHeight), 2, 2);
         }
     }
 
-    private static void DrawHandle(DrawingContext dc, double x, double h, bool isIn)
+    private void DrawHandle(DrawingContext dc, double x, double h, bool isIn)
     {
         if (x < -10 || x > 1e6) return;
-        dc.DrawRectangle(HandleBrush, null, new Rect(isIn ? x : x - 3, 0, 3, h));
+        dc.DrawRectangle(Themed(ThemeHandleProperty), null, new Rect(isIn ? x : x - 3, 0, 3, h));
         // Small tab pointing into the selection
-        dc.DrawRectangle(HandleBrush, null, new Rect(isIn ? x : x - 9, 0, 9, 3));
-        dc.DrawRectangle(HandleBrush, null, new Rect(isIn ? x : x - 9, h - 3, 9, 3));
+        dc.DrawRectangle(Themed(ThemeHandleProperty), null, new Rect(isIn ? x : x - 9, 0, 9, 3));
+        dc.DrawRectangle(Themed(ThemeHandleProperty), null, new Rect(isIn ? x : x - 9, h - 3, 9, 3));
     }
 
     private static string Label(double t, double step)

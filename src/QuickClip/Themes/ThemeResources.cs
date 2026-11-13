@@ -87,6 +87,9 @@ internal sealed class ThemeResources
         brushes["DangerPressedBrush"] = Frozen(danger);
         brushes["OnDangerBrush"] = OnColor(danger);
         brushes["SwitchThumbBrush"] = OnColor(colors[ThemeColor.Accent]);
+        // Semantic foregrounds are available to all palettes, including the legacy Dark and high-contrast paths.
+        brushes["OnAccentBrush"] = OnColor(colors[ThemeColor.Accent]);
+        brushes["OnAccentHoverBrush"] = OnColor(colors[ThemeColor.AccentHover]);
         if (ReferenceEquals(colors, ThemePalette.Get(ThemeChoice.Dark)) && !overrideFluent)
         {
             brushes["DangerBrush"] = Frozen(Color.FromRgb(0xAE, 0x2D, 0x37));
@@ -99,18 +102,22 @@ internal sealed class ThemeResources
 
         Map(ThemeColor.Background, "ApplicationBackgroundBrush", "WindowBackground");
         Map(ThemeColor.PrimaryText, "TextFillColorPrimaryBrush", "ToolTipForeground", "ToolTipForegroundBrush",
-            "ComboBoxForeground", "TextBoxForeground", SystemColors.WindowTextBrushKey);
+            "ComboBoxForeground", "ComboBoxItemForeground", "MenuFlyoutItemForeground", "ButtonForeground",
+            "TextBoxForeground", SystemColors.WindowTextBrushKey);
         Map(ThemeColor.SecondaryText, "TextFillColorSecondaryBrush", "TextFillColorTertiaryBrush", "ScrollBarThumbFill");
         Map(ThemeColor.Disabled, "TextFillColorDisabledBrush", "AccentFillColorDisabledBrush");
         Map(ThemeColor.Surface, "ControlFillColorDefaultBrush", "ComboBoxBackground", "TextBoxBackground");
         Map(ThemeColor.ElevatedSurface, "ControlFillColorSecondaryBrush", "ControlFillColorInputActiveBrush",
-            "ComboBoxDropDownBackground", "TextBoxBackgroundFocused", "ScrollBarTrackFill");
+            "ComboBoxDropDownBackground", "TextBoxBackgroundFocused", "ScrollBarTrackFill",
+            "ComboBoxItemBackground", "MenuFlyoutPresenterBackground", "MenuFlyoutItemBackground");
         Map(ThemeColor.Selection, "ControlFillColorTertiaryBrush", "ComboBoxItemBackgroundSelected",
-            "ButtonBackgroundPointerOver", "ButtonBackgroundPressed");
+            "ComboBoxItemBackgroundPointerOver", "MenuFlyoutItemBackgroundPointerOver",
+            "MenuFlyoutItemBackgroundSelected", "ButtonBackgroundPointerOver", "ButtonBackgroundPressed");
         Map(ThemeColor.Border, "ControlStrokeColorDefaultBrush", "ControlStrokeColorSecondaryBrush", "ToolTipBorderBrush");
         Map(ThemeColor.OverlayBackground, "ToolTipBackground", "ToolTipBackgroundBrush");
         Map(ThemeColor.Accent, "AccentFillColorDefaultBrush", "AccentFillColorSelectedTextBackgroundBrush",
-            "AccentButtonBackground", SystemColors.HighlightBrushKey);
+            "AccentButtonBackground", "SliderThumbFill", "SliderThumbFillPointerOver",
+            "SliderTrackValueFill", "SliderTrackValueFillPointerOver", SystemColors.HighlightBrushKey);
         Map(ThemeColor.AccentHover, "AccentFillColorSecondaryBrush", "AccentFillColorTertiaryBrush",
             "AccentButtonBackgroundPointerOver", "AccentButtonBackgroundPressed");
         brushes["AccentButtonForeground"] = brushes["TextOnAccentFillColorPrimaryBrush"] =
