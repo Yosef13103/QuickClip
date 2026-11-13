@@ -7,6 +7,56 @@ public sealed class GameDiscoveryCoordinatorTests : IDisposable
     private readonly DirectoryInfo _fixture = Directory.CreateTempSubdirectory("quickclip-discovery-");
 
     [Fact]
+    public async Task Pause_inside_an_install_resumes_the_same_cursor_with_no_lost_or_duplicate_entries()
+    {
+        string install = _fixture.CreateSubdirectory("Many executables").FullName;
+        string[] expected = Enumerable.Range(0, 30).Select(i => Path.Combine(install, $"Play{i:00}.exe")).ToArray();
+        foreach (string path in expected) File.WriteAllBytes(path, [1]);
+        var request = new CatalogRequest { GameRoots = [new(install)], MaxEntries = 3 };
+        var lastFinished = DateTimeOffset.UtcNow.AddDays(-1);
+        GameCatalogSettings state = new() { Request = request, Snapshot = new([], [], 0, false, lastFinished) };
+        int scans = 0;
+        using var coordinator = new GameDiscoveryCoordinator(() => state, (updated, _) => state = updated,
+            request => { scans++; return GameCatalogService.CreateScan(request, () => [], () => null); });
+        bool pauseOnce = true;
+        coordinator.Changed += () =>
+        {
+            if (pauseOnce && state.Snapshot?.VisitedEntries > 0)
+            {
+                pauseOnce = false;
+                coordinator.Pause();
+            }
+        };
+
+        await coordinator.RequestAsync(manual: true);
+        Assert.True(coordinator.IsPaused);
+        Assert.StartsWith("Paused", coordinator.Status);
+        Assert.Equal(lastFinished, state.Snapshot!.CompletedAt);
+        Assert.InRange(state.Snapshot.VisitedEntries, 1, expected.Length - 1);
+        await coordinator.RequestAsync(manual: true);
+        Assert.False(coordinator.IsPaused);
+        Assert.StartsWith("Completed", coordinator.Status);
+        Assert.Equal(1, scans);
+        Assert.Equal(expected.Length, state.Snapshot!.VisitedEntries);
+        Assert.Equal(expected, Assert.Single(state.Snapshot.Entries).Executables.Order(StringComparer.OrdinalIgnoreCase));
+        Assert.True(state.Snapshot.CompletedAt > lastFinished);
+    }
+
+    [Fact]
+    public async Task Disposing_a_paused_scan_releases_directory_cursors()
+    {
+        string root = AddInstall("Game");
+        using var scan = GameCatalogService.CreateScan(new() { GameRoots = [new(root)], MaxEntries = 1 });
+        await scan.ContinueAsync(1, TimeSpan.FromSeconds(1), default);
+        Assert.True(scan.HasMore);
+        scan.Dispose();
+        Assert.False(scan.HasMore);
+        await Assert.ThrowsAsync<ObjectDisposedException>(() => scan.ContinueAsync(1, TimeSpan.FromSeconds(1), default));
+        Directory.Delete(root, recursive: true);
+        Assert.False(Directory.Exists(root));
+    }
+
+    [Fact]
     public async Task Startup_without_a_view_coalesces_manual_and_automatic_requests()
     {
         string root = AddInstall("Game");

@@ -147,6 +147,7 @@ internal sealed class AppSettings
     internal static AppSettings Parse(string json)
     {
         var settings = JsonSerializer.Deserialize<AppSettings>(json, JsonOptions) ?? new AppSettings();
+        settings.Games = GameCatalogRuntime.RestoreSavedScan(settings.Games);
         if (AppProfile.IsPersonal && settings.HotkeyKey == 0x79)
         {
             using var existing = JsonDocument.Parse(json);

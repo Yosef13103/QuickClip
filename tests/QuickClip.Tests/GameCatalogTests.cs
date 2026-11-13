@@ -58,6 +58,38 @@ public sealed class GameCatalogTests : IDisposable
     }
 
     [Fact]
+    public async Task Wide_deep_collection_crosses_legacy_queue_and_depth_limits()
+    {
+        const int width = 4100;
+        string root = _fixture.CreateSubdirectory("wide").FullName;
+        for (int i = 0; i < width; i++)
+        {
+            string install = Directory.CreateDirectory(Path.Combine(root, $"Game{i:D4}")).FullName;
+            File.WriteAllBytes(Path.Combine(install, "Play.exe"), [1]);
+        }
+        string deep = Directory.CreateDirectory(Path.Combine(root, string.Join(Path.DirectorySeparatorChar,
+            Enumerable.Repeat("nested", 23)), "DeepInstall")).FullName;
+        string deepExe = Path.Combine(deep, "Play.exe");
+        File.WriteAllBytes(deepExe, [1]);
+        var request = new CatalogRequest { GameRoots = [new(root, IsCollection: true)], MaxEntries = 80 };
+        using var scan = GameCatalogService.CreateScan(request);
+        var initial = await scan.ContinueAsync(1, TimeSpan.FromSeconds(1), default);
+        Assert.True(initial.InProgress);
+        Assert.False(initial.LimitReached);
+        Assert.Equal(default, initial.CompletedAt);
+        CatalogResult result;
+        do
+        {
+            result = await scan.ContinueAsync(int.MaxValue, TimeSpan.FromSeconds(1), default);
+        } while (scan.HasMore);
+        Assert.Equal(width + 1, result.Entries.Length);
+        Assert.Equal(width + 1, result.Entries.Select(entry => entry.Id).Distinct().Count());
+        Assert.Contains(result.Entries, entry => entry.Executables.Contains(deepExe));
+        Assert.Empty(result.Issues);
+        Assert.False(result.LimitReached);
+    }
+
+    [Fact]
     public async Task Collection_scan_groups_executables_and_respects_exclusions_and_depth()
     {
         string game = FileAt("library", "Game", "Bin", "Game.exe");
@@ -271,7 +303,7 @@ public sealed class GameCatalogTests : IDisposable
             });
             Assert.Equal(direct, Assert.Single(Assert.Single(result.Entries).Executables));
             Assert.All(result.Issues, issue => Assert.Equal(CatalogIssueKind.ReparsePoint, issue.Kind));
-            Assert.Equal(3, result.Issues.Length);
+            Assert.Equal(link, Assert.Single(result.Issues).Location);
         }
         finally { Directory.Delete(link); }
     }

@@ -22,6 +22,32 @@ public sealed class EpicManifestTests : IDisposable
     }
 
     [Fact]
+    public async Task Manifest_byte_budget_defers_work_without_dropping_any_installs()
+    {
+        string manifests = _fixture.CreateSubdirectory("many-manifests").FullName;
+        const int count = 36;
+        for (int i = 0; i < count; i++)
+        {
+            string install = _fixture.CreateSubdirectory($"Game{i:00}").FullName;
+            File.WriteAllBytes(Path.Combine(install, "Play.exe"), [1]);
+            byte[] manifest = Manifest(install, "Play.exe", app: $"Fixture{i:00}");
+            byte[] padded = new byte[250_000];
+            padded.AsSpan().Fill((byte)' ');
+            manifest.CopyTo(padded, 0);
+            File.WriteAllBytes(Path.Combine(manifests, $"{i:00}.item"), padded);
+        }
+        using var scan = GameCatalogService.CreateScan(new() { DiscoverEpic = true }, epicManifests: () => manifests);
+        var first = await scan.ContinueAsync(1, TimeSpan.FromSeconds(20), default);
+        Assert.True(first.InProgress);
+        Assert.InRange(first.Entries.Length, 1, count - 1);
+        var final = await scan.ContinueAsync(1, TimeSpan.FromSeconds(20), default);
+        Assert.False(final.InProgress);
+        Assert.Equal(count, final.Entries.Length);
+        Assert.Equal(count, final.VisitedEntries);
+        Assert.Empty(final.Issues);
+    }
+
+    [Fact]
     public void Parses_supported_local_executable_records_and_ignores_non_game_items()
     {
         var valid = EpicManifestParser.Parse(Manifest(@"E:\Games\Fixture", @"Bin\Fixture.exe"), out _);
@@ -114,10 +140,11 @@ public sealed class EpicManifestTests : IDisposable
         Assert.Equal(CatalogMatchKind.Unknown, directIndex.Match(unrelated, true).Kind);
     }
 
-    private static byte[] Manifest(string install, string relative, bool incomplete = false, bool executable = true, string? main = null) =>
+    private static byte[] Manifest(string install, string relative, bool incomplete = false, bool executable = true,
+        string? main = null, string app = "FixtureApp") =>
         JsonSerializer.SerializeToUtf8Bytes(new
         {
-            AppName = "FixtureApp", DisplayName = "Fixture Title", InstallLocation = install, LaunchExecutable = relative,
+            AppName = app, DisplayName = "Fixture Title", InstallLocation = install, LaunchExecutable = relative,
             bIsExecutable = executable, bIsApplication = true, bIsIncompleteInstall = incomplete, MainGameAppName = main,
         });
 
