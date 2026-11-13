@@ -27,6 +27,7 @@ public partial class SettingsView
         bool compact = ActualWidth < 625 + expanded;
         var width = new GridLength(compact ? 64 * scale.Controls / 100d : expanded);
         if (SectionsColumn.Width != width) SectionsColumn.Width = width;
+        SettingsSections.Width = width.Value - 16;
         if (!Equals(SettingsSections.Tag, compact)) SettingsSections.Tag = compact;
     }
 
