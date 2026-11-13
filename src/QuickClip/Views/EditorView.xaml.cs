@@ -82,6 +82,8 @@ public partial class EditorView : UserControl
     public string? FileTitle { get; private set; }
     public event Action? TitleChanged;
     public event Action? BackRequested;
+    // Called when returning from Appearance settings; libmpv's native letterbox is outside WPF resources.
+    internal void RefreshTheme() => _player?.RefreshTheme();
     internal event Action<string, ClipDetails>? ClipDetailsSaved;
     internal Func<IReadOnlyList<string>>? KnownTags { get; set; }
     internal IClipAnnotationActions AnnotationActions
