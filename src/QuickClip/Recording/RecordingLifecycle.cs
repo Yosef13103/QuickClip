@@ -1,6 +1,6 @@
 namespace QuickClip.Recording;
 
-public enum RecordingMode { Off, Armed, GameTriggered, ManualDesktop, Unavailable }
+public enum RecordingMode { Off, Armed, GameTriggered, ManualDesktop, Unavailable, Recovering }
 
 internal sealed record CaptureDisplay(string Device, string Identity);
 
@@ -10,12 +10,16 @@ internal sealed record CaptureActivation(CaptureDisplay Display, WindowOwner? Ga
 }
 
 /// <summary>Owns one graph and its replay buffer. The recorder serializes commands and observations.</summary>
-internal sealed class RecordingLifecycle(Func<CaptureActivation, string?> start, Action stop)
+internal sealed class RecordingLifecycle(Func<CaptureActivation, string?> start, Action stop, TimeProvider? clock = null,
+    Func<bool>? canRetry = null)
 {
+    private readonly TimeProvider _clock = clock ?? TimeProvider.System;
     private CaptureActivation? _active;
     private CaptureActivation? _lastGame;
     private CaptureActivation? _failed;
     private string? _failure;
+    private long _failedAt;
+    private int _retrySeconds;
     public RecordingMode Mode { get; private set; }
     public string? Error { get; private set; }
 
@@ -48,15 +52,16 @@ internal sealed class RecordingLifecycle(Func<CaptureActivation, string?> start,
         }
 
         if (desired != _active) StopGraph();
-        if (desired != _failed) (_failed, _failure) = (null, null);
+        if (desired != _failed) ClearFailure();
         Error = unavailable;
 
         if (!enabled) Mode = RecordingMode.Off;
         else if (desired == null) Mode = unavailable == null ? RecordingMode.Armed : RecordingMode.Unavailable;
-        else if (desired == _failed)
+        else if (desired == _failed && _active == null &&
+            (_retrySeconds < 0 || _clock.GetElapsedTime(_failedAt) < TimeSpan.FromSeconds(_retrySeconds)))
         {
             Error = _failure;
-            Mode = RecordingMode.Unavailable;
+            Mode = _retrySeconds < 0 ? RecordingMode.Unavailable : RecordingMode.Recovering;
         }
         else
         {
@@ -64,10 +69,10 @@ internal sealed class RecordingLifecycle(Func<CaptureActivation, string?> start,
             {
                 Error = start(desired);
                 if (Error == null) _active = desired;
-                else (_failed, _failure) = (desired, Error);
+                else ScheduleRetry(desired, Error);
             }
             if (_active?.GameOwner != null) _lastGame = _active;
-            Mode = Error == null ? desired.Mode : RecordingMode.Unavailable;
+            if (Error == null) Mode = desired.Mode;
         }
     }
 
@@ -78,16 +83,27 @@ internal sealed class RecordingLifecycle(Func<CaptureActivation, string?> start,
     public void FailActive(string message)
     {
         if (_active == null) return;
-        (_failed, _failure) = (_active, message);
+        var failed = _active;
         StopGraph();
-        Error = message;
-        Mode = RecordingMode.Unavailable;
+        ScheduleRetry(failed, message);
     }
+
+    public void MarkHealthy() => ClearFailure();
+
+    private void ScheduleRetry(CaptureActivation failed, string message)
+    {
+        _retrySeconds = canRetry?.Invoke() == false ? -1 : Math.Min(_retrySeconds <= 0 ? 2 : _retrySeconds * 2, 30);
+        (_failed, _failure, _failedAt) = (failed, message, _clock.GetTimestamp());
+        Error = message;
+        Mode = _retrySeconds < 0 ? RecordingMode.Unavailable : RecordingMode.Recovering;
+    }
+
+    private void ClearFailure() => (_failed, _failure, _retrySeconds) = (null, null, 0);
 
     public void Reset(bool forgetGame = true)
     {
         StopGraph();
-        (_failed, _failure) = (null, null);
+        ClearFailure();
         if (forgetGame) _lastGame = null;
         Error = null;
         Mode = RecordingMode.Off;

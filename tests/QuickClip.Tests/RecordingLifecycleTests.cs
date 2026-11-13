@@ -52,6 +52,52 @@ public sealed class RecordingLifecycleTests
     }
 
     private static readonly MonitorInfo Display1 = new("DISPLAY1", "", 0, 0, 3440, 1440) { CaptureIdentity = "A" };
+
+    private sealed class RecoveryClock : TimeProvider
+    {
+        private long _timestamp;
+        public override long TimestampFrequency => TimeSpan.TicksPerSecond;
+        public override long GetTimestamp() => _timestamp;
+        public void Advance(int seconds) => _timestamp += TimeSpan.FromSeconds(seconds).Ticks;
+    }
+
+    [Fact]
+    public void Transient_failure_retries_same_display_with_bounded_backoff_and_checks_consent()
+    {
+        var backend = new Backend { StartError = "Device temporarily unavailable" };
+        var clock = new RecoveryClock();
+        var lifecycle = new RecordingLifecycle(backend.Start, backend.Stop, clock);
+        bool allowed = true;
+        void Poll() => lifecycle.Reconcile(true, null, Game(1), [Display1], _ => "DISPLAY1", _ => allowed);
+        Poll();
+        Assert.Equal(RecordingMode.Recovering, lifecycle.Mode);
+        clock.Advance(1);
+        Poll();
+        Assert.Single(backend.Starts);
+        clock.Advance(1);
+        Poll();
+        Assert.Equal(2, backend.Starts.Count);
+        clock.Advance(3);
+        Poll();
+        Assert.Equal(2, backend.Starts.Count);
+        clock.Advance(1);
+        backend.StartError = null;
+        Poll();
+        Assert.Equal(RecordingMode.GameTriggered, lifecycle.Mode);
+        backend.Frames = 100;
+        lifecycle.FailActive("Device lost");
+        Assert.Equal(0, backend.Frames);
+        Assert.Null(backend.Active);
+        clock.Advance(30);
+        allowed = false;
+        Poll();
+        Assert.Equal(RecordingMode.Unavailable, lifecycle.Mode);
+        Assert.Equal(3, backend.Starts.Count);
+        allowed = true;
+        Poll();
+        Assert.Equal(RecordingMode.GameTriggered, lifecycle.Mode);
+        Assert.Equal("A", backend.Active?.Display.Identity);
+    }
     private static readonly MonitorInfo Display2 = new("DISPLAY2", "", -1920, 0, 1920, 1080) { CaptureIdentity = "B" };
 
     [Theory]

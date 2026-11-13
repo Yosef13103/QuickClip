@@ -399,6 +399,12 @@ extern "C"
         return g_engine && g_engine->VideoSourceLost();
     }
 
+    __declspec(dllexport) int qc_has_video_output()
+    {
+        std::shared_lock guard(g_engineLock);
+        return g_engine && g_engine->HasVideoOutput();
+    }
+
     __declspec(dllexport) int qc_get_replay_position(QcReplayPosition* position)
     {
         std::shared_lock guard(g_engineLock);

@@ -653,6 +653,7 @@ public partial class SettingsView : UserControl
             ? $"Detected now: {string.Join(", ", state.MusicApps)}."
             : "No music app is running right now.") + " Music played in a web browser stays on the Desktop track.";
         RecorderStatus.Text = state.Running ? $"Recording · {state.Summary}"
+            : state.Mode == RecordingMode.Recovering ? "Recovering display capture. " + state.Error
             : state.Error != null ? "Not recording: " + state.Error
             : state.Mode == RecordingMode.Armed ? "Waiting for a game · no capture running."
             : recordingEnabled ? "Starting…" : "Recording is off.";

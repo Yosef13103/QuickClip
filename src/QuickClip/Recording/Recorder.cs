@@ -37,7 +37,7 @@ internal sealed class Recorder
     private string? _sessionGameId;
     private string? _sessionGame;
     private string? _sessionDisplay;
-    private long _lastFreshVideo;
+    private long _captureStartedAt;
     internal bool ManualDesktopRequested => Volatile.Read(ref _manualDisplay) != null
         && AppSettings.Current.AllowsManualDesktop(Volatile.Read(ref _manualConsentRevision));
     private IReadOnlyList<string> _chatApps = [], _musicApps = [];
@@ -101,7 +101,7 @@ internal sealed class Recorder
 
     private Recorder()
     {
-        _lifecycle = new(StartPersonalGraph, StopGraph);
+        _lifecycle = new(StartPersonalGraph, StopGraph, canRetry: () => CaptureEngine.IsAvailable);
         // A display change (a resolution change, a game switching modes) or a sleep can leave the screen capture
         // stale, sending black frames or none; start it again. The replay buffer is kept.
         SystemEvents.DisplaySettingsChanged += (_, _) => RestartCapture("the display settings changed");
@@ -120,8 +120,12 @@ internal sealed class Recorder
             {
                 before = State;
                 Guid session = _replaySession;
-                if (AppProfile.IsPersonal && _poll != null) ReconcilePersonal();
-                if (IsRunning && _replaySession == session)
+                if (AppProfile.IsPersonal && _poll != null)
+                {
+                    if (IsRunning) CaptureEngine.RestartVideo();
+                    ReconcilePersonal();
+                }
+                else if (IsRunning && _replaySession == session)
                 {
                     Log.Write($"Starting screen capture again: {why}");
                     CaptureEngine.RestartVideo();
@@ -228,20 +232,15 @@ internal sealed class Recorder
             _manualAuthorized.Clear();
         }
 
-        if (IsRunning && CaptureEngine.VideoSourceLost()) _lifecycle.InvalidateGraph();
+        if (IsRunning && CaptureEngine.VideoSourceLost())
+            _lifecycle.FailActive("The display capture was interrupted. QuickClip will retry.");
+        else if (IsRunning && Environment.TickCount64 - _captureStartedAt >= 15_000 && CaptureEngine.HasVideoOutput())
+            _lifecycle.MarkHealthy();
         var displays = s.RecordingEnabled && (_observedGame != null || _manualDisplay != null) ? Monitors.List() : [];
         _lifecycle.Reconcile(s.RecordingEnabled, _manualDisplay, _observedGame, displays,
             Monitors.ForWindow, identity => CaptureSourcePolicy.AllowsGameDisplay(s, identity));
         Error = _lifecycle.Error;
 
-        if (!IsRunning) return;
-        if (CaptureEngine.GetReplayPosition() is { Sequence: > 0 })
-            _lastFreshVideo = Environment.TickCount64;
-        else if (Environment.TickCount64 - _lastFreshVideo >= 10_000)
-        {
-            _lifecycle.FailActive("Capture stopped because the authorized display stopped producing video.");
-            Error = _lifecycle.Error;
-        }
     }
 
     private static bool Eligible(GameCaptureObservation observation) =>
@@ -271,7 +270,7 @@ internal sealed class Recorder
         _sessionGame = game?.VerifiedTarget?.Game;
         _sessionGameId = activation.GameId;
         _sessionDisplay = activation.Display.Device;
-        _lastFreshVideo = Environment.TickCount64;
+        _captureStartedAt = Environment.TickCount64;
         return null;
     }
 
@@ -592,13 +591,19 @@ internal sealed class Recorder
                 SaveFailed?.Invoke(error);
                 return null;
             }
-            complete = true;
             DateTimeOffset? capturedAt = Mp4Info.Read(stagingPath).CaptureTime?.ToLocalTime();
             DateTimeOffset capture = capturedAt ?? requestedAt;
             string stem = AppProfile.IsPersonal ? ClipNaming.Stem(s.ClipFilenameTemplate, folder, capture, null)
                 : $"{folder} {requestedAt:yyyy-MM-dd HH-mm-ss}";
             cancellationToken.ThrowIfCancellationRequested();
-            string path = ClipNaming.Publish(stagingPath, dir, stem, ".mp4");
+            string path;
+            lock (_gate)
+            {
+                if (AppProfile.IsPersonal && (!IsRunning || _replaySession != sessionId || CaptureEngine.VideoSourceLost()))
+                    throw new IOException("The recording source changed before the replay could be saved.");
+                path = ClipNaming.Publish(stagingPath, dir, stem, ".mp4");
+            }
+            complete = true;
             TimeSpan? actual = span.DurationUs >= 0 ? ReplayMarkers.Time(span.DurationUs) : null;
             var receipt = new ReplaySaveReceipt(path, folder, sessionId, seconds, actual, ReplayMarkers.Time(span.AvailableUs),
                 ReplayMarkers.Time(span.FirstUs), ReplayMarkers.Time(span.LastUs), span.FirstSource, span.LastSource,

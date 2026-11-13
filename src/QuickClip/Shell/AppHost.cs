@@ -235,6 +235,7 @@ internal sealed class AppHost : IDisposable
         var r = Recorder.Instance;
         string state = r.IsRunning
             ? (ActiveSaveShortcut is { } shortcut ? $"Recording · {shortcut} saves a clip" : "Recording")
+            : r.State.Mode == RecordingMode.Recovering ? "Recovering display capture…"
             : r.Error != null ? "Not recording: " + r.Error
             : r.State.Mode == RecordingMode.Armed ? "Waiting for a game · not capturing" : "Recording is off";
         var data = NewIconData();

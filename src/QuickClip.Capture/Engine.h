@@ -177,6 +177,7 @@ namespace qc
         /// Starts capture again on the next frame (the display changed; the old capture may be stale).
         void RequestRebuild();
         bool VideoSourceLost() const;
+        bool HasVideoOutput() const;
         /// Records `window` (a game's) instead of the monitor, at this size and bitrate; null goes back to the monitor.
         void SetCaptureWindow(HWND window, int width, int height, int videoKbps);
         /// Tests: makes the capture thread hang for this long, as a stuck capture call would.
