@@ -92,6 +92,39 @@ public sealed class ClipFeedbackTests
     }
 
     [Fact]
+    public void Overlay_image_decoder_bounds_the_file_and_dimensions_and_freezes_valid_images()
+    {
+        var folder = Directory.CreateTempSubdirectory("quickclip-overlay-");
+        try
+        {
+            string imagePath = Path.Combine(folder.FullName, "fixture.png");
+            Assert.Null(ClipOverlayImage.Load(imagePath));
+            File.WriteAllText(imagePath, "Invalid PNG");
+            Assert.Null(ClipOverlayImage.Load(imagePath));
+            using (var oversized = File.Create(imagePath)) oversized.SetLength(ClipOverlayImage.MaxBytes + 1);
+            Assert.Null(ClipOverlayImage.Load(imagePath));
+
+            void WritePng(int width)
+            {
+                var bitmap = System.Windows.Media.Imaging.BitmapSource.Create(width, 1, 96, 96,
+                    System.Windows.Media.PixelFormats.Bgra32, null, new byte[width * 4], width * 4);
+                var encoder = new System.Windows.Media.Imaging.PngBitmapEncoder();
+                encoder.Frames.Add(System.Windows.Media.Imaging.BitmapFrame.Create(bitmap));
+                using var output = File.Create(imagePath);
+                encoder.Save(output);
+            }
+
+            WritePng(ClipOverlayImage.MaxDimension + 1);
+            Assert.Null(ClipOverlayImage.Load(imagePath));
+            WritePng(256);
+            var image = Assert.IsAssignableFrom<System.Windows.Media.Imaging.BitmapSource>(ClipOverlayImage.Load(imagePath));
+            Assert.True(image.IsFrozen);
+            Assert.Equal(128, image.PixelWidth);
+        }
+        finally { folder.Delete(recursive: true); }
+    }
+
+    [Fact]
     public void Details_honor_each_field_and_rectangular_overlay_aligns_inside_display()
     {
         var details = new ClipNotificationDetails("Game", "Title", "Display", "30 s");

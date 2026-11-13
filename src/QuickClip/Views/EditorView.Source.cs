@@ -72,8 +72,9 @@ public partial class EditorView
         if (showBlockingPrompt)
         {
             if (IsVisible && !MissingSourceOverlay.IsKeyboardFocusWithin) RetryMissingSourceButton.Focus();
+            MissingSourceOverlayTitle.Text = state == EditorSourceState.Missing ? "Recording is missing" : "Recording unavailable";
             MissingSourceOverlayMessage.Text = EditorSource.Message(state) +
-                "\n\nYou can restore the recording, open something else, or clear this view.";
+                "\n\nClear editor closes this clip without deleting any recording.";
         }
         Video.Visibility = ready ? Visibility.Visible : Visibility.Hidden;
         UnavailableSource.Visibility = ready || showBlockingPrompt ? Visibility.Collapsed : Visibility.Visible;

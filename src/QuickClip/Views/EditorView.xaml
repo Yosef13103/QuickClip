@@ -498,13 +498,11 @@
                     CornerRadius="10" Padding="24" MaxWidth="500" Margin="18"
                     HorizontalAlignment="Center" VerticalAlignment="Center">
                 <StackPanel>
-                    <TextBlock Text="Recording unavailable" FontWeight="SemiBold" FontSize="21" />
+                    <TextBlock x:Name="MissingSourceOverlayTitle" Text="Recording unavailable" FontWeight="SemiBold" FontSize="21" />
                     <TextBlock x:Name="MissingSourceOverlayMessage" TextWrapping="Wrap" Margin="0,12,0,14"
                                Foreground="{StaticResource SubtleText}" AutomationProperties.LiveSetting="Polite" />
-                    <TextBlock Text="Your source file has not been deleted or changed by QuickClip."
-                               FontSize="12" Foreground="{StaticResource SubtleText}" TextWrapping="Wrap" />
                     <WrapPanel Margin="0,18,0,0" HorizontalAlignment="Left">
-                        <Button x:Name="RetryMissingSourceButton" Content="Try again" Click="RetrySource_Click" Margin="0,0,8,8" Padding="12,7" />
+                        <Button x:Name="RetryMissingSourceButton" Content="Retry" Click="RetrySource_Click" Margin="0,0,8,8" Padding="12,7" />
                         <Button Content="Open another file" Click="Open_Click" Margin="0,0,8,8" Padding="12,7" />
                         <Button x:Name="ClearMissingSourceButton" Content="Clear editor" Click="ClearUnavailableSource_Click"
                                 ToolTip="Forget this missing file in the editor; do not delete any recording"
