@@ -1,5 +1,6 @@
 using System.ComponentModel;
 using System.Windows;
+using System.Windows.Controls;
 using System.Windows.Media;
 using System.Windows.Threading;
 using QuickClip.Recording;
@@ -27,6 +28,12 @@ public partial class MainWindow : Window
     {
         InitializeComponent();
         Title = AppProfile.Name;
+        if (AppProfile.IsPersonal)
+        {
+            MinWidth = 820;
+            SaveClipButton.SetResourceReference(System.Windows.Controls.Control.PaddingProperty, "SaveClipPadding");
+            RailColumn.SetResourceReference(ColumnDefinition.WidthProperty, "PrimaryRailWidth");
+        }
         Width = Math.Min(Width, SystemParameters.WorkArea.Width * 0.95);
         Height = Math.Min(Height, SystemParameters.WorkArea.Height * 0.95);
 

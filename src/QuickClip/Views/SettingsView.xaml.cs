@@ -29,6 +29,7 @@ public partial class SettingsView : UserControl
     {
         InitializeComponent();
         BuildHotkeyRows();
+        InitializeInterfaceSettings();
         SettingsSections.Visibility = AppProfile.IsPersonal ? Visibility.Visible : Visibility.Collapsed;
         SectionsColumn.Width = AppProfile.IsPersonal ? new GridLength(176) : new GridLength(0);
         LibraryOptions.Visibility = AppProfile.IsPersonal ? Visibility.Visible : Visibility.Collapsed;
@@ -69,6 +70,7 @@ public partial class SettingsView : UserControl
         GamesPage.Visibility = games ? Visibility.Visible : Visibility.Collapsed;
         GeneralPage.Visibility = games ? Visibility.Collapsed : Visibility.Visible;
         SectionTitle.Text = section.Content.ToString();
+        foreach (RadioButton item in SettingsSections.Children) item.IsTabStop = item == section;
         RecordingCard.Visibility = SectionVisibility(RecordingSection);
         AudioCard.Visibility = SectionVisibility(AudioSection);
         HotkeysCard.Visibility = SectionVisibility(HotkeysSection);

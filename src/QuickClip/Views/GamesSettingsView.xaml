@@ -1,7 +1,7 @@
 <UserControl x:Class="QuickClip.Views.GamesSettingsView"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-             xmlns:controls="clr-namespace:QuickClip.Controls">
+             xmlns:controls="clr-namespace:QuickClip.Controls" xmlns:qc="clr-namespace:QuickClip">
     <UserControl.Resources>
         <ResourceDictionary>
             <ResourceDictionary.MergedDictionaries>
@@ -17,7 +17,7 @@
     </UserControl.Resources>
     <DockPanel Margin="28,16,24,16" MaxWidth="1340">
         <StackPanel DockPanel.Dock="Top">
-            <TextBlock Text="Games" FontSize="24" FontWeight="SemiBold" />
+            <TextBlock Text="Games" FontSize="{qc:ScaledSize 24}" FontWeight="SemiBold" />
             <CheckBox x:Name="AutoScan" Content="Automatically discover installed games" Click="AutoScan_Click" Margin="0,8,0,0" />
             <TextBlock Text="Automatic scans read local Steam and Epic manifests and approved folders. You can pause and resume a scan here." TextWrapping="Wrap" Style="{StaticResource Hint}" />
             <Expander Header="Game libraries and launchers" Margin="0,6,0,6">

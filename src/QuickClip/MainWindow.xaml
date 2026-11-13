@@ -1,9 +1,11 @@
 <Window x:Class="QuickClip.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:qc="clr-namespace:QuickClip"
         xmlns:views="clr-namespace:QuickClip.Views"
         Title="QuickClip"
         Width="1360" Height="900" MinWidth="980" MinHeight="640"
+        FontSize="{qc:ScaledSize 14}" UseLayoutRounding="True"
         WindowStartupLocation="CenterScreen"
         Icon="Assets/QuickClip.ico">
 
@@ -12,6 +14,40 @@
             <ResourceDictionary.MergedDictionaries>
                 <ResourceDictionary Source="/QuickClip;component/Themes/Styles.xaml" />
             </ResourceDictionary.MergedDictionaries>
+            <Style x:Key="SaveClipAction" TargetType="Button">
+                <Setter Property="Background" Value="#29484D" />
+                <Setter Property="Foreground" Value="#F2F7F7" />
+                <Setter Property="MinHeight" Value="{qc:ScaledSize 36, Visual=True}" />
+                <Setter Property="MinWidth" Value="{qc:ScaledSize 116, Visual=True}" />
+                <Setter Property="Padding" Value="14,6" />
+                <Setter Property="FontWeight" Value="SemiBold" />
+                <Setter Property="Template">
+                    <Setter.Value>
+                        <ControlTemplate TargetType="Button">
+                            <Border x:Name="Surface" Background="{TemplateBinding Background}" CornerRadius="6"
+                                    BorderBrush="#46646A" BorderThickness="1" Padding="{TemplateBinding Padding}">
+                                <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
+                            </Border>
+                            <ControlTemplate.Triggers>
+                                <Trigger Property="IsMouseOver" Value="True">
+                                    <Setter TargetName="Surface" Property="Background" Value="#345B62" />
+                                </Trigger>
+                                <Trigger Property="IsPressed" Value="True">
+                                    <Setter TargetName="Surface" Property="Background" Value="#243F44" />
+                                </Trigger>
+                                <Trigger Property="IsKeyboardFocused" Value="True">
+                                    <Setter TargetName="Surface" Property="BorderBrush" Value="#A6D8DF" />
+                                </Trigger>
+                                <Trigger Property="IsEnabled" Value="False">
+                                    <Setter TargetName="Surface" Property="Background" Value="#272A2B" />
+                                    <Setter TargetName="Surface" Property="BorderBrush" Value="#373B3D" />
+                                    <Setter Property="Foreground" Value="#A4AAAD" />
+                                </Trigger>
+                            </ControlTemplate.Triggers>
+                        </ControlTemplate>
+                    </Setter.Value>
+                </Setter>
+            </Style>
         </ResourceDictionary>
     </Window.Resources>
 
@@ -47,8 +83,8 @@
         <!-- Recording status -->
         <Border x:Name="StatusBar" Grid.Row="1" Grid.Column="1" Background="{StaticResource PanelBrush}" BorderBrush="#2A2A2A" BorderThickness="0,1,0,0" Padding="16,7,10,7">
             <DockPanel>
-                <Button x:Name="SaveClipButton" DockPanel.Dock="Right" Style="{DynamicResource AccentButtonStyle}" Padding="12,5" Focusable="False"
-                        Click="SaveClip_Click">
+                <Button x:Name="SaveClipButton" DockPanel.Dock="Right" Style="{StaticResource SaveClipAction}" Margin="12,0,0,0"
+                        AutomationProperties.Name="Save clip" Click="SaveClip_Click">
                     <StackPanel Orientation="Horizontal">
                         <TextBlock FontFamily="{StaticResource IconFont}" Text="&#xE7C8;" VerticalAlignment="Center" Margin="0,0,7,0" />
                         <TextBlock x:Name="SaveClipText" Text="Save clip" />
@@ -67,17 +103,17 @@
                             Visibility="Collapsed">
                     <TextBlock x:Name="ShareIcon" FontFamily="{StaticResource IconFont}" Text="&#xE72D;" VerticalAlignment="Center" Margin="0,0,8,0"
                                Foreground="{DynamicResource AccentFillColorDefaultBrush}" />
-                    <TextBlock x:Name="ShareName" VerticalAlignment="Center" FontSize="12.5" FontWeight="SemiBold" MaxWidth="200"
+                    <TextBlock x:Name="ShareName" VerticalAlignment="Center" FontSize="{qc:ScaledSize 12.5}" FontWeight="SemiBold" MaxWidth="200"
                                TextTrimming="CharacterEllipsis" Margin="0,0,8,0" />
-                    <TextBlock x:Name="ShareText" VerticalAlignment="Center" FontSize="12.5" />
-                    <ProgressBar x:Name="ShareProgress" Width="150" Height="6" Minimum="0" Maximum="1" Margin="10,0,0,0" VerticalAlignment="Center" />
+                    <TextBlock x:Name="ShareText" VerticalAlignment="Center" FontSize="{qc:ScaledSize 12.5}" />
+                    <ProgressBar x:Name="ShareProgress" Width="85" Height="6" Minimum="0" Maximum="1" Margin="10,0,0,0" VerticalAlignment="Center" />
                     <Button x:Name="ShareShowButton" Style="{StaticResource TextButton}" Content="Show" Padding="9,3" Margin="8,0,0,0"
                             Click="ShareShow_Click" ToolTip="Show the copy in Explorer" />
-                    <Button x:Name="ShareCloseButton" Style="{StaticResource IconButton}" Content="&#xE711;" FontSize="10" Padding="6,4" Margin="4,0,0,0"
+                    <Button x:Name="ShareCloseButton" Style="{StaticResource IconButton}" Content="&#xE711;" FontSize="{qc:ScaledSize 10, Visual=True}" Padding="6,4" Margin="4,0,0,0"
                             Click="ShareClose_Click" />
                 </StackPanel>
                 <Ellipse x:Name="RecDot" DockPanel.Dock="Left" Width="9" Height="9" Margin="0,0,9,0" VerticalAlignment="Center" Fill="#666" />
-                <TextBlock x:Name="RecStatus" VerticalAlignment="Center" FontSize="12.5" TextTrimming="CharacterEllipsis" Text="Starting…" />
+                <TextBlock x:Name="RecStatus" VerticalAlignment="Center" ToolTip="{Binding Text, RelativeSource={RelativeSource Self}}" FontSize="{qc:ScaledSize 12.5}" TextTrimming="CharacterEllipsis" Text="Starting…" />
             </DockPanel>
         </Border>
 
