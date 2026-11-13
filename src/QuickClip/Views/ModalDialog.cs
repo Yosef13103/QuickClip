@@ -30,7 +30,7 @@ internal static class ModalDialog
     }
 
     internal static bool ConfirmDelete(Window? owner, string title, string paths)
-        => ConfirmAction(owner, paths, title, "Delete", "Cancel", destructive: true);
+        => ConfirmAction(owner, paths, title, "Move to Recycle Bin", "Keep clips", destructive: true);
 
     internal static bool ConfirmAction(Window? owner, string message, string title, string accept, string cancel, bool destructive)
     {
