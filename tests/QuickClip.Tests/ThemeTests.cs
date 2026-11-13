@@ -128,6 +128,31 @@ public sealed class ThemeTests
         Assert.IsType<SolidColorBrush>(resources["OnDangerBrush"]);
     }
 
+    [Theory]
+    [InlineData("Dark")]
+    [InlineData("Amoled")]
+    [InlineData("Slate")]
+    [InlineData("Light")]
+    public void Semantic_controls_share_accessible_colors_without_per_theme_hardcoding(string name)
+    {
+        var resources = new ResourceDictionary();
+        var choice = ThemeResources.ThemeChoiceFrom(name);
+        new ThemeResources().Apply(resources, choice);
+        Assert.Equal(ThemePalette.Get(choice)[ThemeColor.Surface],
+            Assert.IsType<SolidColorBrush>(resources["SurfaceBrush"]).Color);
+        Assert.Equal(ThemePalette.Get(choice)[ThemeColor.PrimaryText],
+            Assert.IsType<SolidColorBrush>(resources["PrimaryTextBrush"]).Color);
+        Assert.Equal(ThemePalette.Get(choice)[ThemeColor.Selection],
+            Assert.IsType<SolidColorBrush>(resources["SelectionBrush"]).Color);
+        if (choice != ThemeChoice.Dark)
+        {
+            Assert.Same(resources["AccentBrush"], resources["SliderThumbFill"]);
+            Assert.Same(resources["AccentBrush"], resources["SliderTrackValueFill"]);
+            Assert.Same(resources["SelectionBrush"], resources["ComboBoxItemBackgroundSelected"]);
+            Assert.Same(resources["ElevatedSurfaceBrush"], resources["MenuFlyoutPresenterBackground"]);
+        }
+    }
+
     private static string ExportedPalette()
     {
         using var stream = new MemoryStream();
