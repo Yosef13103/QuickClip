@@ -31,6 +31,7 @@ internal sealed class GameDiscoveryCoordinator : IDisposable
     public event Action? Changed;
     public bool IsRunning { get; private set; }
     public string Status { get; private set; } = "";
+    public bool IsPaused => _paused && _scan != null;
 
     /// <summary>Starts background discovery independently of the Games view.</summary>
     public void Start()
@@ -94,11 +95,13 @@ internal sealed class GameDiscoveryCoordinator : IDisposable
         if (_scanRequest != ScanRequest(_read()))
         {
             _activeCancellation?.Cancel();
+            var oldScan = _scan;
             _scan = null;
             _scanRequest = null;
             _completedAt = null;
             _paused = false;
             await _running;
+            oldScan?.Dispose();
         }
         if (_started) await RequestAsync();
     }
@@ -108,6 +111,8 @@ internal sealed class GameDiscoveryCoordinator : IDisposable
         // Allow the caller to publish the shared task before any observer is notified.
         await Task.Yield();
         var token = cancellation.Token;
+        GameCatalogService.Scan? scan = null;
+        bool keepCursor = false;
         try
         {
             token.ThrowIfCancellationRequested();
@@ -116,22 +121,26 @@ internal sealed class GameDiscoveryCoordinator : IDisposable
                 _scan = _create(request);
                 _scanRequest = request;
             }
-            var scan = _scan;
+            scan = _scan;
             do
             {
-                var result = await scan.ContinueAsync(_segmentsPerSlice, TimeSpan.FromSeconds(1), token);
+                var result = await scan.ContinueAsync(_segmentsPerSlice, TimeSpan.FromMilliseconds(250), token, throttleSnapshots: true);
                 token.ThrowIfCancellationRequested();
                 var current = _read();
                 if (ScanRequest(current) != request)
                 {
-                    _scan = null;
-                    _scanRequest = null;
                     return;
                 }
-                _publish(GameCatalogRuntime.WithScan(current, result), !scan.HasMore);
-                Status = $"Found {result.Entries.Length:N0} games."
-                    + (scan.HasMore ? " More installs are queued."
-                        : result.LimitReached || !result.Issues.IsEmpty ? " Some sources could not be fully scanned." : "");
+                bool finished = !result.InProgress;
+                var updated = current;
+                // Avoid rebuilding the catalog and WPF list for slices that only
+                // advance an existing cursor through non-candidate entries.
+                if (finished || scan.HasCatalogChanges)
+                {
+                    updated = GameCatalogRuntime.WithScan(current, result);
+                    _publish(updated, finished);
+                }
+                Status = Describe(updated, finished ? CompletionLabel(result) : "Scanning");
                 Changed?.Invoke();
                 if (scan.HasMore && !_paused)
                     await Task.Delay(TimeSpan.FromMilliseconds(250), _clock, token);
@@ -140,12 +149,17 @@ internal sealed class GameDiscoveryCoordinator : IDisposable
 
             if (scan.HasMore)
             {
-                _publish(_read(), true);
-                Status += " Paused. Select Scan Now to resume.";
+                var snapshot = await scan.SnapshotAsync(token);
+                token.ThrowIfCancellationRequested();
+                var current = _read();
+                if (ScanRequest(current) != request) return;
+                var paused = GameCatalogRuntime.WithScan(current, snapshot);
+                _publish(paused, false);
+                Status = Describe(paused, "Paused");
+                keepCursor = !token.IsCancellationRequested;
             }
             else
             {
-                _scan = null;
                 _completedAt = _clock.GetTimestamp();
             }
         }
@@ -155,13 +169,16 @@ internal sealed class GameDiscoveryCoordinator : IDisposable
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException)
         {
-            _scan = null;
-            _scanRequest = null;
-            Status = "Scan could not finish. Published results kept.";
+            Status = "Incomplete · scan could not finish. Published results kept.";
             Log.Write("Game scan failed: " + ex.GetType().Name);
         }
         finally
         {
+            if (!keepCursor)
+            {
+                scan?.Dispose();
+                if (ReferenceEquals(_scan, scan)) _scan = null;
+            }
             _activeCancellation = null;
             cancellation.Dispose();
             IsRunning = false;
@@ -170,7 +187,19 @@ internal sealed class GameDiscoveryCoordinator : IDisposable
     }
 
     private static CatalogRequest ScanRequest(GameCatalogSettings state) =>
-        state.Request with { DiscoverSteam = state.AutoScan, DiscoverEpic = state.AutoScan, Overrides = [], ManualEntries = [] };
+        state.Request with
+        {
+            DiscoverSteam = state.AutoScan, DiscoverEpic = state.AutoScan, Overrides = [], ManualEntries = [],
+            // Previous releases wrote the default depth of eight into settings.
+            MaxDepth = state.Request.MaxDepth == 8 ? null : state.Request.MaxDepth,
+        };
+
+    private static string CompletionLabel(CatalogResult scan) =>
+        scan.LimitReached || scan.HasUnreportedFailures || scan.Issues.Any(issue => issue.Kind != CatalogIssueKind.ReparsePoint)
+            ? "Incomplete" : "Completed";
+
+    internal static string Describe(GameCatalogSettings state, string label) =>
+        $"{label} · {state.DiscoveredCount ?? 0:N0} discovered this scan";
 
     public void Dispose()
     {
@@ -178,5 +207,6 @@ internal sealed class GameDiscoveryCoordinator : IDisposable
         _disposed = true;
         _lifetime.Cancel();
         _lifetime.Dispose();
+        if (!IsRunning) _scan?.Dispose();
     }
 }

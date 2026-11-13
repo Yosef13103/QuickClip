@@ -129,6 +129,26 @@ public sealed class GameObservationTests
     }
 
     [Fact]
+    public void Partial_scan_keeps_remembered_rows_and_disables_a_source_that_became_a_link()
+    {
+        var linked = Entry with { Id = "folder:linked", Source = CatalogSource.Folder,
+            InstallDirectories = [@"C:\Games\Fixture"] };
+        var pending = linked with { Id = "folder:pending", InstallDirectories = [@"C:\Games\Other"],
+            Executables = [@"C:\Games\Other\Play.exe"] };
+        var previous = new GameCatalogSettings { Snapshot = new([linked, pending], [], 2, false, DateTimeOffset.UtcNow) };
+        var batch = new CatalogResult([linked], [new(linked.InstallDirectories[0], CatalogIssueKind.ReparsePoint)],
+            1, false, default) { InProgress = true };
+        var state = GameCatalogRuntime.WithScan(previous, batch);
+        Assert.Equal(1, state.DiscoveredCount);
+        Assert.Equal(pending.Id, Assert.Single(state.RetainedIds));
+        Assert.Equal(linked.Id, Assert.Single(state.OfflineIds));
+        Assert.Equal(previous.Snapshot.CompletedAt, state.Snapshot!.CompletedAt);
+        var restored = AppSettings.Parse(new AppSettings { Games = state }.ToJson()).Games;
+        Assert.Contains(linked.Id, restored.OfflineIds);
+        Assert.Contains(pending.Id, restored.OfflineIds);
+    }
+
+    [Fact]
     public void Offline_scan_preserves_the_old_row_and_marks_it_for_review()
     {
         var found = Entry with { Source = CatalogSource.Folder, InstallDirectories = [@"C:\Games\Fixture"] };

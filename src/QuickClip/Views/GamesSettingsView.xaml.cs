@@ -20,6 +20,7 @@ public partial class GamesSettingsView : UserControl
     private GameCatalogSettings? _renderedState;
     private List<GameRow> _rows = [];
     private ListCollectionView? _gamesView;
+    private int _retainedCount, _offlineCount;
     private GameRow? _expanded;
     private string _query = "";
     private static GameCatalogSettings State => AppSettings.Current.Games ?? new();
@@ -42,8 +43,11 @@ public partial class GamesSettingsView : UserControl
     {
         if (!ReferenceEquals(_renderedState, AppSettings.Current.Games)) Render();
         ScanButton.IsEnabled = !Discovery.IsRunning;
+        ScanButton.Content = Discovery.IsPaused ? "Resume scan" : "Scan Now";
         CancelButton.IsEnabled = Discovery.IsRunning;
         if (Discovery.Status.Length != 0) Status.Text = Discovery.Status;
+        else if (State.Snapshot?.InProgress == true)
+            Status.Text = "Incomplete · a previous session ended during the scan.";
     }
 
     private void SetState(GameCatalogSettings state)
@@ -362,10 +366,12 @@ public partial class GamesSettingsView : UserControl
             .Concat(epic)
             .Concat(state.Request.GameRoots.Select(root => new RootRow(root.Path, false)))
             .Concat(state.Request.ExcludedDirectories.Select(path => new RootRow(path, false, Excluded: true))).ToArray();
-        LastScan.Text = state.Snapshot is { } scan ? $"Last scan {scan.CompletedAt.ToLocalTime():g} · {scan.Entries.Length:N0} games found"
-            : "No completed scan.";
+        LastScan.Text = state.Snapshot is { CompletedAt: var completed } && completed != default
+            ? $"Last finished scan · {completed.ToLocalTime():g}" : "No finished scan.";
         BlockedFiles.ItemsSource = state.BlockedExecutables;
-        ScanIssues.ItemsSource = state.Snapshot?.Issues.Select(ScanIssueText).ToArray();
+        var issues = state.Snapshot?.Issues.Select(ScanIssueText) ?? [];
+        ScanIssues.ItemsSource = state.Snapshot?.HasMoreIssues == true ? issues.Append("Additional scan issues are omitted.").ToArray()
+            : issues.ToArray();
         RenderRows(state);
     }
 
@@ -374,6 +380,9 @@ public partial class GamesSettingsView : UserControl
         string? selected = (Games.SelectedItem as GameRow)?.Entry.Id;
         var entries = GameCatalogRuntime.Rows(state);
         var offline = state.OfflineIds.ToHashSet(StringComparer.Ordinal);
+        var retained = state.RetainedIds.ToHashSet(StringComparer.Ordinal);
+        _retainedCount = entries.Count(entry => retained.Contains(entry.Id));
+        _offlineCount = entries.Count(entry => offline.Contains(entry.Id));
         var existing = _rows.ToDictionary(row => row.Entry.Id, StringComparer.Ordinal);
         var rows = new List<GameRow>(entries.Length);
         bool refilter = false;
@@ -405,7 +414,12 @@ public partial class GamesSettingsView : UserControl
     private void UpdateCount()
     {
         if (Count != null && _gamesView != null)
-            Count.Text = $"Catalog · {_gamesView.Count:N0} / {_rows.Count:N0}";
+        {
+            Count.Text = $"Catalog · {_rows.Count:N0} entries"
+                + (_query.Length == 0 ? "" : $" · {_gamesView.Count:N0} shown")
+                + (_retainedCount == 0 ? "" : $" · {_retainedCount:N0} retained")
+                + (_offlineCount == 0 ? "" : $" · {_offlineCount:N0} awaiting verification");
+        }
     }
 
     private async void Details_Click(object sender, RoutedEventArgs e)
@@ -442,6 +456,7 @@ public partial class GamesSettingsView : UserControl
         CatalogIssueKind.InvalidManualEntry => "Invalid manual entry · edit its executable selection",
         CatalogIssueKind.ReparsePoint => "Linked folder skipped · approve its actual local location",
         CatalogIssueKind.InvalidPath => "Invalid source path · choose a local folder",
-        _ => "Scan limit reached · try a smaller source",
+        CatalogIssueKind.DepthLimit => "Configured folder depth reached · deeper entries were not scanned",
+        _ => "Previous scan was incomplete · rescan this source",
     }) + " · " + issue.Location;
 }

@@ -38,7 +38,7 @@ internal sealed record CatalogRequest
     public ImmutableArray<ManualCatalogEntry> ManualEntries { get; init; } = [];
     public ImmutableArray<CatalogOverride> Overrides { get; init; } = [];
     public int MaxEntries { get; init; } = 20_000;
-    public int MaxDepth { get; init; } = 8;
+    public int? MaxDepth { get; init; }
 }
 
 internal sealed record CatalogEntry(
@@ -56,7 +56,7 @@ internal sealed record CatalogEntry(
     };
 }
 
-internal enum CatalogIssueKind { InvalidPath, Unavailable, ReparsePoint, InvalidManifest, InvalidManualEntry, Incomplete }
+internal enum CatalogIssueKind { InvalidPath, Unavailable, ReparsePoint, InvalidManifest, InvalidManualEntry, Incomplete, DepthLimit }
 
 internal sealed record CatalogIssue(string Location, CatalogIssueKind Kind);
 
@@ -66,4 +66,7 @@ internal sealed record CatalogResult(
 {
     public ImmutableArray<string> SteamLibraries { get; init; } = [];
     public string? EpicManifestDirectory { get; init; }
+    public bool InProgress { get; init; }
+    public bool HasMoreIssues { get; init; }
+    public bool HasUnreportedFailures { get; init; }
 }
