@@ -576,6 +576,10 @@ public partial class SettingsView : UserControl
     {
         var s = AppSettings.Current;
         BufferText.Text = RecordingPresets.DurationLabel(s.BufferSeconds);
+        ResourceSummary.Visibility = AppProfile.IsPersonal ? Visibility.Visible : Visibility.Collapsed;
+        RamText.Visibility = AppProfile.IsPersonal ? Visibility.Collapsed : Visibility.Visible;
+        ResourceVideo.Text = $"{BufferText.Text} · {s.RecordFps} FPS target · {RecordingPresets.Label(s.RecordQuality)}";
+        ResourceSize.Text = "Size estimates require a display or capture area.";
         if (SelectedArea is not { } area)
         {
             RamText.Text = BitrateText.Text = "";
@@ -587,8 +591,14 @@ public partial class SettingsView : UserControl
         int kbps = RecordingPresets.VideoKbps(s.RecordQuality, w, h, s.RecordFps, family);
         int tracks = RecordingPresets.AudioTrackCount(s);
         long ram = RecordingPresets.EstimateRamBytes(kbps, tracks, s.BufferSeconds);
-        long clip = (long)((kbps + tracks * RecordingPresets.AudioKbps) * 1000.0 / 8 * s.BufferSeconds);
+        long clip = Library.StorageInventory.EstimateBytes(kbps, tracks * RecordingPresets.AudioKbps, TimeSpan.FromSeconds(s.BufferSeconds));
         BitrateText.Text = $"≈ {kbps / 1000.0:0.#} Mbps";
+        var encoder = VideoEncoders.Find(encoderId);
+        string encoderLabel = s.RecordEncoder.Length > 0 ? encoder?.Label ?? encoderId :
+            RecordingPresets.DefaultEncoder(_encoders) is { } preferred ? $"Auto ({preferred.Label})" : "Auto";
+        ResourceVideo.Text = $"{BufferText.Text} · {w} × {h} estimated · {s.RecordFps} FPS target · " +
+            $"{RecordingPresets.Label(s.RecordQuality)} · {BitrateText.Text} video · {encoderLabel}";
+        ResourceSize.Text = $"Estimated full clip {Fmt.Size(clip)} · Replay buffer about {Fmt.Size(ram)} RAM · {tracks} audio track(s)";
         RamText.Text = $"The replay buffer needs about {Fmt.Size(ram)} of memory. A full-length clip is about {Fmt.Size(clip)} on disk.";
     }
 
