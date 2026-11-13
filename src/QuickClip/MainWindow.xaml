@@ -119,9 +119,9 @@
         <Border x:Name="StatusBar" Grid.Row="2" Grid.Column="1" Background="{DynamicResource PanelBrush}" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,1,0,0" Padding="16,7,10,7">
             <DockPanel>
                 <Button x:Name="SaveClipButton" DockPanel.Dock="Right" Style="{StaticResource SaveClipAction}" Margin="12,0,0,0"
-                        AutomationProperties.Name="Save clip" Click="SaveClip_Click">
+                        AutomationProperties.Name="Save clip" Click="SaveClip_Click" VerticalAlignment="Center">
                     <StackPanel Orientation="Horizontal">
-                        <TextBlock FontFamily="{StaticResource IconFont}" Text="&#xE74E;" VerticalAlignment="Center" Margin="0,0,7,0" />
+                        <Ellipse x:Name="SaveActionDot" Width="10" Height="10" Fill="{DynamicResource DisabledBrush}" VerticalAlignment="Center" Margin="0,0,9,0" />
                         <TextBlock x:Name="SaveClipText" Text="Save clip" />
                     </StackPanel>
                 </Button>
