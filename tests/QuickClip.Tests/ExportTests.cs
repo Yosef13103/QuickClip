@@ -139,6 +139,16 @@ public sealed class ExportTests(MediaFixture media)
     }
 
     [Fact]
+    public void Hybrid_limiter_keeps_true_peak_headroom_and_compensates_lookahead()
+    {
+        // FFmpeg alimiter defaults to level=1, which adds makeup gain back to
+        // 0 dBFS and defeats the 0.95 headroom. Disabled makeup is deliberate.
+        Assert.Contains("alimiter=limit=0.95", ExportBuilder.SafeMixFilter);
+        Assert.Contains(":level=0", ExportBuilder.SafeMixFilter);
+        Assert.Contains(":latency=1", ExportBuilder.SafeMixFilter);
+    }
+
+    [Fact]
     public async Task Hybrid_save_has_default_playable_mix_and_separately_editable_stems()
     {
         var (_, output) = await Export("hybrid-save.mp4", Containers.Mp4,
