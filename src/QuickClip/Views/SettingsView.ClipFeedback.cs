@@ -127,7 +127,7 @@ public partial class SettingsView
         DesktopStoppedNotice.IsChecked = events.DesktopStopped;
         SaveFailedNotice.IsChecked = events.Failed;
         IdleSaveNotificationCheck.IsChecked = settings.ShowInactiveSaveNotifications;
-        SetChoices(OverlayStyleCombo, [new("Compact banner", OverlayStyle.Compact), new("QuickClip badge", OverlayStyle.Badge),
+        SetChoices(OverlayStyleCombo, [new("Compact banner", OverlayStyle.Compact),
             new("Detailed banner", OverlayStyle.Detailed), new("Image only (transparent)", OverlayStyle.ImageOnly)],
             options.ImageOnly ? OverlayStyle.ImageOnly : options.Style);
         OverlayShowResolution.IsChecked = options.ShowResolution;
