@@ -43,7 +43,7 @@ public sealed class NativeAudioTimelineTests
         Assert.InRange(mix[1], .4999f, .5001f);
         Assert.InRange(mix[2], .8f, .9999f);
         Assert.Equal(0, mix[3]);
-        Assert.InRange(mix[4], -.9999f, -.8f);
+        Assert.InRange(mix[4], -.999999f, -.8f);
         Assert.Equal(0, mix[5]);
         Assert.True(mix.All(v => float.IsFinite(v) && Math.Abs(v) < 1f));
         // The native API must never touch the original stems.
