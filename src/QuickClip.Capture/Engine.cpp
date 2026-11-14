@@ -1360,6 +1360,8 @@ namespace qc
                 tracks_[i]->mixer->Take(upTo, samples);
                 int stream = static_cast<int>(i) + 1;
                 tracks_[i]->encoder.Encode(samples, [&](AVPacket* p) {
+                    if (endpointMode_ && shared_->videoOptions.diagnostics)
+                        tracks_[i]->encodedPackets.fetch_add(1, std::memory_order_relaxed);
                     shared_->PushAudio(p, stream, p->pts * 1000000 / SampleRate);
                 });
             }
@@ -1555,8 +1557,30 @@ namespace qc
 
     std::string Engine::VideoDiagnostics()
     {
-        std::lock_guard guard(shared_->statsLock);
-        return shared_->videoDescription + (shared_->videoSample.empty() ? "" : "\n" + shared_->videoSample);
+        std::string text;
+        {
+            std::lock_guard guard(shared_->statsLock);
+            text = shared_->videoDescription + (shared_->videoSample.empty() ? "" : "\n" + shared_->videoSample);
+        }
+        if (endpointMode_ && shared_->videoOptions.diagnostics)
+        {
+            text += "\nAudio capture peaks are per device stream. Mixer and encoder totals are per recording.";
+            for (size_t i = 0; i < endpointSources_.size(); ++i)
+            {
+                const auto signal = endpointSources_[i]->SignalStatus();
+                const auto& track = *tracks_[i];
+                const auto& mixer = *track.mixer;
+                text += "\nAudio lane " + std::to_string(i + 1) +
+                    ": capture peak " + std::to_string(signal.maxPeak) +
+                    ", mixer peak " + std::to_string(mixer.MaxPeak()) +
+                    ", late frames " + std::to_string(mixer.LateFrames()) +
+                    ", overlap frames " + std::to_string(mixer.OverlapFrames()) +
+                    ", ahead frames " + std::to_string(mixer.AheadFrames()) +
+                    ", nonzero blocks " + std::to_string(mixer.NonzeroBlocks()) +
+                    ", AAC packets " + std::to_string(track.encodedPackets.load(std::memory_order_relaxed));
+            }
+        }
+        return text;
     }
 
     int Engine::GetEndpointStatus(QcEndpointStatus* statuses, int capacity) const

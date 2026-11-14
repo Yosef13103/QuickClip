@@ -224,6 +224,37 @@ extern "C"
         return count >= 0 && count <= 48000 ? qc::AudioPacketPeak(samples, static_cast<size_t>(count)) : -1;
     }
 
+    // Feed synthetic 20 ms packets through the production mixer without opening an endpoint.
+    __declspec(dllexport) int qc_test_audio_timeline(const int* startsMs, const int* sources, const int* restarts,
+        int packets, int drainBeforePacket, int drainMs, float* left, int outputFrames)
+    {
+        if (!startsMs || !sources || !restarts || !left || packets <= 0 || packets > 128 ||
+            outputFrames <= 0 || outputFrames > qc::SampleRate ||
+            drainBeforePacket < 0 || drainBeforePacket > packets ||
+            drainMs < 0 || drainMs > outputFrames / (qc::SampleRate / 1000)) return 0;
+        qc::TrackMixer mixer(0, true);
+        qc::MixerSink first(mixer, qc::SampleRate), second(mixer, qc::SampleRate);
+        constexpr int frames = qc::SampleRate / 50;
+        const std::vector<float> samples(frames * qc::Channels, 0.75f);
+        std::vector<float> mixed;
+        int written = 0;
+        auto drain = [&](int until) {
+            mixer.Take(until, mixed);
+            for (size_t i = 0; i < mixed.size(); i += qc::Channels)
+                left[written++] = mixed[i];
+        };
+        for (int i = 0; i < packets; ++i)
+        {
+            if (startsMs[i] < 0 || startsMs[i] > 10000 ||
+                (sources[i] != 0 && sources[i] != 1)) return 0;
+            if (i == drainBeforePacket) drain(drainMs * (qc::SampleRate / 1000));
+            auto& sink = sources[i] == 0 ? first : second;
+            sink.Push(samples.data(), frames, 1000LL * startsMs[i], restarts[i] != 0);
+        }
+        drain(outputFrames);
+        return written;
+    }
+
     // Synthetic float fixture only. Does not open an endpoint.
     __declspec(dllexport) int qc_test_audio_levels(const float* samples, int count, float* peak, float* rms, int64_t* mixerBlocks)
     {

@@ -34,7 +34,11 @@ namespace qc
     public:
         explicit TrackMixer(int64_t t0Us, bool measureSignal = false);
 
-        struct Cursor { int64_t next = -1; };
+        struct Cursor
+        {
+            int64_t next = -1; // expected start used for timestamp jitter
+            int64_t writtenThrough = 0; // exclusive end of this source's last contribution
+        };
 
         /// Adds interleaved stereo float frames captured at timeUs (null data = silence).
         void Add(Cursor& cursor, const float* data, uint32_t frames, int64_t timeUs);
@@ -45,6 +49,10 @@ namespace qc
         /// Sample index up to which audio has been handed to the encoder.
         int64_t Position() const { return base_; }
         int64_t NonzeroBlocks() const { return nonzeroBlocks_.load(std::memory_order_relaxed); }
+        int64_t LateFrames() const { return lateFrames_.load(std::memory_order_relaxed); }
+        int64_t OverlapFrames() const { return overlapFrames_.load(std::memory_order_relaxed); }
+        int64_t AheadFrames() const { return aheadFrames_.load(std::memory_order_relaxed); }
+        float MaxPeak() const { return maxPeak_.load(std::memory_order_relaxed); }
 
     private:
         static constexpr int64_t Capacity = SampleRate * 4; // frames
@@ -52,6 +60,8 @@ namespace qc
         std::vector<float> ring_;
         std::atomic<int64_t> base_{ 0 };
         std::atomic<int64_t> nonzeroBlocks_{ 0 };
+        std::atomic<int64_t> lateFrames_{ 0 }, overlapFrames_{ 0 }, aheadFrames_{ 0 };
+        std::atomic<float> maxPeak_{ 0 };
         bool measureSignal_;
         int64_t t0Us_;
     };

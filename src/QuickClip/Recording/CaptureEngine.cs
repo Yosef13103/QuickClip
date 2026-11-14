@@ -295,7 +295,7 @@ internal static partial class CaptureEngine
 
     public static string VideoDiagnostics()
     {
-        var text = new char[2048];
+        var text = new char[8192];
         qc_video_diagnostics(text, text.Length);
         return new string(text).TrimEnd('\0');
     }

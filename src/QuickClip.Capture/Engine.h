@@ -214,6 +214,7 @@ namespace qc
             std::string title;
             std::unique_ptr<TrackMixer> mixer;
             AudioEncoder encoder;
+            std::atomic<int64_t> encodedPackets{ 0 };
         };
         std::vector<std::unique_ptr<Track>> tracks_;
         int chatTrack_ = -1, musicTrack_ = -1;
