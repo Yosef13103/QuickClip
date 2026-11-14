@@ -56,7 +56,7 @@ internal static class ExportBuilder
     // We deliberately do not normalize by the number of streams: silent streams
     // must not make a user's voice unreasonably quiet.
     internal const string SafeMixFilter =
-        "amix=inputs={0}:normalize=0:duration=longest:dropout_transition=0,alimiter=limit=0.95:attack=5:release=100";
+        "amix=inputs={0}:normalize=0:duration=longest:dropout_transition=0,alimiter=limit=0.95:attack=5:release=100:level=0:latency=1";
 
     public static List<string> BuildArgs(ExportRequest r)
     {
