@@ -20,7 +20,7 @@ public partial class GamesSettingsView : UserControl
     private GameCatalogSettings? _renderedState;
     private List<GameRow> _rows = [];
     private ListCollectionView? _gamesView;
-    private int _retainedCount, _offlineCount;
+    private int _manualCount, _retainedCount, _offlineCount;
     private GameRow? _expanded;
     private string _query = "";
     private static GameCatalogSettings State => AppSettings.Current.Games ?? new();
@@ -411,8 +411,9 @@ public partial class GamesSettingsView : UserControl
         var offline = state.OfflineIds.ToHashSet(StringComparer.Ordinal);
         var catalog = new GameCatalogIndex(new(entries, [], 0, false, default), state.BlockedExecutables);
         var retained = state.RetainedIds.ToHashSet(StringComparer.Ordinal);
-        _retainedCount = entries.Count(entry => retained.Contains(entry.Id));
-        _offlineCount = entries.Count(entry => offline.Contains(entry.Id));
+        _manualCount = entries.Count(entry => entry.Source == CatalogSource.Manual);
+        _retainedCount = entries.Count(entry => entry.Source != CatalogSource.Manual && retained.Contains(entry.Id));
+        _offlineCount = entries.Count(entry => entry.Source != CatalogSource.Manual && offline.Contains(entry.Id));
         var existing = _rows.ToDictionary(row => row.Entry.Id, StringComparer.Ordinal);
         var rows = new List<GameRow>(entries.Length);
         bool refilter = false;
@@ -445,10 +446,10 @@ public partial class GamesSettingsView : UserControl
     {
         if (Count != null && _gamesView != null)
         {
-            Count.Text = $"Catalog · {_rows.Count:N0} entries"
-                + (_query.Length == 0 ? "" : $" · {_gamesView.Count:N0} shown")
-                + (_retainedCount == 0 ? "" : $" · {_retainedCount:N0} retained")
-                + (_offlineCount == 0 ? "" : $" · {_offlineCount:N0} awaiting verification");
+            Count.Text = $"Catalog · {_rows.Count:N0} entries · {_rows.Count - _manualCount:N0} discovered · {_manualCount:N0} manual"
+                + (_query.Length == 0 ? "" : $" · {_gamesView.Count:N0} shown");
+            DiscoveryCountDetail.Text = $"Of discovered entries · {_retainedCount:N0} retained · {_offlineCount:N0} awaiting verification";
+            DiscoveryCountDetail.Visibility = _retainedCount + _offlineCount > 0 ? Visibility.Visible : Visibility.Collapsed;
         }
     }
 

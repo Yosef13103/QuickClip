@@ -72,4 +72,5 @@ internal sealed record CatalogResult(
     public bool InProgress { get; init; }
     public bool HasMoreIssues { get; init; }
     public bool HasUnreportedFailures { get; init; }
+    public int CandidateExecutablesVisited { get; init; }
 }

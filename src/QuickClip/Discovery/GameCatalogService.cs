@@ -79,7 +79,7 @@ internal static class GameCatalogService
         private readonly HashSet<string> _steamRoots = new(Paths);
         private bool _initialized;
         private string? _epicManifestDirectory;
-        private int _visited, _manifestBytes, _batch, _reportedGames = -1, _relevantSteps;
+        private int _visited, _candidateExecutablesVisited, _manifestBytes, _batch, _reportedGames = -1, _relevantSteps;
         private bool _limitReached, _hasMoreIssues, _hasUnreportedFailures;
         private CatalogResult? _lastResult;
         private long _lastSnapshotAt;
@@ -160,7 +160,7 @@ internal static class GameCatalogService
                 Stopwatch.GetElapsedTime(_lastSnapshotAt) < TimeSpan.FromSeconds(1))
             {
                 HasCatalogChanges = false;
-                return prior with { VisitedEntries = _visited };
+                return prior with { VisitedEntries = _visited, CandidateExecutablesVisited = _candidateExecutablesVisited };
             }
             return Snapshot(pending);
         }
@@ -196,6 +196,7 @@ internal static class GameCatalogService
                 InProgress = pending,
                 HasMoreIssues = _hasMoreIssues,
                 HasUnreportedFailures = _hasUnreportedFailures,
+                CandidateExecutablesVisited = _candidateExecutablesVisited,
             };
             HasCatalogChanges = _lastResult == null || !_lastResult.Entries.SequenceEqual(entries) ||
                 !_lastResult.Issues.SequenceEqual(result.Issues) || _lastResult.HasMoreIssues != _hasMoreIssues ||
@@ -728,6 +729,9 @@ internal static class GameCatalogService
                     yield return null;
                     continue;
                 }
+                // Count real candidate visits, excluding the collection's shallow classification pass.
+                if (count && manifestName == null && !isDirectory && IsRendererCandidate(path))
+                    _candidateExecutablesVisited++;
                 yield return new DirectoryEntry(path, isDirectory);
             }
         }

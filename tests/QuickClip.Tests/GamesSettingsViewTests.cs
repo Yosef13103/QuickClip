@@ -117,6 +117,32 @@ public sealed class GamesSettingsViewTests
         Assert.NotNull(GamesSettingsView.ValidateManualGameExecutables([@"C:\Apps\not-video.txt"]));
     }
 
+    [Fact]
+    public Task Catalog_totals_distinguish_manual_rows_and_overlapping_discovery_subsets() => OnSta(() =>
+    {
+        const string root = @"C:\Discovered";
+        var current = new CatalogEntry("folder:current", "Current", CatalogSource.Folder,
+            [root], [root + @"\Current.exe"], new());
+        var retained = current with { Id = "folder:retained", Name = "Retained", Executables = [root + @"\Retained.exe"] };
+        var state = Fixture(1);
+        state = state with
+        {
+            Request = state.Request with { GameRoots = [new(root)] },
+            Snapshot = new([current, retained], [], 12, true, default),
+            DiscoveredCount = 1,
+            RetainedIds = [retained.Id, "folder:missing"],
+            OfflineIds = [retained.Id],
+        };
+        var page = new GamesSettingsView();
+        page.RenderRows(state);
+
+        Assert.Equal("Catalog · 3 entries · 2 discovered · 1 manual", page.Count.Text);
+        Assert.Equal("Of discovered entries · 1 retained · 1 awaiting verification", page.DiscoveryCountDetail.Text);
+        page.Search.Text = "Retained";
+        Assert.EndsWith(" · 1 shown", page.Count.Text);
+        Assert.Single(page.Games.Items);
+    });
+
     private static GameCatalogSettings Fixture(int count) => new()
     {
         Request = new()
