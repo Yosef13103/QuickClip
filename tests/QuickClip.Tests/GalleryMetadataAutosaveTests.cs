@@ -57,6 +57,13 @@ public sealed class GalleryMetadataAutosaveTests
                     Assert.Equal(0, manuallySaved);
                     Assert.False(editor.HasDraft);
 
+                    // Save now remains useful as an explicit "done" button even
+                    // after the draft was already persisted by autosave.
+                    Assert.IsType<Button>(editor.FindName("SaveButton"))
+                        .RaiseEvent(new System.Windows.RoutedEventArgs(Button.ClickEvent));
+                    Assert.Equal(1, manuallySaved);
+                    Assert.Single(actions.Drafts);
+
                     game.Text = "";
                     await Task.Delay(1150);
                     Assert.Equal(2, actions.Drafts.Count);
