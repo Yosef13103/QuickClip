@@ -117,11 +117,11 @@
         <!-- Video -->
         <Border Grid.Row="1" Grid.Column="0" Background="{DynamicResource BackgroundBrush}">
             <Grid>
-                <controls:VideoHost x:Name="Video" Visibility="Hidden" />
+                <controls:VideoHost x:Name="Video" />
                 <!-- WPF-owned placeholder: mpv keeps its native last-frame surface alive while idle,
                      so a cleared/deleted source must not expose that stale frame. -->
                 <TextBlock x:Name="EmptySourceHint" Text="Open a video or drop it here"
-                           Foreground="{DynamicResource SubtleText}" TextWrapping="Wrap"
+                           Visibility="Collapsed" Foreground="{DynamicResource SubtleText}" TextWrapping="Wrap"
                            HorizontalAlignment="Center" VerticalAlignment="Center" Margin="16"
                            AutomationProperties.LiveSetting="Polite" />
                 <StackPanel x:Name="UnavailableSource" Visibility="Collapsed" MaxWidth="460"
