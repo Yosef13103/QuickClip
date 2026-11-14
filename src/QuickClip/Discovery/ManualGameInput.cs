@@ -7,6 +7,12 @@ namespace QuickClip.Discovery;
 
 internal static class ManualGameInput
 {
+    private static readonly HashSet<string> GenericProductNames = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "Unreal Engine", "UnrealGame", "UE4Game", "BootstrapPackagedGame", "Unity",
+        "Microsoft® Windows® Operating System", "Microsoft Windows Operating System",
+    };
+
     internal sealed record Selection(string Executable, string? Shortcut);
 
     public static Selection Read(string input)
@@ -102,12 +108,17 @@ internal static class ManualGameInput
         try
         {
             var info = FileVersionInfo.GetVersionInfo(path);
-            foreach (var value in new[] { info.ProductName, info.FileDescription })
-                if (!string.IsNullOrWhiteSpace(value) && value.Length <= 120 &&
-                    value is not ("Unreal Engine" or "Unity" or "UnrealGame"))
-                    return value.Trim();
+            return FriendlyName(path, info.ProductName, info.FileDescription);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
+        return FriendlyName(path, null, null);
+    }
+
+    internal static string FriendlyName(string path, string? productName, string? fileDescription)
+    {
+        foreach (var value in new[] { productName?.Trim(), fileDescription?.Trim() })
+            if (value is { Length: > 0 and <= 120 } && !GenericProductNames.Contains(value))
+                return value;
         return Path.GetFileNameWithoutExtension(path).Replace('_', ' ');
     }
 
