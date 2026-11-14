@@ -46,15 +46,27 @@ namespace qc
         if (!data) return;
 
         std::lock_guard guard(lock_);
-        for (uint32_t i = 0; i < frames; i++)
+        const int64_t base = base_.load(std::memory_order_relaxed);
+        const int64_t end = cursor.next;
+        const int64_t inTime = std::clamp(base, pos, end);
+        const int64_t start = std::clamp(cursor.writtenThrough, inTime, end);
+        const int64_t finish = std::clamp(base + Capacity, start, end);
+        if (measureSignal_)
         {
-            int64_t index = pos + i;
-            if (index < base_) continue;                // arrived after that block was encoded
-            if (index >= base_ + Capacity) break;       // impossibly far ahead
-            size_t slot = static_cast<size_t>(index % Capacity) * Channels;
-            ring_[slot] += data[i * 2];
-            ring_[slot + 1] += data[i * 2 + 1];
+            lateFrames_.fetch_add(inTime - pos, std::memory_order_relaxed);
+            overlapFrames_.fetch_add(start - inTime, std::memory_order_relaxed);
+            aheadFrames_.fetch_add(end - finish, std::memory_order_relaxed);
         }
+        // A clock correction may move this source backward. Preserve its earlier contribution while
+        // still allowing other sources with independent cursors to mix at the same frame.
+        for (int64_t index = start; index < finish; ++index)
+        {
+            size_t sample = static_cast<size_t>(index - pos) * Channels;
+            size_t slot = static_cast<size_t>(index % Capacity) * Channels;
+            ring_[slot] += data[sample];
+            ring_[slot + 1] += data[sample + 1];
+        }
+        if (finish > start) cursor.writtenThrough = finish;
     }
 
     void TrackMixer::Take(int64_t upTo, std::vector<float>& out)
@@ -73,8 +85,13 @@ namespace qc
         }
         base_ = upTo;
         guard.unlock();
-        if (measureSignal_ && AudioPacketPeak(out.data(), out.size()) > 0)
-            nonzeroBlocks_.fetch_add(1, std::memory_order_relaxed);
+        if (measureSignal_)
+        {
+            const float peak = AudioPacketPeak(out.data(), out.size());
+            if (peak > 0) nonzeroBlocks_.fetch_add(1, std::memory_order_relaxed);
+            if (peak > maxPeak_.load(std::memory_order_relaxed))
+                maxPeak_.store(peak, std::memory_order_relaxed);
+        }
     }
 
     // ---------------------------------------------------------------------------------------------
@@ -97,7 +114,7 @@ namespace qc
 
     void MixerSink::Push(const float* data, uint32_t frames, int64_t timeUs, bool restart)
     {
-        if (restart) cursor_ = {};
+        if (restart) cursor_.next = -1;
         if (rate_ == SampleRate)
         {
             mixer_.Add(cursor_, data, frames, timeUs);
