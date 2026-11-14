@@ -9,6 +9,33 @@ internal static class EditorSource
     internal static bool Matches(string current, IEnumerable<string> paths) =>
         paths.Any(path => string.Equals(current, path, StringComparison.OrdinalIgnoreCase));
 
+    /// <summary>
+    /// mpv can report a normalized path or file URI while Gallery reports a Windows path.
+    /// A delayed FileLoaded event must not reveal a *different* deleted/previous recording.
+    /// </summary>
+    internal static bool MatchesLoadedPreview(string? playerPath, string? requestedPath)
+    {
+        if (string.IsNullOrWhiteSpace(playerPath) || string.IsNullOrWhiteSpace(requestedPath))
+            return false;
+        try
+        {
+            if (Uri.TryCreate(playerPath, UriKind.Absolute, out var uri) && uri.IsFile)
+                playerPath = uri.LocalPath;
+            return string.Equals(Path.GetFullPath(playerPath), Path.GetFullPath(requestedPath),
+                StringComparison.OrdinalIgnoreCase);
+        }
+        catch (Exception ex) when (ex is ArgumentException or NotSupportedException or UriFormatException)
+        {
+            return false;
+        }
+    }
+
+    /// <summary>Only an exposed, active mpv preview can receive a native repaint on restore.</summary>
+    internal static bool ShouldRepaintNativePreview(
+        bool windowVisible, bool windowMinimized, bool editorVisible,
+        bool sourceReady, bool previewLoaded, bool hasMedia) =>
+        windowVisible && !windowMinimized && editorVisible && sourceReady && previewLoaded && hasMedia;
+
     internal static EditorSourceState Check(string path, FileStamp? expected, out FileStamp stamp)
     {
         stamp = default;

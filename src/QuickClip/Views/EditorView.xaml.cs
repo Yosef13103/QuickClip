@@ -115,6 +115,13 @@ public partial class EditorView : UserControl
     /// <summary>Opens a file now, or as soon as the player is ready.</summary>
     public async Task OpenAsync(string path)
     {
+        // Gallery may request a different clip while the previous probe or a confirmed
+        // Recycle Bin deletion is still running. Never silently drop the newer request.
+        if (_loading || _deletingMedia)
+        {
+            _pendingFile = path;
+            return;
+        }
         if (string.Equals(CurrentFile, Path.GetFullPath(path), StringComparison.OrdinalIgnoreCase))
         {
             await RefreshSourceAsync();
@@ -133,6 +140,13 @@ public partial class EditorView : UserControl
             return;
         }
         if (CanOpenAnother()) await OpenFileAsync(path);
+    }
+
+    private async Task OpenPendingFileAsync()
+    {
+        if (_loading || _deletingMedia || !_uiReady || _closed || _pendingFile is not { } next) return;
+        _pendingFile = null;
+        await OpenAsync(next);
     }
 
     /// <summary>Gives keyboard focus to the editor so its shortcuts work.</summary>
@@ -163,6 +177,8 @@ public partial class EditorView : UserControl
             _stalePreviews.AddRange(_tracks.Select(t => t.PreviewFile).OfType<string>());
             DeleteStalePreviews();
             _tracks.Clear();
+            ClearNativePreview();
+            MetadataEditor.Clear();
             _media = null;
             _sourceStamp = null;
             SetSourceState(EditorSourceState.Ready);
@@ -188,6 +204,7 @@ public partial class EditorView : UserControl
         {
             _deletingMedia = false;
             DeleteMediaButton.IsEnabled = _media != null && _exportCts == null;
+            await OpenPendingFileAsync();
         }
     }
 
@@ -369,7 +386,11 @@ public partial class EditorView : UserControl
         IsVisibleChanged += async (_, _) =>
         {
             if (!IsVisible) _player?.SetProperty("pause", true);
-            else await RefreshSourceAsync();
+            else
+            {
+                await RefreshSourceAsync();
+                QueueNativePreviewRepaint();
+            }
         };
 
         foreach (var combo in new[] { AspectCombo, FormatCombo, EncoderCombo, QualityCombo, ResolutionCombo, FpsCombo, AudioBitrateCombo })
@@ -400,7 +421,11 @@ public partial class EditorView : UserControl
         }
         _childWindowTimer.Start();
         AttachSourceEvents();
-        ShowMessage("Open a video or drop it here");
+        // VideoHost.Created only completes when the host is first presented.
+        // Once libmpv is initialized with that real HWND, hide the idle native
+        // surface and show the WPF-owned placeholder until a verified FileLoaded.
+        Video.Visibility = Visibility.Hidden;
+        EmptySourceHint.Visibility = Visibility.Visible;
         _ = Task.Run(() => DeletePreviews(olderThan: TimeSpan.FromDays(1)));
 
         // Personal clips start with looping off; looping is an explicit per-editor choice.
@@ -548,7 +573,11 @@ public partial class EditorView : UserControl
 
     private async Task OpenFileAsync(string path)
     {
-        if (_loading) return;
+        if (_loading || _deletingMedia)
+        {
+            _pendingFile = path;
+            return;
+        }
         if (!string.Equals(CurrentFile, Path.GetFullPath(path), StringComparison.OrdinalIgnoreCase) && !ConfirmDiscardDraft()) return;
         _loading = true;
         try
@@ -578,13 +607,16 @@ public partial class EditorView : UserControl
                 Mouse.OverrideCursor = null;
             }
 
-            _waveCts?.Cancel();
+            StopSourcePreview();
             bool differentClip = !string.Equals(_media?.Path, path, StringComparison.OrdinalIgnoreCase);
+            _previewReady = false;
+            EmptySourceHint.Text = "Loading preview…";
+            EmptySourceHint.Visibility = Visibility.Visible;
             _media = info;
             _sourceStamp = stamp;
             _sourceState = EditorSourceState.Ready;
             _sourceSuspended = false;
-            Video.Visibility = Visibility.Visible;
+            Video.Visibility = Visibility.Hidden;
             UnavailableSource.Visibility = MissingSourceOverlay.Visibility = Visibility.Collapsed;
             SetRecoveryInteraction(false);
             if (differentClip && (_viewMode || _fullscreen))
@@ -668,6 +700,7 @@ public partial class EditorView : UserControl
         {
             _loading = false;
             if (_sourceSuspended && !ClipDeletion.Current.Busy) await RefreshSourceAsync();
+            await OpenPendingFileAsync();
         }
     }
 
@@ -871,6 +904,10 @@ public partial class EditorView : UserControl
     private void ReloadPreview()
     {
         if (_player == null || _media == null || !SourceReady) return;
+        _previewReady = false;
+        Video.Visibility = Visibility.Hidden;
+        EmptySourceHint.Text = "Loading preview…";
+        EmptySourceHint.Visibility = Visibility.Visible;
         var sounds = _tracks.Where(t => t.IsSound && t.PreviewFile != null).Select(t => t.PreviewFile!);
         double position = _timeline.Position;
         _player.Command("stop"); // the new track setup only fits the reloaded file
@@ -1053,6 +1090,14 @@ public partial class EditorView : UserControl
             switch (id)
             {
                 case MpvEventId.FileLoaded:
+                    // An older async loadfile can finish after the user has chosen a newer clip,
+                    // especially while the system is busy. Never reveal that stale mpv frame.
+                    if (_closed || !SourceReady || _media == null ||
+                        !EditorSource.MatchesLoadedPreview(_player?.GetString("path"), _media.Path))
+                        break;
+                    _previewReady = true;
+                    Video.Visibility = Visibility.Visible;
+                    EmptySourceHint.Visibility = Visibility.Collapsed;
                     Video.DisableChildWindows();
                     DeleteStalePreviews();
                     ApplyPreviewVolumes();

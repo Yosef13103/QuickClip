@@ -44,6 +44,29 @@ public sealed class VideoHost : HwndHost
 
     protected override void DestroyWindowCore(HandleRef hwnd) => DestroyWindow(hwnd.Handle);
 
+    /// <summary>
+    /// Re-syncs the native child with WPF after the main window returns from minimized/hidden.
+    /// A HwndHost can retain a stale composited surface even though libmpv is still decoding
+    /// (dragging the top-level window forces the Win32 child to redraw).
+    /// Keep the same HWND and mpv decoder: do not seek or reload the user's clip.
+    /// </summary>
+    public void RefreshAfterRestore()
+    {
+        if (Hwnd == IntPtr.Zero || !IsVisible || !IsWindow(Hwnd)) return;
+
+        // HwndHost knows the current WPF coordinates, clipping and DPI mapping.
+        // This forces a native layout sync even if the WPF element did not resize.
+        UpdateWindowPos();
+
+        // Re-issue a non-size-changing window-position notification to the host;
+        // mpv has its own HWND below it, which needs fresh DWM composition.
+        SetWindowPos(Hwnd, IntPtr.Zero, 0, 0, 0, 0,
+            SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED);
+        RedrawWindow(Hwnd, IntPtr.Zero, IntPtr.Zero,
+            RDW_INVALIDATE | RDW_ALLCHILDREN | RDW_UPDATENOW);
+        DisableChildWindows();
+    }
+
     /// <summary>Disables mpv's child window(s) so their mouse input reaches us.</summary>
     public void DisableChildWindows()
     {
@@ -126,6 +149,9 @@ public sealed class VideoHost : HwndHost
     public const int IDC_ARROW = 32512, IDC_CROSS = 32515, IDC_SIZENWSE = 32642, IDC_SIZENESW = 32643,
         IDC_SIZEWE = 32644, IDC_SIZENS = 32645, IDC_SIZEALL = 32646, IDC_HAND = 32649;
 
+    private const uint SWP_NOSIZE = 0x0001, SWP_NOMOVE = 0x0002, SWP_NOZORDER = 0x0004,
+        SWP_NOACTIVATE = 0x0010, SWP_FRAMECHANGED = 0x0020;
+    private const uint RDW_INVALIDATE = 0x0001, RDW_UPDATENOW = 0x0100, RDW_ALLCHILDREN = 0x0080;
     private const int WS_CHILD = 0x40000000, WS_VISIBLE = 0x10000000, WS_CLIPCHILDREN = 0x02000000, WS_CLIPSIBLINGS = 0x04000000;
     private const int BLACK_BRUSH = 4;
     private const int WM_SETCURSOR = 0x0020, WM_ERASEBKGND = 0x0014, WM_MOUSEMOVE = 0x0200, WM_LBUTTONDOWN = 0x0201,
@@ -164,6 +190,11 @@ public sealed class VideoHost : HwndHost
     [DllImport("user32.dll", CharSet = CharSet.Unicode)]
     private static extern IntPtr DefWindowProc(IntPtr hwnd, uint msg, IntPtr wParam, IntPtr lParam);
 
+    [DllImport("user32.dll")] private static extern bool IsWindow(IntPtr hwnd);
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern bool SetWindowPos(IntPtr hwnd, IntPtr insertAfter, int x, int y, int width, int height, uint flags);
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern bool RedrawWindow(IntPtr hwnd, IntPtr updateRect, IntPtr updateRegion, uint flags);
     [DllImport("user32.dll")] private static extern bool DestroyWindow(IntPtr hwnd);
     [DllImport("user32.dll")] private static extern bool EnumChildWindows(IntPtr parent, EnumWindowsProc callback, IntPtr lParam);
     [DllImport("user32.dll")] private static extern bool EnableWindow(IntPtr hwnd, bool enable);

@@ -1,4 +1,5 @@
 using System.Windows;
+using System.Windows.Threading;
 using QuickClip.Gallery;
 using QuickClip.Library;
 using QuickClip.Media;
@@ -10,6 +11,8 @@ public partial class EditorView
     private FileStamp? _sourceStamp;
     private EditorSourceState _sourceState;
     private bool _sourceSuspended, _recheckingSource, _replacingSource;
+    private bool _previewReady;
+    private bool _restoreRepaintQueued;
     private Window? _sourceWindow;
     private bool SourceReady => _sourceState == EditorSourceState.Ready && !_sourceSuspended;
 
@@ -18,14 +21,24 @@ public partial class EditorView
         ClipDeletion.Current.Releasing += OnSourceReleasing;
         ClipDeletion.Current.Changed += OnSourceDeletionChanged;
         _sourceWindow = Window.GetWindow(this);
-        if (_sourceWindow != null) _sourceWindow.Activated += OnSourceWindowActivated;
+        if (_sourceWindow != null)
+        {
+            _sourceWindow.Activated += OnSourceWindowActivated;
+            _sourceWindow.StateChanged += OnSourceWindowStateChanged;
+            _sourceWindow.IsVisibleChanged += OnSourceWindowVisibilityChanged;
+        }
     }
 
     private void DetachSourceEvents()
     {
         ClipDeletion.Current.Releasing -= OnSourceReleasing;
         ClipDeletion.Current.Changed -= OnSourceDeletionChanged;
-        if (_sourceWindow != null) _sourceWindow.Activated -= OnSourceWindowActivated;
+        if (_sourceWindow != null)
+        {
+            _sourceWindow.Activated -= OnSourceWindowActivated;
+            _sourceWindow.StateChanged -= OnSourceWindowStateChanged;
+            _sourceWindow.IsVisibleChanged -= OnSourceWindowVisibilityChanged;
+        }
     }
 
     private void OnSourceReleasing(IReadOnlyList<string> paths)
@@ -41,6 +54,40 @@ public partial class EditorView
     private async void OnSourceWindowActivated(object? sender, EventArgs e)
     {
         if (IsVisible) await RefreshSourceAsync();
+        QueueNativePreviewRepaint();
+    }
+
+    private void OnSourceWindowStateChanged(object? sender, EventArgs e)
+    {
+        if (_sourceWindow?.WindowState != WindowState.Minimized)
+            QueueNativePreviewRepaint();
+    }
+
+    private void OnSourceWindowVisibilityChanged(object? sender, DependencyPropertyChangedEventArgs e)
+    {
+        if (e.NewValue is true) QueueNativePreviewRepaint();
+    }
+
+    /// <summary>
+    /// WPF restores the chrome before the HwndHost child is positioned/composited.
+    /// Coalesce tray, taskbar and activation events and repaint only after layout has settled.
+    /// Never unload/reopen media or change the paused state or playhead.
+    /// </summary>
+    private void QueueNativePreviewRepaint()
+    {
+        if (_restoreRepaintQueued || _closed || _sourceWindow is not { IsVisible: true } window ||
+            window.WindowState == WindowState.Minimized) return;
+        _restoreRepaintQueued = true;
+        Dispatcher.BeginInvoke(new Action(() =>
+            Dispatcher.BeginInvoke(new Action(() =>
+            {
+                _restoreRepaintQueued = false;
+                if (EditorSource.ShouldRepaintNativePreview(
+                    _sourceWindow?.IsVisible == true,
+                    _sourceWindow?.WindowState == WindowState.Minimized,
+                    IsVisible, SourceReady, _previewReady, _media != null))
+                    Video.RefreshAfterRestore();
+            }), DispatcherPriority.Background)), DispatcherPriority.Loaded);
     }
 
     private void StopSourcePreview()
@@ -51,7 +98,20 @@ public partial class EditorView
         _soundPreviewTimer.Stop();
         _audioSyncTimer.Stop();
         _paused = true;
+        _previewReady = false;
+        // libmpv can retain the last rendered frame while idle. Hide its HWND until
+        // a FileLoaded event verifies that the requested current clip is playing.
+        Video.Visibility = Visibility.Hidden;
         _player?.Command("stop");
+    }
+
+    private void ClearNativePreview()
+    {
+        StopSourcePreview();
+        _player?.Command("playlist-clear");
+        _player?.SetList("audio-files", []);
+        EmptySourceHint.Text = "Open a video or drop it here";
+        EmptySourceHint.Visibility = Visibility.Visible;
     }
 
     private void SetSourceState(EditorSourceState state)
@@ -76,7 +136,13 @@ public partial class EditorView
             MissingSourceOverlayMessage.Text = EditorSource.Message(state) +
                 "\n\nClear editor closes this clip without deleting any recording.";
         }
-        Video.Visibility = ready ? Visibility.Visible : Visibility.Hidden;
+        Video.Visibility = ready && _media != null && _previewReady
+            ? Visibility.Visible : Visibility.Hidden;
+        EmptySourceHint.Visibility = ready
+            ? _previewReady && _media != null ? Visibility.Collapsed : Visibility.Visible
+            : Visibility.Collapsed;
+        if (ready && _media == null)
+            EmptySourceHint.Text = "Open a video or drop it here";
         UnavailableSource.Visibility = ready || showBlockingPrompt ? Visibility.Collapsed : Visibility.Visible;
         Timeline.HasMedia = ready && _media != null;
         UpdateUiState();
@@ -109,7 +175,7 @@ public partial class EditorView
         if (!ConfirmDiscardDraft()) return;
 
         // Forget the unavailable source in this editor only. Never delete media or Gallery entries.
-        StopSourcePreview();
+        ClearNativePreview();
         _keyframeCts?.Cancel();
         _stalePreviews.AddRange(_tracks.Select(t => t.PreviewFile).OfType<string>());
         foreach (var track in _tracks)
@@ -131,7 +197,8 @@ public partial class EditorView
 
         MissingSourceOverlay.Visibility = UnavailableSource.Visibility = Visibility.Collapsed;
         SetRecoveryInteraction(false);
-        Video.Visibility = Visibility.Visible;
+        Video.Visibility = Visibility.Hidden;
+        EmptySourceHint.Visibility = Visibility.Visible;
         RevealButton.Visibility = UndoButton.Visibility = Visibility.Collapsed;
         StatusText.Text = "";
         FileTitle = null;
@@ -148,7 +215,6 @@ public partial class EditorView
         UpdateTrackHeader();
         UpdateUiState();
         UpdateViewSeek();
-        ShowMessage("Open a video or drop it here");
         TitleChanged?.Invoke();
         Root.Focus();
     }
