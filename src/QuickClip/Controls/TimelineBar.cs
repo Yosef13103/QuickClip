@@ -228,7 +228,7 @@ public sealed class TimelineBar : FrameworkElement
             if (mark.Seconds >= state.Duration || mark.Seconds < state.ViewStart || mark.Seconds > state.ViewEnd) continue;
             double x = BookmarkX(state, mark, ActualWidth);
             double delta = Math.Abs(x - position.X);
-            if (delta > distance) continue;
+            if (!WithinBookmarkHitTarget(delta, position.Y) || delta > distance) continue;
             distance = delta;
             nearest = mark;
         }
