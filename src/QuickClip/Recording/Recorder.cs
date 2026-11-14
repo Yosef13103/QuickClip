@@ -27,6 +27,7 @@ internal sealed class Recorder
     private int _replayBufferSeconds;
     private ImmutableArray<EndpointTrack> _runningEndpointPlan = [];
     private readonly GameDetector _games = new();
+    private readonly ForegroundGameHandoff _gameHandoff = new();
     private Timer? _poll;
     private int _pollGeneration;
     private readonly RecordingLifecycle _lifecycle;
@@ -194,6 +195,7 @@ internal sealed class Recorder
                 _manualAuthorized.Add(requested);
             }
             _manualDisplay = requested;
+            _gameHandoff.Reset();
             ReconcilePersonal();
         }
         StateChanged?.Invoke(State);
@@ -222,9 +224,21 @@ internal sealed class Recorder
     private void ReconcilePersonal()
     {
         var s = AppSettings.Current;
-        _observedGame = s.RecordingEnabled
-            ? _games.ObserveEligibleGame(_observedGame, preferRetained: true)
-            : null;
+        IReadOnlyList<MonitorInfo>? displays = null;
+        IReadOnlyList<MonitorInfo> Displays() => displays ??= Monitors.List();
+        bool AllowsDisplay(string identity) => CaptureSourcePolicy.AllowsGameDisplay(s, identity);
+        string? AuthorizedDisplay(GameCaptureObservation game) =>
+            CaptureSourcePolicy.ResolveGameDisplay(game, Displays(), Monitors.ForWindow)?.CaptureIdentity is { } identity &&
+                AllowsDisplay(identity) ? identity : null;
+
+        if (s.RecordingEnabled)
+            _observedGame = _games.ObserveEligibleGame(_observedGame, (retained, foreground) =>
+                _gameHandoff.PreferForeground(retained, foreground, AuthorizedDisplay));
+        else
+        {
+            _observedGame = null;
+            _gameHandoff.Reset();
+        }
 
         if (_manualDisplay != null && !ManualDesktopRequested)
         {
@@ -236,9 +250,9 @@ internal sealed class Recorder
             _lifecycle.FailActive("The display capture was interrupted. QuickClip will retry.");
         else if (IsRunning && Environment.TickCount64 - _captureStartedAt >= 15_000 && CaptureEngine.HasVideoOutput())
             _lifecycle.MarkHealthy();
-        var displays = s.RecordingEnabled && (_observedGame != null || _manualDisplay != null) ? Monitors.List() : [];
-        _lifecycle.Reconcile(s.RecordingEnabled, _manualDisplay, _observedGame, displays,
-            Monitors.ForWindow, identity => CaptureSourcePolicy.AllowsGameDisplay(s, identity));
+        _lifecycle.Reconcile(s.RecordingEnabled, _manualDisplay, _observedGame,
+            s.RecordingEnabled && (_observedGame != null || _manualDisplay != null) ? Displays() : [],
+            Monitors.ForWindow, AllowsDisplay);
         Error = _lifecycle.Error;
 
     }
@@ -368,6 +382,7 @@ internal sealed class Recorder
         ++_pollGeneration;
         _poll?.Dispose();
         _poll = null;
+        _gameHandoff.Reset();
         if (AppProfile.IsPersonal) _lifecycle.Reset(forgetGame);
         else StopGraph();
     }
