@@ -1,175 +1,135 @@
-# QuickClip
+# QuickClip Personal
 
-A lightweight instant-replay clipper and clip editor for Windows. QuickClip keeps the last few minutes of your
-screen in memory, saves them as a clip when you press a hotkey, files each clip under the game you were playing,
-and lets you trim, crop and remix the audio tracks before sharing.
+**Automatic game clipping, with editable audio and clips that just play.**
 
-## Recording
+QuickClip Personal is a Windows instant-replay recorder, clip library and video editor. It waits for an **approved game**, keeps a rolling video buffer in memory, and saves the last moments of gameplay when you press a hotkey. The result is ready to watch, trim, remix or share.
 
-- **Instant replay** from 10 seconds up to 5 minutes, held in RAM (Settings shows how much memory that takes).
-  Nothing is written to disk until you save a clip.
-- **Any monitor**, including virtual displays (DesktopSplitter, Duet, …), or just its 16:9 (21:9, 16:10, 4:3) center,
-  like the middle of an ultrawide. The capture itself crops, so it costs nothing extra.
-- **Prefer game window capture**: while a game is running, QuickClip records just its window (still when you tab
-  out, until it closes), so notifications and overlay windows on top of it (Discord, Game Bar, AMD, NVIDIA) aren't in
-  the clip; the monitor otherwise. Overlays a game draws into its own picture, like Steam's, can't be left out. The
-  aspect ratio then only shapes desktop recordings (no game running); a game's window is recorded as it is.
-- **Separate audio tracks**: *Desktop* (everything you hear) and *Mic*. Several microphones can be recorded at once,
-  mixed onto the one Mic track or each on a track of its own (named after the microphone). (Voice chat and music on
-  tracks of their own are being worked on, and are off for now.)
-- **Quality presets** Low → Medium → High → Ultra → Indistinguishable, with **frame rate** (30–240 fps) and
-  **output resolution** set independently.
-- **GPU encoding**, newest codec first: AV1 on NVIDIA/AMD/Intel cards that support it, then HEVC, then H.264.
-  Capture and encoding stay on the GPU (about 2% of one CPU core while recording). Cards whose own route doesn't
-  work record through Windows' Media Foundation encoder instead, at the cost of about a CPU core: FFmpeg's NVENC
-  needs NVIDIA driver 610 or newer, which GTX 900 and 10 series cards don't get.
-- **Hotkey** of your choice (default Alt+F10), tray icon, start with Windows, minimize/close to tray.
-- **Game detection**: clips go in a folder per game (from Windows' game list, the Steam/Epic/Riot/GOG/EA/Ubisoft/Xbox
-  install folder, or a fullscreen window); anything else goes in *Desktop*.
+**[Download QuickClip Personal v1.0.0](https://github.com/Yosef13103/QuickClip/releases/tag/personal-v1.0.0)** · [Release notes](docs/releases/personal-v1.0.0.md) · [Building from source](docs/development.md) · [GPL-3.0 license](LICENSE)
 
-## Gallery, player and editor
+> **This is the Personal fork, not the upstream application.** Release development lives on [`custom/main`](https://github.com/Yosef13103/QuickClip/tree/custom/main); `main` preserves the separate upstream-compatible line. Original project: [swiiftex/QuickClip](https://github.com/swiiftex/QuickClip). Features below describe the **Personal v1.0.0** release unless noted otherwise.
 
-- QuickClip opens on the **gallery**: *All clips* first, then a folder per game, with thumbnails, lengths and how long
-  ago each clip was made.
-- Click a clip to watch it in the **player**, with every audio track playing, full screen, the previous or next clip
-  of the folder, and buttons to share, edit, show or delete it.
-- **Share** (the share button on a clip, its right-click menu, or **S** in the player) makes a copy that's under a size limit,
-  at most 60 fps and H.264 with every audio track mixed into one, then copies it to the clipboard: paste it into
-  Discord or anywhere with Ctrl+V. A clip that's already small enough H.264 only has its audio mixed; a bigger one is
-  compressed to fit, at a smaller size when the limit is too little for its resolution. The limit is 30 MB to start;
-  set it under **Settings → Sharing** (10 MB fits Discord without Nitro). The original stays as it is; the
-  copies go in `Videos\QuickClip Shared` and are cleared out after two days. The status bar shows the
-  progress. Clips over 60 fps (like 120 fps recordings) have their extra frames blended into motion blur rather than
-  dropped, so the 60 fps copy looks smoother (**Settings → Sharing**; on by default).
-- **Projects** for montages: tick clips (hover a clip for its checkbox, or Ctrl+click), then **Add to project**, or
-  drag clips onto a project in the list (or onto its **+** to start a new one); a clip's right-click menu has
-  **Add to project** and **Copy to folder…** too, for it or for every ticked clip. A
-  project is a folder in `Projects` inside the clips folder. Its clips play one after another in the preview,
-  drag them to change the order, and add a song to play under them. **Export to editor** joins everything into one
-  video (the music on its own track, faded out at the end) and opens it in the editor to set the volumes and export.
-  Clips are added as hard links when they're on the same drive, so they take no extra space.
-- **Copy to folder…** copies the ticked clips anywhere.
-- The **editor** previews video with every audio track playing at once, each at its own volume (0–200%), shows a
-  waveform per track, trims frame-accurately, crops with aspect presets, and exports as a new file or over the
-  original. Its settings are in four groups, each closed until you open it and showing what it's set to: **Crop**
-  (C opens it), **Frame rate**, **Encoding** and **Output**. Everything starts at "same as original", and then the
-  video is copied as it is: quick, with nothing lost. Anything that needs it re-encoded (a crop, a new size, frame
-  rate, encoder or quality, or a start trimmed between keyframes) switches to that by itself, and **Encoding** says
-  why. Tracks can be kept separate or merged into one (**Merge all audio tracks into one** under Output, which
-  asks first, and warns before saving over the original that way). After **Save over original**, **Undo** (Ctrl+Z)
-  puts the clip back as it was, from the Recycle Bin, and sends the edited version there instead. The preview volume
-  slider is QuickClip's own level in the Windows volume mixer.
-- **Add sound** puts a song or sound effect on its own track: click **Add sound** or drop audio files onto the
-  editor (onto the timeline to start them there). Drag a sound's block along its track to move it; it snaps to the
-  clip's start and end, the in and out points and the playhead. Right-click it to start it at the playhead.
-- **Smooth 60 fps** (the editor's frame rate choice for clips of about 90 fps and up) exports at 60 fps with the
-  frames in between blended into motion blur, mixed in linear light like a camera shutter open for the whole frame.
-  It's only offered above 60 fps, so a clip can't be blurred twice.
-- **What's new**: after an update, QuickClip shows the release notes of every version since the one you had, the
-  next time its window opens (never over a game); **Settings → Updates → What's new** shows them again.
-- Opens practically anything FFmpeg reads; exports MP4, MKV, MOV, WebM, GIF, MP3, M4A, WAV, FLAC, Opus.
-- **Right-click → Edit with QuickClip** on video and audio files in Explorer.
+## The workflow
+
+1. **Set up:** Install QuickClip Personal. In Settings, choose your recording, audio and save preferences and approve the game libraries/displays you want to use.
+2. **Play:** Enable Instant Replay. QuickClip recognizes eligible games and follows the authorized game display; no game means no automatic game capture.
+3. **Clip:** Press **Alt+F10** (configurable) or **Save Clip**. Recording uses an encoded rolling buffer, so you don't need to start recording before something happens.
+4. **Find it:** Open the Gallery to browse clips by game/date, search and organize them, and manage them without touching unrelated video folders.
+5. **Edit:** Trim, crop, adjust individual audio stems, add sounds, preview and export. Your original remains available unless you explicitly choose to overwrite it.
+6. **Share:** An exported new clip has a single, ordinary audio soundtrack called **Mix**. No special player is required to hear the complete recording.
+
+## Highlights
+
+| Area | QuickClip Personal v1.0.0 |
+| --- | --- |
+| **Game-aware capture** | Approved game libraries, Steam/Epic discovery, manually approved executables, safe game/launcher classification, game switching and approved-display following |
+| **Instant replay** | Configurable rolling RAM buffer, hotkey saves, hardware-accelerated encoding, capture recovery and clear recording status |
+| **Editable *and* playable audio** | One default **QuickClip Full Mix** for normal players **plus separate Game/Chat/Mic/etc. tracks** when configured |
+| **Gallery** | Grouping by game/day, SQLite-backed indexing, search, tags, annotations, projects, multi-select, Recycle Bin deletion and Undo |
+| **Editor** | Frame-oriented playback, timeline and waveforms, trimming, aspect/crop controls, volume/mute/solo, added audio, export or save over original |
+| **Notifications** | Optional Windows notifications or in-app overlays, positioning, animation, image-only layouts, animated GIF, transparent WebM and custom sounds |
+| **Windows integration** | Per-user installer, optional startup, tray controls, separate Personal profile and a self-contained portable release |
+| **Appearance** | Dark/AMOLED/Slate/Light themes, high-DPI scaling, accessible confirmations and adjustable interfaces |
+
+### A raw recording has both kinds of audio
+
+A newly saved clip with several configured sources uses a **single video file**:
+
+```text
+QuickClip recording.mp4
+├── Video
+├── Audio 1  QuickClip Full Mix  [default; ordinary players]
+├── Audio 2  Game                [editable]
+├── Audio 3  Chat                [editable]
+└── Audio 4  Microphone          [editable]
+```
+
+The source tracks are examples; actual tracks depend on your selected Windows audio endpoints. **QuickClip's Editor recognizes the default Full Mix and hides that generated mix from the editable stem controls**, preventing double playback. Exporting **as a new file** produces one complete mixed audio stream titled **Mix**. **Save over original** rebuilds the playable mix and preserves editable stems; the prior original is sent to the Recycle Bin for recovery.
+
+This avoids saving two copies of the video just to get separate editing tracks. Older recordings are not silently altered.
+
+### Automatic capture without surprise screen recording
+
+- **Game-first:** QuickClip looks for a verified, eligible game rather than treating Discord, launchers or every fullscreen app as a game.
+- **Explicit permissions:** Game discovery and display capture depend on the paths and displays you approve. An unknown or denied display is not silently substituted.
+- **Display following:** The Personal release captures the **entire authorized display** containing the game (subject to its selected crop), rather than secretly capturing other monitors. A covering Discord window can therefore appear *in the video*; QuickClip retains the game association when Discord receives focus.
+- **Safe handoff:** Switching to another verified foreground game starts a new capture epoch/buffer; footage from two unrelated game/display sessions isn't joined into one accidental replay.
+- **Recovery:** Temporary capture failures and certain device/display changes trigger controlled recreation rather than blindly continuing with invalid frames.
+- **Manual desktop:** Available as a distinct, explicit capture decision rather than an automatic fallback to unrelated desktop content.
+
+> **Capture scope matters:** Personal v1.0.0 is primarily **approved-display capture driven by the game detector**, not invisible game-only graphics hooking. One display is captured at a time. Simultaneous displays and independent Discord companion capture are planned experiments, not shipping features.
+
+### Video and performance controls
+
+Choose a replay length, frame rate, target resolution, aspect/crop, bitrate, format and encoder/preset according to your hardware. QuickClip's native C++ engine integrates Windows capture, GPU scaling, FFmpeg and an encoded packet ring, avoiding full-video re-encoding just to save a replay. The Settings diagnostics show the active capture source and support performance investigation.
+
+NVIDIA NVENC has been owner-tested on an RTX 3070. AMD AMF, Intel Quick Sync/QSV and Windows fallback paths exist, but **cross-vendor hardware compatibility is not yet certified**; available formats and hardware encoders vary by GPU and driver. Performance, especially 1% lows, depends on the selected capture mode, resolution, FPS, codec and preset.
+
+See [recording diagnostics and benchmarks](docs/recording-diagnostics.md) for reproducible measurements and limitations.
 
 ## Install
 
-Download **QuickClip-<version>-setup.exe** from [Releases](https://github.com/swiiftex/QuickClip/releases) and run it.
-It installs for your user only (no admin prompt) into `%LOCALAPPDATA%\Programs\QuickClip`, adds a Start menu
-shortcut, and offers to add the right-click entry, start QuickClip when you sign in, and a desktop shortcut.
-Uninstall it from **Settings → Apps**. Nothing else needs installing (.NET is included).
+**Requirements:** Windows 10 **22H2 / build 19045+** or Windows 11, **x64**. Hardware encoding requires compatible graphics drivers and encoder support.
 
-Prefer no installer? The **-win-x64.zip** on the same page runs from any folder.
-
-QuickClip checks for new releases when it starts (turn that off under **Settings → Updates**) and can install them
-for you; installed copies update by running the new setup silently, unzipped copies replace their own files. The
-**Stable** channel gets tested releases; **Nightly** also gets development builds (GitHub prereleases named like
-`0.6.0-nightly.1`) as new features are made.
-
-Requires Windows 10 version 2004 or later.
-
-On Windows 11 the right-click entry sits under **Show more options**. To put it on the main menu, see
-`scripts\add-win11-menu.ps1` (it builds and signs a small app package; trusting its certificate needs one UAC prompt).
-
-## Using it
-
-1. Play. When something happens, press **Alt+F10** (or click **Save clip**). You'll hear a sound and get a
-   notification; the clip appears in the gallery.
-2. Click a clip to watch it. **Edit** (or **E**) opens it in the editor: trim with **I** / **O**, set track volumes,
-   tick **Crop video** if needed, and **Export as new file** or **Save over original**.
-
-### Player keys
-
-| Key | Action |
+| Download | Best for |
 | --- | --- |
-| Space or K | Play / pause |
-| ← / → · Shift+← / → · J / L | Back / forward 5 seconds · 1 second · 10 seconds |
-| , / . | Previous / next frame |
-| ↑ / ↓ · M | Volume up / down · mute |
-| F or double-click | Full screen (Esc leaves it) |
-| Page Up / Page Down | Previous / next clip |
-| S · E · Delete · Esc | Share · edit · move to the Recycle Bin · back to the gallery |
+| **[QuickClip-Personal-1.0.0-setup.exe](https://github.com/Yosef13103/QuickClip/releases/download/personal-v1.0.0/QuickClip-Personal-1.0.0-setup.exe)** | Normal per-user install; Start menu/uninstall registration; recommended |
+| [QuickClip-Personal-1.0.0-win-x64.zip](https://github.com/Yosef13103/QuickClip/releases/download/personal-v1.0.0/QuickClip-Personal-1.0.0-win-x64.zip) | Self-contained portable app; extract the entire folder before launching |
+| [SHA256 checksums](https://github.com/Yosef13103/QuickClip/releases/download/personal-v1.0.0/SHA256SUMS.txt) | Verify release downloads |
 
-### Editor keys
+The installer uses `%LOCALAPPDATA%\Programs\QuickClip Personal`. The release bundles the .NET runtime and required media components; you don't need the SDK to run it.
 
-| Key | Action |
-| --- | --- |
-| Space | Play / pause |
-| ← / → | Previous / next frame |
-| Shift+← / → · Ctrl+← / → | ±1 second · ±5 seconds |
-| I / O · Shift+I / O | Set in / out · jump to in / out |
-| Home / End | Start / end of file |
-| L · C · M | Loop selection · crop on/off · mute |
-| + / − / 0 | Zoom timeline in / out / fit (or mouse wheel; Shift+wheel scrolls) |
-| Ctrl+O / Ctrl+E / Ctrl+S | Open / export as new file / save over original |
-| Ctrl+Z | Undo saving over the original |
+- **Personal settings:** `%APPDATA%\QuickClip Personal`
+- **Local data/cache:** `%LOCALAPPDATA%\QuickClip Personal`
+- **Default clips:** your Windows Videos directory under `QuickClip Personal` (configurable in Settings).
+- **Optional isolated portable data root:** set `QUICKCLIP_PERSONAL_DATA_DIR` to an absolute directory before starting a Personal build. This is useful for testing; don't put persistent data inside a folder you routinely delete.
+- **Updates:** automatic upstream updating is **disabled** for Personal builds. Install newer Personal releases explicitly from this repository.
+- **Explorer context menu:** stock QuickClip's Explorer registration is separate; Personal does not automatically install the upstream shell extension.
 
-### Command line
+**First launch:** Recording/automatic hotkeys are opt-in for a fresh Personal profile. Enable Instant Replay after checking your audio endpoints, game permissions and display selection.
 
-| | |
-| --- | --- |
-| `QuickClip.exe <file>` | Open a file in the editor (in the running QuickClip if there is one) |
-| `QuickClip.exe --tray` | Start hidden in the tray (what start with Windows uses) |
-| `QuickClip.exe --save-clip` | Save a clip from the running QuickClip (e.g. from a Stream Deck) |
-| `QuickClip.exe --quit` | Stop the running QuickClip |
+## Gallery, Editor and notifications
 
-## Building from source
+**Gallery:** browse/search by game and date, add titles, tags and other annotations, create projects, open clips for editing, and delete through the Windows Recycle Bin with Undo where available. Your existing SteelSeries Moments archive is **not automatically imported, migrated, renamed or cleaned**.
 
-Needs the [.NET 10 SDK](https://dotnet.microsoft.com/download) and Visual Studio's C++ build tools (for the
-recording engine).
+**Editor:** inspect independent audio stems, adjust volumes, solo/mute sources, trim in/out points, choose crop/resize/encoding options, add a song/effect on the timeline, and export a new MP4 or other supported container. Fast stream-copy is used when the requested edit permits it; transformations that require encoding use FFmpeg. Overwriting is an explicit choice, with Recycle Bin recovery for the previous file.
+
+**Notifications:** independently enable sounds and visual feedback, choose display/position/style/motion, or use a local image, animated GIF or transparent VP9 WebM for a custom overlay. Optional custom sounds support commonly used local audio formats. Validation limits apply so a huge animation does not stall the app.
+
+## Building and contributing
+
+The repository remains open-source under GPL-3.0. For development, check out **`custom/main`** and keep your experimental work on a short-lived feature branch.
+
+You need **.NET SDK 10**, **Visual Studio C++ Build Tools** with the Windows SDK, and dependencies provisioned by the repository script. On Windows 10, the pinned `.7z` libmpv archive also needs a working 7-Zip-compatible extractor (such as NanaZip's CLI).
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File scripts\get-deps.ps1   # FFmpeg (+ headers), libmpv and Inno Setup into .\deps
-dotnet build                                                    # also builds the C++ recording engine
-dotnet test                                                     # synthetic exports/mixing; live Windows tests are opt-in
-powershell -ExecutionPolicy Bypass -File scripts\package.ps1 -Upstream # stock installer and portable zip
+git clone https://github.com/Yosef13103/QuickClip.git
+cd QuickClip
+git switch custom/main
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\get-deps.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\dev.ps1 -BuildOnly
+dotnet test QuickClip.slnx -c Release -p:QuickClipProfile=Personal -p:RequireCaptureEngine=true
 ```
 
-This fork builds QuickClip Personal by default. See [the personal build guide](docs/development.md)
-for profile paths and portable builds. Use `-p:QuickClipProfile=Upstream` for a stock-compatible build.
-See [recording diagnostics](docs/recording-diagnostics.md) for backend choices, physical display modes, measured NVENC preset observations and manual acceptance checks.
+For a normal installed Personal release (installer and portable ZIP):
 
-The version comes from `<Version>` in `src/QuickClip/QuickClip.csproj`. For upstream releases, attach both files from `publish`
-to a GitHub release tagged `v<version>` (mark betas as pre-releases); running copies pick it up on their next check.
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\package.ps1 -Personal
+```
 
-Settings live in `%APPDATA%\QuickClip`, thumbnails and the log in `%LOCALAPPDATA%\QuickClip`.
+**Developer notes:**
+- [Development setup, profile isolation and watcher](docs/development.md)
+- [Capture policy and game/display ownership](docs/v1-game-display-following.md)
+- [Game catalog architecture](docs/game-catalog-integration.md)
+- [Notification WebM transparency](docs/transparent-notification-webm.md)
+- [Custom notification sounds](docs/custom-notification-sound.md)
+- [Release notes and known limitations](docs/releases/personal-v1.0.0.md)
 
-## How it works
+The Windows CI validates strict **Personal** and **Upstream** Release builds and headless tests. Real GPU, microphone, monitor hotplug and game performance tests still require physical Windows hardware. Local `.quickclip-local` development worktrees, NuGet downloads and SDKs are scratch—not application data—but run `git worktree list` and preserve unsaved changes before deleting them.
 
-- **Recording engine** (`src/QuickClip.Capture`, C++): FFmpeg's Desktop Duplication source (Windows Graphics
-  Capture above 60 fps, where Desktop Duplication can fall well short of the frame rate, and when scaling) feeds GPU
-  frames straight into the hardware encoder. Audio comes from WASAPI process loopback: *Desktop* is everything but
-  QuickClip's own previews, *Mic* each microphone. (Voice chat and music on tracks of their own, off for now, take
-  them out of Desktop: Windows can leave only one app out of a capture, so with both, the music app's sound is
-  subtracted sample for sample, captured at the output's own rate where an app's samples are identical in every
-  capture, at an offset found by matching them.) Every stream is timestamped on the same clock and kept as encoded packets in a RAM ring buffer; saving
-  writes the packets from the last keyframe before the start point into an MP4 with named tracks.
-- **Player and preview** use [libmpv](https://mpv.io) embedded in a native child window; the tracks are merged by mpv's
-  `lavfi-complex` and remixed per track by a volume filter that the sliders adjust live. An added sound is previewed
-  from a temporary FLAC copy already placed on the clip's timeline, loaded as an extra track, so it stays in sync
-  when seeking; the export places it from the original file with the same filters.
-- **Export** builds an FFmpeg command line (`src/QuickClip/Media/Export.cs`).
+## What's next?
 
-## License
+**V1 is the owner-accepted game → save replay → Gallery → Editor → export workflow.** Future releases may add simultaneous multi-monitor recording, synchronized independent clips/composites, opt-in Discord companion capture when no game is active, more launcher providers, managed originals/retention, and further Intel/AMD/driver compatibility validation. None of these are prerequisites for using V1.
 
-QuickClip is free software under the [GNU GPL v3](LICENSE). It ships [FFmpeg](https://ffmpeg.org) (BtbN GPL build)
-and libmpv ([shinchiro build](https://github.com/shinchiro/mpv-winbuild-cmake)), both GPL-licensed; the installer is
-built with [Inno Setup](https://jrsoftware.org/isinfo.php).
+## Credits and license
+
+QuickClip Personal is a [GPL-3.0](LICENSE) fork based on **[swiiftex/QuickClip](https://github.com/swiiftex/QuickClip)**. It uses **[FFmpeg](https://ffmpeg.org/)**, **[libmpv](https://mpv.io/)** and **[Inno Setup](https://jrsoftware.org/isinfo.php)**, with their applicable licenses. This fork retains upstream attribution and keeps its Personal release/build identity distinct from upstream.
