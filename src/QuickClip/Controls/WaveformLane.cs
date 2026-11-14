@@ -10,6 +10,14 @@ namespace QuickClip.Controls;
 /// Draws one audio track's waveform aligned with the timeline. Clicking seeks; an added sound sits in a block that can
 /// be dragged along the timeline.
 /// </summary>
+/// <summary>A seek request is routed only through its owning visual tree; no static editor references.</summary>
+public sealed class WaveformSeekEventArgs(double seconds, bool final)
+    : RoutedEventArgs(WaveformLane.SeekRequestedEvent)
+{
+    public double Seconds { get; } = seconds;
+    public bool Final { get; } = final;
+}
+
 public sealed class WaveformLane : FrameworkElement
 {
     private static readonly Brush LaneBrush = Freeze(new SolidColorBrush(Color.FromRgb(0x1A, 0x1A, 0x1A)));
@@ -43,8 +51,12 @@ public sealed class WaveformLane : FrameworkElement
     private bool _moving;   // dragging an added sound along the timeline
     private double _grab;   // seconds between the sound's start and the point it was grabbed by
 
-    /// <summary>Raised when the user clicks/drags in a lane.</summary>
-    public static event Action<double, bool>? SeekRequested;
+    /// <summary>Bubble seek requests to this lane's owning Editor, never a static/global subscriber.</summary>
+    public static readonly RoutedEvent SeekRequestedEvent = EventManager.RegisterRoutedEvent(
+        "SeekRequested", RoutingStrategy.Bubble, typeof(RoutedEventHandler), typeof(WaveformLane));
+
+    private void RequestSeek(double seconds, bool final) =>
+        RaiseEvent(new WaveformSeekEventArgs(seconds, final));
 
     public AudioTrack? Track
     {
@@ -256,7 +268,7 @@ public sealed class WaveformLane : FrameworkElement
             return;
         }
         _dragging = true;
-        SeekRequested?.Invoke(track.Timeline.XToTime(x, ActualWidth), false);
+        RequestSeek(track.Timeline.XToTime(x, ActualWidth), false);
     }
 
     protected override void OnMouseMove(MouseEventArgs e)
@@ -267,7 +279,7 @@ public sealed class WaveformLane : FrameworkElement
         if (_moving)
             track.MoveTo(Snap(track, TimeAt(track.Timeline, x) - _grab));
         else if (_dragging)
-            SeekRequested?.Invoke(track.Timeline.XToTime(x, ActualWidth), false);
+            RequestSeek(track.Timeline.XToTime(x, ActualWidth), false);
         else
             Cursor = OnSound(track, x) ? Cursors.SizeWE : Cursors.Hand;
     }
@@ -283,7 +295,7 @@ public sealed class WaveformLane : FrameworkElement
         _dragging = false;
         ReleaseMouseCapture();
         if (Track is { } track)
-            SeekRequested?.Invoke(track.Timeline.XToTime(e.GetPosition(this).X, ActualWidth), true);
+            RequestSeek(track.Timeline.XToTime(e.GetPosition(this).X, ActualWidth), true);
     }
 
     protected override void OnLostMouseCapture(MouseEventArgs e)
@@ -296,7 +308,7 @@ public sealed class WaveformLane : FrameworkElement
         else if (_dragging && Track is { } track)
         {
             _dragging = false;
-            SeekRequested?.Invoke(track.Timeline.Position, true);
+            RequestSeek(track.Timeline.Position, true);
         }
         base.OnLostMouseCapture(e);
     }
