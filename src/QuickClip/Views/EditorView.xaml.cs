@@ -1085,7 +1085,7 @@ public partial class EditorView : UserControl
                     // An older async loadfile can finish after the user has chosen a newer clip,
                     // especially while the system is busy. Never reveal that stale mpv frame.
                     if (_closed || !SourceReady || _media == null ||
-                        !string.Equals(_player?.GetString("path"), _media.Path, StringComparison.OrdinalIgnoreCase))
+                        !EditorSource.MatchesLoadedPreview(_player?.GetString("path"), _media.Path))
                         break;
                     _previewReady = true;
                     Video.Visibility = Visibility.Visible;
