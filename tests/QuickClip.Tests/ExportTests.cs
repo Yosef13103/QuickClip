@@ -139,6 +139,46 @@ public sealed class ExportTests(MediaFixture media)
     }
 
     [Fact]
+    public async Task Hybrid_save_has_default_playable_mix_and_separately_editable_stems()
+    {
+        var (_, output) = await Export("hybrid-save.mp4", Containers.Mp4,
+            s => [Track(s.Audio[0], 1), Track(s.Audio[1], .5)],
+            r => r with { HybridAudio = true });
+
+        Assert.Equal(3, output.Audio.Count);
+        Assert.Equal(ExportBuilder.FullMixTitle, output.Audio[0].DisplayName);
+        Assert.True(output.Audio[0].IsPlaybackMix);
+        Assert.True(output.Audio[0].IsDefault);
+        Assert.False(output.Audio[1].IsDefault);
+        Assert.False(output.Audio[2].IsDefault);
+        Assert.Equal(["Mic", "Desktop Audio"], output.EditableAudio.Select(a => a.DisplayName));
+        Assert.True(await MediaFixture.BandLevel(output.Path, 0, MediaFixture.MicHz) > -40);
+        Assert.True(await MediaFixture.BandLevel(output.Path, 0, MediaFixture.DesktopHz) > -40);
+        Assert.True(await MediaFixture.BandLevel(output.Path, 1, MediaFixture.MicHz) > -40);
+        Assert.True(await MediaFixture.BandLevel(output.Path, 2, MediaFixture.DesktopHz) > -40);
+
+        // Save over a hybrid source must not recursively add yesterday's mix.
+        var (_, resaved) = await Export("hybrid-resave.mp4", Containers.Mp4,
+            s => s.EditableAudio.Select(a => Track(a, 1)).ToList(),
+            r => r with { HybridAudio = true }, source: output.Path,
+            start: .25, end: 1.75);
+        Assert.Equal(3, resaved.Audio.Count);
+        Assert.Single(resaved.Audio.Where(a => a.IsPlaybackMix));
+        Assert.True(resaved.Audio[0].IsDefault);
+    }
+
+    [Fact]
+    public async Task Compatible_share_export_has_one_default_audible_soundtrack()
+    {
+        var (_, output) = await Export("compatible-share.mp4", Containers.Mp4,
+            s => s.Audio.Select(a => Track(a, 1)).ToList(),
+            r => r with { MergeAudio = true });
+        Assert.True(Assert.Single(output.Audio).IsDefault);
+        Assert.True(await MediaFixture.BandLevel(output.Path, 0, MediaFixture.MicHz) > -40);
+        Assert.True(await MediaFixture.BandLevel(output.Path, 0, MediaFixture.DesktopHz) > -40);
+    }
+
+    [Fact]
     public async Task Merge_with_a_muted_track_leaves_it_out()
     {
         var (_, outInfo) = await Export("merged-muted.mp4", Containers.Mp4,
