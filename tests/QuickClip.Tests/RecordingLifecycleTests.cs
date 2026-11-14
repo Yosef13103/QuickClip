@@ -185,7 +185,7 @@ public sealed class RecordingLifecycleTests
         var discord = GameDetector.Observe(Game(2).Owner, @"C:\Apps\Discord.exe",
             new(CatalogMatchKind.Companion), false, new HashSet<string>());
         string device = "DISPLAY1";
-        var retained = GameDetector.ResolveEligibleGame(game, discord, _ => true, () => [], (_, _) => game.Match, preferRetained: true);
+        var retained = GameDetector.ResolveEligibleGame(game, discord, _ => true, () => [], (_, _) => game.Match);
         void Poll(GameCaptureObservation? observation) =>
             lifecycle.Reconcile(true, null, observation, [Display1, Display2], _ => device, _ => true);
         Poll(game);
@@ -202,6 +202,64 @@ public sealed class RecordingLifecycleTests
         Poll(null);
         Assert.Equal(RecordingMode.Armed, lifecycle.Mode);
         Assert.Null(backend.Active);
+    }
+
+    [Fact]
+    public void Two_running_games_follow_authorized_foreground_in_both_directions()
+    {
+        var backend = new Backend();
+        var clock = new RecoveryClock();
+        var lifecycle = new RecordingLifecycle(backend.Start, backend.Stop, clock);
+        var handoff = new ForegroundGameHandoff(clock);
+        var first = Game(1);
+        var second = Game(2);
+        var discord = GameDetector.Observe(Game(3).Owner, @"C:\Apps\Discord.exe",
+            new(CatalogMatchKind.Companion), false, new HashSet<string>());
+        MonitorInfo[] displays = [Display1, Display2];
+        bool allowSecondDisplay = false, secondOwnerCurrent = true;
+        string DisplayOf(WindowOwner owner) => owner == first.Owner ? "DISPLAY1" : "DISPLAY2";
+        bool AllowsDisplay(string identity) => identity == "A" || allowSecondDisplay;
+        string? AuthorizedDisplay(GameCaptureObservation game) =>
+            CaptureSourcePolicy.ResolveGameDisplay(game, displays, DisplayOf)?.CaptureIdentity is { } identity &&
+                AllowsDisplay(identity) ? identity : null;
+        CatalogMatch Match(string path, bool foreground) => path == first.Executable ? first.Match : second.Match;
+        GameCaptureObservation? observed = null;
+        void Poll(GameCaptureObservation foreground, bool advance = true)
+        {
+            observed = GameDetector.ResolveEligibleGame(observed, foreground, owner => owner != second.Owner || secondOwnerCurrent,
+                () => [], Match, (retained, next) => handoff.PreferForeground(retained, next, AuthorizedDisplay));
+            lifecycle.Reconcile(true, null, observed, displays, DisplayOf, AllowsDisplay);
+            if (advance) clock.Advance(2);
+        }
+
+        Poll(first);
+        backend.Frames = 600;
+        Poll(second);
+        Poll(second);
+        Assert.Equal(first.Owner, backend.Active?.GameOwner);
+        allowSecondDisplay = true;
+        Poll(second, advance: false);
+        Poll(second, advance: false);
+        Assert.Equal(first.Owner, backend.Active?.GameOwner);
+        Poll(discord);
+        Poll(second);
+        secondOwnerCurrent = false;
+        Poll(second);
+        secondOwnerCurrent = true;
+        Assert.Equal(first.Owner, backend.Active?.GameOwner);
+        Assert.Equal(600, backend.Frames);
+        Poll(second);
+        Assert.Equal(first.Owner, backend.Active?.GameOwner);
+        Poll(second);
+        Assert.Equal(second.Owner, backend.Active?.GameOwner);
+        Assert.Equal("B", backend.Active?.Display.Identity);
+        Assert.Equal(0, backend.Frames);
+        Poll(first);
+        Poll(first);
+        Assert.Equal(first.Owner, backend.Active?.GameOwner);
+        Assert.Equal("A", backend.Active?.Display.Identity);
+        Assert.Equal(3, backend.Starts.Count);
+        Assert.Equal(2, backend.Stops);
     }
 
     [Fact]
