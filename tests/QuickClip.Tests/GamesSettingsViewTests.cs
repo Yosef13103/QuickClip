@@ -20,13 +20,13 @@ public sealed class GamesSettingsViewTests
             [renderer, helper], new()) { RendererExecutables = [] };
         var row = new GamesSettingsView.GameRow(entry);
         Assert.Contains("no renderer evidence", row.Executables.First().Label);
-        Assert.True(row.CanApprove(renderer));
-        Assert.False(row.CanApprove(helper));
+        Assert.NotNull(row.RulesAfterApproval([renderer]));
+        Assert.Null(row.RulesAfterApproval([helper]));
         var approved = entry with { Rules = new() { ApprovedExecutables = [renderer] } };
         row.Update(approved, false, [], new(new([approved], [], 0, false, default)));
         Assert.Contains("Game · enabled", row.Summary);
         Assert.Contains("verified window and display permission", row.Executables.First().Label);
-        Assert.False(row.CanApprove(renderer));
+        Assert.Null(row.RulesAfterApproval([renderer]));
         row.Update(approved, true, [], new(new([approved], [], 0, false, default)));
         Assert.Contains("scan incomplete", row.Executables.First().Label);
     }
