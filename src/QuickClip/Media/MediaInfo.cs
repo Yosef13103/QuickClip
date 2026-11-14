@@ -33,6 +33,7 @@ public sealed class AudioStreamInfo
     public long BitRate { get; init; }
     public string? Title { get; init; }
     public string? Language { get; init; }
+    public bool IsDefault { get; init; }
 
     public string DisplayName => !string.IsNullOrWhiteSpace(Title) ? Title! : $"Track {Ordinal + 1}";
 
@@ -163,6 +164,8 @@ internal sealed class MediaInfo
                         BitRate = (long)Dbl(s, "bit_rate"),
                         Title = title,
                         Language = Tag(tags, "language"),
+                        IsDefault = s.TryGetProperty("disposition", out var disposition) &&
+                            Int(disposition, "default") == 1,
                     });
                 }
             }
