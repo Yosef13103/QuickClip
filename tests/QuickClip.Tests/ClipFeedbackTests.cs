@@ -158,6 +158,27 @@ public sealed class ClipFeedbackTests
     }
 
     [Fact]
+    public void Retired_badge_settings_fall_back_to_compact_and_image_fit_round_trips()
+    {
+        var saved = new AppSettings
+        {
+            ClipOverlay = new()
+            {
+                Style = OverlayStyle.Badge, ImageFit = OverlayImageFit.Cover,
+                Anchor = OverlayAnchor.Center, Animation = OverlayAnimation.Slide,
+            },
+        };
+        var parsed = AppSettings.Parse(saved.ToJson());
+        Assert.Equal(OverlayStyle.Compact, parsed.ClipOverlay.Normalize().Style);
+        Assert.Equal(OverlayImageFit.Cover, parsed.ClipOverlay.Normalize().ImageFit);
+        Assert.Equal(OverlayAnimation.Grow, parsed.ClipOverlay.Normalize().Animation);
+        Assert.Equal(OverlayImageFit.Contain, new ClipOverlayOptions
+        {
+            ImageFit = (OverlayImageFit)999,
+        }.Normalize().ImageFit);
+    }
+
+    [Fact]
     public void All_enabled_compact_fields_remain_available_for_wrapping()
     {
         var details = new ClipNotificationDetails("Game", "Title", "Display", "60 seconds", "3440 x 1440", "144 FPS", "Alt+F10");
