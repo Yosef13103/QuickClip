@@ -140,7 +140,7 @@ internal sealed class GameDiscoveryCoordinator : IDisposable
                     updated = GameCatalogRuntime.WithScan(current, result);
                     _publish(updated, finished);
                 }
-                Status = Describe(updated, finished ? CompletionLabel(result) : "Scanning");
+                Status = Describe(updated, finished ? CompletionLabel(result) : "Scanning", result);
                 Changed?.Invoke();
                 if (scan.HasMore && !_paused)
                     await Task.Delay(TimeSpan.FromMilliseconds(250), _clock, token);
@@ -155,7 +155,7 @@ internal sealed class GameDiscoveryCoordinator : IDisposable
                 if (ScanRequest(current) != request) return;
                 var paused = GameCatalogRuntime.WithScan(current, snapshot);
                 _publish(paused, false);
-                Status = Describe(paused, "Paused");
+                Status = Describe(paused, "Paused", snapshot);
                 keepCursor = !token.IsCancellationRequested;
             }
             else
@@ -198,8 +198,8 @@ internal sealed class GameDiscoveryCoordinator : IDisposable
         scan.LimitReached || scan.HasUnreportedFailures || scan.Issues.Any(issue => issue.Kind != CatalogIssueKind.ReparsePoint)
             ? "Incomplete" : "Completed";
 
-    internal static string Describe(GameCatalogSettings state, string label) =>
-        $"{label} · {state.DiscoveredCount ?? 0:N0} discovered this scan";
+    internal static string Describe(GameCatalogSettings state, string label, CatalogResult result) =>
+        $"{label} · {result.CandidateExecutablesVisited:N0} candidate executable visits · {state.DiscoveredCount ?? 0:N0} discovered this scan";
 
     public void Dispose()
     {

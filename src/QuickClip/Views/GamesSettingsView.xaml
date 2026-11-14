@@ -48,13 +48,15 @@
                 <Button x:Name="CancelButton" Content="Pause scan" Click="Cancel_Click" IsEnabled="False" Margin="0,0,6,0" />
                 <Button Content="Add Game…" Click="Add_Click" Margin="0,0,6,0" />
             </WrapPanel>
-            <TextBlock x:Name="Status" Style="{StaticResource Hint}" Margin="0,6,0,0" AutomationProperties.LiveSetting="Polite" />
+            <TextBlock x:Name="Status" Style="{StaticResource Hint}" Margin="0,6,0,0" TextWrapping="Wrap"
+                       AutomationProperties.LiveSetting="Polite" />
             <TextBlock x:Name="LastScan" Style="{StaticResource Hint}" />
             <TextBlock Text="Targeting rules apply to game detection. Manual entire-display capture includes anything visible on the approved display, including games disabled here." Style="{StaticResource Hint}" />
-            <DockPanel Margin="0,10,0,6">
-                <TextBlock x:Name="Count" DockPanel.Dock="Left" VerticalAlignment="Center" FontWeight="SemiBold" Margin="0,0,12,0" />
-                <TextBox x:Name="Search" AutomationProperties.Name="Search catalog by name or executable" TextChanged="Search_Changed" />
-            </DockPanel>
+            <TextBlock x:Name="Count" FontWeight="SemiBold" TextWrapping="Wrap" Margin="0,10,0,0" />
+            <TextBlock x:Name="DiscoveryCountDetail" Style="{StaticResource Hint}" TextWrapping="Wrap"
+                       ToolTip="A retained game may also be awaiting verification." />
+            <TextBox x:Name="Search" Margin="0,4,0,6" AutomationProperties.Name="Search catalog by name or executable"
+                     TextChanged="Search_Changed" />
         </StackPanel>
         <ListBox x:Name="Games" AutomationProperties.Name="Games and applications catalog"
                  ScrollViewer.CanContentScroll="True" ScrollViewer.HorizontalScrollBarVisibility="Disabled"
