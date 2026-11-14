@@ -133,7 +133,7 @@ public sealed class ExportTests(MediaFixture media)
             r => r with { MergeAudio = true });
 
         var a = Assert.Single(outInfo.Audio);
-        Assert.Equal("Mic + Desktop Audio", a.DisplayName);
+        Assert.Equal("Mix", a.DisplayName);
         Assert.True(await MediaFixture.BandLevel(outInfo.Path, 0, MediaFixture.MicHz) > -40);
         Assert.True(await MediaFixture.BandLevel(outInfo.Path, 0, MediaFixture.DesktopHz) > -40);
     }
