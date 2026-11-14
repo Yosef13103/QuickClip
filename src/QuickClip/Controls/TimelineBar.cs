@@ -32,6 +32,8 @@ public sealed class TimelineBar : FrameworkElement
 
     private Brush Themed(DependencyProperty property) => (Brush)GetValue(property);
     private const double BookmarkHeight = 11;
+    private const double BookmarkHitRadius = 13;
+    private const double BookmarkHitHeight = 22;
     private static readonly Typeface LabelFace = new("Segoe UI");
 
     private static readonly double[] TickSteps =
@@ -198,7 +200,8 @@ public sealed class TimelineBar : FrameworkElement
         if (_drag == Drag.None)
         {
             var mark = BookmarkAt(s, position);
-            if (!Equals(ToolTip, mark?.TimelineTooltip)) ToolTip = mark?.TimelineTooltip;
+            string? tip = mark == null ? null : mark.TimelineTooltip + "\nClick to jump to this saved moment.";
+            if (!Equals(ToolTip, tip)) ToolTip = tip;
             double xi = s.TimeToX(s.In, w), xo = s.TimeToX(s.Out, w);
             Cursor = mark == null && (Math.Abs(x - xi) <= 7 || Math.Abs(x - xo) <= 7) ? Cursors.SizeWE : Cursors.Hand;
             return;
@@ -212,11 +215,14 @@ public sealed class TimelineBar : FrameworkElement
         }
     }
 
+    internal static bool WithinBookmarkHitTarget(double deltaX, double y) =>
+        y >= 0 && y <= BookmarkHitHeight && Math.Abs(deltaX) <= BookmarkHitRadius;
+
     private ClipBookmark? BookmarkAt(TimelineState state, Point position)
     {
-        if (position.Y > BookmarkHeight || ActualWidth <= 0) return null;
+        if (position.Y < 0 || position.Y > BookmarkHitHeight || ActualWidth <= 0) return null;
         ClipBookmark? nearest = null;
-        double distance = 6;
+        double distance = BookmarkHitRadius;
         foreach (var mark in _bookmarks)
         {
             if (mark.Seconds >= state.Duration || mark.Seconds < state.ViewStart || mark.Seconds > state.ViewEnd) continue;
