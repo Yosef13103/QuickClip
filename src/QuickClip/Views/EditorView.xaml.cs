@@ -1877,7 +1877,7 @@ public partial class EditorView : UserControl
         string layout = tracks > 1 && container.HasVideo && !container.SingleAudioTrack
             ? "The saved file will play a complete mixed soundtrack by default AND retain separate audio tracks for future editing."
             : "The saved file will retain the selected audio.";
-        string warning = $"Replace \"{fileName}\" with the edited clip?\\n\\n{layout}\\n\\nThe original will be moved to the Recycle Bin.";
+        string warning = $"Replace \"{fileName}\" with the edited clip?\n\n{layout}\n\nThe original will be moved to the Recycle Bin.";
         if (!ModalDialog.ConfirmAction(OwnerWindow, warning, "Save over original",
             "Replace original", "Keep original", destructive: true)) return;
 
