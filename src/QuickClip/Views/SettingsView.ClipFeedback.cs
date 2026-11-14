@@ -271,8 +271,9 @@ public partial class SettingsView
             if (asset == null)
             {
                 ShowOverlayImage(AppSettings.Current.ClipOverlay?.ImagePath);
-                OverlayImageError.Text = "Could not load this asset. Use a local PNG, JPG, WebP, GIF or transparent WebM up to 16 MiB. " +
-                    "GIFs allow 120 frames / 32 million source frame-pixels; WebM needs VP8/VP9 alpha and must be 30 seconds or shorter.";
+                OverlayImageError.Text = Path.GetExtension(dialog.FileName).Equals(".webp", StringComparison.OrdinalIgnoreCase)
+                    ? "This WebP could not be opened. Animated WebP isn't supported directly yet. Convert it to a GIF, then use Preview overlay to check the result."
+                    : "This file could not be opened as an overlay. Try a PNG, JPG, GIF, or transparent WebM under 16 MB. GIFs must be 120 frames or fewer; animations must be 30 seconds or shorter.";
                 OverlayImageError.Visibility = Visibility.Visible;
                 return;
             }
