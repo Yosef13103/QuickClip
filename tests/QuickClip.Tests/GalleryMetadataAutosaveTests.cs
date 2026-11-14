@@ -57,9 +57,15 @@ public sealed class GalleryMetadataAutosaveTests
                     Assert.Equal(0, manuallySaved);
                     Assert.False(editor.HasDraft);
 
+                    game.Text = "";
+                    await Task.Delay(1150);
+                    Assert.Equal(2, actions.Drafts.Count);
+                    Assert.Equal(actions.Drafts[1].Game, game.Text);
+                    Assert.False(editor.HasDraft); // Empty game resolves to canonical folder label.
+
                     editor.Clear();
                     await Task.Delay(1000);
-                    Assert.Single(actions.Drafts); // Clear() must never save a deleted/obsolete file.
+                    Assert.Equal(2, actions.Drafts.Count); // Clear() must never save a deleted/obsolete file.
                     result.SetResult();
                 }
                 catch (Exception ex) { result.SetException(ex); }
