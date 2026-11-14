@@ -138,6 +138,9 @@ public partial class SettingsView
         OverlayShowSource.IsChecked = options.ShowSource;
         OverlayShowDuration.IsChecked = options.ShowDuration;
         ShowOverlayImage(options.ImagePath);
+        SetChoices(OverlayImageFitCombo,
+            [new("Fit whole image", OverlayImageFit.Contain),
+             new("Fill area (crop edges)", OverlayImageFit.Cover)], options.ImageFit);
         UpdateFeedbackVisibility();
         var displays = new List<Choice> { new("Main display", "") };
         displays.AddRange(ClipNotificationOverlay.Displays().Select(d => new Choice(d.Label, d.Device)));
@@ -235,6 +238,8 @@ public partial class SettingsView
                 ShowFps = OverlayShowFps.IsChecked == true,
                 ShowHotkey = OverlayShowHotkey.IsChecked == true,
                 ImageOnly = (OverlayStyleCombo.SelectedItem as Choice)?.Value is OverlayStyle.ImageOnly,
+                ImageFit = (OverlayImageFitCombo.SelectedItem as Choice)?.Value is OverlayImageFit fit
+                    ? fit : OverlayImageFit.Contain,
                 ShowTitle = OverlayShowTitle.IsChecked == true,
                 ShowGame = OverlayShowGame.IsChecked == true,
                 ShowSource = OverlayShowSource.IsChecked == true,
