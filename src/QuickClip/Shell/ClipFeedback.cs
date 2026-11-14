@@ -4,7 +4,7 @@ using System.Windows;
 namespace QuickClip.Shell;
 
 internal enum OverlayAnchor { TopLeft, TopCenter, TopRight, MiddleLeft, Center, MiddleRight, BottomLeft, BottomCenter, BottomRight }
-internal enum OverlayAnimation { Ripple, Fade, Slide, None }
+internal enum OverlayAnimation { Ripple, Fade, Slide, None, Grow }
 internal enum OverlayStyle { Compact, Badge, Detailed, ImageOnly }
 internal enum ClipEvent { ReplayEnabled, Saved, DesktopStarted, DesktopStopped, Failed, Inactive }
 internal sealed record ClipEventOptions(bool ReplayEnabled = true, bool Saved = true, bool DesktopStarted = true,
@@ -53,7 +53,10 @@ internal sealed record ClipOverlayOptions
         Size = double.IsFinite(Size) ? Math.Clamp(Size, 40, 120) : 72,
         Opacity = double.IsFinite(Opacity) ? Math.Clamp(Opacity, .2, 1) : .9,
         Seconds = double.IsFinite(Seconds) ? Math.Clamp(Seconds, MinSeconds, MaxSeconds) : 1.4,
-        Animation = Enum.IsDefined(Animation) ? Animation : OverlayAnimation.Ripple,
+        // Center has no outside screen edge to slide from; use a readable zoom instead.
+        Animation = Anchor == OverlayAnchor.Center && Animation == OverlayAnimation.Slide
+            ? OverlayAnimation.Grow
+            : Enum.IsDefined(Animation) ? Animation : OverlayAnimation.Ripple,
     };
 
     internal static Point Place(Rect display, double size, double margin, OverlayAnchor anchor)
