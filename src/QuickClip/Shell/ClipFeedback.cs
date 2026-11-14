@@ -48,7 +48,9 @@ internal sealed record ClipOverlayOptions
 
     internal ClipOverlayOptions Normalize() => this with
     {
-        Style = Enum.IsDefined(Style) ? Style : OverlayStyle.Compact,
+        // Badge is retired; old serialized preferences continue to load as Compact.
+        Style = Style == OverlayStyle.Badge ? OverlayStyle.Compact
+            : Enum.IsDefined(Style) ? Style : OverlayStyle.Compact,
         Anchor = Enum.IsDefined(Anchor) ? Anchor : OverlayAnchor.BottomRight,
         Size = double.IsFinite(Size) ? Math.Clamp(Size, 40, 120) : 72,
         Opacity = double.IsFinite(Opacity) ? Math.Clamp(Opacity, .2, 1) : .9,
