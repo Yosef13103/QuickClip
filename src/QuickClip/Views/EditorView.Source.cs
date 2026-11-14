@@ -1,4 +1,5 @@
 using System.Windows;
+using System.Windows.Threading;
 using QuickClip.Gallery;
 using QuickClip.Library;
 using QuickClip.Media;
@@ -11,6 +12,7 @@ public partial class EditorView
     private EditorSourceState _sourceState;
     private bool _sourceSuspended, _recheckingSource, _replacingSource;
     private bool _previewReady;
+    private bool _restoreRepaintQueued;
     private Window? _sourceWindow;
     private bool SourceReady => _sourceState == EditorSourceState.Ready && !_sourceSuspended;
 
@@ -19,14 +21,24 @@ public partial class EditorView
         ClipDeletion.Current.Releasing += OnSourceReleasing;
         ClipDeletion.Current.Changed += OnSourceDeletionChanged;
         _sourceWindow = Window.GetWindow(this);
-        if (_sourceWindow != null) _sourceWindow.Activated += OnSourceWindowActivated;
+        if (_sourceWindow != null)
+        {
+            _sourceWindow.Activated += OnSourceWindowActivated;
+            _sourceWindow.StateChanged += OnSourceWindowStateChanged;
+            _sourceWindow.IsVisibleChanged += OnSourceWindowVisibilityChanged;
+        }
     }
 
     private void DetachSourceEvents()
     {
         ClipDeletion.Current.Releasing -= OnSourceReleasing;
         ClipDeletion.Current.Changed -= OnSourceDeletionChanged;
-        if (_sourceWindow != null) _sourceWindow.Activated -= OnSourceWindowActivated;
+        if (_sourceWindow != null)
+        {
+            _sourceWindow.Activated -= OnSourceWindowActivated;
+            _sourceWindow.StateChanged -= OnSourceWindowStateChanged;
+            _sourceWindow.IsVisibleChanged -= OnSourceWindowVisibilityChanged;
+        }
     }
 
     private void OnSourceReleasing(IReadOnlyList<string> paths)
@@ -42,6 +54,40 @@ public partial class EditorView
     private async void OnSourceWindowActivated(object? sender, EventArgs e)
     {
         if (IsVisible) await RefreshSourceAsync();
+        QueueNativePreviewRepaint();
+    }
+
+    private void OnSourceWindowStateChanged(object? sender, EventArgs e)
+    {
+        if (_sourceWindow?.WindowState != WindowState.Minimized)
+            QueueNativePreviewRepaint();
+    }
+
+    private void OnSourceWindowVisibilityChanged(object? sender, DependencyPropertyChangedEventArgs e)
+    {
+        if (e.NewValue is true) QueueNativePreviewRepaint();
+    }
+
+    /// <summary>
+    /// WPF restores the chrome before the HwndHost child is positioned/composited.
+    /// Coalesce tray, taskbar and activation events and repaint only after layout has settled.
+    /// Never unload/reopen media or change the paused state or playhead.
+    /// </summary>
+    private void QueueNativePreviewRepaint()
+    {
+        if (_restoreRepaintQueued || _closed || _sourceWindow is not { IsVisible: true } window ||
+            window.WindowState == WindowState.Minimized) return;
+        _restoreRepaintQueued = true;
+        Dispatcher.BeginInvoke(new Action(() =>
+            Dispatcher.BeginInvoke(new Action(() =>
+            {
+                _restoreRepaintQueued = false;
+                if (EditorSource.ShouldRepaintNativePreview(
+                    _sourceWindow?.IsVisible == true,
+                    _sourceWindow?.WindowState == WindowState.Minimized,
+                    IsVisible, SourceReady, _previewReady, _media != null))
+                    Video.RefreshAfterRestore();
+            }), DispatcherPriority.Background)), DispatcherPriority.Loaded);
     }
 
     private void StopSourcePreview()
