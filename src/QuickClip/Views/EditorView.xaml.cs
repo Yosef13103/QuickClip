@@ -348,7 +348,14 @@ public partial class EditorView : UserControl
         TrackList.ItemsSource = _tracks;
         Timeline.State = _timeline;
         Timeline.SeekRequested += OnSeekRequested;
-        WaveformLane.SeekRequested += OnSeekRequested;
+        // Routed from lanes inside THIS Editor's visual tree, instead of a
+        // process-wide static event retaining every closed EditorView forever.
+        AddHandler(WaveformLane.SeekRequestedEvent, new RoutedEventHandler((_, e) =>
+        {
+            if (e is not WaveformSeekEventArgs seek) return;
+            OnSeekRequested(seek.Seconds, seek.Final);
+            e.Handled = true;
+        }));
         _timeline.SelectionChanged += OnSelectionChanged;
         _crop.Changed += OnCropChanged;
 
