@@ -30,6 +30,12 @@ internal static class EditorSource
         }
     }
 
+    /// <summary>Only an exposed, active mpv preview can receive a native repaint on restore.</summary>
+    internal static bool ShouldRepaintNativePreview(
+        bool windowVisible, bool windowMinimized, bool editorVisible,
+        bool sourceReady, bool previewLoaded, bool hasMedia) =>
+        windowVisible && !windowMinimized && editorVisible && sourceReady && previewLoaded && hasMedia;
+
     internal static EditorSourceState Check(string path, FileStamp? expected, out FileStamp stamp)
     {
         stamp = default;
