@@ -69,6 +69,20 @@ public sealed class EditorSourceTests : IDisposable
         Assert.False(EditorSource.MatchesLoadedPreview("https://example.test/clip.mp4", replacement));
     }
 
+    [Theory]
+    [InlineData(true, false, true, true, true, true, true)]
+    [InlineData(true, true, true, true, true, true, false)] // taskbar minimized
+    [InlineData(false, false, true, true, true, true, false)] // hidden in tray
+    [InlineData(true, false, false, true, true, true, false)] // Gallery visible
+    [InlineData(true, false, true, false, true, true, false)] // missing/deleted source
+    [InlineData(true, false, true, true, false, true, false)] // loadfile in flight
+    [InlineData(true, false, true, true, true, false, false)] // cleared editor
+    public void Native_mpv_surface_is_repainted_only_when_window_and_current_preview_are_ready(
+        bool windowVisible, bool minimized, bool editorVisible, bool sourceReady,
+        bool previewLoaded, bool hasMedia, bool expected) =>
+        Assert.Equal(expected, EditorSource.ShouldRepaintNativePreview(
+            windowVisible, minimized, editorVisible, sourceReady, previewLoaded, hasMedia));
+
     private string Fixture(string name)
     {
         string path = Path.Combine(_directory, name);
