@@ -5,7 +5,7 @@ namespace QuickClip.Discovery;
 internal enum CatalogSource { Folder, Steam, Manual, Epic }
 internal enum CatalogConfidence { Low, Medium, High }
 internal enum CatalogInclusion { Default, Include, Exclude }
-internal enum AppClassification { Automatic, Game, Application, Companion }
+internal enum AppClassification { Automatic, Game, Application, Companion, Launcher }
 internal enum CatalogActivation { Default, ForegroundOnly }
 internal enum CatalogCapturePreference { Default, Window, Monitor }
 
@@ -19,6 +19,7 @@ internal sealed record CatalogRules(
     int Priority = 0)
 {
     public ImmutableArray<string> LauncherExecutables { get; init; } = [];
+    public ImmutableArray<string> ApprovedExecutables { get; init; } = [];
 }
 
 internal sealed record ManualCatalogEntry(Guid Id, string DisplayName, ImmutableArray<string> Executables);
@@ -38,13 +39,15 @@ internal sealed record CatalogRequest
     public ImmutableArray<ManualCatalogEntry> ManualEntries { get; init; } = [];
     public ImmutableArray<CatalogOverride> Overrides { get; init; } = [];
     public int MaxEntries { get; init; } = 20_000;
-    public int MaxDepth { get; init; } = 8;
+    public int? MaxDepth { get; init; }
 }
 
 internal sealed record CatalogEntry(
     string Id, string Name, CatalogSource Source,
     ImmutableArray<string> InstallDirectories, ImmutableArray<string> Executables, CatalogRules Rules)
 {
+    public ImmutableArray<string>? RendererExecutables { get; init; }
+    public ImmutableArray<string> DetectedLaunchers { get; init; } = [];
     public string DisplayName => string.IsNullOrWhiteSpace(Rules.DisplayName) ? Name : Rules.DisplayName.Trim();
 
     // Confidence in the catalog association, rather than in a particular EXE being the game's renderer.
@@ -56,7 +59,7 @@ internal sealed record CatalogEntry(
     };
 }
 
-internal enum CatalogIssueKind { InvalidPath, Unavailable, ReparsePoint, InvalidManifest, InvalidManualEntry, Incomplete }
+internal enum CatalogIssueKind { InvalidPath, Unavailable, ReparsePoint, InvalidManifest, InvalidManualEntry, Incomplete, DepthLimit }
 
 internal sealed record CatalogIssue(string Location, CatalogIssueKind Kind);
 
@@ -66,4 +69,8 @@ internal sealed record CatalogResult(
 {
     public ImmutableArray<string> SteamLibraries { get; init; } = [];
     public string? EpicManifestDirectory { get; init; }
+    public bool InProgress { get; init; }
+    public bool HasMoreIssues { get; init; }
+    public bool HasUnreportedFailures { get; init; }
+    public int CandidateExecutablesVisited { get; init; }
 }

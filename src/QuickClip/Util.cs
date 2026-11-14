@@ -174,6 +174,20 @@ internal static class Fmt
             : FormattableString.Invariant($"{wholeSeconds / 60:00}:{wholeSeconds % 60:00}");
     }
 
+    /// <summary>Human-readable duration for recording status and save confirmations.</summary>
+    public static string FriendlyDuration(double seconds)
+    {
+        if (!double.IsFinite(seconds) || seconds < 0 || seconds >= long.MaxValue) return "0 seconds";
+        long n = (long)seconds;
+        long hours = n / 3600, minutes = n / 60 % 60, remainder = n % 60;
+        var parts = new List<string>();
+        if (hours > 0) parts.Add($"{hours} hour{(hours == 1 ? "" : "s")}");
+        if (minutes > 0) parts.Add($"{minutes} minute{(minutes == 1 ? "" : "s")}");
+        if (remainder > 0 || parts.Count == 0)
+            parts.Add($"{remainder} second{(remainder == 1 ? "" : "s")}");
+        return string.Join(" ", parts);
+    }
+
     public static string Size(long bytes) => bytes switch
     {
         >= 1L << 30 => $"{bytes / (double)(1L << 30):0.00} GB",

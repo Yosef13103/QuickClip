@@ -12,7 +12,7 @@
 
             <DataTemplate x:Key="ClipCard" DataType="{x:Type gallery:ClipItem}">
                 <Border x:Name="Card" Width="{Binding CardWidth, RelativeSource={RelativeSource AncestorType=views:GalleryView}}"
-                        Margin="0,0,14,16" CornerRadius="8" Background="{StaticResource CardBrush}"
+                        Margin="0,0,14,16" CornerRadius="8" Background="{DynamicResource CardBrush}"
                         Focusable="True" AutomationProperties.Name="{Binding Title}" KeyDown="Card_KeyDown"
                         BorderThickness="1" BorderBrush="Transparent" Cursor="Hand"
                         MouseLeftButtonUp="Card_MouseLeftButtonUp" Loaded="Card_Loaded" DataContextChanged="Card_DataContextChanged"
@@ -36,14 +36,14 @@
                             <Separator />
                             <MenuItem Header="Select" Click="SelectClip_Click" />
                             <Separator />
-                            <MenuItem Header="Delete" Click="DeleteClip_Click" />
+                            <MenuItem Header="Delete" Foreground="{DynamicResource DangerBrush}" Click="DeleteClip_Click" />
                         </ContextMenu>
                     </Border.ContextMenu>
                     <StackPanel>
                         <Grid Height="{Binding PosterHeight, RelativeSource={RelativeSource AncestorType=views:GalleryView}}"
                               ClipToBounds="True" MouseEnter="Poster_MouseEnter" MouseLeave="Poster_MouseLeave"
                               Unloaded="Poster_MouseLeave" SizeChanged="Poster_SizeChanged">
-                            <Border CornerRadius="7,7,0,0" Background="#111" />
+                            <Border CornerRadius="7,7,0,0" Background="{DynamicResource SurfaceBrush}" />
                             <Border CornerRadius="7,7,0,0">
                                 <Border.Background>
                                     <ImageBrush ImageSource="{Binding Thumbnail}" Stretch="UniformToFill" />
@@ -51,7 +51,7 @@
                             </Border>
                             <Border HorizontalAlignment="Right" VerticalAlignment="Bottom" Margin="7" Padding="6,1,6,2" CornerRadius="4"
                                     Background="#B0000000">
-                                <TextBlock Text="{Binding DurationText}" FontSize="11.5" Foreground="White" />
+                                <TextBlock Text="{Binding DurationText}" FontSize="{DynamicResource QuickClipText11.5}" Foreground="White" />
                             </Border>
                             <!-- Ticks the clip for "Add to project" / "Copy to folder" -->
                             <Border x:Name="PickBox" HorizontalAlignment="Left" VerticalAlignment="Top" Margin="6" Padding="6,2,0,2" CornerRadius="5"
@@ -67,15 +67,15 @@
                                 <Button Content="&#xE72D;" Style="{StaticResource IconButton}" Click="ShareClip_Click"
                                         Focusable="True" VerticalAlignment="Center" AutomationProperties.Name="Share clip"
                                         ToolTip="Share clip · copy to clipboard" />
-                                <Button Content="⋯" Style="{StaticResource TextButton}" Padding="5,2" Width="30" FontSize="15"
+                                <Button Content="⋯" Style="{StaticResource TextButton}" Padding="5,2" Width="30" FontSize="{DynamicResource QuickClipText15}"
                                         Tag="{Binding ElementName=Card}" Click="ClipOverflow_Click"
                                         AutomationProperties.Name="Clip actions" ToolTip="Clip actions" />
                             </StackPanel>
                             <StackPanel>
                                 <TextBlock Text="{Binding Title}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
                                 <TextBlock Text="{Binding Folder}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
-                                <TextBlock Text="{Binding TagText}" ToolTip="{Binding TagText}" FontSize="12"
-                                           Foreground="{StaticResource SubtleText}" TextTrimming="CharacterEllipsis">
+                                <TextBlock Text="{Binding TagText}" ToolTip="{Binding TagText}" FontSize="{DynamicResource QuickClipText12}"
+                                           Foreground="{DynamicResource SubtleText}" TextTrimming="CharacterEllipsis">
                                     <TextBlock.Style>
                                         <Style TargetType="TextBlock">
                                             <Style.Triggers>
@@ -86,7 +86,7 @@
                                         </Style>
                                     </TextBlock.Style>
                                 </TextBlock>
-                                <TextBlock Margin="0,2,0,0" FontSize="12" Foreground="{StaticResource SubtleText}"
+                                <TextBlock Margin="0,2,0,0" FontSize="{DynamicResource QuickClipText12}" Foreground="{DynamicResource SubtleText}"
                                            TextTrimming="CharacterEllipsis" ToolTip="{Binding Created, StringFormat=F}">
                                     <Run Text="{Binding Created, Mode=OneWay, StringFormat=t}" /><Run Text="  ·  " />
                                     <Run Text="{Binding Ago, Mode=OneWay}" /><Run Text="  ·  " /><Run Text="{Binding SizeText, Mode=OneWay}" />
@@ -116,7 +116,7 @@
                     <CheckBox DockPanel.Dock="Left" IsThreeState="True" IsChecked="{Binding Selection, Mode=OneWay}"
                               Click="SelectDay_Click" VerticalAlignment="Center" Margin="0,0,9,0"
                               AutomationProperties.Name="{Binding SelectionLabel}" ToolTip="{Binding SelectionLabel}" />
-                    <TextBlock DockPanel.Dock="Left" Text="{Binding Heading}" FontWeight="SemiBold" FontSize="15"
+                    <TextBlock DockPanel.Dock="Left" Text="{Binding Heading}" FontWeight="SemiBold" FontSize="{DynamicResource QuickClipText15}"
                                VerticalAlignment="Center" Margin="0,0,12,0" />
                     <TextBlock Text="{Binding Summary}" ToolTip="{Binding Summary}" TextTrimming="CharacterEllipsis"
                                VerticalAlignment="Center" Style="{StaticResource Hint}" />
@@ -137,22 +137,22 @@
         </ResourceDictionary>
     </UserControl.Resources>
 
-    <Grid>
+    <Grid Background="{DynamicResource BackgroundBrush}">
         <Grid.ColumnDefinitions>
             <ColumnDefinition Width="230" />
             <ColumnDefinition Width="*" />
         </Grid.ColumnDefinitions>
 
         <!-- Folders ("All clips" first, then a folder per game), then projects -->
-        <Border Background="{StaticResource PanelBrush}">
+        <Border Background="{DynamicResource PanelBrush}">
             <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
                 <StackPanel Margin="10,6,10,10">
                     <TextBlock Text="FOLDERS" Style="{StaticResource SectionHeader}" Margin="8,14,0,8" />
-                    <ListBox x:Name="FolderList" Template="{StaticResource PlainList}" SelectionChanged="FolderList_SelectionChanged">
+                    <ListBox x:Name="FolderList" Template="{StaticResource PlainList}" ItemContainerStyle="{StaticResource ThemedNavigationItem}" SelectionChanged="FolderList_SelectionChanged">
                         <ListBox.ItemTemplate>
                             <DataTemplate>
                                 <DockPanel>
-                                    <TextBlock DockPanel.Dock="Right" Text="{Binding Count}" Foreground="{StaticResource SubtleText}" Margin="8,0,0,0" />
+                                    <TextBlock DockPanel.Dock="Right" Text="{Binding Count}" Foreground="{DynamicResource SubtleText}" Margin="8,0,0,0" />
                                     <TextBlock Text="{Binding Name}" TextTrimming="CharacterEllipsis" />
                                 </DockPanel>
                             </DataTemplate>
@@ -160,12 +160,12 @@
                     </ListBox>
 
                     <DockPanel Margin="8,22,0,6">
-                        <Button DockPanel.Dock="Right" Style="{StaticResource IconButton}" Content="&#xE710;" FontSize="12" Padding="7,4" Margin="0"
+                        <Button DockPanel.Dock="Right" Style="{StaticResource IconButton}" Content="&#xE710;" FontSize="{DynamicResource QuickClipVisual12}" Padding="7,4" Margin="0"
                                 Click="NewProject_Click" ToolTip="New project (or drop clips here to start one with them)"
                                 AllowDrop="True" DragEnter="NewProject_DragOver" DragOver="NewProject_DragOver" Drop="NewProject_Drop" />
                         <TextBlock Text="PROJECTS" Style="{StaticResource SectionHeader}" Margin="0" VerticalAlignment="Center" />
                     </DockPanel>
-                    <ListBox x:Name="ProjectList" Template="{StaticResource PlainList}" SelectionChanged="ProjectList_SelectionChanged">
+                    <ListBox x:Name="ProjectList" Template="{StaticResource PlainList}" ItemContainerStyle="{StaticResource ThemedNavigationItem}" SelectionChanged="ProjectList_SelectionChanged">
                         <ListBox.ItemTemplate>
                             <DataTemplate>
                                 <!-- Clips dragged here from the gallery (or files from Explorer) are added to the project -->
@@ -176,10 +176,10 @@
                                             <MenuItem Header="Rename…" Click="RenameProject_Click" />
                                             <MenuItem Header="Open folder" Click="OpenProjectFolder_Click" />
                                             <Separator />
-                                            <MenuItem Header="Delete project" Click="DeleteProject_Click" />
+                                            <MenuItem Header="Delete project" Foreground="{DynamicResource DangerBrush}" Click="DeleteProject_Click" />
                                         </ContextMenu>
                                     </DockPanel.ContextMenu>
-                                    <TextBlock DockPanel.Dock="Right" Text="{Binding ClipCount}" Foreground="{StaticResource SubtleText}" Margin="8,0,0,0" />
+                                    <TextBlock DockPanel.Dock="Right" Text="{Binding ClipCount}" Foreground="{DynamicResource SubtleText}" Margin="8,0,0,0" />
                                     <TextBlock Text="{Binding Name}" TextTrimming="CharacterEllipsis" />
                                 </DockPanel>
                             </DataTemplate>
@@ -214,13 +214,13 @@
                         </Button>
                     </StackPanel>
                     <StackPanel>
-                        <TextBlock x:Name="FolderTitle" Text="All clips" FontSize="24" FontWeight="SemiBold" />
+                        <TextBlock x:Name="FolderTitle" Text="All clips" FontSize="{DynamicResource QuickClipText24}" FontWeight="SemiBold" />
                         <TextBlock x:Name="FolderInfo" Margin="0,2,0,0" Style="{StaticResource Hint}" />
                     </StackPanel>
                 </DockPanel>
 
                 <!-- What to do with the selected clips -->
-                <Border x:Name="SelectionBar" DockPanel.Dock="Top" Background="{StaticResource PanelBrush}" CornerRadius="6" Padding="14,6,8,6"
+                <Border x:Name="SelectionBar" DockPanel.Dock="Top" Background="{DynamicResource PanelBrush}" CornerRadius="6" Padding="14,6,8,6"
                         Margin="0,0,14,14" Visibility="Collapsed">
                     <StackPanel>
                         <TextBlock x:Name="SelectionText" FontWeight="SemiBold" TextWrapping="Wrap" Margin="0,0,0,5" />
@@ -234,7 +234,7 @@
                                 <StackPanel Orientation="Horizontal">
                                     <TextBlock FontFamily="{StaticResource IconFont}" Text="&#xE8F4;" VerticalAlignment="Center" Margin="0,0,7,0" />
                                     <TextBlock Text="Add to project" />
-                                    <TextBlock FontFamily="{StaticResource IconFont}" Text="&#xE70D;" FontSize="10" VerticalAlignment="Center" Margin="8,1,0,0" />
+                                    <TextBlock FontFamily="{StaticResource IconFont}" Text="&#xE70D;" FontSize="{DynamicResource QuickClipVisual10}" VerticalAlignment="Center" Margin="8,1,0,0" />
                                 </StackPanel>
                             </Button>
                             <Button x:Name="CopySelectedButton" Style="{StaticResource TextButton}" Margin="8,0,4,0" Click="CopyToFolder_Click"
@@ -276,7 +276,7 @@
                         <Button Content="Clear filters" Click="ClearFilters_Click" Style="{StaticResource TextButton}" Margin="0,0,8,4" />
                 </WrapPanel>
                 <Border x:Name="InlineDetails" DockPanel.Dock="Top" Visibility="Collapsed"
-                        Background="{StaticResource PanelBrush}" Padding="14,4" Margin="0,0,14,12">
+                        Background="{DynamicResource PanelBrush}" Padding="14,4" Margin="0,0,14,12">
                     <ScrollViewer MaxHeight="320" VerticalScrollBarVisibility="Auto">
                         <views:ClipDetailsEditor x:Name="GalleryDetailsEditor" />
                     </ScrollViewer>
@@ -301,9 +301,9 @@
 
                     <StackPanel x:Name="EmptyState" VerticalAlignment="Center" HorizontalAlignment="Center" MaxWidth="420" Margin="0,0,0,80"
                                 Visibility="Collapsed">
-                        <TextBlock FontFamily="{StaticResource IconFont}" Text="&#xE714;" FontSize="40" HorizontalAlignment="Center"
-                                   Foreground="{StaticResource SubtleText}" />
-                        <TextBlock x:Name="EmptyTitle" Text="No clips yet" FontSize="18" FontWeight="SemiBold" HorizontalAlignment="Center" Margin="0,14,0,6" />
+                        <TextBlock FontFamily="{StaticResource IconFont}" Text="&#xE714;" FontSize="{DynamicResource QuickClipVisual40}" HorizontalAlignment="Center"
+                                   Foreground="{DynamicResource SubtleText}" />
+                        <TextBlock x:Name="EmptyTitle" Text="No clips yet" FontSize="{DynamicResource QuickClipText18}" FontWeight="SemiBold" HorizontalAlignment="Center" Margin="0,14,0,6" />
                         <TextBlock x:Name="EmptyText" Style="{StaticResource Hint}" TextAlignment="Center" />
                     </StackPanel>
                 </Grid>

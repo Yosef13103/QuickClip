@@ -28,16 +28,19 @@ public partial class SettingsView : UserControl
     public SettingsView()
     {
         InitializeComponent();
+        InitializeMicrophoneMeters();
         BuildHotkeyRows();
+        InitializeInterfaceSettings();
         SettingsSections.Visibility = AppProfile.IsPersonal ? Visibility.Visible : Visibility.Collapsed;
         SectionsColumn.Width = AppProfile.IsPersonal ? new GridLength(176) : new GridLength(0);
         LibraryOptions.Visibility = AppProfile.IsPersonal ? Visibility.Visible : Visibility.Collapsed;
         if (AppProfile.IsPersonal)
         {
             SettingsContent.MaxWidth = 920;
-            PersonalProfileHint.Text = $"{AppProfile.Name} {AppVersion.Current.Display} · Updates, Windows startup and Explorer integration are disabled.";
+            PersonalProfileHint.Text = $"{AppProfile.Name} {AppVersion.Current.Display} · Updates and Explorer integration are disabled.";
             PersonalProfileHint.Visibility = Visibility.Visible;
-            UpdatesCard.Visibility = StartupCheck.Visibility = ShellCheck.Visibility = Visibility.Collapsed;
+            UpdatesCard.Visibility = ShellCheck.Visibility = Visibility.Collapsed;
+            StartupHint.Visibility = ReplayAtStartupCheck.Visibility = ReplayAtStartupHint.Visibility = Visibility.Visible;
             ApplySettingsSection(RecordingSection);
         }
         // Recording settings restart the recorder; wait until the user stops fiddling.
@@ -69,6 +72,7 @@ public partial class SettingsView : UserControl
         GamesPage.Visibility = games ? Visibility.Visible : Visibility.Collapsed;
         GeneralPage.Visibility = games ? Visibility.Collapsed : Visibility.Visible;
         SectionTitle.Text = section.Content.ToString();
+        foreach (RadioButton item in SettingsSections.Children) item.IsTabStop = item == section;
         RecordingCard.Visibility = SectionVisibility(RecordingSection);
         AudioCard.Visibility = SectionVisibility(AudioSection);
         HotkeysCard.Visibility = SectionVisibility(HotkeysSection);
@@ -219,8 +223,8 @@ public partial class SettingsView : UserControl
             DiagnosticsCheck.IsChecked = s.RecordingDiagnostics;
             CursorCheck.IsChecked = s.CaptureCursor;
             if (!AppProfile.IsPersonal) RecordingCheck.Content = "Enable QuickClip recording";
-            GameSourceItem.Content = AppProfile.IsPersonal ? "Record eligible games automatically" : "Automatic - Game First";
-            DisplaySourceItem.Content = AppProfile.IsPersonal ? "Manual desktop capture only" : "Selected monitor";
+            RecordingSourceLabel.Visibility = SourceCombo.Visibility = AppProfile.IsPersonal ? Visibility.Collapsed : Visibility.Visible;
+            if (AppProfile.IsPersonal) MonitorLabel.Text = "Manual desktop display";
             SourceCombo.SelectedIndex = s.PreferGameWindow ? 0 : 1;
             ShowGameWindowState();
 
@@ -240,11 +244,10 @@ public partial class SettingsView : UserControl
             Select(MicTracksCombo, s.SeparateMicTracks);
 
             ShowHotkeys();
-            StartupCheck.IsChecked = Startup.IsEnabled;
+            RefreshStartupSettings(s);
             MinTrayCheck.IsChecked = s.MinimizeToTray;
             CloseTrayCheck.IsChecked = s.CloseToTray;
             SoundCheck.IsChecked = s.ClipSound;
-            IdleSaveNotificationCheck.IsChecked = s.ShowInactiveSaveNotifications;
             ConfirmDeleteCheck.IsChecked = s.ConfirmClipDeletion;
             MotionBlurCheck.IsChecked = s.ShareMotionBlur;
             ShowShareSize();
@@ -314,16 +317,19 @@ public partial class SettingsView : UserControl
         if (AppProfile.IsPersonal)
         {
             var settings = AppSettings.Current;
-            var display = _monitors.FirstOrDefault(m => Equals(m.DeviceName, (MonitorCombo.SelectedItem as Choice)?.Value));
-            bool authorized = !string.IsNullOrEmpty(settings.AuthorizedGameDisplay);
-            GameDisplayConsent.Visibility = gameWindow ? Visibility.Visible : Visibility.Collapsed;
-            GameDisplayConsent.IsEnabled = authorized || display?.CaptureIdentity != null;
-            GameDisplayConsent.Content = authorized ? "Revoke game display permission" : "Allow selected display during games…";
+            GameDisplayConsent.Visibility = ManualDesktopButton.Visibility = Visibility.Visible;
+            GameDisplayConsent.Content = settings.AllowGameDisplayFollowing
+                ? "Revoke game display permission" : "Allow game display following…";
+            RevokeLegacyDisplayConsent.Visibility = !settings.AllowGameDisplayFollowing && settings.AuthorizedGameDisplay != null
+                ? Visibility.Visible : Visibility.Collapsed;
             BackendCombo.IsEnabled = false;
-            CaptureTargetHint.Text = gameWindow
-                ? "Waits for an eligible game. With display permission, Desktop Duplication records everything visible on that display while the game is open."
-                    + (authorized ? " Permission is set for the previously confirmed display." : " No display permission has been granted.")
-                : "No automatic capture. Use Start manual desktop capture in the tray to explicitly record the selected display.";
+            CaptureTargetHint.Text = "Instant replay waits for an eligible game. Desktop Duplication records the game's display, including other visible apps and notifications. Switching displays starts a fresh replay buffer."
+                + (settings.AllowGameDisplayFollowing ? "" : settings.AuthorizedGameDisplay != null
+                    ? settings.PreferGameWindow ? " Your existing permission covers one display." : " Your previous settings disabled automatic capture. Allow game display following to start it."
+                    : " Game display permission is required.");
+            ManualDesktopButton.IsEnabled = settings.RecordingEnabled;
+            ManualDesktopButton.Content = Recorder.Instance.ManualDesktopRequested
+                ? "Stop manual desktop capture" : "Start manual desktop capture…";
             return;
         }
         CaptureTargetHint.Text = gameWindow
@@ -340,6 +346,7 @@ public partial class SettingsView : UserControl
     {
         bool was = _loading;
         _loading = true;
+        ClearMicrophoneMeters(_legacyMeters);
         MicList.Children.Clear();
         _micRows.Clear();
         string defaultMic = _mics.FirstOrDefault(m => m.IsDefault != 0).Name ?? "";
@@ -372,11 +379,29 @@ public partial class SettingsView : UserControl
             Grid.SetColumn(remove, 1);
             row.Children.Add(combo);
             row.Children.Add(remove);
-            MicList.Children.Add(row);
+            if (AppProfile.IsPersonal)
+            {
+                var input = new StackPanel();
+                input.Children.Add(row);
+                var meter = AddMicrophoneMeter(_legacyMeters,
+                    () => (combo.SelectedItem as Choice)?.Value as string ?? "", $"microphone {index + 1}");
+                input.Children.Add(meter.Panel);
+                combo.SelectionChanged += (_, _) =>
+                {
+                    if (meter == _testingMeter) StopMicrophoneTest();
+                    meter.TestResult = null;
+                    meter.TestMessage = null;
+                    RefreshMicrophoneMeters();
+                };
+                MicList.Children.Add(input);
+            }
+            else
+                MicList.Children.Add(row);
             _micRows.Add((combo, remove));
         }
         _loading = was;
         UpdateMicControls();
+        UpdateMicrophoneMonitoring();
     }
 
     /// <summary>The first connected microphone that isn't chosen yet (the default counts as whichever it is now).</summary>
@@ -413,19 +438,36 @@ public partial class SettingsView : UserControl
     private void GameDisplayConsent_Click(object sender, RoutedEventArgs e)
     {
         var settings = AppSettings.Current;
-        if (settings.AuthorizedGameDisplay != null) settings.AuthorizedGameDisplay = null;
+        if (settings.AllowGameDisplayFollowing)
+        {
+            settings.AllowGameDisplayFollowing = false;
+            settings.AuthorizedGameDisplay = null;
+        }
         else
         {
-            var display = _monitors.FirstOrDefault(m => Equals(m.DeviceName, (MonitorCombo.SelectedItem as Choice)?.Value));
-            if (display?.CaptureIdentity == null || ModalDialog.Show(Window.GetWindow(this),
-                $"Allow game-triggered recording of everything visible on {display.Label}? Other apps, messages and notifications on this display can appear in saved clips.",
-                "Allow entire-display game recording?", MessageBoxButton.YesNo, MessageBoxImage.Warning, MessageBoxResult.No) != MessageBoxResult.Yes) return;
-            if (!CaptureSourcePolicy.AcceptGameDisplay(settings, display, confirmed: true)) return;
+            if (!ModalDialog.ConfirmAction(Window.GetWindow(this),
+                "Allow QuickClip to record the entire display containing an eligible game? Capture follows the game to any connected display, including displays connected later. Other apps, messages and notifications visible on that display can appear in clips.",
+                "Allow game display following?", "Allow", "Cancel", destructive: false)) return;
+            settings.AllowGameDisplayFollowing = true;
         }
-        settings.Save();
+        ApplyDisplayPermission();
+    }
+
+    private void RevokeLegacyDisplayConsent_Click(object sender, RoutedEventArgs e)
+    {
+        AppSettings.Current.AuthorizedGameDisplay = null;
+        ApplyDisplayPermission();
+    }
+
+    private void ApplyDisplayPermission()
+    {
+        AppSettings.Current.Save();
         ShowGameWindowState();
         _ = Recorder.Instance.ApplySettingsAsync();
     }
+
+    private void ManualDesktop_Click(object sender, RoutedEventArgs e) =>
+        App.Host?.ToggleManualDesktop(Recorder.Instance);
 
     private void Changed(object sender, RoutedEventArgs e)
     {
@@ -449,7 +491,7 @@ public partial class SettingsView : UserControl
         if (NvencPresetCombo.SelectedItem is Choice { Value: CaptureEngine.NvencSpeed preset }) s.NvencPreset = preset;
         s.RecordingDiagnostics = DiagnosticsCheck.IsChecked == true;
         s.CaptureCursor = CursorCheck.IsChecked == true;
-        s.PreferGameWindow = SourceCombo.SelectedIndex == 0;
+        if (!AppProfile.IsPersonal) s.PreferGameWindow = SourceCombo.SelectedIndex == 0;
         ShowGameWindowState();
         UpdateCropPreview();
         s.SplitChatAudio = SplitChatCheck.IsChecked == true;
@@ -461,20 +503,13 @@ public partial class SettingsView : UserControl
         s.MinimizeToTray = MinTrayCheck.IsChecked == true;
         s.CloseToTray = CloseTrayCheck.IsChecked == true;
         s.ClipSound = SoundCheck.IsChecked == true;
-        s.ShowInactiveSaveNotifications = IdleSaveNotificationCheck.IsChecked == true;
         s.ConfirmClipDeletion = ConfirmDeleteCheck.IsChecked == true;
         s.ShareMotionBlur = MotionBlurCheck.IsChecked == true;
         s.Save();
 
-        if (sender == StartupCheck)
-        {
-            try { Startup.Set(StartupCheck.IsChecked == true); }
-            catch (Exception ex) { Log.Write("Changing startup failed: " + ex.Message); }
-        }
-
         UpdateEstimates();
-        bool recordingSetting = sender != StartupCheck && sender != MinTrayCheck && sender != CloseTrayCheck && sender != SoundCheck
-                                && sender != MotionBlurCheck && sender != ConfirmDeleteCheck && sender != IdleSaveNotificationCheck;
+        bool recordingSetting = sender != MinTrayCheck && sender != CloseTrayCheck && sender != SoundCheck
+                                && sender != MotionBlurCheck && sender != ConfirmDeleteCheck;
         if (sender == RecordingCheck || sender == SourceCombo)
         {
             _restartTimer.Stop();
@@ -574,6 +609,10 @@ public partial class SettingsView : UserControl
     {
         var s = AppSettings.Current;
         BufferText.Text = RecordingPresets.DurationLabel(s.BufferSeconds);
+        ResourceSummary.Visibility = AppProfile.IsPersonal ? Visibility.Visible : Visibility.Collapsed;
+        RamText.Visibility = AppProfile.IsPersonal ? Visibility.Collapsed : Visibility.Visible;
+        ResourceVideo.Text = $"{BufferText.Text} · {s.RecordFps} FPS target · {RecordingPresets.Label(s.RecordQuality)}";
+        ResourceSize.Text = "Size estimates require a display or capture area.";
         if (SelectedArea is not { } area)
         {
             RamText.Text = BitrateText.Text = "";
@@ -585,13 +624,20 @@ public partial class SettingsView : UserControl
         int kbps = RecordingPresets.VideoKbps(s.RecordQuality, w, h, s.RecordFps, family);
         int tracks = RecordingPresets.AudioTrackCount(s);
         long ram = RecordingPresets.EstimateRamBytes(kbps, tracks, s.BufferSeconds);
-        long clip = (long)((kbps + tracks * RecordingPresets.AudioKbps) * 1000.0 / 8 * s.BufferSeconds);
+        long clip = Library.StorageInventory.EstimateBytes(kbps, tracks * RecordingPresets.AudioKbps, TimeSpan.FromSeconds(s.BufferSeconds));
         BitrateText.Text = $"≈ {kbps / 1000.0:0.#} Mbps";
+        var encoder = VideoEncoders.Find(encoderId);
+        string encoderLabel = s.RecordEncoder.Length > 0 ? encoder?.Label ?? encoderId :
+            RecordingPresets.DefaultEncoder(_encoders) is { } preferred ? $"Auto ({preferred.Label})" : "Auto";
+        ResourceVideo.Text = $"{BufferText.Text} · {w} × {h} estimated · {s.RecordFps} FPS target · " +
+            $"{RecordingPresets.Label(s.RecordQuality)} · {BitrateText.Text} video · {encoderLabel}";
+        ResourceSize.Text = $"Estimated full clip {Fmt.Size(clip)} · Replay buffer about {Fmt.Size(ram)} RAM · {tracks} audio track(s)";
         RamText.Text = $"The replay buffer needs about {Fmt.Size(ram)} of memory. A full-length clip is about {Fmt.Size(clip)} on disk.";
     }
 
     private void OnRecorderState(RecorderState state) => Dispatcher.BeginInvoke(() =>
     {
+        if (AppProfile.IsPersonal) ShowGameWindowState();
         bool recordingEnabled = AppSettings.Current.RecordingEnabled;
         if (RecordingCheck.IsChecked != recordingEnabled)
         {
@@ -607,6 +653,7 @@ public partial class SettingsView : UserControl
             ? $"Detected now: {string.Join(", ", state.MusicApps)}."
             : "No music app is running right now.") + " Music played in a web browser stays on the Desktop track.";
         RecorderStatus.Text = state.Running ? $"Recording · {state.Summary}"
+            : state.Mode == RecordingMode.Recovering ? "Recovering display capture. " + state.Error
             : state.Error != null ? "Not recording: " + state.Error
             : state.Mode == RecordingMode.Armed ? "Waiting for a game · no capture running."
             : recordingEnabled ? "Starting…" : "Recording is off.";
@@ -635,6 +682,18 @@ public partial class SettingsView : UserControl
         }
     }
 
-    private void PlayClipSound_Click(object sender, RoutedEventArgs e) => ClipSound.Play();
+    private async void PlayClipSound_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not Button button) return;
+        button.IsEnabled = false;
+        try
+        {
+            bool played = await ClipSound.PlayAsync(AppSettings.Current.ClipSoundOutputId, AppSettings.Current.ClipSoundVolume, AppSettings.Current.ClipSoundFilePath);
+            if (AppProfile.IsPersonal) SoundOutputStatus.Text = played
+                ? SoundOverlapMessage()
+                : "The selected output could not play the chime.";
+        }
+        finally { button.IsEnabled = true; }
+    }
 
 }

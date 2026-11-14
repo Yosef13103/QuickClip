@@ -74,7 +74,6 @@ public partial class EditorView : UserControl
     /// <summary>The frame rate choice "Smooth 60 fps": 60 fps with the extra frames blended into motion blur.</summary>
     private const double SmoothFps = -60;
     private (string Clip, DateTime RecycledUtc, ClipDetails OriginalDetails)? _undo;
-    private bool _settingMerge;
     private int _timePosQueued;
     private double _mpvTimePos;
 
@@ -82,6 +81,8 @@ public partial class EditorView : UserControl
     public string? FileTitle { get; private set; }
     public event Action? TitleChanged;
     public event Action? BackRequested;
+    // Called when returning from Appearance settings; libmpv's native letterbox is outside WPF resources.
+    internal void RefreshTheme() => _player?.RefreshTheme();
     internal event Action<string, ClipDetails>? ClipDetailsSaved;
     internal Func<IReadOnlyList<string>>? KnownTags { get; set; }
     internal IClipAnnotationActions AnnotationActions
@@ -113,6 +114,13 @@ public partial class EditorView : UserControl
     /// <summary>Opens a file now, or as soon as the player is ready.</summary>
     public async Task OpenAsync(string path)
     {
+        // Gallery may request a different clip while the previous probe or a confirmed
+        // Recycle Bin deletion is still running. Never silently drop the newer request.
+        if (_loading || _deletingMedia)
+        {
+            _pendingFile = path;
+            return;
+        }
         if (string.Equals(CurrentFile, Path.GetFullPath(path), StringComparison.OrdinalIgnoreCase))
         {
             await RefreshSourceAsync();
@@ -131,6 +139,13 @@ public partial class EditorView : UserControl
             return;
         }
         if (CanOpenAnother()) await OpenFileAsync(path);
+    }
+
+    private async Task OpenPendingFileAsync()
+    {
+        if (_loading || _deletingMedia || !_uiReady || _closed || _pendingFile is not { } next) return;
+        _pendingFile = null;
+        await OpenAsync(next);
     }
 
     /// <summary>Gives keyboard focus to the editor so its shortcuts work.</summary>
@@ -161,6 +176,8 @@ public partial class EditorView : UserControl
             _stalePreviews.AddRange(_tracks.Select(t => t.PreviewFile).OfType<string>());
             DeleteStalePreviews();
             _tracks.Clear();
+            ClearNativePreview();
+            MetadataEditor.Clear();
             _media = null;
             _sourceStamp = null;
             SetSourceState(EditorSourceState.Ready);
@@ -186,11 +203,13 @@ public partial class EditorView : UserControl
         {
             _deletingMedia = false;
             DeleteMediaButton.IsEnabled = _media != null && _exportCts == null;
+            await OpenPendingFileAsync();
         }
     }
 
     private void ToggleMode_Click(object sender, RoutedEventArgs e)
     {
+        if (MissingSourceOverlay.Visibility == Visibility.Visible) return;
         if (_fullscreen) ExitFullscreen();
         _viewMode = !_viewMode;
         ApplyMode();
@@ -198,7 +217,7 @@ public partial class EditorView : UserControl
 
     private void ToggleFullscreen_Click(object sender, RoutedEventArgs e)
     {
-        if (_media?.Video == null) return;
+        if (_media?.Video == null || !SourceReady && !_fullscreen) return;
         SetFullscreen(!_fullscreen);
     }
 
@@ -328,7 +347,14 @@ public partial class EditorView : UserControl
         TrackList.ItemsSource = _tracks;
         Timeline.State = _timeline;
         Timeline.SeekRequested += OnSeekRequested;
-        WaveformLane.SeekRequested += OnSeekRequested;
+        // Routed from lanes inside THIS Editor's visual tree, instead of a
+        // process-wide static event retaining every closed EditorView forever.
+        AddHandler(WaveformLane.SeekRequestedEvent, new RoutedEventHandler((_, e) =>
+        {
+            if (e is not WaveformSeekEventArgs seek) return;
+            OnSeekRequested(seek.Seconds, seek.Final);
+            e.Handled = true;
+        }));
         _timeline.SelectionChanged += OnSelectionChanged;
         _crop.Changed += OnCropChanged;
 
@@ -366,7 +392,11 @@ public partial class EditorView : UserControl
         IsVisibleChanged += async (_, _) =>
         {
             if (!IsVisible) _player?.SetProperty("pause", true);
-            else await RefreshSourceAsync();
+            else
+            {
+                await RefreshSourceAsync();
+                QueueNativePreviewRepaint();
+            }
         };
 
         foreach (var combo in new[] { AspectCombo, FormatCombo, EncoderCombo, QualityCombo, ResolutionCombo, FpsCombo, AudioBitrateCombo })
@@ -397,13 +427,15 @@ public partial class EditorView : UserControl
         }
         _childWindowTimer.Start();
         AttachSourceEvents();
-        ShowMessage("Open a video or drop it here");
+        // VideoHost.Created only completes when the host is first presented.
+        // Once libmpv is initialized with that real HWND, hide the idle native
+        // surface and show the WPF-owned placeholder until a verified FileLoaded.
+        Video.Visibility = Visibility.Hidden;
+        EmptySourceHint.Visibility = Visibility.Visible;
         _ = Task.Run(() => DeletePreviews(olderThan: TimeSpan.FromDays(1)));
 
         // Personal clips start with looping off; looping is an explicit per-editor choice.
         LoopToggle.IsChecked = AppProfile.IsPersonal ? false : _settings.Loop;
-        // Merging always starts off (it used to be remembered, which quietly merged every later export).
-        _settings.MergeAudio = false;
         _uiReady = true;
 
         if (_pendingFile != null)
@@ -545,7 +577,11 @@ public partial class EditorView : UserControl
 
     private async Task OpenFileAsync(string path)
     {
-        if (_loading) return;
+        if (_loading || _deletingMedia)
+        {
+            _pendingFile = path;
+            return;
+        }
         if (!string.Equals(CurrentFile, Path.GetFullPath(path), StringComparison.OrdinalIgnoreCase) && !ConfirmDiscardDraft()) return;
         _loading = true;
         try
@@ -575,14 +611,18 @@ public partial class EditorView : UserControl
                 Mouse.OverrideCursor = null;
             }
 
-            _waveCts?.Cancel();
+            StopSourcePreview();
             bool differentClip = !string.Equals(_media?.Path, path, StringComparison.OrdinalIgnoreCase);
+            _previewReady = false;
+            EmptySourceHint.Text = "Loading preview…";
+            EmptySourceHint.Visibility = Visibility.Visible;
             _media = info;
             _sourceStamp = stamp;
             _sourceState = EditorSourceState.Ready;
             _sourceSuspended = false;
-            Video.Visibility = Visibility.Visible;
+            Video.Visibility = Visibility.Hidden;
             UnavailableSource.Visibility = MissingSourceOverlay.Visibility = Visibility.Collapsed;
+            SetRecoveryInteraction(false);
             if (differentClip && (_viewMode || _fullscreen))
             {
                 _viewMode = false;
@@ -616,7 +656,7 @@ public partial class EditorView : UserControl
                 if (t.PreviewFile != null) _stalePreviews.Add(t.PreviewFile);
             }
             _tracks.Clear();
-            foreach (var a in info.Audio)
+            foreach (var a in info.EditableAudio)
             {
                 var track = new AudioTrack(a, _timeline, info.Duration);
                 track.Changed += OnTrackChanged;
@@ -664,6 +704,7 @@ public partial class EditorView : UserControl
         {
             _loading = false;
             if (_sourceSuspended && !ClipDeletion.Current.Busy) await RefreshSourceAsync();
+            await OpenPendingFileAsync();
         }
     }
 
@@ -867,6 +908,10 @@ public partial class EditorView : UserControl
     private void ReloadPreview()
     {
         if (_player == null || _media == null || !SourceReady) return;
+        _previewReady = false;
+        Video.Visibility = Visibility.Hidden;
+        EmptySourceHint.Text = "Loading preview…";
+        EmptySourceHint.Visibility = Visibility.Visible;
         var sounds = _tracks.Where(t => t.IsSound && t.PreviewFile != null).Select(t => t.PreviewFile!);
         double position = _timeline.Position;
         _player.Command("stop"); // the new track setup only fits the reloaded file
@@ -911,7 +956,13 @@ public partial class EditorView : UserControl
         _audioSyncTimer.Stop();
         // The clip's own tracks, then the added sounds that are ready (mpv numbers external tracks after the file's).
         _previewTracks = [.. _tracks.Where(t => !t.IsSound || t.PreviewFile != null)];
-        _previewAudio?.Configure(_previewTracks.Count, i => PreviewVolume(_previewTracks[i]));
+        // A hybrid file's aid1 is a composite, intentionally hidden from the
+        // editable tracks. Added sounds start AFTER every embedded audio stream.
+        var aids = new List<int>(_previewTracks.Count);
+        int external = 0;
+        foreach (var track in _previewTracks)
+            aids.Add(track.IsSound ? _media.Audio.Count + ++external : track.Info.Ordinal + 1);
+        _previewAudio?.Configure(aids, i => PreviewVolume(_previewTracks[i]));
     }
 
     /// <summary>Makes the current volumes stick across mpv rebuilding its filters (it does on every seek).</summary>
@@ -945,24 +996,6 @@ public partial class EditorView : UserControl
     private void VolumeSlider_DoubleClick(object sender, MouseButtonEventArgs e)
     {
         if (sender is FrameworkElement { DataContext: AudioTrack t }) t.Volume = 1;
-    }
-
-    private void Merge_Changed(object sender, RoutedEventArgs e)
-    {
-        if (!_settingMerge && MergeCheck.IsChecked == true)
-        {
-            var answer = ModalDialog.Show(OwnerWindow,
-                "Merge all audio tracks into one when exporting?\n\nThe exported file will have a single audio track, so its game, " +
-                "chat, mic and music can't be turned up or down separately any more.",
-                "Merge audio tracks", MessageBoxButton.OKCancel, MessageBoxImage.Question);
-            if (answer != MessageBoxResult.OK)
-            {
-                _settingMerge = true;
-                MergeCheck.IsChecked = false;
-                _settingMerge = false;
-            }
-        }
-        UpdateSummary();
     }
 
     private void Transport_SizeChanged(object sender, SizeChangedEventArgs e)
@@ -1049,6 +1082,14 @@ public partial class EditorView : UserControl
             switch (id)
             {
                 case MpvEventId.FileLoaded:
+                    // An older async loadfile can finish after the user has chosen a newer clip,
+                    // especially while the system is busy. Never reveal that stale mpv frame.
+                    if (_closed || !SourceReady || _media == null ||
+                        !EditorSource.MatchesLoadedPreview(_player?.GetString("path"), _media.Path))
+                        break;
+                    _previewReady = true;
+                    Video.Visibility = Visibility.Visible;
+                    EmptySourceHint.Visibility = Visibility.Collapsed;
                     Video.DisableChildWindows();
                     DeleteStalePreviews();
                     ApplyPreviewVolumes();
@@ -1273,6 +1314,12 @@ public partial class EditorView : UserControl
         }
         var mods = Keyboard.Modifiers;
         bool ctrl = mods.HasFlag(ModifierKeys.Control), shift = mods.HasFlag(ModifierKeys.Shift);
+        if (MissingSourceOverlay.Visibility == Visibility.Visible)
+        {
+            if (ctrl && e.Key == Key.O) { _ = PromptOpenAsync(); e.Handled = true; }
+            else if (e.Key == Key.Escape && _fullscreen) { ExitFullscreen(); e.Handled = true; }
+            return;
+        }
         if (!SourceReady && e.Key is not (Key.F11 or Key.Escape) && !(ctrl && e.Key == Key.O)) return;
         bool handled = true;
         switch (e.Key)
@@ -1569,9 +1616,6 @@ public partial class EditorView : UserControl
         Select(QualityCombo, "original");
         Select(ResolutionCombo, 0);
         Select(FormatCombo, "source");
-        _settingMerge = true;
-        MergeCheck.IsChecked = false;
-        _settingMerge = false;
         RefreshEncoderList();
         UpdateUiState();
         Root.Focus();
@@ -1581,7 +1625,7 @@ public partial class EditorView : UserControl
     private bool OptionsChanged() =>
         _crop.Enabled || (FpsCombo.SelectedItem as Choice)?.Value is not 0.0 || (QualityCombo.SelectedItem as Choice)?.Value as string != "original"
         || (ResolutionCombo.SelectedItem as Choice)?.Value is not 0 || (FormatCombo.SelectedItem as Choice)?.Value as string != "source"
-        || EncoderCombo.SelectedItem is Choice { Value: string { Length: > 0 } } || MergeCheck.IsChecked == true;
+        || EncoderCombo.SelectedItem is Choice { Value: string { Length: > 0 } };
 
     private void TargetSize_Changed(object sender, TextChangedEventArgs e) => UpdateSummary();
 
@@ -1616,8 +1660,6 @@ public partial class EditorView : UserControl
         DeleteMediaButton.IsEnabled = _media != null && !busy && !_deletingMedia;
         FavoriteButton.IsEnabled = _media != null && !busy && !_deletingMedia;
         MetadataEditor.IsEnabled = !busy;
-        MergeCheck.IsEnabled = _tracks.Count > 1;
-        MergeCheck.Visibility = container.IsGif ? Visibility.Collapsed : Visibility.Visible;
         AddSoundButton.IsEnabled = _media != null;
         UpdateSummary();
     }
@@ -1657,8 +1699,7 @@ public partial class EditorView : UserControl
         {
             0 => "no audio",
             1 => "1 audio track" + withSounds,
-            _ when MergeCheck.IsChecked == true || c.SingleAudioTrack => $"{audio} audio tracks{withSounds} merged into 1",
-            _ => $"{audio} audio tracks{withSounds}",
+            _ => $"{audio} tracks mixed into 1 for sharing" + withSounds,
         };
         parts.Add(tracks);
         SummaryText.Text = string.Join("  ·  ", parts);
@@ -1741,7 +1782,8 @@ public partial class EditorView : UserControl
                     Offset = t.Offset,
                 })
                 .ToList(),
-            MergeAudio = MergeCheck.IsChecked == true,
+            // The UI chooses the output layout at export time: compatible share
+            // or lossless-workflow overwrite, never a confusing checkbox.
             VideoMode = VideoMode.Encode,
             EncoderId = chosenEncoder,
             Quality = (QualityCombo.SelectedItem as Choice)?.Value as string ?? "original",
@@ -1839,14 +1881,12 @@ public partial class EditorView : UserControl
         var container = CurrentContainer(forOverwrite: true);
         string fileName = Path.GetFileName(_media.Path);
         int tracks = _tracks.Count(t => t.Include);
-        bool merging = MergeCheck.IsChecked == true && tracks > 1 && !container.SingleAudioTrack;
-        string warning = merging
-            ?
-                $"Merge all audio tracks is on.\n\nSaving over \"{fileName}\" mixes its {tracks} audio tracks into one, so the clip " +
-                "loses its separate game, chat, mic and music tracks. The original will be moved to the Recycle Bin."
-            : $"Replace \"{fileName}\" with the edited clip?\n\nThe original will be moved to the Recycle Bin.";
+        string layout = tracks > 1 && container.HasVideo && !container.SingleAudioTrack
+            ? "The saved file will play a complete mixed soundtrack by default AND retain separate audio tracks for future editing."
+            : "The saved file will retain the selected audio.";
+        string warning = $"Replace \"{fileName}\" with the edited clip?\n\n{layout}\n\nThe original will be moved to the Recycle Bin.";
         if (!ModalDialog.ConfirmAction(OwnerWindow, warning, "Save over original",
-            merging ? "Merge tracks and replace" : "Replace original", "Keep original", destructive: true)) return;
+            "Replace original", "Keep original", destructive: true)) return;
 
         string dir = Path.GetDirectoryName(_media.Path)!;
         string temp = UniquePath(dir, Path.GetFileNameWithoutExtension(_media.Path) + ".quickclip-tmp", Path.GetExtension(_media.Path));
@@ -1870,6 +1910,13 @@ public partial class EditorView : UserControl
             }
             staging = ClipNaming.ReserveStagingPath(Path.GetDirectoryName(outputPath)!, container.Extension);
             request = BuildRequest(staging, container);
+            // Export as new -> ordinary playable single soundtrack.
+            // Save over -> first stream is a default mix, followed by editable stems.
+            request = request with
+            {
+                MergeAudio = !overwrite && request.Tracks.Count > 1,
+                HybridAudio = overwrite && container.HasVideo && !container.SingleAudioTrack,
+            };
             if (AppProfile.IsPersonal) request = request with { CaptureTime = details.CapturedAt, ClipTitle = details.Title };
             args = ExportBuilder.BuildArgs(request);
         }
@@ -1949,6 +1996,7 @@ public partial class EditorView : UserControl
             _exportPath = null;
             cts.Dispose();
             ProgressPanel.Visibility = Visibility.Collapsed;
+            if (MissingSourceOverlay.Visibility == Visibility.Visible) ClearMissingSourceButton.IsEnabled = true;
             UpdateUiState();
         }
     }

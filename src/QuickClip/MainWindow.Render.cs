@@ -14,6 +14,30 @@ public partial class MainWindow
     internal async Task RenderPagesAsync(string dir, string? editorFile)
     {
         Directory.CreateDirectory(dir);
+        if (Environment.GetCommandLineArgs().Contains("--interface-scale-smoke-only"))
+        {
+            ShowSettings();
+            _settings!.GeneralSection.IsChecked = true;
+            var scaleReport = new System.Text.StringBuilder();
+            foreach (var (width, scale) in new[] { (1180, 100), (820, 125) })
+            {
+                Width = width;
+                Height = 680;
+                _settings.CombinedScale.SelectedItem = scale;
+                await Dispatcher.InvokeAsync(UpdateLayout, System.Windows.Threading.DispatcherPriority.ApplicationIdle);
+                SaveVisual(Path.Combine(dir, $"general-{width}-{scale}.png"));
+                bool compact = _settings.SettingsSections.Tag is true;
+                if (compact != (width == 820) || _settings.SectionTitle.FontSize != 24 * scale / 100d ||
+                    SaveClipButton.MinHeight != 36 * scale / 100d || !_settings.GeneralSection.IsTabStop)
+                    throw new InvalidOperationException("Scale resources or Settings rail state did not apply.");
+                var label = (TextBlock)_settings.GeneralSection.Template.FindName("SectionLabel", _settings.GeneralSection);
+                if ((label.Visibility == Visibility.Collapsed) != compact)
+                    throw new InvalidOperationException("Compact Settings label visibility did not update.");
+                scaleReport.AppendLine($"{width} DIP, scale {scale}%, compact {compact}, DPI {VisualTreeHelper.GetDpi(this).PixelsPerInchX}.");
+            }
+            File.WriteAllText(Path.Combine(dir, "interface-scale.txt"), scaleReport.ToString());
+            return;
+        }
         if (Environment.GetCommandLineArgs().Contains("--recording-settings-smoke-only"))
         {
             ShowSettings();

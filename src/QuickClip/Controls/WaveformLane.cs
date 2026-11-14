@@ -10,6 +10,14 @@ namespace QuickClip.Controls;
 /// Draws one audio track's waveform aligned with the timeline. Clicking seeks; an added sound sits in a block that can
 /// be dragged along the timeline.
 /// </summary>
+/// <summary>A seek request is routed only through its owning visual tree; no static editor references.</summary>
+public sealed class WaveformSeekEventArgs(double seconds, bool final)
+    : RoutedEventArgs(WaveformLane.SeekRequestedEvent)
+{
+    public double Seconds { get; } = seconds;
+    public bool Final { get; } = final;
+}
+
 public sealed class WaveformLane : FrameworkElement
 {
     private static readonly Brush LaneBrush = Freeze(new SolidColorBrush(Color.FromRgb(0x1A, 0x1A, 0x1A)));
@@ -20,6 +28,18 @@ public sealed class WaveformLane : FrameworkElement
     private static readonly Pen PlayheadPen = Freeze(new Pen(TimelineBar.PlayheadBrush, 1.5));
     private static readonly Pen HandlePen = Freeze(new Pen(TimelineBar.HandleBrush, 2));
     private static readonly Typeface LabelFace = new("Segoe UI");
+    private static DependencyProperty ThemeBrush(string name, Brush fallback) =>
+        DependencyProperty.Register(name, typeof(Brush), typeof(WaveformLane),
+            new FrameworkPropertyMetadata(fallback, FrameworkPropertyMetadataOptions.AffectsRender));
+
+    private static readonly DependencyProperty ThemeLaneProperty = ThemeBrush("ThemeLane", LaneBrush);
+    private static readonly DependencyProperty ThemeInactiveProperty = ThemeBrush("ThemeInactive", DisabledBrush);
+    private static readonly DependencyProperty ThemeTextProperty = ThemeBrush("ThemeText", LabelBrush);
+    private static readonly DependencyProperty ThemeTextBackProperty = ThemeBrush("ThemeTextBack", LabelBackBrush);
+    private static readonly DependencyProperty ThemeGridProperty = ThemeBrush("ThemeGrid", CenterPen.Brush);
+    private static readonly DependencyProperty ThemeHandleProperty = ThemeBrush("ThemeHandle", TimelineBar.HandleBrush);
+    private static readonly DependencyProperty ThemePlayheadProperty = ThemeBrush("ThemePlayhead", TimelineBar.PlayheadBrush);
+    private Brush Themed(DependencyProperty resource) => (Brush)GetValue(resource);
     private const double SnapPixels = 7;
 
     public static readonly DependencyProperty TrackProperty = DependencyProperty.Register(
@@ -31,8 +51,12 @@ public sealed class WaveformLane : FrameworkElement
     private bool _moving;   // dragging an added sound along the timeline
     private double _grab;   // seconds between the sound's start and the point it was grabbed by
 
-    /// <summary>Raised when the user clicks/drags in a lane.</summary>
-    public static event Action<double, bool>? SeekRequested;
+    /// <summary>Bubble seek requests to this lane's owning Editor, never a static/global subscriber.</summary>
+    public static readonly RoutedEvent SeekRequestedEvent = EventManager.RegisterRoutedEvent(
+        "SeekRequested", RoutingStrategy.Bubble, typeof(RoutedEventHandler), typeof(WaveformLane));
+
+    private void RequestSeek(double seconds, bool final) =>
+        RaiseEvent(new WaveformSeekEventArgs(seconds, final));
 
     public AudioTrack? Track
     {
@@ -45,6 +69,13 @@ public sealed class WaveformLane : FrameworkElement
         ClipToBounds = true;
         Focusable = false;
         Cursor = Cursors.Hand;
+        SetResourceReference(ThemeLaneProperty, "SurfaceBrush");
+        SetResourceReference(ThemeInactiveProperty, "DisabledBrush");
+        SetResourceReference(ThemeTextProperty, "PrimaryTextBrush");
+        SetResourceReference(ThemeTextBackProperty, "ElevatedSurfaceBrush");
+        SetResourceReference(ThemeGridProperty, "BorderBrush");
+        SetResourceReference(ThemeHandleProperty, "WarningBrush");
+        SetResourceReference(ThemePlayheadProperty, "PrimaryTextBrush");
     }
 
     private void OnTrackChanged(AudioTrack? old, AudioTrack? now)
@@ -100,7 +131,7 @@ public sealed class WaveformLane : FrameworkElement
     protected override void OnRender(DrawingContext dc)
     {
         double w = ActualWidth, h = ActualHeight;
-        dc.DrawRoundedRectangle(LaneBrush, null, new Rect(0, 0, w, h), 4, 4);
+        dc.DrawRoundedRectangle(Themed(ThemeLaneProperty), null, new Rect(0, 0, w, h), 4, 4);
         var track = Track;
         if (track == null || w <= 0 || h <= 0) return;
         var s = track.Timeline;
@@ -125,32 +156,32 @@ public sealed class WaveformLane : FrameworkElement
             }
         }
 
-        dc.DrawLine(CenterPen, new Point(0, h / 2), new Point(w, h / 2));
+        dc.DrawLine(new Pen(Themed(ThemeGridProperty), 1), new Point(0, h / 2), new Point(w, h / 2));
         if (_cache != null)
-            dc.DrawGeometry(track.Include ? track.Brush : DisabledBrush, null, _cache);
+            dc.DrawGeometry(track.Include ? track.Brush : Themed(ThemeInactiveProperty), null, _cache);
 
         if (!block.IsEmpty && block.Width > 36)
         {
             string start = track.Offset >= 0 ? Fmt.Time(track.Offset) : "−" + Fmt.Time(-track.Offset);
             var text = new FormattedText($"♪ {track.Name}  ·  {start}", CultureInfo.CurrentCulture, FlowDirection.LeftToRight,
-                LabelFace, 11, LabelBrush, VisualTreeHelper.GetDpi(this).PixelsPerDip)
+                LabelFace, 11, Themed(ThemeTextProperty), VisualTreeHelper.GetDpi(this).PixelsPerDip)
             {
                 MaxTextWidth = Math.Max(1, block.Width - 10),
                 MaxLineCount = 1,
                 Trimming = TextTrimming.CharacterEllipsis,
             };
-            dc.DrawRoundedRectangle(LabelBackBrush, null, new Rect(block.X + 3, 3, text.Width + 8, text.Height + 2), 3, 3);
+            dc.DrawRoundedRectangle(Themed(ThemeTextBackProperty), null, new Rect(block.X + 3, 3, text.Width + 8, text.Height + 2), 3, 3);
             dc.DrawText(text, new Point(block.X + 7, 4));
         }
 
         double xi = s.TimeToX(s.In, w), xo = s.TimeToX(s.Out, w);
         if (xi > 0) dc.DrawRectangle(TimelineBar.OutsideShade, null, new Rect(0, 0, Math.Min(xi, w), h));
         if (xo < w) dc.DrawRectangle(TimelineBar.OutsideShade, null, new Rect(Math.Max(0, xo), 0, w - Math.Max(0, xo), h));
-        if (xi >= 0 && xi <= w) dc.DrawLine(HandlePen, new Point(xi + 1, 0), new Point(xi + 1, h));
-        if (xo >= 0 && xo <= w) dc.DrawLine(HandlePen, new Point(xo - 1, 0), new Point(xo - 1, h));
+        if (xi >= 0 && xi <= w) dc.DrawLine(new Pen(Themed(ThemeHandleProperty), 2), new Point(xi + 1, 0), new Point(xi + 1, h));
+        if (xo >= 0 && xo <= w) dc.DrawLine(new Pen(Themed(ThemeHandleProperty), 2), new Point(xo - 1, 0), new Point(xo - 1, h));
 
         double xp = Math.Round(s.TimeToX(s.Position, w)) + 0.5;
-        if (xp >= 0 && xp <= w) dc.DrawLine(PlayheadPen, new Point(xp, 0), new Point(xp, h));
+        if (xp >= 0 && xp <= w) dc.DrawLine(new Pen(Themed(ThemePlayheadProperty), 1.5), new Point(xp, 0), new Point(xp, h));
     }
 
     private static Geometry? BuildGeometry(AudioTrack track, double w, double h)
@@ -237,7 +268,7 @@ public sealed class WaveformLane : FrameworkElement
             return;
         }
         _dragging = true;
-        SeekRequested?.Invoke(track.Timeline.XToTime(x, ActualWidth), false);
+        RequestSeek(track.Timeline.XToTime(x, ActualWidth), false);
     }
 
     protected override void OnMouseMove(MouseEventArgs e)
@@ -248,7 +279,7 @@ public sealed class WaveformLane : FrameworkElement
         if (_moving)
             track.MoveTo(Snap(track, TimeAt(track.Timeline, x) - _grab));
         else if (_dragging)
-            SeekRequested?.Invoke(track.Timeline.XToTime(x, ActualWidth), false);
+            RequestSeek(track.Timeline.XToTime(x, ActualWidth), false);
         else
             Cursor = OnSound(track, x) ? Cursors.SizeWE : Cursors.Hand;
     }
@@ -264,7 +295,7 @@ public sealed class WaveformLane : FrameworkElement
         _dragging = false;
         ReleaseMouseCapture();
         if (Track is { } track)
-            SeekRequested?.Invoke(track.Timeline.XToTime(e.GetPosition(this).X, ActualWidth), true);
+            RequestSeek(track.Timeline.XToTime(e.GetPosition(this).X, ActualWidth), true);
     }
 
     protected override void OnLostMouseCapture(MouseEventArgs e)
@@ -277,7 +308,7 @@ public sealed class WaveformLane : FrameworkElement
         else if (_dragging && Track is { } track)
         {
             _dragging = false;
-            SeekRequested?.Invoke(track.Timeline.Position, true);
+            RequestSeek(track.Timeline.Position, true);
         }
         base.OnLostMouseCapture(e);
     }

@@ -6,15 +6,15 @@
     </UserControl.Resources>
 
     <!-- Over the whole window; the dimmed background keeps clicks off the pages underneath -->
-    <Grid Background="#B0000000">
-        <Border Background="{StaticResource PanelBrush}" CornerRadius="10" BorderBrush="#383838" BorderThickness="1"
+    <Grid Background="{DynamicResource ModalScrimBrush}">
+        <Border Background="{DynamicResource PanelBrush}" CornerRadius="10" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1"
                 MaxWidth="700" MaxHeight="660" Margin="40" Padding="28,22,28,18" HorizontalAlignment="Center" VerticalAlignment="Center">
             <DockPanel>
                 <StackPanel DockPanel.Dock="Top">
                     <StackPanel Orientation="Horizontal">
-                        <TextBlock FontFamily="{StaticResource IconFont}" Text="&#xE789;" FontSize="20" VerticalAlignment="Center" Margin="0,2,10,0"
+                        <TextBlock FontFamily="{StaticResource IconFont}" Text="&#xE789;" FontSize="{DynamicResource QuickClipVisual20}" VerticalAlignment="Center" Margin="0,2,10,0"
                                    Foreground="{DynamicResource AccentFillColorDefaultBrush}" />
-                        <TextBlock x:Name="TitleText" FontSize="22" FontWeight="SemiBold" Text="What's new" TextWrapping="Wrap" />
+                        <TextBlock x:Name="TitleText" FontSize="{DynamicResource QuickClipText22}" FontWeight="SemiBold" Text="What's new" TextWrapping="Wrap" />
                     </StackPanel>
                     <TextBlock x:Name="SubtitleText" Style="{StaticResource Hint}" Margin="0,4,0,0" TextWrapping="Wrap" />
                 </StackPanel>

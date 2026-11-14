@@ -37,6 +37,14 @@ public sealed class RecordingSettingsViewTests
                 var fields = Assert.IsType<StackPanel>(track.Children[2]);
                 Assert.Equal(saved.Label, Assert.IsType<TextBox>(fields.Children[0]).Text);
                 Assert.Contains("Missing device (selection kept)", Assert.IsType<TextBlock>(fields.Children[1]).Text);
+                if (AppProfile.IsPersonal)
+                {
+                    var meter = Assert.IsType<StackPanel>(fields.Children[2]);
+                    Assert.Equal("microphone Saved mic activity", AutomationProperties.GetName(meter.Children[0]));
+                    var actions = Assert.IsType<WrapPanel>(meter.Children[2]);
+                    Assert.Equal("Test microphone", Assert.IsType<Button>(actions.Children[0]).Content);
+                    Assert.False(Assert.IsType<Button>(actions.Children[1]).IsEnabled);
+                }
 
                 view.HotkeysSection.IsChecked = true;
                 var size = new Size(1050, 660);
@@ -86,5 +94,32 @@ public sealed class RecordingSettingsViewTests
         Assert.Contains("0 packets", status);
         Assert.DoesNotContain(lane.Track.DeviceId, status);
         Assert.DoesNotContain("peak", status);
+    }
+
+    [Fact]
+    public void Running_playback_status_shows_format_and_packet_health_without_native_ids()
+    {
+        var lane = new RunningEndpointLane(new(EndpointFlow.Playback, "private-chat-id", "Chat"),
+            CaptureEngine.ToEndpointStatus(new()
+            {
+                TrackIndex = 1, Flow = EndpointFlow.Playback, Stage = EndpointStage.Streaming,
+                MixRate = 44_100, MixChannels = 2, MixTag = 0xFFFE, MixSubtype = 1,
+                MixBits = 32, MixValidBits = 24, CaptureRate = 48_000, CaptureChannels = 2,
+                PacketCount = 120, SilentPackets = 8, Discontinuities = 3, TimestampFallbacks = 5,
+                LastPeak = 0.5f, LastRms = 0.25f, MaxPeak = 1.25f, MaxRms = 0.5f,
+                SelectedId = "private-chat-id", ResolvedId = "private-resolved-id", DefaultCaptureId = "private-default-id"
+            }));
+
+        string status = SettingsView.DescribeLane(lane, 1);
+        Assert.Contains("Playback · Chat", status);
+        Assert.Contains("PCM 24/32-bit", status);
+        Assert.Contains("float32", status);
+        Assert.Contains("120 packets", status);
+        Assert.Contains("8 silent", status);
+        Assert.Contains("3 discontinuities", status);
+        Assert.Contains("5 timestamp fallbacks", status);
+        Assert.Contains("maximum packet peak", status);
+        Assert.Contains("RMS", status);
+        Assert.DoesNotContain("private-", status);
     }
 }

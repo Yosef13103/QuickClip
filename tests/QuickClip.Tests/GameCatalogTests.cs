@@ -1,5 +1,6 @@
 using System.Text.Json;
 using QuickClip.Discovery;
+using QuickClip.Recording;
 
 namespace QuickClip.Tests;
 
@@ -7,11 +8,93 @@ public sealed class GameCatalogTests : IDisposable
 {
     private readonly DirectoryInfo _fixture = Directory.CreateTempSubdirectory("quickclip-catalog-");
 
+    [Theory]
+    [InlineData("Unreal")]
+    [InlineData("Unity")]
+    [InlineData("Godot")]
+    public async Task Approved_install_activates_only_its_corroborated_nested_renderer(string engine)
+    {
+        string install = At("library", "Store Name");
+        string launcher = FileAt("library", "Store Name", "GameLauncher.exe");
+        string utility = FileAt("library", "Store Name", "Extras", "Utility.exe");
+        string renderer;
+        if (engine == "Unreal")
+            renderer = FileAt("library", "Store Name", "Project", "Binaries", "Win64", "GameCode-Win64-Shipping.exe");
+        else
+        {
+            renderer = FileAt("library", "Store Name", "Bin", "GameCode.exe");
+            if (engine == "Unity")
+            {
+                FileAt("library", "Store Name", "Bin", "UnityPlayer.dll");
+                FileAt("library", "Store Name", "Bin", "GameCode_Data", "globalgamemanagers");
+            }
+            else
+                File.WriteAllBytes(Path.ChangeExtension(renderer, ".pck"), "GDPC"u8.ToArray());
+        }
+        var request = new CatalogRequest { GameRoots = [new(At("library"), IsCollection: true)] };
+        var scan = await GameCatalogService.ScanAsync(request);
+        var state = AppSettings.Parse(new AppSettings { Games = new() { Request = request, Snapshot = scan } }.ToJson()).Games;
+        var rows = GameCatalogRuntime.Rows(state);
+        var entry = Assert.Single(rows.Where(row => row.InstallDirectories.Contains(install)));
+        Assert.Equal(renderer, Assert.Single(entry.RendererExecutables!.Value));
+        Assert.Equal(renderer, entry.Executables[0]);
+        var index = new GameCatalogIndex(scan with { Entries = rows });
+        var owner = new WindowOwner((IntPtr)1, 2, 3, 4);
+        var observed = GameDetector.ResolveEligibleGame(null, null, _ => true,
+            () => [new(owner with { ProcessId = 9 }, launcher, 9000), new(owner with { ProcessId = 8 }, utility, 8000),
+                new(owner, renderer, 100)], index.Match);
+        Assert.Equal(owner, observed?.VerifiedTarget?.Owner);
+        Assert.Null(GameDetector.ResolveEligibleGame(null, null, _ => true,
+            () => [new(owner, launcher, 100), new(owner, utility, 100)], index.Match));
+
+        var display = new MonitorInfo("DISPLAY1", "", 0, 0, 1920, 1080) { CaptureIdentity = "fixture-display" };
+        CaptureActivation? active = null;
+        var lifecycle = new RecordingLifecycle(activation => { active = activation; return null; }, () => active = null);
+        lifecycle.Reconcile(true, null, observed, [display], _ => display.DeviceName, _ => false);
+        Assert.Null(active);
+        lifecycle.Reconcile(true, null, observed, [display], _ => display.DeviceName, _ => true);
+        Assert.Equal(RecordingMode.GameTriggered, lifecycle.Mode);
+        Assert.Equal(owner, active?.GameOwner);
+    }
+
+    [Fact]
+    public async Task Wide_deep_collection_crosses_legacy_queue_and_depth_limits()
+    {
+        const int width = 4100;
+        string root = _fixture.CreateSubdirectory("wide").FullName;
+        for (int i = 0; i < width; i++)
+        {
+            string install = Directory.CreateDirectory(Path.Combine(root, $"Game{i:D4}")).FullName;
+            File.WriteAllBytes(Path.Combine(install, "Play.exe"), [1]);
+        }
+        string deep = Directory.CreateDirectory(Path.Combine(root, string.Join(Path.DirectorySeparatorChar,
+            Enumerable.Repeat("nested", 23)), "DeepInstall")).FullName;
+        string deepExe = Path.Combine(deep, "Play.exe");
+        File.WriteAllBytes(deepExe, [1]);
+        var request = new CatalogRequest { GameRoots = [new(root, IsCollection: true)], MaxEntries = 80 };
+        using var scan = GameCatalogService.CreateScan(request);
+        var initial = await scan.ContinueAsync(1, TimeSpan.FromSeconds(1), default);
+        Assert.True(initial.InProgress);
+        Assert.False(initial.LimitReached);
+        Assert.Equal(default, initial.CompletedAt);
+        CatalogResult result;
+        do
+        {
+            result = await scan.ContinueAsync(int.MaxValue, TimeSpan.FromSeconds(1), default);
+        } while (scan.HasMore);
+        Assert.Equal(width + 1, result.Entries.Length);
+        Assert.Equal(width + 1, result.Entries.Select(entry => entry.Id).Distinct().Count());
+        Assert.Contains(result.Entries, entry => entry.Executables.Contains(deepExe));
+        Assert.Empty(result.Issues);
+        Assert.False(result.LimitReached);
+    }
+
     [Fact]
     public async Task Collection_scan_groups_executables_and_respects_exclusions_and_depth()
     {
         string game = FileAt("library", "Game", "Bin", "Game.exe");
-        string adjacent = FileAt("library", "Game", "SkipMore", "Helper.EXE");
+        string adjacent = FileAt("library", "Game", "SkipMore", "Utility.EXE");
+        FileAt("library", "Game", "Bin", "Helper.exe");
         FileAt("library", "Game", "Skip", "Private.exe");
         FileAt("library", "Game", "_CommonRedist", "Installer.exe");
         FileAt("library", "Game", "Bin", "Nested", "TooDeep.exe");
@@ -30,6 +113,10 @@ public sealed class GameCatalogTests : IDisposable
         Assert.Equal("Game", candidate.DisplayName);
         Assert.Equal(new[] { game, adjacent }, candidate.Executables);
         Assert.True(first.LimitReached);
+        var rows = GameCatalogRuntime.Rows(new() { Request = request, Snapshot = first });
+        var index = new GameCatalogIndex(first with { Entries = rows });
+        Assert.Equal(CatalogMatchKind.Candidate, index.Match(game, false).Kind);
+        Assert.Equal(CatalogMatchKind.Candidate, index.Match(adjacent, true).Kind);
 
         var second = await GameCatalogService.ScanAsync(request with
         {
@@ -151,6 +238,16 @@ public sealed class GameCatalogTests : IDisposable
     }
 
     [Fact]
+    public async Task Scan_excludes_bundled_crash_reporter_executables()
+    {
+        string game = FileAt("Cyberpunk 2077", "bin", "x64", "Cyberpunk2077.exe");
+        FileAt("Cyberpunk 2077", "bin", "x64", "CrashReporter", "7za.exe");
+        FileAt("Cyberpunk 2077", "bin", "x64", "CrashReporter", "Helper.exe");
+        var result = await GameCatalogService.ScanAsync(new() { GameRoots = [new(At("Cyberpunk 2077"))] });
+        Assert.Equal(game, Assert.Single(Assert.Single(result.Entries).Executables));
+    }
+
+    [Fact]
     public async Task Steam_config_adds_secondary_library_without_manual_approval_and_honors_exclusions()
     {
         FileAt("Steam", "steamapps", "common", "First", "First.exe");
@@ -206,7 +303,7 @@ public sealed class GameCatalogTests : IDisposable
             });
             Assert.Equal(direct, Assert.Single(Assert.Single(result.Entries).Executables));
             Assert.All(result.Issues, issue => Assert.Equal(CatalogIssueKind.ReparsePoint, issue.Kind));
-            Assert.Equal(3, result.Issues.Length);
+            Assert.Equal(link, Assert.Single(result.Issues).Location);
         }
         finally { Directory.Delete(link); }
     }

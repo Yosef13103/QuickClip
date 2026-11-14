@@ -48,6 +48,13 @@ extern "C"
         int diagnostics;
     };
 
+    struct QcGameWindow
+    {
+        HWND handle;
+        DWORD thread, process;
+        int64_t started;
+    };
+
     struct QcReplayPosition
     {
         int64_t session, eventUs, frameUs, sequence, firstSequence, source;
@@ -104,6 +111,10 @@ extern "C"
 namespace qc
 {
     std::string DisplayDiagnostics();
+
+    // The default listening mix has its own encoder. Keep every raw stem intact.
+    // Deterministic soft knee, unlike a hard clamp which creates its own crackle.
+    float SoftLimitPlaybackSample(float value);
     /// Encoded packets of all streams for the last N seconds.
     class PacketRing
     {
@@ -151,7 +162,7 @@ namespace qc
     {
     public:
         Engine(const QcConfig& config, bool endpointMode, const QcEndpointTrack* endpoints, int endpointCount,
-            QcVideoOptions video, const wchar_t* displayIdentity);
+            QcVideoOptions video, const wchar_t* displayIdentity, const QcGameWindow* game);
         ~Engine();
         bool Start(std::string& error);
         /// Desktop records everything but `desktopExclude`'s process tree (nothing when that is 0) plus the trees of
@@ -165,9 +176,13 @@ namespace qc
         void GetReplayPosition(QcReplayPosition& position);
         void GetStats(QcStats& stats);
         int GetEndpointStatus(QcEndpointStatus* statuses, int capacity) const;
+        int GetAudioSignals(QcAudioSignal* signals, int capacity) const;
         std::string VideoDiagnostics();
         /// Starts capture again on the next frame (the display changed; the old capture may be stale).
         void RequestRebuild();
+        bool VideoSourceLost() const;
+        bool HasVideoOutput() const;
+        static bool TestAuthorizedVideoInvalidation(bool stall);
         /// Records `window` (a game's) instead of the monitor, at this size and bitrate; null goes back to the monitor.
         void SetCaptureWindow(HWND window, int width, int height, int videoKbps);
         /// Tests: makes the capture thread hang for this long, as a stuck capture call would.
@@ -203,8 +218,11 @@ namespace qc
             std::string title;
             std::unique_ptr<TrackMixer> mixer;
             AudioEncoder encoder;
+            std::atomic<int64_t> encodedPackets{ 0 };
         };
         std::vector<std::unique_ptr<Track>> tracks_;
+        AudioEncoder playbackMixEncoder_;
+        bool hybridAudio_ = false;
         int chatTrack_ = -1, musicTrack_ = -1;
 
         // App capture streams by what they record. When the apps change, only the streams that differ are

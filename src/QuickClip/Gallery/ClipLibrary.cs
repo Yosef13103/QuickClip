@@ -119,14 +119,15 @@ internal static class ClipLibrary
         Extensions.Contains(System.IO.Path.GetExtension(path), StringComparer.OrdinalIgnoreCase)
         && !path.Contains(".quickclip-tmp", StringComparison.OrdinalIgnoreCase);
 
-    public static bool IsMomentsPath(string path) =>
-        Path.GetFullPath(path).Split(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
-            .Contains(MomentsArchive, StringComparer.OrdinalIgnoreCase);
+    public static bool IsMomentsPath(string path) => ContainsMomentsDirectory(Path.GetFullPath(path));
+
+    private static bool ContainsMomentsDirectory(string path) => path.Split('\\', '/')
+        .Any(part => part.TrimEnd(' ', '.').Equals(MomentsArchive, StringComparison.OrdinalIgnoreCase));
 
     public static bool IsExcluded(string relative, IEnumerable<string>? exclusions)
     {
         relative = relative.Replace('/', '\\');
-        return IsWithin(relative, MomentsArchive) || IsWithin(relative, "QuickClip") ||
+        return ContainsMomentsDirectory(relative) || IsWithin(relative, "QuickClip") ||
             (exclusions ?? []).Any(excluded => IsWithin(relative, excluded.Trim().Replace('/', '\\').TrimEnd('\\')));
     }
 
@@ -293,13 +294,13 @@ internal static class ThumbnailCache
         return System.IO.Path.Combine(Dir, hash + ".jpg");
     }
 
-    public static async Task<string?> GetAsync(FileInfo file, double? duration, int width = 480)
+    public static async Task<string?> GetAsync(FileInfo file, double? duration, int width = 480, CancellationToken cancellationToken = default)
     {
         width = WidthFor(width);
         string thumb = PathFor(file, width);
         if (File.Exists(thumb)) return thumb;
         if (Deps.FFmpeg == null) return null;
-        await Gate.WaitAsync();
+        await Gate.WaitAsync(cancellationToken);
         string staging = Path.ChangeExtension(thumb, $".{Guid.NewGuid():N}.jpg");
         try
         {
@@ -309,6 +310,7 @@ internal static class ThumbnailCache
             double at = duration is > 0.5 ? duration.Value * 0.33 : 0;
             foreach (double seek in at > 0 ? new[] { at, 0 } : [0])
             {
+                cancellationToken.ThrowIfCancellationRequested();
                 using var p = Process.Start(Proc.StartInfo(Deps.FFmpeg,
                 [
                     "-hide_banner", "-nostdin", "-v", "error", "-ss", Fmt.Num(seek), "-i", file.FullName,
@@ -317,7 +319,17 @@ internal static class ThumbnailCache
                 if (p == null) return null;
                 try { p.PriorityClass = ProcessPriorityClass.BelowNormal; } catch { }
                 var drain = p.StandardError.ReadToEndAsync();
-                await p.WaitForExitAsync();
+                using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+                deadline.CancelAfter(TimeSpan.FromSeconds(10));
+                try { await p.WaitForExitAsync(deadline.Token); }
+                catch (OperationCanceledException) when (deadline.IsCancellationRequested)
+                {
+                    try { p.Kill(entireProcessTree: true); }
+                    catch (InvalidOperationException) { } // Exited after the deadline.
+                    await p.WaitForExitAsync();
+                    await drain;
+                    return null;
+                }
                 await drain;
                 if (p.ExitCode == 0 && File.Exists(staging) && new FileInfo(staging).Length > 0)
                 {

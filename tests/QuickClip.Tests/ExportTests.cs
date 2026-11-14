@@ -133,9 +133,59 @@ public sealed class ExportTests(MediaFixture media)
             r => r with { MergeAudio = true });
 
         var a = Assert.Single(outInfo.Audio);
-        Assert.Equal("Mic + Desktop Audio", a.DisplayName);
+        Assert.Equal("Mix", a.DisplayName);
         Assert.True(await MediaFixture.BandLevel(outInfo.Path, 0, MediaFixture.MicHz) > -40);
         Assert.True(await MediaFixture.BandLevel(outInfo.Path, 0, MediaFixture.DesktopHz) > -40);
+    }
+
+    [Fact]
+    public void Hybrid_limiter_keeps_true_peak_headroom_and_compensates_lookahead()
+    {
+        // FFmpeg alimiter defaults to level=1, which adds makeup gain back to
+        // 0 dBFS and defeats the 0.95 headroom. Disabled makeup is deliberate.
+        Assert.Contains("alimiter=limit=0.95", ExportBuilder.SafeMixFilter);
+        Assert.Contains(":level=0", ExportBuilder.SafeMixFilter);
+        Assert.Contains(":latency=1", ExportBuilder.SafeMixFilter);
+    }
+
+    [Fact]
+    public async Task Hybrid_save_has_default_playable_mix_and_separately_editable_stems()
+    {
+        var (_, output) = await Export("hybrid-save.mp4", Containers.Mp4,
+            s => [Track(s.Audio[0], 1), Track(s.Audio[1], .5)],
+            r => r with { HybridAudio = true });
+
+        Assert.Equal(3, output.Audio.Count);
+        Assert.Equal(ExportBuilder.FullMixTitle, output.Audio[0].DisplayName);
+        Assert.True(output.Audio[0].IsPlaybackMix);
+        Assert.True(output.Audio[0].IsDefault);
+        Assert.False(output.Audio[1].IsDefault);
+        Assert.False(output.Audio[2].IsDefault);
+        Assert.Equal(["Mic", "Desktop Audio"], output.EditableAudio.Select(a => a.DisplayName));
+        Assert.True(await MediaFixture.BandLevel(output.Path, 0, MediaFixture.MicHz) > -40);
+        Assert.True(await MediaFixture.BandLevel(output.Path, 0, MediaFixture.DesktopHz) > -40);
+        Assert.True(await MediaFixture.BandLevel(output.Path, 1, MediaFixture.MicHz) > -40);
+        Assert.True(await MediaFixture.BandLevel(output.Path, 2, MediaFixture.DesktopHz) > -40);
+
+        // Save over a hybrid source must not recursively add yesterday's mix.
+        var (_, resaved) = await Export("hybrid-resave.mp4", Containers.Mp4,
+            s => s.EditableAudio.Select(a => Track(a, 1)).ToList(),
+            r => r with { HybridAudio = true }, source: output.Path,
+            start: .25, end: 1.75);
+        Assert.Equal(3, resaved.Audio.Count);
+        Assert.Single(resaved.Audio.Where(a => a.IsPlaybackMix));
+        Assert.True(resaved.Audio[0].IsDefault);
+    }
+
+    [Fact]
+    public async Task Compatible_share_export_has_one_default_audible_soundtrack()
+    {
+        var (_, output) = await Export("compatible-share.mp4", Containers.Mp4,
+            s => s.Audio.Select(a => Track(a, 1)).ToList(),
+            r => r with { MergeAudio = true });
+        Assert.True(Assert.Single(output.Audio).IsDefault);
+        Assert.True(await MediaFixture.BandLevel(output.Path, 0, MediaFixture.MicHz) > -40);
+        Assert.True(await MediaFixture.BandLevel(output.Path, 0, MediaFixture.DesktopHz) > -40);
     }
 
     [Fact]

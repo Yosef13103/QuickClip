@@ -32,6 +32,8 @@ public sealed class ModalDialogTests
                             var overlay = (Grid)host.Children[0];
                             var panel = (StackPanel)((Border)overlay.Children[0]).Child;
                             var buttons = (StackPanel)panel.Children[^1];
+                            Assert.Equal("Keep clips", ((Button)buttons.Children[0]).Content);
+                            Assert.Equal("Move to Recycle Bin", ((Button)buttons.Children[1]).Content);
                             ((Button)buttons.Children[accept ? 1 : 0]).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
                         }, DispatcherPriority.Input);
                         Assert.Equal(accept, ModalDialog.ConfirmDelete(owner, "Delete test", "fixture.mp4"));

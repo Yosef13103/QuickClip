@@ -107,7 +107,7 @@ public sealed class ShareTests(MediaFixture media)
         Assert.Equal(size, shared.Size);
         Assert.Equal("h264", shared.Video!.Codec);
         var track = Assert.Single(shared.Audio);
-        Assert.Equal("Mic + Desktop Audio", track.DisplayName);
+        Assert.Equal("Mix", track.DisplayName);
         Assert.True(await MediaFixture.BandLevel(output, 0, MediaFixture.MicHz) > -40);
         Assert.True(await MediaFixture.BandLevel(output, 0, MediaFixture.DesktopHz) > -40);
         Assert.Equal(clip.Duration, shared.Duration, 0);

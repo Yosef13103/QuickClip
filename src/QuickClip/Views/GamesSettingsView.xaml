@@ -17,7 +17,7 @@
     </UserControl.Resources>
     <DockPanel Margin="28,16,24,16" MaxWidth="1340">
         <StackPanel DockPanel.Dock="Top">
-            <TextBlock Text="Games" FontSize="24" FontWeight="SemiBold" />
+            <TextBlock Text="Games" FontSize="{DynamicResource QuickClipText24}" FontWeight="SemiBold" />
             <CheckBox x:Name="AutoScan" Content="Automatically discover installed games" Click="AutoScan_Click" Margin="0,8,0,0" />
             <TextBlock Text="Automatic scans read local Steam and Epic manifests and approved folders. You can pause and resume a scan here." TextWrapping="Wrap" Style="{StaticResource Hint}" />
             <Expander Header="Game libraries and launchers" Margin="0,6,0,6">
@@ -27,11 +27,20 @@
                     <ListBox x:Name="Roots" MaxHeight="105" AutomationProperties.Name="Approved folders" />
                     <WrapPanel Margin="0,5,0,0">
                         <Button Content="Approve Steam library…" Click="Steam_Click" Margin="0,0,6,0" />
-                        <Button Content="Add one game folder…" Click="Folder_Click" Margin="0,0,6,0" />
-                        <Button Content="Add game collection…" Click="Collection_Click" Margin="0,0,6,0" />
+                        <Button Content="Approve game collection…" Click="Collection_Click" Margin="0,0,6,0" />
                         <Button Content="Remove or restore source" Click="RemoveRoot_Click" />
                     </WrapPanel>
                     <ListBox x:Name="ScanIssues" MaxHeight="80" AutomationProperties.Name="Last scan issues" />
+                </StackPanel>
+            </Expander>
+            <Expander Header="Ignored executables" Margin="0,0,0,6">
+                <StackPanel>
+                    <TextBlock Text="Block an exact executable path from automatic game detection. Restore it here to apply its usual catalog rules." Style="{StaticResource Hint}" />
+                    <ListBox x:Name="BlockedFiles" MaxHeight="85" AutomationProperties.Name="Ignored executables" />
+                    <WrapPanel Margin="0,4,0,0">
+                        <Button Content="Ignore executables…" Click="BlockFile_Click" Margin="0,0,6,4" />
+                        <Button Content="Restore selected executable" Click="RestoreFile_Click" Margin="0,0,0,4" />
+                    </WrapPanel>
                 </StackPanel>
             </Expander>
             <WrapPanel Margin="0,4,0,0">
@@ -39,15 +48,17 @@
                 <Button x:Name="CancelButton" Content="Pause scan" Click="Cancel_Click" IsEnabled="False" Margin="0,0,6,0" />
                 <Button Content="Add Game…" Click="Add_Click" Margin="0,0,6,0" />
             </WrapPanel>
-            <TextBlock x:Name="Status" Style="{StaticResource Hint}" Margin="0,6,0,0" AutomationProperties.LiveSetting="Polite" />
+            <TextBlock x:Name="Status" Style="{StaticResource Hint}" Margin="0,6,0,0" TextWrapping="Wrap"
+                       AutomationProperties.LiveSetting="Polite" />
             <TextBlock x:Name="LastScan" Style="{StaticResource Hint}" />
             <TextBlock Text="Targeting rules apply to game detection. Manual entire-display capture includes anything visible on the approved display, including games disabled here." Style="{StaticResource Hint}" />
-            <DockPanel Margin="0,10,0,6">
-                <TextBlock x:Name="Count" DockPanel.Dock="Left" VerticalAlignment="Center" FontWeight="SemiBold" Margin="0,0,12,0" />
-                <TextBox x:Name="Search" AutomationProperties.Name="Search games by name or executable" TextChanged="Search_Changed" />
-            </DockPanel>
+            <TextBlock x:Name="Count" FontWeight="SemiBold" TextWrapping="Wrap" Margin="0,10,0,0" />
+            <TextBlock x:Name="DiscoveryCountDetail" Style="{StaticResource Hint}" TextWrapping="Wrap"
+                       ToolTip="A retained game may also be awaiting verification." />
+            <TextBox x:Name="Search" Margin="0,4,0,6" AutomationProperties.Name="Search catalog by name or executable"
+                     TextChanged="Search_Changed" />
         </StackPanel>
-        <ListBox x:Name="Games" AutomationProperties.Name="Detected games"
+        <ListBox x:Name="Games" AutomationProperties.Name="Games and applications catalog"
                  ScrollViewer.CanContentScroll="True" ScrollViewer.HorizontalScrollBarVisibility="Disabled"
                  VirtualizingPanel.IsVirtualizing="True" VirtualizingPanel.VirtualizationMode="Recycling"
                  VirtualizingPanel.ScrollUnit="Pixel">
@@ -69,7 +80,7 @@
                                         <Setter Property="Focusable" Value="True" />
                                         <Style.Triggers>
                                             <DataTrigger Binding="{Binding IsExcluded}" Value="True">
-                                                <Setter Property="Foreground" Value="{StaticResource RecordingRed}" />
+                                                <Setter Property="Foreground" Value="{DynamicResource RecordingRed}" />
                                             </DataTrigger>
                                         </Style.Triggers>
                                     </Style>
@@ -101,10 +112,10 @@
                                             Visibility="{Binding IsManual, Converter={StaticResource ShowManualActions}}" />
                                 </WrapPanel>
                                 <TextBlock Text="{Binding Inheritance}" Style="{StaticResource Hint}" Margin="0,4" />
-                                <Expander Header="Advanced game detection" IsExpanded="{Binding IsAdvancedExpanded}">
+                                <Expander Header="Classification and executables" IsExpanded="{Binding IsAdvancedExpanded}">
                                     <StackPanel Margin="0,4,0,2">
                                         <TextBlock Text="{Binding Diagnostics}" Style="{StaticResource Hint}" />
-                                        <TextBlock Text="How QuickClip treats this app for game detection. Choose Non-game app or Companion app to keep it out of automatic game targeting." Style="{StaticResource Hint}" Margin="0,4" />
+                                        <TextBlock Text="Choose how this entry participates in game detection. Companion apps such as Discord can take focus while the current game stays active." Style="{StaticResource Hint}" Margin="0,4" />
                                         <ComboBox ItemsSource="{Binding Classifications}" DisplayMemberPath="Label" SelectedValuePath="Value"
                                                   SelectedValue="{Binding Entry.Rules.Classification, Mode=OneWay}"
                                                   AutomationProperties.Name="How QuickClip treats this app"
@@ -112,9 +123,13 @@
                                         <TextBlock Text="Mark a launcher so its window cannot take the game's place. Select an executable below first." Style="{StaticResource Hint}" Margin="0,6,0,4" />
                                         <ListBox x:Name="ExecutableList" ItemsSource="{Binding Executables}" DisplayMemberPath="Label" SelectedValuePath="Path"
                                                  MaxHeight="105" AutomationProperties.Name="Associated executables" />
-                                        <Button Content="Change selected executable’s launcher role" Click="Launcher_Click"
+                                        <WrapPanel>
+                                            <Button Content="Approve selected executable" Click="ApproveExecutable_Click"
+                                                    CommandParameter="{Binding SelectedValue, ElementName=ExecutableList}"
+                                                    Margin="0,4,6,0" />
+                                            <Button Content="Toggle launcher role" Click="Launcher_Click"
                                                 CommandParameter="{Binding SelectedValue, ElementName=ExecutableList}"
-                                                HorizontalAlignment="Left" Margin="0,4,0,0">
+                                                HorizontalAlignment="Left" Margin="0,4,6,0">
                                             <Button.Style>
                                                 <Style TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
                                                     <Style.Triggers>
@@ -125,6 +140,20 @@
                                                 </Style>
                                             </Button.Style>
                                         </Button>
+                                        <Button Content="Ignore selected executable" Click="BlockSelected_Click"
+                                                CommandParameter="{Binding SelectedValue, ElementName=ExecutableList}"
+                                                Margin="0,4,0,0">
+                                            <Button.Style>
+                                                <Style TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
+                                                    <Style.Triggers>
+                                                        <DataTrigger Binding="{Binding SelectedValue, ElementName=ExecutableList}" Value="{x:Null}">
+                                                            <Setter Property="IsEnabled" Value="False" />
+                                                        </DataTrigger>
+                                                    </Style.Triggers>
+                                                </Style>
+                                            </Button.Style>
+                                        </Button>
+                                        </WrapPanel>
                                     </StackPanel>
                                 </Expander>
                             </StackPanel>

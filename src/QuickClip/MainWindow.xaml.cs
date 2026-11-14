@@ -1,6 +1,8 @@
 using System.ComponentModel;
 using System.Windows;
+using System.Windows.Controls;
 using System.Windows.Media;
+using System.Windows.Media.Animation;
 using System.Windows.Threading;
 using QuickClip.Recording;
 using QuickClip.Shell;
@@ -12,7 +14,7 @@ namespace QuickClip;
 /// <summary>App window: navigation between the gallery (and its player), the editor and settings, plus the recording status bar.</summary>
 public partial class MainWindow : Window
 {
-    private static readonly Brush IdleDot = Freeze(new SolidColorBrush(Color.FromRgb(0x66, 0x66, 0x66)));
+    private bool _recordingDot;
 
     private readonly DispatcherTimer _statusTimer;
     private readonly DispatcherTimer _shareHideTimer;
@@ -27,6 +29,13 @@ public partial class MainWindow : Window
     {
         InitializeComponent();
         Title = AppProfile.Name;
+        if (AppProfile.IsPersonal)
+        {
+            MinWidth = 820;
+            SaveClipButton.SetResourceReference(System.Windows.Controls.Control.PaddingProperty, "SaveClipPadding");
+            RailColumn.SetResourceReference(ColumnDefinition.WidthProperty, "PrimaryRailWidth");
+        }
+        InitializeTitleBar();
         Width = Math.Min(Width, SystemParameters.WorkArea.Width * 0.95);
         Height = Math.Min(Height, SystemParameters.WorkArea.Height * 0.95);
 
@@ -169,7 +178,11 @@ public partial class MainWindow : Window
         GalleryNav.IsChecked = page == Gallery || page == _player;
         EditorNav.IsChecked = page == _editor;
         SettingsNav.IsChecked = page == _settings;
-        if (page == _editor) Dispatcher.BeginInvoke(_editor.FocusEditor, DispatcherPriority.Input);
+        if (page == _editor)
+        {
+            _editor.RefreshTheme();
+            Dispatcher.BeginInvoke(_editor.FocusEditor, DispatcherPriority.Input);
+        }
         if (page == _player) Dispatcher.BeginInvoke(_player.FocusPlayer, DispatcherPriority.Input);
         if (page == _settings) _settings.Refresh();
         UpdateTitle();
@@ -196,6 +209,7 @@ public partial class MainWindow : Window
         if (on)
         {
             _stateBeforeFullScreen = WindowState;
+            UpdateTitleBar(fullscreen: true);
             WindowStyle = WindowStyle.None;
             ResizeMode = ResizeMode.NoResize;
             // Maximizing again after dropping the border makes the window cover the taskbar too.
@@ -207,6 +221,7 @@ public partial class MainWindow : Window
             WindowStyle = WindowStyle.SingleBorderWindow;
             ResizeMode = ResizeMode.CanResize;
             if (WindowState != WindowState.Minimized) WindowState = _stateBeforeFullScreen;
+            UpdateTitleBar(fullscreen: false);
         }
     }
 
@@ -218,6 +233,7 @@ public partial class MainWindow : Window
 
     private void SetFullScreenChrome(bool on)
     {
+        TitleBar.Visibility = _personalChrome != null && !on ? Visibility.Visible : Visibility.Collapsed;
         RailColumn.Width = new GridLength(on ? 0 : 80);
         Rail.Visibility = StatusBar.Visibility = on ? Visibility.Collapsed : Visibility.Visible;
     }
@@ -240,12 +256,16 @@ public partial class MainWindow : Window
         bool enable = ModalDialog.ConfirmAction(this,
             "QuickClip can save the last minute of gameplay when you press the hotkey. " +
             "While waiting for a recognized game, it does not start the video or audio capture engine.\n\n" +
-            "While a game is active, this build records an authorized display, so other visible windows " +
-            "on that display can appear in clips. Display access is configured in Recording settings.\n\n" +
-            "Enable instant replay now?",
+            "QuickClip records the entire display containing an eligible game and follows it to any connected display, including displays connected later. " +
+            "Other apps, messages and notifications visible on that display can appear in clips.\n\n" +
+            "Enable instant replay and allow game display following?",
             "Welcome to QuickClip Personal", "Enable instant replay", "Not now", destructive: false);
         settings.ReplayOnboardingCompleted = true;
-        if (enable) settings.RecordingEnabled = true;
+        if (enable)
+        {
+            settings.AllowGameDisplayFollowing = true;
+            settings.RecordingEnabled = true;
+        }
         settings.Save();
         await Recorder.Instance.ApplySettingsAsync();
         UpdateStatus();
@@ -257,19 +277,31 @@ public partial class MainWindow : Window
         var recorder = Recorder.Instance;
         var s = AppSettings.Current;
         var hotkey = new Hotkey(s.HotkeyModifiers, s.HotkeyKey);
-        if (recorder.IsRunning)
+        bool running = recorder.IsRunning;
+        if (running != _recordingDot)
+        {
+            _recordingDot = running;
+            RecDot.SetResourceReference(System.Windows.Shapes.Shape.FillProperty, running ? "RecordingRed" : "DisabledBrush");
+            SaveActionDot.SetResourceReference(System.Windows.Shapes.Shape.FillProperty, running ? "RecordingRed" : "DisabledBrush");
+            SaveActionDot.BeginAnimation(UIElement.OpacityProperty, null);
+            SaveActionDot.Opacity = 1;
+            if (running)
+                SaveActionDot.BeginAnimation(UIElement.OpacityProperty,
+                    new DoubleAnimation(1, 0.35, TimeSpan.FromSeconds(0.75))
+                    { AutoReverse = true, RepeatBehavior = RepeatBehavior.Forever });
+        }
+        if (running)
         {
             var stats = recorder.Stats();
-            RecDot.Fill = (Brush)FindResource("RecordingRed");
-            string buffered = Fmt.CompactDuration(stats.BufferSeconds);
+            string buffered = Fmt.FriendlyDuration(stats.BufferSeconds);
             string hotkeyText = s.HotkeyKey == 0 ? "no save hotkey configured"
                 : App.Host?.HotkeyActive == false ? "the hotkey is unavailable (see Settings)" : $"{hotkey} saves a clip";
             RecStatus.Text = $"Recording  ·  {recorder.State.Summary}  ·  {buffered} buffered ({Fmt.Size(stats.BufferBytes)})  ·  {hotkeyText}";
         }
         else
         {
-            RecDot.Fill = IdleDot;
-            RecStatus.Text = recorder.Error != null ? "Not recording: " + recorder.Error
+            RecStatus.Text = recorder.State.Mode == RecordingMode.Recovering ? "Recovering display capture…"
+                : recorder.Error != null ? "Not recording: " + recorder.Error
                 : recorder.State.Mode == RecordingMode.Armed ? "Waiting for a game · not capturing"
                 : s.RecordingEnabled ? "Starting…" : "Recording is off — turn on instant replay in Settings";
         }
@@ -415,5 +447,4 @@ public partial class MainWindow : Window
         ((App)Application.Current).OnMainWindowClosed(this);
     }
 
-    private static T Freeze<T>(T f) where T : Freezable { f.Freeze(); return f; }
 }

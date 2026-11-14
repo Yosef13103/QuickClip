@@ -12,7 +12,7 @@ internal sealed record GameCaptureObservation(WindowOwner Owner, string Executab
 {
     /// <summary>Eligible exact catalog identity for the armed recorder. The legacy target can be heuristic.</summary>
     public GameWindowTarget? VerifiedTarget => !SkipAutomaticCapture && Target is { Recognized: true } target &&
-        (Match.Kind == CatalogMatchKind.Game || Match is { Kind: CatalogMatchKind.Candidate, Entry.Source: CatalogSource.Steam })
+        GameDetector.HasCatalogEligibility(Match)
             ? target : null;
 
     public bool SkipAutomaticCapture => Match.Kind is CatalogMatchKind.Ignored or CatalogMatchKind.Inactive
@@ -25,6 +25,10 @@ internal sealed record GameCaptureObservation(WindowOwner Owner, string Executab
 /// <summary>Works out which game a clip belongs to (null = not a game, filed under "Desktop").</summary>
 internal sealed partial class GameDetector
 {
+    internal static bool HasCatalogEligibility(CatalogMatch match) =>
+        match.Kind == CatalogMatchKind.Game ||
+        match is { Kind: CatalogMatchKind.Candidate, Entry.Source: CatalogSource.Steam };
+
     // Apps that are never games, even when fullscreen.
     private static readonly HashSet<string> NotGames = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -148,15 +152,10 @@ internal sealed partial class GameDetector
     internal static GameCaptureObservation Observe(WindowOwner owner, string path, CatalogMatch match,
         bool fullscreen, IReadOnlySet<string> known, Func<string>? title = null)
     {
-        string executable = Path.GetFileNameWithoutExtension(path);
-        if (CatalogPaths.IsDiscordProcess(path)) match = new(CatalogMatchKind.Companion);
-        else if (NotGames.Contains(executable)) match = new(CatalogMatchKind.Application, match.Entry);
-        else if (executable.ToLowerInvariant() is "launcher" or "gamelauncher" or "updater" or "update")
-            match = new(CatalogMatchKind.Launcher, match.Entry);
-
-        bool recognized = match.Kind == CatalogMatchKind.Game
-            || match.Kind == CatalogMatchKind.Candidate && match.Entry?.Source != CatalogSource.Epic && (known.Contains(path) || fullscreen ||
-                match.Entry?.Source == CatalogSource.Steam);
+        match = ApplyProcessRole(path, match);
+        bool recognized = HasCatalogEligibility(match)
+            || match.Kind == CatalogMatchKind.Candidate && match.Entry?.Source != CatalogSource.Epic &&
+                (known.Contains(path) || fullscreen);
         string? name = recognized ? match.Entry?.DisplayName : null;
         if (match.Kind == CatalogMatchKind.Unknown)
         {
@@ -164,6 +163,20 @@ internal sealed partial class GameDetector
             recognized = known.Contains(path) || GameFolderName(path) != null;
         }
         return new(owner, path, match, name == null ? null : new(owner, SanitizeFolderName(name), recognized), true);
+    }
+
+    internal static CatalogMatch ApplyProcessRole(string path, CatalogMatch match)
+    {
+        if (match.Kind is CatalogMatchKind.Unknown or CatalogMatchKind.Game or CatalogMatchKind.Candidate)
+        {
+            string executable = Path.GetFileNameWithoutExtension(path);
+            if (CatalogPaths.IsDiscordProcess(path)) match = new(CatalogMatchKind.Companion, match.Entry);
+            else if (NotGames.Contains(executable)) match = new(CatalogMatchKind.Application, match.Entry);
+            else if (executable.ToLowerInvariant() is "launcher" or "gamelauncher" or "updater" or "update")
+                match = new(CatalogMatchKind.Launcher, match.Entry);
+        }
+
+        return match;
     }
 
     internal static GameCaptureObservation? SelectObservation(GameCaptureObservation? current,
@@ -174,7 +187,7 @@ internal sealed partial class GameDetector
         if (foreground?.Target is { Recognized: true } target && isCurrent(target.Owner)) return foreground;
         if (current?.Target != null && isCurrent(current.Owner))
         {
-            var latest = match(current.Executable, foreground?.Owner == current.Owner);
+            var latest = ApplyProcessRole(current.Executable, match(current.Executable, foreground?.Owner == current.Owner));
             if ((latest.Kind is CatalogMatchKind.Unknown or CatalogMatchKind.Candidate or CatalogMatchKind.Game)
                 && latest.Entry?.Id == current.Match.Entry?.Id)
                 return current with

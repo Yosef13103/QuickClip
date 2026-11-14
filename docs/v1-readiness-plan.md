@@ -26,6 +26,16 @@ This plan tracks the owner’s November 13 post-field-test feedback. The working
 
 ## Release readiness
 
+### Personal title bar
+
+- [ ] Personal custom caption uses WPF WindowChrome. Local strict Personal and Upstream Release builds and caption coordinate tests passed on Windows 10 build 19045. Verify mouse resize on all edges and corners, keyboard and system menu, maximize/restore work area, tray behavior, and editor/player fullscreen on real windows. Verify mixed-monitor DPI at 100/125/150/200% and Windows 11 Snap Layouts. The existing minimum window size can limit narrow snap zones. Launch with `--system-chrome` to use the Windows frame. High Contrast starts with the Windows frame.
+- Interface and text scaling are owned by PR #30. Keep its separate app resource values and fullscreen rail restoration. The caption height and resize border use Windows-scaled DIPs. Recheck minimum dimensions and caption control reachability after integrating #30.
+
+### Personal Windows startup
+
+- [ ] General settings control Windows startup and startup replay independently. Local strict Personal and Upstream Release builds passed. Tests use a disposable registry key and verify the separate Personal value, exact installed-path comparison, consent default and settings round-trip. The Personal Inno Setup script compiled against a fixture. Live install, sign-in, path relocation, uninstall, and side-by-side launch still require a disposable Windows user or VM.
+- `scripts/package.ps1 -Personal` creates the per-user installer and portable zip under `publish-personal`. Only the installed Release executable using its default profile can register for Windows startup. A Windows sign-in launch follows the minimize-to-tray setting. Existing users keep their saved replay behavior until they set an explicit startup preference.
+
 - [ ] Each merged PR has strict Personal and Upstream CI at the exact commit.
 - [ ] Owner-supervised game launch/exit, idle-zero-capture, Discord focus, DISPLAY1→DISPLAY2 move, consent boundary, and manual override tests on real Windows 10/11 hardware.
 - [ ] Real playback device and mic isolation, notification tone routing, and replay A/V synchronization tests.
@@ -49,3 +59,9 @@ Owner feedback: post-PR #18 local field-test notes on November 13, 2026. Exact b
 - [ ] **Bottom status bar should show the actual verified game/process/display source**, not just `Desktop` for every game-triggered display capture. When using Desktop Duplication on a game display, say `Game: Terraria · Display 2 (entire display)` or similar instead of incorrectly implying exclusive game-window capture. On manual override say `Desktop recording · Display 1`. Respect privacy of titles in telemetry/logs.
 
 Keep the work partitioned: prioritize verified mic diagnosis and game display source-following, then finish the rest of the v1 acceptance plan. Never consider green headless CI a substitute for visible WPF and real audio/video hardware checks.
+
+
+### Personalized themes — integration readiness
+
+- Built-in Personal themes (QuickClip Dark, AMOLED, Slate, Light) and schema-validated local JSON palettes are implemented in a separate owner-preview branch, with source changes preserving dynamic font/control scaling and the newer rich notification overlay. Test theme previews, live switching, invalid imports, readable contrast, and high-contrast fallback across the entire Gallery/Editor/Settings/Player; do not assume every hardcoded application color is dynamically themed.
+- Theme preference is stored in the existing Personal profile and can be reset with `--reset-theme`. Imported themes are data-only JSON, never executable XAML or remotely fetched assets. Performance impact needs local UI/memory acceptance.

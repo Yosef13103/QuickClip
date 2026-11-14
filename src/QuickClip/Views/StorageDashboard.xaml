@@ -8,13 +8,13 @@
                 <ResourceDictionary Source="/QuickClip;component/Themes/Styles.xaml" />
             </ResourceDictionary.MergedDictionaries>
             <Style x:Key="InventoryCard" TargetType="Border">
-                <Setter Property="Background" Value="{StaticResource PanelBrush}" />
+                <Setter Property="Background" Value="{DynamicResource PanelBrush}" />
                 <Setter Property="CornerRadius" Value="8" />
                 <Setter Property="Padding" Value="16" />
                 <Setter Property="Margin" Value="0,0,12,12" />
             </Style>
             <Style x:Key="InventoryHeading" TargetType="TextBlock">
-                <Setter Property="FontSize" Value="16" />
+                <Setter Property="FontSize" Value="{DynamicResource QuickClipText16}" />
                 <Setter Property="FontWeight" Value="SemiBold" />
                 <Setter Property="Margin" Value="0,0,0,8" />
             </Style>
@@ -31,7 +31,7 @@
                 <Button DockPanel.Dock="Right" x:Name="RefreshButton" Content="Refresh inventory" Click="Refresh_Click" />
                 <StackPanel Orientation="Horizontal">
                     <Button x:Name="BackButton" Content="Gallery" Click="Back_Click" Margin="0,0,10,0" />
-                    <TextBlock Text="Library storage" FontSize="24" FontWeight="SemiBold" VerticalAlignment="Center" />
+                    <TextBlock Text="Library storage" FontSize="{DynamicResource QuickClipText24}" FontWeight="SemiBold" VerticalAlignment="Center" />
                 </StackPanel>
             </DockPanel>
             <TextBlock x:Name="Status" Style="{StaticResource Hint}" TextWrapping="Wrap" Margin="0,0,12,12"
@@ -39,7 +39,7 @@
             <StackPanel x:Name="InventoryContent" Visibility="Collapsed">
                 <Border Style="{StaticResource InventoryCard}">
                     <StackPanel>
-                        <TextBlock x:Name="Totals" FontSize="20" FontWeight="SemiBold" TextWrapping="Wrap" />
+                        <TextBlock x:Name="Totals" FontSize="{DynamicResource QuickClipText20}" FontWeight="SemiBold" TextWrapping="Wrap" />
                         <TextBlock x:Name="Availability" Margin="0,5,0,0" TextWrapping="Wrap" />
                         <TextBlock Style="{StaticResource Hint}" Margin="0,5,0,0" TextWrapping="Wrap"
                                    Text="Logical sizes cover available indexed files. Hard links can share the same bytes on disk." />

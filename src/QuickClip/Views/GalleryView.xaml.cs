@@ -20,6 +20,9 @@ namespace QuickClip.Views;
 public partial class GalleryView : UserControl
 {
     private readonly GalleryHoverPreview _hoverPreview = new();
+    private const int DecodedThumbnailLimit = 96;
+    private readonly LinkedList<ClipItem> _decodedThumbnails = new();
+    private readonly Dictionary<ClipItem, LinkedListNode<ClipItem>> _thumbnailNodes = [];
 
     private sealed record Folder(string Name, int Count, DateTime Latest);
 
@@ -95,6 +98,8 @@ public partial class GalleryView : UserControl
     {
         InitializeComponent();
         GalleryDetailsEditor.KnownTags = () => KnownTags;
+        GalleryDetailsEditor.AutoSaveEnabled = AppProfile.IsPersonal;
+        GalleryDetailsEditor.AutoSaved += ApplyClipDetails;
         AnnotationActions = PersonalLibrary.Current;
         StorageButton.Visibility = PersonalAnnotations ? Visibility.Visible : Visibility.Collapsed;
         StoragePane.BackRequested += () =>
@@ -141,6 +146,7 @@ public partial class GalleryView : UserControl
                 return;
             }
             var settings = AppSettings.Current;
+            if (_renderedZone != null && !Equals(_renderedZone, TimeZoneInfo.Local)) ShowFolder(preserveScroll: true);
             var sources = SavedRecordingFolders.Additional(settings);
             if (_loadedRoot != settings.ClipsFolder ||
                 !_loadedSources.SequenceEqual(sources, SavedRecordingFolders.Paths) ||
@@ -268,13 +274,18 @@ public partial class GalleryView : UserControl
             foreach (var clip in _clips)
             {
                 // Keep thumbnails already on screen so a new clip doesn't make every card flicker.
-                if (previous.TryGetValue(clip.Path, out var old) && old.Size == clip.Size && old.Thumbnail != null &&
+                if (previous.TryGetValue(clip.Path, out var old) && !ReferenceEquals(old, clip) &&
+                    old.Size == clip.Size && old.Thumbnail != null &&
                     old.File.LastWriteTimeUtc == clip.File.LastWriteTimeUtc && old.File.CreationTimeUtc == clip.File.CreationTimeUtc)
                 {
                     clip.Thumbnail = old.Thumbnail;
                     clip.ThumbnailWidth = old.ThumbnailWidth;
+                    if (_thumbnailNodes.Remove(old, out var node)) _decodedThumbnails.Remove(node);
+                    RememberThumbnail(clip);
                 }
                 clip.IsSelected = _selected.Contains(clip.Path);
+                // Incremental refresh can retain items from other sources.
+                clip.SelectionChanged -= OnClipSelectionChanged;
                 clip.SelectionChanged += OnClipSelectionChanged;
             }
             _selected.IntersectWith(_clips.Select(c => c.Path));
@@ -408,7 +419,7 @@ public partial class GalleryView : UserControl
         var filter = new GalleryClipFilter(ClipSearchBox.Text.Trim(), TagSearchBox.Text.Trim(),
             FavoritesFilter.IsChecked == true, FavoritesSort.IsChecked == true);
         string folder = _folder;
-        var clips = _clips.ToArray();
+        var clips = _clips;
         _searchCancellation?.Cancel();
         using var cancellation = new CancellationTokenSource();
         _searchCancellation = cancellation;
@@ -464,7 +475,7 @@ public partial class GalleryView : UserControl
         }
         if (saved.Count == 0) return;
         RefreshKnownTags();
-        if (regroup) _renderedColumns = 0; // Group summaries include the corrected game label.
+        if (regroup || _filter.FavoritesFirst) _renderedColumns = 0;
         if (regroup) RebuildFolders(preserveScroll: true);
         else ShowFolder(preserveScroll: true);
     }
@@ -477,18 +488,24 @@ public partial class GalleryView : UserControl
     }
 
     private IReadOnlyList<ClipItem> _filteredClips = [];
+    private TimeZoneInfo? _renderedZone;
+    private bool _renderedFavoritesFirst;
 
     private void ApplyRows(IReadOnlyList<ClipItem> clips, bool preserveScroll)
     {
         FolderTitle.Text = _folder;
         FolderInfo.Text = clips.Count == 0 ? "" : $"{clips.Count} clip{(clips.Count == 1 ? "" : "s")}  ·  {Fmt.Size(clips.Sum(c => c.Size))}";
-        if (_renderedColumns != _columns || !_filteredClips.SequenceEqual(clips))
+        var zone = TimeZoneInfo.Local;
+        if (_renderedColumns != _columns || _renderedFavoritesFirst != _filter.FavoritesFirst ||
+            !Equals(_renderedZone, zone) || !_filteredClips.SequenceEqual(clips))
         {
             var scroll = Rows.Template?.FindName("GalleryScroll", Rows) as ScrollViewer;
             double offset = scroll?.VerticalOffset ?? 0;
             _renderedColumns = _columns;
             _filteredClips = clips;
-            var rows = GalleryDayFeed.Build(clips, _columns);
+            _renderedZone = zone;
+            _renderedFavoritesFirst = _filter.FavoritesFirst;
+            var rows = GalleryDayFeed.Build(clips, _columns, zone, _renderedFavoritesFirst);
             _visibleClips = rows.OfType<GalleryClipRow>().SelectMany(row => row.Clips).ToArray();
             Rows.ItemsSource = rows;
             if (preserveScroll && offset > 0) scroll?.ScrollToVerticalOffset(offset);
@@ -504,8 +521,11 @@ public partial class GalleryView : UserControl
             return;
         }
         var s = AppSettings.Current;
-        EmptyText.Text = $"Press {new Hotkey(s.HotkeyModifiers, s.HotkeyKey)} while you play to save the last " +
-                         $"{RecordingPresets.DurationLabel(s.BufferSeconds)}. Clips are filed by game in {s.ClipsFolder}.";
+        string save = App.Host?.ActiveSaveShortcut is { } shortcut
+            ? $"Press {shortcut} while you play"
+            : "Use Save clip while recording, or set a shortcut in Settings";
+        EmptyText.Text = $"{save} to save the last {RecordingPresets.DurationLabel(s.BufferSeconds)}. " +
+                         $"Clips are filed by game in {s.ClipsFolder}.";
     }
 
     internal static int ColumnsForWidth(double available) =>
@@ -567,23 +587,44 @@ public partial class GalleryView : UserControl
     {
         if (ItemOf(card) is not { } item) return;
         int width = ThumbnailCache.WidthFor(CardWidth * VisualTreeHelper.GetDpi(card).DpiScaleX);
-        if (item.ThumbnailWidth >= width) return;
+        if (item.ThumbnailWidth >= width)
+        {
+            if (item.Thumbnail != null) RememberThumbnail(item);
+            return;
+        }
         item.ThumbnailWidth = width;
         try
         {
-            string? thumb = await Task.Run(() => ThumbnailCache.GetAsync(item.File, item.Duration, width));
+            var token = _lifetime.Token;
+            string? thumb = await Task.Run(() => ThumbnailCache.GetAsync(item.File, item.Duration, width, token), token);
             if (thumb != null)
             {
                 var image = await Task.Run(() => ThumbnailCache.LoadImage(thumb, width));
-                if (!_released && item.ThumbnailWidth == width) item.Thumbnail = image;
+                if (!_released && item.ThumbnailWidth == width)
+                {
+                    item.Thumbnail = image;
+                    RememberThumbnail(item);
+                }
             }
-            else if (item.ThumbnailWidth == width) item.ThumbnailWidth = 0;
+            // A failed decode keeps the placeholder until the clip changes or the library is refreshed.
         }
+        catch (OperationCanceledException) when (_released) { }
         catch (Exception ex)
         {
-            if (item.ThumbnailWidth == width) item.ThumbnailWidth = 0;
             Log.Write("Loading thumbnail failed: " + ex.GetType().Name);
         }
+    }
+
+    private void RememberThumbnail(ClipItem item)
+    {
+        if (_thumbnailNodes.Remove(item, out var previous)) _decodedThumbnails.Remove(previous);
+        _thumbnailNodes[item] = _decodedThumbnails.AddFirst(item);
+        if (_decodedThumbnails.Count <= DecodedThumbnailLimit) return;
+        var oldest = _decodedThumbnails.Last!.Value;
+        _decodedThumbnails.RemoveLast();
+        _thumbnailNodes.Remove(oldest);
+        oldest.Thumbnail = null;
+        oldest.ThumbnailWidth = 0;
     }
 
     private void Card_MouseLeftButtonUp(object sender, MouseButtonEventArgs e)
@@ -592,12 +633,26 @@ public partial class GalleryView : UserControl
         if (_dragged || ItemOf(sender) is not { } item) return;
         // While clips are being picked, a click picks; Ctrl+click always does.
         if (HasSelection || Keyboard.Modifiers.HasFlag(ModifierKeys.Control)) item.IsSelected = !item.IsSelected;
-        else OpenRequested?.Invoke(item.Path);
+        else OpenClip(item);
+    }
+
+    private bool IsAvailable(ClipItem item)
+    {
+        if (File.Exists(item.Path)) return true;
+        ShowStatus("This clip is missing or unavailable.");
+        _scanRoot = true;
+        QueueReload();
+        return false;
+    }
+
+    private void OpenClip(ClipItem item)
+    {
+        if (IsAvailable(item)) OpenRequested?.Invoke(item.Path);
     }
 
     private void Play(ClipItem? item)
     {
-        if (item == null) return;
+        if (item == null || !IsAvailable(item)) return;
         var clips = CurrentClips.ToList();
         int index = clips.IndexOf(item);
         if (index >= 0) PlayRequested?.Invoke(clips, index);
@@ -743,8 +798,9 @@ public partial class GalleryView : UserControl
     private void Card_KeyDown(object sender, KeyEventArgs e)
     {
         if (e.OriginalSource != sender || ItemOf(sender) is not { } item || e.IsRepeat) return;
-        if (e.Key == Key.Enter) OpenRequested?.Invoke(item.Path);
-        else if (e.Key == Key.Space) item.IsSelected = !item.IsSelected;
+        if (e.Key == Key.Space || e.Key == Key.Enter && (HasSelection || Keyboard.Modifiers.HasFlag(ModifierKeys.Control)))
+            item.IsSelected = !item.IsSelected;
+        else if (e.Key == Key.Enter) OpenClip(item);
         else return;
         e.Handled = true;
     }
@@ -830,7 +886,7 @@ public partial class GalleryView : UserControl
 
     private void OpenClip_Click(object sender, RoutedEventArgs e)
     {
-        if (ItemOf(sender) is { } item) OpenRequested?.Invoke(item.Path);
+        if (ItemOf(sender) is { } item) OpenClip(item);
     }
 
     private void OpenWith_Click(object sender, RoutedEventArgs e)
@@ -868,17 +924,24 @@ public partial class GalleryView : UserControl
 
     private async Task DeleteClipsAsync(List<string> paths)
     {
-        var result = await ClipDeletion.Current.DeleteAsync(paths,
-            batch => ClipDeleteDialog.Confirm(Window.GetWindow(this), batch, force: batch.Count > 1));
+        if (!SelectionActions.IsEnabled || ClipDeletion.Current.Busy) return;
+        var result = await WithProgressAsync("Moving to the Recycle Bin", paths.Count, progress =>
+            ClipDeletion.Current.DeleteAsync(paths,
+                batch => ClipDeleteDialog.Confirm(Window.GetWindow(this), batch, force: batch.Count > 1),
+                StopHoverPreview, progress));
         if (result.Cancelled) return;
-        ShowStatus($"{result.Deleted} clip(s) sent to the Recycle Bin." + (result.Failed > 0 ? $" {result.Failed} could not be recycled and were left in place." :
-            ClipDeletion.Current.CanUndo ? " Use Undo delete to restore." : " Restore them through the Windows Recycle Bin."));
+        string message = result.Deleted == 0 ? "No clips were moved to the Recycle Bin."
+            : $"{result.Deleted} clip(s) sent to the Recycle Bin.";
+        if (result.Failed > 0) message += $" {result.Failed} could not be recycled.";
+        if (result.Deleted > 0 && ClipDeletion.Current.CanUndo) message += " Use Undo delete to restore available clips.";
+        ShowStatus(message);
         await ReloadAsync();
     }
 
     private async void UndoDelete_Click(object sender, RoutedEventArgs e)
     {
-        var result = ClipDeletion.Current.Undo();
+        var result = await ClipDeletion.Current.UndoAsync();
+        if (result.Cancelled) return;
         ShowStatus($"Restored {result.Deleted} clip(s)." + (result.Failed > 0 ? " Some could not be restored; check the Windows Recycle Bin. Existing files were preserved." : ""));
         await ReloadAsync();
     }
@@ -941,8 +1004,10 @@ public partial class GalleryView : UserControl
         if (!SelectionActions.IsEnabled) return; // showing progress instead
         SelectionBar.Visibility = _selected.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
         int hidden = _selected.Count - selected.Length;
-        SelectionText.Text = $"{selected.Length:N0} visible selected · {Fmt.Size(selected.Sum(clip => clip.Size))}" +
-            (hidden > 0 ? $" · {hidden:N0} hidden" : "");
+        SelectionText.Text = hidden > 0
+            ? $"{_selected.Count:N0} selected · {selected.Length:N0} visible (actions apply to visible clips)"
+            : $"{selected.Length:N0} selected";
+        if (selected.Length > 0) SelectionText.Text += $" · {Fmt.Size(selected.Sum(clip => clip.Size))}";
     }
 
     /// <summary>Selected clips, oldest first (the order they happened in, which is how a montage usually starts).</summary>
@@ -1058,7 +1123,10 @@ public partial class GalleryView : UserControl
         SelectionText.Text = $"{what}…";
         try
         {
-            return await work(new Progress<int>(done => SelectionText.Text = $"{what}… {done} of {count}"));
+            return await work(new Progress<int>(done =>
+            {
+                if (!SelectionActions.IsEnabled) SelectionText.Text = $"{what}… {done} of {count}";
+            }));
         }
         finally
         {

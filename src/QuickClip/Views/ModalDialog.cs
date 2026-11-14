@@ -30,7 +30,7 @@ internal static class ModalDialog
     }
 
     internal static bool ConfirmDelete(Window? owner, string title, string paths)
-        => ConfirmAction(owner, paths, title, "Delete", "Cancel", destructive: true);
+        => ConfirmAction(owner, paths, title, "Move to Recycle Bin", "Keep clips", destructive: true);
 
     internal static bool ConfirmAction(Window? owner, string message, string title, string accept, string cancel, bool destructive)
     {
@@ -60,11 +60,13 @@ internal static class ModalDialog
         return ok && (allowEmpty || text.Length > 0) ? text : null;
     }
 
-    private static bool Run(Window owner, string title, FrameworkElement content, string accept, string? cancel,
+    internal static bool Run(Window owner, string title, FrameworkElement content, string accept, string? cancel,
         bool safeDefault = false, bool destructive = false, IInputElement? initialFocus = null)
     {
         var host = (Panel)owner.Content;
         var overlay = new Grid { Background = new SolidColorBrush(Color.FromArgb(140, 0, 0, 0)) };
+        if (owner.TryFindResource("ModalScrimBrush") is Brush)
+            overlay.SetResourceReference(Panel.BackgroundProperty, "ModalScrimBrush");
         Panel.SetZIndex(overlay, int.MaxValue);
         if (host is Grid grid)
         {
@@ -84,6 +86,11 @@ internal static class ModalDialog
             BorderBrush = owner.TryFindResource("PanelBrush") as Brush ?? Brushes.Gray,
             Background = owner.TryFindResource("CardBrush") as Brush ?? SystemColors.WindowBrush,
         };
+        if (owner.TryFindResource("BorderBrush") is Brush)
+        {
+            box.SetResourceReference(Border.BorderBrushProperty, "BorderBrush");
+            box.SetResourceReference(Border.BackgroundProperty, "OverlayBackgroundBrush");
+        }
         AutomationProperties.SetName(box, title);
         var body = new StackPanel();
         body.Children.Add(new TextBlock { Text = title, FontSize = 19, FontWeight = FontWeights.SemiBold, TextWrapping = TextWrapping.Wrap });

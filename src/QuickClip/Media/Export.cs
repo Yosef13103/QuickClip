@@ -20,6 +20,8 @@ internal sealed record ExportRequest
     public (int X, int Y, int W, int H)? Crop { get; init; }
     public required IReadOnlyList<TrackExport> Tracks { get; init; }
     public bool MergeAudio { get; init; }
+    /// <summary>Put an ordinary playable mix first, followed by the separate editable stems.</summary>
+    public bool HybridAudio { get; init; }
     public VideoMode VideoMode { get; init; }
     public string EncoderId { get; init; } = "libx264";
     public string Quality { get; init; } = "high";      // original | best | high | good | small | size
@@ -46,6 +48,15 @@ internal sealed record TrackExport(int StreamIndex, string Codec, int Channels, 
 internal static class ExportBuilder
 {
     private static string F(double v) => v.ToString("0.######", CultureInfo.InvariantCulture);
+
+    // Keep the exact marker stable: MediaInfo recognizes only this named composite.
+    internal const string FullMixTitle = "QuickClip Full Mix";
+
+    // A limiter prevents a sum of independently full-scale tracks from clipping.
+    // We deliberately do not normalize by the number of streams: silent streams
+    // must not make a user's voice unreasonably quiet.
+    internal const string SafeMixFilter =
+        "amix=inputs={0}:normalize=0:duration=longest:dropout_transition=0,alimiter=limit=0.95:attack=5:release=100:level=0:latency=1";
 
     public static List<string> BuildArgs(ExportRequest r)
     {
@@ -103,7 +114,34 @@ internal static class ExportBuilder
             string? encoder = c.AudioEncoder;
             bool lossless = encoder is "flac" or "alac" || encoder?.StartsWith("pcm_") == true;
 
-            if (merge)
+            if (r.HybridAudio && tracks.Count > 1 && !c.SingleAudioTrack)
+            {
+                // One default playback soundtrack, followed by editable independent
+                // stems. Every stem is split after the user's volume adjustment so
+                // the displayed Editor settings and both outputs agree exactly.
+                var mixedInputs = new StringBuilder();
+                for (int i = 0; i < tracks.Count; i++)
+                {
+                    graph.Add($"{Source(i)}volume={F(tracks[i].Volume)},aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo,asplit=2[mix{i}][stem{i}]");
+                    mixedInputs.Append($"[mix{i}]");
+                }
+                graph.Add($"{mixedInputs}{string.Format(CultureInfo.InvariantCulture, SafeMixFilter, tracks.Count)}[aout]");
+                outArgs.AddRange(["-map", "[aout]"]);
+                AddAudioCodec(outArgs, 0, encoder, lossless, r.AudioBitrateK, 2);
+                AddTitle(outArgs, 0, FullMixTitle);
+                outArgs.AddRange(["-disposition:a:0", "default"]);
+                audioBits += lossless ? 0 : r.AudioBitrateK * 1000L;
+
+                for (int i = 0; i < tracks.Count; i++)
+                {
+                    outArgs.AddRange(["-map", $"[stem{i}]"]);
+                    AddAudioCodec(outArgs, i + 1, encoder, lossless, r.AudioBitrateK, 2);
+                    AddTitle(outArgs, i + 1, tracks[i].Name);
+                    outArgs.AddRange([$"-disposition:a:{i + 1}", "0"]);
+                    audioBits += lossless ? 0 : r.AudioBitrateK * 1000L;
+                }
+            }
+            else if (merge)
             {
                 var labels = new StringBuilder();
                 for (int i = 0; i < tracks.Count; i++)
@@ -111,10 +149,11 @@ internal static class ExportBuilder
                     graph.Add($"{Source(i)}volume={F(tracks[i].Volume)},aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo[am{i}]");
                     labels.Append($"[am{i}]");
                 }
-                graph.Add($"{labels}amix=inputs={tracks.Count}:normalize=0:duration=longest:dropout_transition=0[aout]");
+                graph.Add($"{labels}{string.Format(CultureInfo.InvariantCulture, SafeMixFilter, tracks.Count)}[aout]");
                 outArgs.AddRange(["-map", "[aout]"]);
                 AddAudioCodec(outArgs, 0, encoder, lossless, r.AudioBitrateK, 2);
-                AddTitle(outArgs, 0, string.Join(" + ", tracks.Select(t => t.Name)));
+                AddTitle(outArgs, 0, "Mix");
+                outArgs.AddRange(["-disposition:a:0", "default"]);
                 audioBits += lossless ? 0 : r.AudioBitrateK * 1000L;
             }
             else

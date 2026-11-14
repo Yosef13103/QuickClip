@@ -12,6 +12,16 @@ namespace QuickClip.Tests;
 public sealed class CaptureEngineTests(MediaFixture media, Xunit.Abstractions.ITestOutputHelper output)
 {
     [Fact]
+    public void Authorized_replay_discards_native_packets_on_stall_or_source_loss()
+    {
+        if (Environment.GetEnvironmentVariable("QUICKCLIP_CI") == "1") Assert.True(CaptureEngine.IsAvailable);
+        if (!CaptureEngine.IsAvailable) return;
+        CaptureEngine.Initialize();
+        Assert.True(CaptureEngine.TestAuthorizedVideoInvalidation(stall: true));
+        Assert.True(CaptureEngine.TestAuthorizedVideoInvalidation(stall: false));
+    }
+
+    [Fact]
     public void Display_dimensions_use_physical_source_modes_and_report_all_apis()
     {
         Assert.Equal((1920, 1080), Monitors.PhysicalSize(2400, 1350, 1920, 1080));
@@ -21,6 +31,23 @@ public sealed class CaptureEngineTests(MediaFixture media, Xunit.Abstractions.IT
         CaptureEngine.Initialize();
         output.WriteLine(Monitors.Diagnostics());
         Assert.All(Monitors.List(), m => Assert.True(m.Width > 0 && m.Height > 0));
+    }
+
+    [Fact]
+    public void Game_source_requires_a_verified_window_and_authorized_DDA()
+    {
+        if (Environment.GetEnvironmentVariable("QUICKCLIP_CI") == "1") Assert.True(CaptureEngine.IsAvailable);
+        if (!CaptureEngine.IsAvailable) return;
+        CaptureEngine.Initialize();
+        var owner = new WindowOwner(IntPtr.Zero, 10, 20, 30);
+        string? Start(WindowOwner game, CaptureEngine.MonitorBackend backend) =>
+            CaptureEngine.Start("fixture-display", "", 30, 0, 0, "libx264", 2000,
+                RecordingPresets.AudioKbps, 10, false, false, false, [], false, [],
+                new() { Backend = backend }, "fixture-identity", game);
+        Assert.Equal("Authorized display capture requires a named display and Desktop Duplication.",
+            Start(owner, CaptureEngine.MonitorBackend.MonitorOnlyGraphics));
+        Assert.Equal("The game window and its authorized display could not be verified.",
+            Start(owner, CaptureEngine.MonitorBackend.MonitorOnlyDuplication));
     }
 
     [OptInFact("QUICKCLIP_TEST_CAPTURE")]
@@ -115,11 +142,12 @@ public sealed class CaptureEngineTests(MediaFixture media, Xunit.Abstractions.IT
             CaptureEngine.Stop();
         }
         var info = await MediaInfo.ProbeAsync(clip);
-        Assert.Equal(["Game", "Chat", "Mic"], info.Audio.Select(a => a.DisplayName));
+        Assert.Equal(["QuickClip Full Mix", "Game", "Chat", "Mic"], info.Audio.Select(a => a.DisplayName));
+        Assert.Equal(["Game", "Chat", "Mic"], info.Audio.Skip(1).Select(a => a.DisplayName));
         Assert.InRange(span.DurationUs, 950_000, 2_050_000);
         Assert.InRange(Math.Abs(info.Duration - span.DurationUs / 1e6), 0, 0.15);
-        double game = await MediaFixture.BandLevel(clip, 0, 2000);
-        double chat = await MediaFixture.BandLevel(clip, 1, 2000);
+        double game = await MediaFixture.BandLevel(clip, 1, 2000);
+        double chat = await MediaFixture.BandLevel(clip, 2, 2000);
         Assert.True(game > -65 && game - chat > 20, $"Game {game:0.0} dB, unavailable Chat {chat:0.0} dB.");
     }
 
@@ -167,7 +195,8 @@ public sealed class CaptureEngineTests(MediaFixture media, Xunit.Abstractions.IT
         Assert.InRange(info.Duration, 1.9, 3.2); // starts on the keyframe before the 2 s mark
         Assert.NotNull(info.EmbeddedCreationTime);
         Assert.InRange(info.EmbeddedCreationTime.Value, captureStarted, DateTimeOffset.UtcNow);
-        Assert.Equal(["Desktop", "Chat", "Music", "Mic"], info.Audio.Select(a => a.DisplayName));
+        Assert.Equal(["QuickClip Full Mix", "Desktop", "Chat", "Music", "Mic"], info.Audio.Select(a => a.DisplayName));
+        Assert.Equal(4, info.Audio.Count - 1);
         File.Delete(clip);
     }
 
@@ -200,7 +229,8 @@ public sealed class CaptureEngineTests(MediaFixture media, Xunit.Abstractions.IT
         }
 
         var info = await MediaInfo.ProbeAsync(clip);
-        Assert.Equal(tracks, info.Audio.Select(a => a.DisplayName));
+        Assert.Equal(["QuickClip Full Mix", .. tracks], info.Audio.Select(a => a.DisplayName));
+        Assert.Equal(tracks, info.Audio.Skip(1).Select(a => a.DisplayName));
         Assert.All(info.Audio, a => Assert.Equal("aac", a.Codec));
         File.Delete(clip);
     }
@@ -252,8 +282,8 @@ public sealed class CaptureEngineTests(MediaFixture media, Xunit.Abstractions.IT
 
         // How much of Music is in Desktop, at the best match within ±50 ms (each track is timed by its own capture).
         // Changes from sample to sample are compared, which the noise is full of and most real sound isn't.
-        var desktop = Changes(await Pcm(clip, 0));
-        var music = Changes(await Pcm(clip, 1));
+        var desktop = Changes(await Pcm(clip, 1));
+        var music = Changes(await Pcm(clip, 2));
         File.Delete(clip);
         int from = 2400, length = Math.Min(desktop.Length, music.Length) - 2 * from;
         double musicEnergy = 0, desktopEnergy = 0, best = 0;

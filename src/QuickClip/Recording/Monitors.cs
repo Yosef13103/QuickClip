@@ -48,6 +48,30 @@ internal static class Monitors
             .ToList();
     }
 
+    internal static MonitorInfo? FindPhysicalDisplay(IReadOnlyList<MonitorInfo> displays, string identity) =>
+        displays.FirstOrDefault(m => string.Equals(m.CaptureIdentity, identity, StringComparison.OrdinalIgnoreCase));
+
+    internal static string? ForWindow(WindowOwner owner)
+    {
+        if (!GameDetector.IsObservableOwner(owner)) return null;
+        var info = new MonitorDevice { Size = (uint)Marshal.SizeOf<MonitorDevice>() };
+        // Windows chooses the largest intersection. An off-screen window has no capture display.
+        return GetMonitorInfoW(MonitorFromWindow(owner.Handle, 0), ref info) ? info.Device : null;
+    }
+
+    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+    private struct MonitorDevice
+    {
+        public uint Size;
+        public int Left, Top, Right, Bottom, WorkLeft, WorkTop, WorkRight, WorkBottom;
+        public uint Flags;
+        [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 32)] public string Device;
+    }
+
+    [DllImport("user32.dll")] private static extern IntPtr MonitorFromWindow(IntPtr window, uint flags);
+    [DllImport("user32.dll", CharSet = CharSet.Unicode, ExactSpelling = true)]
+    private static extern bool GetMonitorInfoW(IntPtr monitor, ref MonitorDevice info);
+
     /// <summary>GDI device name (\\.\DISPLAY1) → monitor's friendly name, via the display configuration API.</summary>
     private static Dictionary<string, DisplayMode> ReadModes()
     {
@@ -89,10 +113,10 @@ internal static class Monitors
                     },
                 };
                 if (DisplayConfigGetDeviceInfo(ref source) != 0) continue;
-                DisplayConfigGetDeviceInfo(ref target);
+                bool targetVerified = DisplayConfigGetDeviceInfo(ref target) == 0 && path.targetInfo.targetAvailable != 0;
                 var sm = path.sourceInfo.modeInfoIdx < modeCount ? modes[path.sourceInfo.modeInfoIdx] : default;
                 var tm = path.targetInfo.modeInfoIdx < modeCount ? modes[path.targetInfo.modeInfoIdx] : default;
-                string? identity = result.ContainsKey(source.viewGdiDeviceName) ? null : target.monitorDevicePath;
+                string? identity = !targetVerified || result.ContainsKey(source.viewGdiDeviceName) ? null : target.monitorDevicePath;
                 result[source.viewGdiDeviceName] = new(target.monitorFriendlyDeviceName ?? "",
                     sm.infoType == 1 ? (int)sm.sourceWidth : 0, sm.infoType == 1 ? (int)sm.sourceHeight : 0,
                     tm.infoType == 2 ? (int)tm.signalWidth : 0, tm.infoType == 2 ? (int)tm.signalHeight : 0,

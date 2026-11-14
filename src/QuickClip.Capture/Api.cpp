@@ -35,6 +35,19 @@ namespace
 
     std::shared_mutex g_engineLock;   // Save holds it shared; start/stop exclusively
     std::unique_ptr<qc::Engine> g_engine;
+    std::mutex g_micTestLock;
+    std::unique_ptr<qc::AudioSource> g_micTest;
+    int64_t g_micTestToken = 0;
+
+    // Called with the engine lock held. Release the test lock before joining its worker.
+    void DrainMicrophoneTest()
+    {
+        std::unique_ptr<qc::AudioSource> test;
+        {
+            std::lock_guard guard(g_micTestLock);
+            test = std::move(g_micTest);
+        }
+    }
 
     void CopyError(const std::string& message, wchar_t* error, int length)
     {
@@ -43,13 +56,14 @@ namespace
     }
 
     int StartEngine(const QcConfig& config, bool endpointMode, const QcEndpointTrack* endpoints, int count, wchar_t* error, int length,
-        QcVideoOptions video = {}, const wchar_t* displayIdentity = nullptr)
+        QcVideoOptions video = {}, const wchar_t* displayIdentity = nullptr, const QcGameWindow* game = nullptr)
     {
         std::unique_lock guard(g_engineLock);
+        DrainMicrophoneTest();
         g_engine.reset();
         try
         {
-            auto engine = std::make_unique<qc::Engine>(config, endpointMode, endpoints, count, video, displayIdentity);
+            auto engine = std::make_unique<qc::Engine>(config, endpointMode, endpoints, count, video, displayIdentity, game);
             std::string message;
             if (engine->Start(message))
             {
@@ -159,10 +173,112 @@ extern "C"
         return g_engine ? g_engine->GetEndpointStatus(statuses, capacity) : 0;
     }
 
+    __declspec(dllexport) int qc_read_audio_signals(QcAudioSignal* signals, int capacity, int size)
+    {
+        if (!signals || capacity <= 0 || size != sizeof(QcAudioSignal)) return 0;
+        std::shared_lock guard(g_engineLock, std::try_to_lock);
+        return guard.owns_lock() && g_engine ? g_engine->GetAudioSignals(signals, capacity) : 0;
+    }
+
+    __declspec(dllexport) HRESULT qc_start_mic_test(const wchar_t* id, int milliseconds, int64_t* token)
+    {
+        if (!id || wcsnlen_s(id, 512) >= 512 || milliseconds <= 0 || milliseconds > 10000 || !token)
+            return E_INVALIDARG;
+        std::shared_lock engineGuard(g_engineLock, std::try_to_lock);
+        if (!engineGuard.owns_lock() || g_engine) return HRESULT_FROM_WIN32(ERROR_BUSY);
+        std::lock_guard guard(g_micTestLock);
+        if (g_micTest && !g_micTest->TestFinished()) return HRESULT_FROM_WIN32(ERROR_BUSY);
+        try
+        {
+            g_micTest = std::make_unique<qc::AudioSource>(qc::SourceKind::Microphone, 0, id, qc::SampleRate, nullptr,
+                -1, false, static_cast<DWORD>(milliseconds));
+            *token = ++g_micTestToken;
+            return S_OK;
+        }
+        catch (const std::bad_alloc&) { return E_OUTOFMEMORY; }
+        catch (...) { return E_FAIL; }
+    }
+
+    __declspec(dllexport) int qc_read_mic_test(int64_t token, QcAudioSignal* signal, int size)
+    {
+        if (!signal || size != sizeof(QcAudioSignal)) return 0;
+        std::lock_guard guard(g_micTestLock);
+        if (!g_micTest || g_micTestToken != token) return 0;
+        *signal = g_micTest->SignalStatus();
+        return 1;
+    }
+
+    __declspec(dllexport) void qc_stop_mic_test(int64_t token)
+    {
+        std::lock_guard guard(g_micTestLock);
+        if (g_micTest && g_micTestToken == token)
+        {
+            g_micTest->RequestStop();
+            ++g_micTestToken;
+        }
+    }
+
+    // Synthetic float fixture only: validates the default listening mix's
+    // summation/soft limit without capturing any private device audio.
+    __declspec(dllexport) int qc_test_playback_mix(const float* left, const float* right, int count, float* output)
+    {
+        if (!left || !right || !output || count < 0 || count > 192000) return -1;
+        for (int i = 0; i < count; ++i)
+            output[i] = qc::SoftLimitPlaybackSample(left[i] + right[i]);
+        return count;
+    }
+
     // Synthetic float fixture only. Does not open an endpoint.
     __declspec(dllexport) float qc_test_audio_packet_peak(const float* samples, int count)
     {
         return count >= 0 && count <= 48000 ? qc::AudioPacketPeak(samples, static_cast<size_t>(count)) : -1;
+    }
+
+    // Feed synthetic 20 ms packets through the production mixer without opening an endpoint.
+    __declspec(dllexport) int qc_test_audio_timeline(const int* startsMs, const int* sources, const int* restarts,
+        int packets, int drainBeforePacket, int drainMs, float* left, int outputFrames)
+    {
+        if (!startsMs || !sources || !restarts || !left || packets <= 0 || packets > 128 ||
+            outputFrames <= 0 || outputFrames > qc::SampleRate ||
+            drainBeforePacket < 0 || drainBeforePacket > packets ||
+            drainMs < 0 || drainMs > outputFrames / (qc::SampleRate / 1000)) return 0;
+        qc::TrackMixer mixer(0, true);
+        qc::MixerSink first(mixer, qc::SampleRate), second(mixer, qc::SampleRate);
+        constexpr int frames = qc::SampleRate / 50;
+        const std::vector<float> samples(frames * qc::Channels, 0.75f);
+        std::vector<float> mixed;
+        int written = 0;
+        auto drain = [&](int until) {
+            mixer.Take(until, mixed);
+            for (size_t i = 0; i < mixed.size(); i += qc::Channels)
+                left[written++] = mixed[i];
+        };
+        for (int i = 0; i < packets; ++i)
+        {
+            if (startsMs[i] < 0 || startsMs[i] > 10000 ||
+                (sources[i] != 0 && sources[i] != 1)) return 0;
+            if (i == drainBeforePacket) drain(drainMs * (qc::SampleRate / 1000));
+            auto& sink = sources[i] == 0 ? first : second;
+            sink.Push(samples.data(), frames, 1000LL * startsMs[i], restarts[i] != 0);
+        }
+        drain(outputFrames);
+        return written;
+    }
+
+    // Synthetic float fixture only. Does not open an endpoint.
+    __declspec(dllexport) int qc_test_audio_levels(const float* samples, int count, float* peak, float* rms, int64_t* mixerBlocks)
+    {
+        if (count < 0 || count > 48000 || count % qc::Channels != 0 || !peak || !rms || !mixerBlocks) return 0;
+        auto levels = qc::MeasureAudioLevels(samples, static_cast<size_t>(count));
+        *peak = levels.peak;
+        *rms = levels.rms;
+        qc::TrackMixer mixer(0, true);
+        qc::MixerSink sink(mixer, qc::SampleRate);
+        sink.Push(samples, static_cast<uint32_t>(count / qc::Channels), 0, true);
+        std::vector<float> mixed;
+        mixer.Take(count / qc::Channels, mixed);
+        *mixerBlocks = mixer.NonzeroBlocks();
+        return 1;
     }
 
     __declspec(dllexport) void qc_display_diagnostics(wchar_t* text, int length)
@@ -176,8 +292,8 @@ extern "C"
         return StartEngine(*config, false, nullptr, 0, error, errorLength);
     }
 
-    __declspec(dllexport) int qc_start_with_display(const QcConfig* config, const QcEndpointTrack* endpoints, int count,
-        const QcVideoOptions* video, const wchar_t* displayIdentity, wchar_t* error, int errorLength)
+    __declspec(dllexport) int qc_start_with_source(const QcConfig* config, const QcEndpointTrack* endpoints, int count,
+        const QcVideoOptions* video, const wchar_t* displayIdentity, const QcGameWindow* game, wchar_t* error, int errorLength)
     {
         if (!config || !video || count < -1 || count > 16 || (count > 0 && !endpoints) ||
             video->backend < 0 || video->backend > 4 || video->nvencPreset < 0 || video->nvencPreset > 2)
@@ -205,7 +321,18 @@ extern "C"
             CopyError("Authorized display capture requires a named display and Desktop Duplication.", error, errorLength);
             return 0;
         }
-        return StartEngine(*config, count >= 0, endpoints, std::max(0, count), error, errorLength, *video, displayIdentity);
+        if (game && (!displayIdentity || !game->handle || !game->thread || !game->process || game->started <= 0))
+        {
+            CopyError("The game window and its authorized display could not be verified.", error, errorLength);
+            return 0;
+        }
+        return StartEngine(*config, count >= 0, endpoints, std::max(0, count), error, errorLength, *video, displayIdentity, game);
+    }
+
+    __declspec(dllexport) int qc_start_with_display(const QcConfig* config, const QcEndpointTrack* endpoints, int count,
+        const QcVideoOptions* video, const wchar_t* displayIdentity, wchar_t* error, int errorLength)
+    {
+        return qc_start_with_source(config, endpoints, count, video, displayIdentity, nullptr, error, errorLength);
     }
 
     __declspec(dllexport) int qc_start_with_video(const QcConfig* config, const QcEndpointTrack* endpoints, int count,
@@ -231,6 +358,7 @@ extern "C"
     __declspec(dllexport) void qc_stop()
     {
         std::unique_lock guard(g_engineLock);
+        DrainMicrophoneTest();
         g_engine.reset();
     }
 
@@ -306,10 +434,27 @@ extern "C"
         return 1;
     }
 
+    __declspec(dllexport) int qc_video_source_lost()
+    {
+        std::shared_lock guard(g_engineLock);
+        return g_engine && g_engine->VideoSourceLost();
+    }
+
+    __declspec(dllexport) int qc_has_video_output()
+    {
+        std::shared_lock guard(g_engineLock);
+        return g_engine && g_engine->HasVideoOutput();
+    }
+
+    __declspec(dllexport) int qc_test_authorized_video_invalidation(int stall)
+    {
+        return qc::Engine::TestAuthorizedVideoInvalidation(stall != 0);
+    }
+
     __declspec(dllexport) int qc_get_replay_position(QcReplayPosition* position)
     {
         std::shared_lock guard(g_engineLock);
-        if (!g_engine || !position) return 0;
+        if (!g_engine || !position || g_engine->VideoSourceLost()) return 0;
         g_engine->GetReplayPosition(*position);
         return 1;
     }
@@ -327,7 +472,7 @@ extern "C"
         std::shared_lock guard(g_engineLock);
         QcReplayPosition position{};
         if (g_engine) g_engine->GetReplayPosition(position);
-        if (!g_engine || position.session != session)
+        if (!g_engine || position.session != session || g_engine->VideoSourceLost())
         {
             CopyError("The recording session ended before the replay could be saved.", error, errorLength);
             return 0;

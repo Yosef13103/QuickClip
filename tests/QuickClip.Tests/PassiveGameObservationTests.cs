@@ -59,7 +59,7 @@ public sealed class PassiveGameObservationTests
     }
 
     [Fact]
-    public void Active_owner_survives_another_games_focus_until_a_catalog_veto()
+    public void Active_owner_survives_a_deferred_handoff_until_a_catalog_veto()
     {
         var first = Window(First, 1, 10);
         var second = Window(Second, 2, 100);
@@ -67,10 +67,10 @@ public sealed class PassiveGameObservationTests
         var foreground = GameDetector.Observe(second.Owner, Second, Match(Second, true), false, new HashSet<string>());
 
         Assert.Equal(first.Owner, GameDetector.ResolveEligibleGame(retained, foreground, _ => true, () => [],
-            Match, preferRetained: true)?.Owner);
+            Match, preferForeground: (_, _) => false)?.Owner);
         Assert.Equal(second.Owner, GameDetector.ResolveEligibleGame(retained, foreground, _ => true, () => [],
             (path, fg) => path == First ? Match(path, fg) with { Kind = CatalogMatchKind.Inactive } : Match(path, fg),
-            preferRetained: true)?.Owner);
+            preferForeground: (_, _) => false)?.Owner);
     }
 
     private static PassiveGameWindow Window(string path, int number, long size) =>

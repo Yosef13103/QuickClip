@@ -41,6 +41,30 @@ internal static class CatalogPaths
 
     public static bool IsExecutable(string path) => Path.GetExtension(path).Equals(".exe", StringComparison.OrdinalIgnoreCase);
 
+    public static CatalogMatchKind DefaultRole(string path)
+    {
+        if (IsDiscordUpdater(path)) return CatalogMatchKind.Ignored;
+        if (IsDiscordProcess(path)) return CatalogMatchKind.Companion;
+        string name = Path.GetFileNameWithoutExtension(path).ToUpperInvariant();
+        if (name == "ZOOM") return CatalogMatchKind.Companion;
+        if (name is "STEAM" or "STEAMWEBHELPER" or "EPICGAMESLAUNCHER" or "LAUNCHER" or "GAMELAUNCHER"
+            or "BATTLE.NET" or "RIOTCLIENTSERVICES" or "EADESKTOP" or "EALAUNCHER" or "GALAXYCLIENT"
+            or "UBISOFTCONNECT" or "ROCKSTAR GAMES LAUNCHER" or "BOOTSTRAPPACKAGEDGAME" or "START_PROTECTED_GAME"
+            || name.EndsWith("LAUNCHER", StringComparison.Ordinal))
+            return CatalogMatchKind.Launcher;
+        if (name is "7ZA" or "SETUP" or "INSTALL" or "INSTALLER" or "UPDATE" or "UPDATER"
+            or "7Z" or "7ZR" or "UNRAR" or "DXSETUP" or "PREREQUISITES" or "WERFAULT"
+            or "CRASHPAD_HANDLER" or "UNITYCRASHHANDLER32" or "UNITYCRASHHANDLER64" or "CRASHREPORTCLIENT"
+            || name.EndsWith("HELPER", StringComparison.Ordinal)
+            || name.EndsWith("CRASHHANDLER", StringComparison.Ordinal)
+            || name.StartsWith("UNINS", StringComparison.Ordinal)
+            || name.StartsWith("VC_REDIST", StringComparison.Ordinal)
+            || name.EndsWith("CRASHREPORTER", StringComparison.Ordinal)
+            || path.Split('\\', '/').SkipLast(1).Contains("CrashReporter", StringComparer.OrdinalIgnoreCase))
+            return CatalogMatchKind.Application;
+        return CatalogMatchKind.Unknown;
+    }
+
     public static bool IsDiscordUpdater(string path) =>
         Path.GetFileNameWithoutExtension(path).Equals("Update", StringComparison.OrdinalIgnoreCase)
         && IsDiscord(Path.GetFileName(Path.GetDirectoryName(path)) ?? "");

@@ -12,7 +12,19 @@ internal static class ClipSound
     // Pinned for good: PlaySound reads the WAV from memory while it plays in the background.
     private static readonly Lazy<GCHandle> Wav = new(() => GCHandle.Alloc(Load(), GCHandleType.Pinned));
 
-    public static void Play() => PlaySound(Wav.Value.AddrOfPinnedObject(), IntPtr.Zero, SND_MEMORY | SND_ASYNC | SND_NODEFAULT);
+    public static async Task<bool> PlayAsync(string? endpointId = null, int volume = 100, string? customPath = null)
+    {
+        if (AppProfile.IsPersonal && !string.IsNullOrWhiteSpace(customPath))
+        {
+            if (volume <= 0) return true;
+            byte[]? wav = await ClipSoundCustom.LoadAsync(customPath);
+            return wav != null && await Task.Run(() => ClipSoundOutput.Play(endpointId, volume, wav));
+        }
+        if (!AppProfile.IsPersonal || (string.IsNullOrWhiteSpace(endpointId) && volume >= 100))
+            return PlaySound(Wav.Value.AddrOfPinnedObject(), IntPtr.Zero, SND_MEMORY | SND_ASYNC | SND_NODEFAULT);
+        if (volume <= 0) return true;
+        return await Task.Run(() => ClipSoundOutput.Play(endpointId, volume));
+    }
 
     /// <summary>The sound as a WAV file.</summary>
     internal static byte[] Load()

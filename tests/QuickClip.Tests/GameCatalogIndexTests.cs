@@ -55,6 +55,37 @@ public sealed class GameCatalogIndexTests
     }
 
     [Fact]
+    public void Blocked_paths_persist_and_override_both_manual_games_and_automatic_defaults()
+    {
+        const string path = @"C:\Games\Game.exe";
+        const string other = @"D:\Games\Game.exe";
+        var entry = new CatalogEntry("manual:a", "Game", CatalogSource.Manual, [], [path, other],
+            new(Classification: AppClassification.Game));
+        var settings = AppSettings.Parse(new AppSettings
+        {
+            Games = new() { BlockedExecutables = [path.ToUpperInvariant()] },
+        }.ToJson()).Games;
+        var index = new GameCatalogIndex(new([entry], [], 0, false, default), settings.BlockedExecutables);
+        Assert.Equal(CatalogMatchKind.Ignored, index.Match(path, true).Kind);
+        Assert.Equal(CatalogMatchKind.Game, index.Match(other, true).Kind);
+        Assert.Equal(CatalogMatchKind.Game, BuildIndex(entry).Match(path, true).Kind);
+    }
+
+    [Fact]
+    public void Known_helpers_do_not_match_as_games_even_with_explicit_classification()
+    {
+        const string path = @"C:\Games\Cyberpunk 2077\bin\x64\CrashReporter\7za.exe";
+        var entry = new CatalogEntry("steam:1", "Cyberpunk 2077", CatalogSource.Steam, [], [path], new());
+        Assert.Equal(CatalogMatchKind.Application, BuildIndex(entry).Match(path, true).Kind);
+        Assert.Equal(CatalogMatchKind.Application, BuildIndex().Match(path, true).Kind);
+        Assert.Equal(CatalogMatchKind.Application, BuildIndex(entry with
+        {
+            Source = CatalogSource.Manual,
+            Rules = new(Classification: AppClassification.Game),
+        }).Match(path, true).Kind);
+    }
+
+    [Fact]
     public async Task Refreshes_are_coalesced_until_the_monotonic_interval_elapses()
     {
         using var cancellation = new CancellationTokenSource();

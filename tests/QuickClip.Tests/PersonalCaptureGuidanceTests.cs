@@ -71,6 +71,21 @@ public sealed class PersonalCaptureGuidanceTests
     }
 
     [Fact]
+    public void Legacy_consent_stays_scoped_until_explicit_following_is_saved()
+    {
+        var legacy = AppSettings.Parse("""{"RecordingEnabled":true,"PreferGameWindow":false,"AuthorizedGameDisplay":"physical-a"}""");
+        Assert.False(CaptureSourcePolicy.AllowsGameDisplay(legacy, "PHYSICAL-A"));
+        legacy.PreferGameWindow = true;
+        Assert.True(CaptureSourcePolicy.AllowsGameDisplay(legacy, "PHYSICAL-A"));
+        Assert.False(CaptureSourcePolicy.AllowsGameDisplay(legacy, "physical-b"));
+        legacy.PreferGameWindow = false;
+        legacy.AllowGameDisplayFollowing = true;
+        var reloaded = AppSettings.Parse(legacy.ToJson());
+        Assert.True(CaptureSourcePolicy.AllowsGameDisplay(reloaded, "physical-b"));
+        Assert.False(reloaded.PreferGameWindow);
+    }
+
+    [Fact]
     public void Verified_context_survives_Discord_focus_but_not_lost_ownership_or_exclusion()
     {
         var owner = new WindowOwner((IntPtr)101, 10, 20, 30);

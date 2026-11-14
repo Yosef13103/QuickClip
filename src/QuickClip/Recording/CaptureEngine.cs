@@ -3,7 +3,7 @@ using System.Runtime.InteropServices;
 namespace QuickClip.Recording;
 
 /// <summary>P/Invoke surface of QuickClipCapture.dll (src/QuickClip.Capture). Struct layouts mirror Engine.h.</summary>
-internal static class CaptureEngine
+internal static partial class CaptureEngine
 {
     internal enum MonitorBackend { Automatic, DesktopDuplication, GraphicsCapture, MonitorOnlyDuplication, MonitorOnlyGraphics }
     internal enum NvencSpeed { BalancedP4, FasterP3, FastestP2 }
@@ -14,6 +14,9 @@ internal static class CaptureEngine
         public NvencSpeed Preset;
         public int Diagnostics;
     }
+    [StructLayout(LayoutKind.Sequential)]
+    private readonly record struct GameWindow(IntPtr Handle, uint Thread, uint Process, long Started);
+
     private const string Dll = "QuickClipCapture.dll";
 
     [StructLayout(LayoutKind.Sequential)]
@@ -75,32 +78,6 @@ internal static class CaptureEngine
         public IntPtr Title;
     }
 
-    [StructLayout(LayoutKind.Sequential)]
-    private struct NativeEndpointStatus
-    {
-        public EndpointFlow Flow;
-        public EndpointStage Stage;
-        public int HResult, MixRate, MixChannels, CaptureRate;
-        public long Packets, MillisecondsSincePacket;
-        public float LastPacketPeak;
-    }
-
-    /// <summary>Returns active native lanes in the order of the plan supplied at start. No IDs or PCM are returned.</summary>
-    internal static IReadOnlyList<EndpointStatus> ReadEndpointStatus()
-    {
-        var native = new NativeEndpointStatus[EndpointAudio.MaxTracks];
-        int count = qc_get_endpoint_status(native, native.Length);
-        var result = new EndpointStatus[count];
-        for (int i = 0; i < count; ++i)
-        {
-            var lane = native[i];
-            result[i] = new(i, lane.Flow, lane.Stage, lane.HResult, lane.MixRate, lane.MixChannels, lane.CaptureRate,
-                lane.Packets, lane.MillisecondsSincePacket >= 0 ? lane.MillisecondsSincePacket : null,
-                lane.LastPacketPeak >= 0 ? lane.LastPacketPeak : null);
-        }
-        return result;
-    }
-
     [UnmanagedFunctionPointer(CallingConvention.StdCall)]
     private delegate void LogCallback(IntPtr message);
 
@@ -122,7 +99,7 @@ internal static class CaptureEngine
             if (_initialized) return;
             SetDllDirectory(Path.Combine(AppContext.BaseDirectory, "ffmpeg"));
             qc_set_log(LogDelegate);
-            _initialized = true;
+            Volatile.Write(ref _initialized, true);
         }
     }
 
@@ -154,7 +131,7 @@ internal static class CaptureEngine
     /// <param name="separateMics">Each microphone on its own track, named by its title, instead of all on one Mic track.</param>
     public static string? Start(string monitorDevice, string aspect, int fps, int outWidth, int outHeight, string encoder, int videoKbps,
         int audioKbps, int bufferSeconds, bool cursor, bool splitChat, bool splitMusic, IReadOnlyList<Microphones.Input> mics,
-        bool separateMics, IReadOnlyList<EndpointTrack>? endpointTracks = null, VideoOptions video = default, string? displayIdentity = null)
+        bool separateMics, IReadOnlyList<EndpointTrack>? endpointTracks = null, VideoOptions video = default, string? displayIdentity = null, WindowOwner? game = null)
     {
         var strings = new List<IntPtr>();
         IntPtr Uni(string? s) { var p = s == null ? IntPtr.Zero : Marshal.StringToHGlobalUni(s); strings.Add(p); return p; }
@@ -196,8 +173,11 @@ internal static class CaptureEngine
                     DeviceId = Uni(t.DeviceId),
                     Title = Uni(t.Label),
                 }).ToArray();
-            int started = qc_start_with_display(ref config, tracks, endpointTracks == null ? -1 : tracks.Length,
-                ref video, displayIdentity, error, error.Length);
+            int count = endpointTracks == null ? -1 : tracks.Length;
+            int started = game is { } owner
+                ? qc_start_with_source(ref config, tracks, count, ref video, displayIdentity,
+                    new GameWindow(owner.Handle, owner.ThreadId, owner.ProcessId, owner.Started), error, error.Length)
+                : qc_start_with_display(ref config, tracks, count, ref video, displayIdentity, error, error.Length);
             return started != 0 ? null : new string(error).TrimEnd('\0');
         }
         finally
@@ -207,6 +187,10 @@ internal static class CaptureEngine
     }
 
     public static void Stop() => qc_stop();
+
+    internal static bool VideoSourceLost() => qc_video_source_lost() != 0;
+    internal static bool HasVideoOutput() => qc_has_video_output() != 0;
+    internal static bool TestAuthorizedVideoInvalidation(bool stall) => qc_test_authorized_video_invalidation(stall ? 1 : 0) != 0;
 
     /// <summary>Starts screen capture again (the display changed, so the running capture may have gone stale).</summary>
     public static void RestartVideo() => qc_restart_video();
@@ -285,7 +269,7 @@ internal static class CaptureEngine
 
     public static string VideoDiagnostics()
     {
-        var text = new char[2048];
+        var text = new char[8192];
         qc_video_diagnostics(text, text.Length);
         return new string(text).TrimEnd('\0');
     }
@@ -302,7 +286,6 @@ internal static class CaptureEngine
     [DllImport(Dll)] private static extern int qc_enum_outputs([Out] Output[] outputs, int max);
     [DllImport(Dll)] private static extern int qc_enum_microphones([Out] AudioDevice[] devices, int max);
     [DllImport(Dll)] private static extern void qc_enum_audio_endpoints(EndpointCallback callback);
-    [DllImport(Dll)] private static extern int qc_get_endpoint_status([Out] NativeEndpointStatus[] statuses, int capacity);
     [DllImport(Dll, CharSet = CharSet.Unicode)] private static extern int qc_start(ref Config config, [Out] char[] error, int errorLength);
     [DllImport(Dll, CharSet = CharSet.Unicode)] private static extern int qc_start_endpoints(ref Config config, [In] EndpointConfig[] endpoints,
         int count, [Out] char[] error, int errorLength);
@@ -319,6 +302,12 @@ internal static class CaptureEngine
         uint[] chat, int chatCount, uint[] music, int musicCount, uint[] subtract, int subtractCount);
     [DllImport(Dll)] private static extern long qc_test_subtract_offset(uint pid);
     [DllImport(Dll)] private static extern void qc_test_play_noise(int milliseconds, float amplitude);
+    [DllImport(Dll, CharSet = CharSet.Unicode)] private static extern int qc_start_with_source(ref Config config,
+        [In] EndpointConfig[] endpoints, int count, ref VideoOptions video, string? displayIdentity, in GameWindow game,
+        [Out] char[] error, int errorLength);
+    [DllImport(Dll)] private static extern int qc_video_source_lost();
+    [DllImport(Dll)] private static extern int qc_has_video_output();
+    [DllImport(Dll)] private static extern int qc_test_authorized_video_invalidation(int stall);
     [DllImport(Dll, CharSet = CharSet.Unicode)] private static extern int qc_save(string path, int seconds, string title, [Out] char[] error, int errorLength);
     [DllImport(Dll)] private static extern int qc_get_stats(out Stats stats);
     [DllImport(Dll)] private static extern int qc_get_replay_position(out ReplayPosition position);

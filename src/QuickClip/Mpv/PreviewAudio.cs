@@ -13,13 +13,17 @@ internal sealed class PreviewAudio(MpvPlayer player)
 
     private string? _appliedFilter;
 
-    public static (string LavfiComplex, string AudioFilter) Build(int trackCount, Func<int, double> volume)
+    public static (string LavfiComplex, string AudioFilter) Build(int trackCount, Func<int, double> volume) =>
+        Build(Enumerable.Range(1, trackCount).ToArray(), volume);
+
+    /// <summary>Use the file's actual mpv audio IDs; hybrid's hidden composite occupies aid1.</summary>
+    public static (string LavfiComplex, string AudioFilter) Build(IReadOnlyList<int> audioIds, Func<int, double> volume)
     {
-        int n = trackCount;
+        int n = audioIds.Count;
         if (n <= 0) return ("", "");
         if (n == 1) return ("", $"@{FilterLabel}:lavfi=[volume@t1={Fmt.Num(volume(0))}]");
 
-        var inputs = Enumerable.Range(1, n).Select(i => $"[aid{i}]aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo[qa{i}]");
+        var inputs = Enumerable.Range(1, n).Select(i => $"[aid{audioIds[i - 1]}]aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo[qa{i}]");
         string complex = string.Join(";", inputs) + ";" + string.Concat(Enumerable.Range(1, n).Select(i => $"[qa{i}]")) + $"amerge=inputs={n}[ao]";
 
         var graph = new List<string> { "asplit=" + n + string.Concat(Enumerable.Range(1, n).Select(i => $"[s{i}]")) };
@@ -30,12 +34,15 @@ internal sealed class PreviewAudio(MpvPlayer player)
     }
 
     /// <summary>Sets up the graph for a file with <paramref name="trackCount"/> audio tracks. Call before loading it.</summary>
-    public void Configure(int trackCount, Func<int, double> volume)
+    public void Configure(int trackCount, Func<int, double> volume) =>
+        Configure(Enumerable.Range(1, trackCount).ToArray(), volume);
+
+    public void Configure(IReadOnlyList<int> audioIds, Func<int, double> volume)
     {
-        var (complex, filter) = Build(trackCount, volume);
+        var (complex, filter) = Build(audioIds, volume);
         player.SetProperty("lavfi-complex", complex);
         player.SetProperty("af", filter);
-        player.SetProperty("aid", trackCount >= 1 ? "1" : "no");
+        player.SetProperty("aid", audioIds.Count > 0 ? audioIds[0].ToString() : "no");
         _appliedFilter = filter;
     }
 

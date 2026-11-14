@@ -13,6 +13,18 @@
 struct SwrContext;
 struct QcEndpointStatus;
 
+// Mirrored by CaptureEngine.NativeAudioSignal. Endpoint IDs are only returned to local callers.
+struct QcAudioSignal
+{
+    int flow, actualFlow, stage, error, trackIndex;
+    int mixError, mixRate, mixChannels, mixTag, mixBits, mixValidBits, mixChannelMask, mixSubtype;
+    int requestedRate, requestedChannels, captureRate, captureChannels, meterError;
+    int64_t packets, silentPackets, nonzeroPackets, timestampFallbacks, discontinuities;
+    int64_t millisecondsSincePacket, nonzeroMixerBlocks;
+    float lastPeak, lastRms, recentPeak, windowsPeak, maxPeak, maxRms, maxWindowsPeak;
+    wchar_t selectedId[512], resolvedId[512], defaultCaptureId[512];
+};
+
 namespace qc
 {
     /// Collects one output track (Desktop, Chat, Music or Mic) on the engine timeline. Sources add samples at the
@@ -20,9 +32,13 @@ namespace qc
     class TrackMixer
     {
     public:
-        explicit TrackMixer(int64_t t0Us);
+        explicit TrackMixer(int64_t t0Us, bool measureSignal = false);
 
-        struct Cursor { int64_t next = -1; };
+        struct Cursor
+        {
+            int64_t next = -1; // expected start used for timestamp jitter
+            int64_t writtenThrough = 0; // exclusive end of this source's last contribution
+        };
 
         /// Adds interleaved stereo float frames captured at timeUs (null data = silence).
         void Add(Cursor& cursor, const float* data, uint32_t frames, int64_t timeUs);
@@ -32,12 +48,21 @@ namespace qc
 
         /// Sample index up to which audio has been handed to the encoder.
         int64_t Position() const { return base_; }
+        int64_t NonzeroBlocks() const { return nonzeroBlocks_.load(std::memory_order_relaxed); }
+        int64_t LateFrames() const { return lateFrames_.load(std::memory_order_relaxed); }
+        int64_t OverlapFrames() const { return overlapFrames_.load(std::memory_order_relaxed); }
+        int64_t AheadFrames() const { return aheadFrames_.load(std::memory_order_relaxed); }
+        float MaxPeak() const { return maxPeak_.load(std::memory_order_relaxed); }
 
     private:
         static constexpr int64_t Capacity = SampleRate * 4; // frames
         std::mutex lock_;
         std::vector<float> ring_;
         std::atomic<int64_t> base_{ 0 };
+        std::atomic<int64_t> nonzeroBlocks_{ 0 };
+        std::atomic<int64_t> lateFrames_{ 0 }, overlapFrames_{ 0 }, aheadFrames_{ 0 };
+        std::atomic<float> maxPeak_{ 0 };
+        bool measureSignal_;
         int64_t t0Us_;
     };
 
@@ -159,9 +184,11 @@ namespace qc
     };
 
     enum class SourceKind { ProcessInclude, ProcessExclude, Microphone, RenderLoopback };
-    enum class AudioStage { Pending, Com, EndpointLookup, EndpointFlow, Activate, Initialize, Event, Start, Streaming, Read };
+    enum class AudioStage { Pending, Com, EndpointLookup, EndpointFlow, Activate, Initialize, Event, Start, Streaming, Read, Complete };
 
     float AudioPacketPeak(const float* samples, size_t count);
+    struct AudioLevels { float peak, rms; };
+    AudioLevels MeasureAudioLevels(const float* samples, size_t count);
 
     /// Whether Windows can capture single apps (Windows 11, or Windows 10 build 20348 and later). Without it,
     /// Desktop records everything the speakers play and the Chat and Music tracks stay silent.
@@ -175,15 +202,18 @@ namespace qc
     {
     public:
         AudioSource(SourceKind kind, DWORD pid, std::wstring deviceId, int rate, std::unique_ptr<AudioSink> sink, int track = -1,
-            bool measureSignal = false);
+            bool logSignal = false, DWORD testDurationMs = 0);
         ~AudioSource();
         AudioSource(const AudioSource&) = delete;
         AudioSource& operator=(const AudioSource&) = delete;
         QcEndpointStatus Status() const;
+        QcAudioSignal SignalStatus() const;
+        void RequestStop() const { SetEvent(stop_); }
+        bool TestFinished() const { return testFinished_.load(); }
 
     private:
         void Run();
-        HRESULT CaptureOnce();
+        HRESULT CaptureOnce(ULONGLONG deadline);
 
         SourceKind kind_;
         DWORD pid_;
@@ -192,12 +222,14 @@ namespace qc
         std::unique_ptr<AudioSink> sink_;
         bool endpointFallbackLogged_ = false;
         const int track_;
-        const bool measureSignal_;
+        const bool logSignal_;
+        const DWORD testDurationMs_;
+        std::atomic<bool> testFinished_{ false };
         std::atomic<AudioStage> stage_{ AudioStage::Pending };
         std::atomic<HRESULT> error_{ S_OK };
-        std::atomic<int> mixRate_{ 0 }, mixChannels_{ 0 };
-        std::atomic<int64_t> packets_{ 0 }, lastPacketUs_{ 0 };
-        std::atomic<float> lastPacketPeak_{ -1 };
+        mutable std::mutex signalLock_;
+        QcAudioSignal signal_{};
+        int64_t lastPacketUs_ = 0, recentPeakUs_ = 0;
         HANDLE stop_;
         std::thread thread_;
     };

@@ -2,22 +2,22 @@
                     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
     <!-- Shared by every page. Merged per view (not in App.xaml) so the Fluent theme's styles exist for BasedOn. -->
     <FontFamily x:Key="IconFont">Segoe Fluent Icons, Segoe MDL2 Assets</FontFamily>
-    <SolidColorBrush x:Key="PanelBrush" Color="#1C1C1C" />
-    <SolidColorBrush x:Key="CardBrush" Color="#232323" />
-    <SolidColorBrush x:Key="RailBrush" Color="#171717" />
-    <SolidColorBrush x:Key="SubtleText" Color="#9A9A9A" />
-    <SolidColorBrush x:Key="RecordingRed" Color="#FF4D4D" />
 
     <Style x:Key="IconButton" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
+        <Setter Property="Foreground" Value="{DynamicResource PrimaryTextBrush}" />
+        <Setter Property="BorderBrush" Value="{DynamicResource BorderBrush}" />
         <Setter Property="Focusable" Value="False" />
         <Setter Property="Padding" Value="9,6" />
         <Setter Property="MinWidth" Value="0" />
         <Setter Property="MinHeight" Value="0" />
         <Setter Property="Margin" Value="0,0,4,0" />
         <Setter Property="FontFamily" Value="{StaticResource IconFont}" />
-        <Setter Property="FontSize" Value="15" />
+        <Setter Property="FontSize" Value="{DynamicResource QuickClipVisual15}" />
     </Style>
     <Style x:Key="TextButton" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
+        <Setter Property="Foreground" Value="{DynamicResource PrimaryTextBrush}" />
+        <Setter Property="Background" Value="{DynamicResource SurfaceBrush}" />
+        <Setter Property="BorderBrush" Value="{DynamicResource BorderBrush}" />
         <Setter Property="Focusable" Value="False" />
         <Setter Property="Padding" Value="11,5" />
         <Setter Property="MinHeight" Value="0" />
@@ -44,8 +44,8 @@
     </Style>
     <Style x:Key="DangerButtonStyle" TargetType="Button" BasedOn="{StaticResource TextButton}">
         <Setter Property="Focusable" Value="True" />
-        <Setter Property="Background" Value="#AE2D37" />
-        <Setter Property="Foreground" Value="White" />
+        <Setter Property="Background" Value="{DynamicResource DangerBrush}" />
+        <Setter Property="Foreground" Value="{DynamicResource OnDangerBrush}" />
         <Setter Property="Padding" Value="11,6" />
         <Setter Property="Template">
             <Setter.Value>
@@ -56,14 +56,14 @@
                     </Border>
                     <ControlTemplate.Triggers>
                         <Trigger Property="IsMouseOver" Value="True">
-                            <Setter TargetName="Surface" Property="Background" Value="#C33744" />
+                            <Setter TargetName="Surface" Property="Background" Value="{DynamicResource DangerHoverBrush}" />
                         </Trigger>
                         <Trigger Property="IsKeyboardFocused" Value="True">
-                            <Setter TargetName="Surface" Property="BorderBrush" Value="White" />
-                            <Setter TargetName="Surface" Property="Background" Value="#C33744" />
+                            <Setter TargetName="Surface" Property="BorderBrush" Value="{DynamicResource OnDangerBrush}" />
+                            <Setter TargetName="Surface" Property="Background" Value="{DynamicResource DangerHoverBrush}" />
                         </Trigger>
                         <Trigger Property="IsPressed" Value="True">
-                            <Setter TargetName="Surface" Property="Background" Value="#8C222C" />
+                            <Setter TargetName="Surface" Property="Background" Value="{DynamicResource DangerPressedBrush}" />
                         </Trigger>
                         <Trigger Property="IsEnabled" Value="False">
                             <Setter TargetName="Surface" Property="Opacity" Value="0.45" />
@@ -74,29 +74,94 @@
         </Setter>
     </Style>
     <Style x:Key="SectionHeader" TargetType="TextBlock">
-        <Setter Property="FontSize" Value="12" />
+        <Setter Property="FontSize" Value="{DynamicResource QuickClipText12}" />
         <Setter Property="FontWeight" Value="SemiBold" />
-        <Setter Property="Foreground" Value="{StaticResource SubtleText}" />
+        <Setter Property="Foreground" Value="{DynamicResource SubtleText}" />
         <Setter Property="Margin" Value="0,14,0,6" />
     </Style>
     <Style x:Key="FieldLabel" TargetType="TextBlock">
-        <Setter Property="FontSize" Value="12" />
-        <Setter Property="Foreground" Value="{StaticResource SubtleText}" />
+        <Setter Property="FontSize" Value="{DynamicResource QuickClipText12}" />
+        <Setter Property="Foreground" Value="{DynamicResource SubtleText}" />
         <Setter Property="Margin" Value="0,7,0,3" />
     </Style>
     <Style x:Key="Hint" TargetType="TextBlock">
-        <Setter Property="FontSize" Value="12" />
-        <Setter Property="Foreground" Value="{StaticResource SubtleText}" />
+        <Setter Property="FontSize" Value="{DynamicResource QuickClipText12}" />
+        <Setter Property="Foreground" Value="{DynamicResource SubtleText}" />
         <Setter Property="TextWrapping" Value="Wrap" />
     </Style>
     <Style x:Key="CompactBox" TargetType="TextBox" BasedOn="{StaticResource {x:Type TextBox}}">
         <Setter Property="MinHeight" Value="0" />
         <Setter Property="MinWidth" Value="0" />
         <Setter Property="Padding" Value="6,4" />
-        <Setter Property="FontSize" Value="12" />
+        <Setter Property="FontSize" Value="{DynamicResource QuickClipText12}" />
+    </Style>
+    <!-- Popups are separate HWNDs: explicit palette bindings prevent them inheriting a stale dark template. -->
+    <Style x:Key="ThemedComboBoxItem" TargetType="ComboBoxItem" BasedOn="{StaticResource {x:Type ComboBoxItem}}">
+        <Setter Property="Foreground" Value="{DynamicResource PrimaryTextBrush}" />
+        <Setter Property="Background" Value="{DynamicResource ElevatedSurfaceBrush}" />
+        <Setter Property="Padding" Value="9,7" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="ComboBoxItem">
+                    <Border x:Name="ItemBg" Background="{TemplateBinding Background}" CornerRadius="4"
+                            Padding="{TemplateBinding Padding}" Margin="2,1">
+                        <ContentPresenter HorizontalAlignment="Stretch" VerticalAlignment="Center" />
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsHighlighted" Value="True">
+                            <Setter TargetName="ItemBg" Property="Background" Value="{DynamicResource SelectionBrush}" />
+                        </Trigger>
+                        <Trigger Property="IsSelected" Value="True">
+                            <Setter TargetName="ItemBg" Property="Background" Value="{DynamicResource SelectionBrush}" />
+                            <Setter Property="Foreground" Value="{DynamicResource PrimaryTextBrush}" />
+                        </Trigger>
+                        <Trigger Property="IsEnabled" Value="False">
+                            <Setter Property="Foreground" Value="{DynamicResource DisabledBrush}" />
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
     </Style>
     <Style TargetType="ComboBox" BasedOn="{StaticResource {x:Type ComboBox}}">
         <Setter Property="HorizontalAlignment" Value="Stretch" />
+        <Setter Property="MinHeight" Value="{DynamicResource QuickClipVisual32}" />
+        <Setter Property="Background" Value="{DynamicResource SurfaceBrush}" />
+        <Setter Property="Foreground" Value="{DynamicResource PrimaryTextBrush}" />
+        <Setter Property="BorderBrush" Value="{DynamicResource BorderBrush}" />
+        <Setter Property="ItemContainerStyle" Value="{StaticResource ThemedComboBoxItem}" />
+    </Style>
+    <Style TargetType="Slider" BasedOn="{StaticResource {x:Type Slider}}">
+        <Setter Property="Foreground" Value="{DynamicResource AccentBrush}" />
+        <Setter Property="Background" Value="{DynamicResource SurfaceBrush}" />
+        <Setter Property="BorderBrush" Value="{DynamicResource BorderBrush}" />
+    </Style>
+    <Style x:Key="ThemedNavigationItem" TargetType="ListBoxItem">
+        <Setter Property="Foreground" Value="{DynamicResource PrimaryTextBrush}" />
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="ListBoxItem">
+                    <Border x:Name="NavBg" Background="{TemplateBinding Background}" BorderBrush="Transparent"
+                            BorderThickness="1" CornerRadius="6" Padding="9,8" Margin="0,2">
+                        <ContentPresenter ContentSource="Content" />
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter TargetName="NavBg" Property="Background" Value="{DynamicResource ElevatedSurfaceBrush}" />
+                        </Trigger>
+                        <Trigger Property="IsSelected" Value="True">
+                            <Setter TargetName="NavBg" Property="Background" Value="{DynamicResource SelectionBrush}" />
+                            <Setter TargetName="NavBg" Property="BorderBrush" Value="{DynamicResource AccentBrush}" />
+                        </Trigger>
+                        <Trigger Property="IsKeyboardFocused" Value="True">
+                            <Setter TargetName="NavBg" Property="BorderBrush" Value="{DynamicResource AccentHoverBrush}" />
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
     </Style>
     <Style TargetType="CheckBox" BasedOn="{StaticResource {x:Type CheckBox}}">
         <Setter Property="MinWidth" Value="0" />
@@ -113,18 +178,18 @@
                 <ControlTemplate TargetType="RadioButton">
                     <Border x:Name="Bg" Margin="6,3" Padding="0,9,0,7" CornerRadius="6" Background="Transparent">
                         <StackPanel HorizontalAlignment="Center">
-                            <TextBlock x:Name="Glyph" Text="{TemplateBinding Tag}" FontFamily="{StaticResource IconFont}" FontSize="19"
-                                       HorizontalAlignment="Center" Foreground="{StaticResource SubtleText}" />
-                            <ContentPresenter Margin="0,5,0,0" HorizontalAlignment="Center" TextElement.FontSize="11"
-                                              TextElement.Foreground="{StaticResource SubtleText}" />
+                            <TextBlock x:Name="Glyph" Text="{TemplateBinding Tag}" FontFamily="{StaticResource IconFont}" FontSize="{DynamicResource QuickClipVisual19}"
+                                       HorizontalAlignment="Center" Foreground="{DynamicResource SubtleText}" />
+                            <ContentPresenter Margin="0,5,0,0" HorizontalAlignment="Center" TextElement.FontSize="{DynamicResource QuickClipText11}"
+                                              TextElement.Foreground="{DynamicResource SubtleText}" />
                         </StackPanel>
                     </Border>
                     <ControlTemplate.Triggers>
                         <Trigger Property="IsMouseOver" Value="True">
-                            <Setter TargetName="Bg" Property="Background" Value="#14FFFFFF" />
+                            <Setter TargetName="Bg" Property="Background" Value="{DynamicResource ElevatedSurfaceBrush}" />
                         </Trigger>
                         <Trigger Property="IsChecked" Value="True">
-                            <Setter TargetName="Bg" Property="Background" Value="#22FFFFFF" />
+                            <Setter TargetName="Bg" Property="Background" Value="{DynamicResource SelectionBrush}" />
                             <Setter TargetName="Glyph" Property="Foreground" Value="{DynamicResource AccentFillColorDefaultBrush}" />
                         </Trigger>
                     </ControlTemplate.Triggers>

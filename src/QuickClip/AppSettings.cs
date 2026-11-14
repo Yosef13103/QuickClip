@@ -10,6 +10,7 @@ internal sealed class AppSettings
 {
     public GameCatalogSettings Games { get; set; } = new();
     // The editor's encoder, quality, size and frame rate start at "same as original" for every clip.
+    public InterfaceScale InterfaceScale { get; set; } = new();
     public string Format { get; set; } = "source";
     public string Encoder { get; set; } = "";                    // the last one picked, used for the original's codec
     public double TargetSizeMB { get; set; } = 25;
@@ -49,8 +50,9 @@ internal sealed class AppSettings
     public int BufferSeconds { get; set; } = 60;
     public bool CaptureCursor { get; set; } = true;
     public bool PreferGameWindow { get; set; } = AppProfile.IsPersonal;
-    // Only a new, explicit game-triggered whole-display confirmation populates this field.
+    // Preserve the original physical-display grant without broadening it on upgrade.
     public string? AuthorizedGameDisplay { get; set; }
+    public bool AllowGameDisplayFollowing { get; set; }
     public bool SplitChatAudio { get; set; } = true;
     public bool SplitMusicAudio { get; set; } = true;
     public bool RecordMic { get; set; } = !AppProfile.IsPersonal;
@@ -69,6 +71,11 @@ internal sealed class AppSettings
     public Shell.Hotkey DesktopHotkey { get; set; }
     public Shell.Hotkey SwitchMonitorHotkey { get; set; }
     public bool ClipSound { get; set; } = true;
+    public int ClipSoundVolume { get; set; } = 100;
+    public string? ClipSoundOutputId { get; set; }
+    public string? ClipSoundFilePath { get; set; } // Optional user-selected local chime; null uses bundled shutter.
+    public Shell.ClipEventOptions ClipEvents { get; set; } = new();
+    public bool ClipNotificationsEnabled { get; set; } = true;
     public bool ClipWindowsNotification { get; set; } = true;
     // Suppress expected no-game/off hotkey warnings by default in Personal, not actual capture errors.
     public bool ShowInactiveSaveNotifications { get; set; } = !AppProfile.IsPersonal;
@@ -85,8 +92,20 @@ internal sealed class AppSettings
     public bool ConfirmClipDeletion { get; set; } = true;
 
     // Window behaviour
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public bool? EnableReplayOnStartup { get; set; }
+    public string? Theme { get; set; }
+    public string? CustomThemeJson { get; set; }
     public bool MinimizeToTray { get; set; } = true;
     public bool CloseToTray { get; set; } = true;
+
+    internal void ApplyReplayStartupPreference()
+    {
+        if (!AppProfile.IsPersonal || EnableReplayOnStartup is not bool enabled ||
+            !(LoadedFromFile || ReplayOnboardingCompleted)) return;
+        RecordingEnabled = enabled;
+        if (enabled) PreferGameWindow = true;
+    }
 
     public bool CheckForUpdates { get; set; } = !AppProfile.IsPersonal;
     public string? UpdateChannel { get; set; }
@@ -129,6 +148,7 @@ internal sealed class AppSettings
     internal static AppSettings Parse(string json)
     {
         var settings = JsonSerializer.Deserialize<AppSettings>(json, JsonOptions) ?? new AppSettings();
+        settings.Games = GameCatalogRuntime.RestoreSavedScan(settings.Games);
         if (AppProfile.IsPersonal && settings.HotkeyKey == 0x79)
         {
             using var existing = JsonDocument.Parse(json);

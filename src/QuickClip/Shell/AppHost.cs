@@ -31,8 +31,15 @@ internal sealed class AppHost : IDisposable
     private bool _updateBalloonShown;   // the last notification was about an update
     private AppVersion? _notifiedVersion;
     private readonly ClipNotificationOverlay _clipOverlay = new();
+    private readonly CaptureAlertPolicy _captureAlerts = new();
+    private DispatcherTimer? _captureAlertTimer;
+    private RecorderState? _recentRecorderState;
     private Dictionary<RecordingCommand, HotkeyRegistration> _hotkeys = [];
+    private readonly Dictionary<RecordingCommand, int> _hotkeyIds = [];
+    private Action<Hotkey>? _captureHotkey;
     private bool _confirmingDesktop;
+    private bool _replayEnabled;
+    private bool _desktopRunning;
 
     public event Action? OpenRequested;
     /// <summary>The user clicked the "update available" notification.</summary>
@@ -43,6 +50,9 @@ internal sealed class AppHost : IDisposable
     /// <summary>True if the configured shortcut is registered (false if another app already uses it).</summary>
     public bool HotkeyActive => HotkeyState(RecordingCommand.SaveClip) == HotkeyRegistration.Registered;
     internal HotkeyRegistration HotkeyState(RecordingCommand command) => _hotkeys.GetValueOrDefault(command);
+
+    internal Hotkey? ActiveSaveShortcut => HotkeyActive
+        ? RecordingHotkeys.Read(AppSettings.Current, RecordingCommand.SaveClip) : null;
 
     public void Start()
     {
@@ -58,6 +68,7 @@ internal sealed class AppHost : IDisposable
         RegisterHotkey();
 
         var recorder = Recorder.Instance;
+        _replayEnabled = AppSettings.Current.RecordingEnabled;
         recorder.ReplaySaved += OnReplaySaved;
         recorder.SaveFailed += OnSaveFailed;
         recorder.StateChanged += OnRecorderState;
@@ -82,83 +93,154 @@ internal sealed class AppHost : IDisposable
         _updateBalloonShown = true;
     }
 
-    /// <summary>Re-reads the shortcut from settings. Returns false if it's taken.</summary>
-    public bool RegisterHotkey()
+    private void RegisterHotkey()
     {
-        if (_window == null) return false;
-        SuspendHotkey();
         _hotkeys = RecordingHotkeys.Register(AppSettings.Current, AppProfile.IsPersonal, (command, key) =>
-            RegisterHotKey(_window.Handle, (int)command, (uint)key.Modifiers | 0x4000 /* MOD_NOREPEAT */, (uint)key.VirtualKey));
+            RegisterShortcut((int)command, key));
         UpdateTooltip();
-        return HotkeyActive;
     }
 
-    /// <summary>Lets the settings page capture key presses without triggering a save.</summary>
-    public void SuspendHotkey()
-    {
-        if (_window != null)
-            foreach (var (command, status) in _hotkeys)
-                if (status == HotkeyRegistration.Registered) UnregisterHotKey(_window.Handle, (int)command);
-        _hotkeys.Clear();
-    }
+    private bool RegisterShortcut(int id, Hotkey key) =>
+        _window != null && RegisterHotKey(_window.Handle, id, (uint)key.Modifiers | 0x4000 /* MOD_NOREPEAT */, (uint)key.VirtualKey);
+
+    private bool UnregisterShortcut(int id) => _window != null && UnregisterHotKey(_window.Handle, id);
+
+    internal void CaptureShortcut(Action<Hotkey>? capture) => _captureHotkey = capture;
 
     internal HotkeyRegistration SetHotkey(RecordingCommand command, Hotkey key)
     {
-        if (_window == null || !Enum.IsDefined(command) || (!AppProfile.IsPersonal && command != RecordingCommand.SaveClip))
-            return HotkeyRegistration.Unavailable;
+        if (_window == null || !_hotkeys.ContainsKey(command)) return HotkeyRegistration.Unavailable;
         var settings = AppSettings.Current;
-        if (key.IsEmpty) key = default;
-        else
-        {
-            if (!RecordingHotkeys.IsValid(key)) return HotkeyRegistration.Invalid;
-            if (AppProfile.IsPersonal && Enum.GetValues<RecordingCommand>()
-                .Any(other => other != command && RecordingHotkeys.Read(settings, other) == key))
-                return HotkeyRegistration.Duplicate;
-        }
-        var old = RecordingHotkeys.Read(settings, command);
-        RecordingHotkeys.Write(settings, command, key);
-        RegisterHotkey();
-        var result = HotkeyState(command);
-        if (result is HotkeyRegistration.Registered or HotkeyRegistration.Unbound) settings.Save();
-        else
-        {
-            RecordingHotkeys.Write(settings, command, old);
-            RegisterHotkey();
-        }
+        var validation = RecordingHotkeys.Validate(key);
+        if (validation is HotkeyRegistration.Invalid or HotkeyRegistration.Reserved) return validation;
+        if (!key.IsEmpty && _hotkeys.Keys.Any(other => other != command && RecordingHotkeys.Read(settings, other) == key))
+            return HotkeyRegistration.Duplicate;
+
+        var status = HotkeyState(command);
+        if (key == RecordingHotkeys.Read(settings, command) &&
+            status is HotkeyRegistration.Registered or HotkeyRegistration.Unbound) return status;
+
+        int id = _hotkeyIds.GetValueOrDefault(command, (int)command);
+        var result = RecordingHotkeys.Replace(key, ref id, status == HotkeyRegistration.Registered,
+            RegisterShortcut, UnregisterShortcut);
+        if (result == HotkeyRegistration.Unavailable) return result;
+        _hotkeyIds[command] = id;
+        _hotkeys[command] = result;
+        RecordingHotkeys.Write(settings, command, key.IsEmpty ? default : key);
+        settings.Save();
+        UpdateTooltip();
         return result;
     }
 
-    public void Notify(string title, string text)
+    public void Notify(string title, string text, bool warning = false)
     {
         _updateBalloonShown = _sourceBalloonShown = false;
         var data = NewIconData();
         data.uFlags = NIF_INFO;
         data.szInfoTitle = Truncate(title, 63);
         data.szInfo = Truncate(text, 255);
-        data.dwInfoFlags = NIIF_INFO | NIIF_NOSOUND;
+        data.dwInfoFlags = (warning ? NIIF_WARNING : NIIF_INFO) | NIIF_NOSOUND;
         Shell_NotifyIcon(NIM_MODIFY, ref data);
     }
 
     private void OnReplaySaved(ReplaySaveReceipt receipt) => _dispatcher.BeginInvoke(() =>
     {
+        string source = receipt.GameContext is { Length: > 0 } ? $"Game · {receipt.SourceDescription}" :
+            receipt.DesktopSource != null ? $"Desktop · {receipt.SourceDescription}" : receipt.SourceDescription;
         string label = AppProfile.IsPersonal
             ? receipt.GameContext is { } game ? $"{game} · {receipt.SourceDescription}" : receipt.SourceDescription
             : receipt.Game;
         string message = receipt.ActualVideoDuration is { } actual
-            ? $"{label} · {Fmt.CompactDuration(actual.TotalSeconds)} saved" : label;
-        if (receipt.IsShorterThanRequested == true) message += $" ({Fmt.CompactDuration(receipt.RequestedSeconds)} requested)";
-        ShowClipFeedback(success: true, message);
+            ? $"{label} · {Fmt.FriendlyDuration(actual.TotalSeconds)} saved" : label;
+        if (receipt.IsShorterThanRequested == true) message += " · Only the available buffer was saved";
+        var details = new ClipNotificationDetails(receipt.GameContext, Path.GetFileNameWithoutExtension(receipt.Path),
+            source,
+            receipt.ActualVideoDuration is { } duration ? Fmt.CompactDuration(duration.TotalSeconds) : null,
+            receipt.VideoOutput is { Width: > 0, Height: > 0 } video ? $"{video.Width} × {video.Height}" : null,
+            receipt.VideoOutput?.AverageFps is > 0 and var fps && double.IsFinite(fps) ? $"{fps:0.##} FPS" : null,
+            HotkeyActive ? $"Save clip · {new Hotkey(AppSettings.Current.HotkeyModifiers, AppSettings.Current.HotkeyKey)}" : null);
+        ShowClipFeedback(ClipEvent.Saved, message, details);
     });
 
     private void OnRecorderState(RecorderState state) => _dispatcher.BeginInvoke(() =>
     {
         if (_window == null) return;
         UpdateTooltip();
-        string? guidance = state.Running ? null : SourceGuidance(state.Error);
+        if (AppProfile.IsPersonal)
+        {
+            bool enabled = AppSettings.Current.RecordingEnabled;
+            if (enabled && !_replayEnabled)
+                ShowClipFeedback(ClipEvent.ReplayEnabled, "Ready to buffer eligible games.",
+                    new(null, null, null, null, Hotkey: HotkeyActive
+                        ? $"Save clip · {new Hotkey(AppSettings.Current.HotkeyModifiers, AppSettings.Current.HotkeyKey)}" : null));
+            _replayEnabled = enabled;
+            bool desktopRunning = state.Running && state.Mode == RecordingMode.ManualDesktop;
+            if (desktopRunning != _desktopRunning)
+            {
+                ShowClipFeedback(desktopRunning ? ClipEvent.DesktopStarted : ClipEvent.DesktopStopped,
+                    desktopRunning ? state.Summary : "Manual desktop capture has ended.");
+                _desktopRunning = desktopRunning;
+            }
+        }
+        // Critical recorder failures use independently enabled Windows and overlay channels.
+        // The old source guidance path is Windows-only, so exclude these modes to avoid
+        // an early Windows toast and a later duplicate critical alert.
+        _recentRecorderState = state;
+        if (state.Mode == RecordingMode.Recovering)
+        {
+            _captureAlertTimer ??= new DispatcherTimer(TimeSpan.FromSeconds(5),
+                DispatcherPriority.Background, (_, _) =>
+                {
+                    if (_recentRecorderState is { } latest) CheckCaptureAlert(latest);
+                }, _dispatcher);
+            _captureAlertTimer.Start();
+        }
+        else _captureAlertTimer?.Stop();
+
+        CheckCaptureAlert(state);
+        string? guidance = state.Mode is RecordingMode.Recovering or RecordingMode.Unavailable
+            ? null : state.Running ? null : SourceGuidance(state.Error);
         if (guidance != null && guidance != _lastSourceGuidance)
             NotifySource("Recording source unavailable", guidance);
         _lastSourceGuidance = guidance;
     });
+
+    private void CheckCaptureAlert(RecorderState state)
+    {
+        var alert = _captureAlerts.Observe(state.Mode, AppSettings.Current.RecordingEnabled,
+            !string.IsNullOrWhiteSpace(state.Error));
+        if (alert == CaptureAlertKind.None || _window == null) return;
+        bool interrupted = alert == CaptureAlertKind.Interrupted;
+        string title = interrupted ? "QuickClip recording interrupted" : "QuickClip recording restored";
+        string message = interrupted
+            ? state.Mode == RecordingMode.Recovering
+                ? "Capture has not recovered. QuickClip is retrying automatically. The old replay buffer was cleared. " + state.Error
+                : "QuickClip cannot record the authorized source. Check Recording settings. " + state.Error
+            : "Capture resumed on an authorized display with a fresh replay buffer.";
+
+        var channels = CriticalCaptureChannels(AppSettings.Current);
+        if (channels.Windows) Notify(title, message, warning: interrupted);
+        if (channels.Overlay)
+        {
+            // A serious warning must stay readable even when the normal clip style is
+            // image-only, a custom GIF/WebM, or a tiny short-duration badge.
+            var options = CriticalCaptureOverlayOptions(AppSettings.Current.ClipOverlay);
+            _ = ShowOverlayAsync(options, title, !interrupted, null, message);
+        }
+    }
+
+    internal static (bool Windows, bool Overlay) CriticalCaptureChannels(AppSettings settings) =>
+        (settings.ClipWindowsNotification, settings.ClipOverlay?.Enabled == true);
+
+    internal static ClipOverlayOptions CriticalCaptureOverlayOptions(ClipOverlayOptions? configured) =>
+        (configured ?? new()) with
+        {
+            Style = OverlayStyle.Compact,
+            ImageOnly = false,
+            ImagePath = null,
+            Seconds = 5,
+            Size = Math.Max(72, (configured ?? new()).Size),
+        };
 
     private static string? SourceGuidance(string? error) => AppProfile.IsPersonal ? error : null;
 
@@ -171,37 +253,37 @@ internal sealed class AppHost : IDisposable
     internal static bool SuppressIdleClipWarning(bool isPersonal, bool notifyWhenInactive, RecordingMode mode) =>
         isPersonal && !notifyWhenInactive && mode is RecordingMode.Off or RecordingMode.Armed;
 
-    private void OnSaveFailed(string error) => _dispatcher.BeginInvoke(() =>
+    private void OnSaveFailed(string error)
     {
-        if (SuppressIdleClipWarning(AppProfile.IsPersonal, AppSettings.Current.ShowInactiveSaveNotifications,
-            Recorder.Instance.State.Mode))
-        {
-            Log.Write("Save Clip ignored without active recording: " + error);
-            return;
-        }
-        if (AppProfile.IsPersonal && !Recorder.Instance.IsRunning)
-            NotifySource("Clip not saved", SourceGuidance(Recorder.Instance.Error) ?? error);
-        else ShowClipFeedback(success: false, error);
-    });
+        var state = Recorder.Instance.State;
+        var kind = AppProfile.IsPersonal && !state.Running && state.Error == null &&
+            state.Mode is RecordingMode.Off or RecordingMode.Armed ? ClipEvent.Inactive : ClipEvent.Failed;
+        _dispatcher.BeginInvoke(() => ShowClipFeedback(kind, error));
+    }
 
-    internal void ShowClipFeedback(bool success, string message)
+    private void ShowClipFeedback(ClipEvent kind, string message, ClipNotificationDetails? details = null)
     {
         if (_window == null) return;
         var settings = AppSettings.Current;
-        var feedback = ClipFeedback.From(settings, success, message);
-        if (feedback.Sound) ClipSound.Play();
+        var feedback = ClipFeedback.From(settings, kind, message);
+        if (feedback.Sound) _ = ClipSound.PlayAsync(settings.ClipSoundOutputId, settings.ClipSoundVolume, settings.ClipSoundFilePath);
         if (feedback.Windows) Notify(feedback.Title, feedback.Message);
         if (feedback.Overlay)
         {
-            try { _clipOverlay.Show(settings.ClipOverlay, feedback.Success); }
-            catch (Exception ex) { Log.Write("Clip indicator unavailable: " + ex.GetType().Name); }
+            _ = ShowOverlayAsync(settings.ClipOverlay, feedback.Title, feedback.Success, details, details == null ? feedback.Message : null);
         }
     }
 
-    internal void TestClipOverlay()
+    internal void HideClipOverlay() => _clipOverlay.Hide();
+
+    internal void TestClipOverlay() => _ = ShowOverlayAsync(AppSettings.Current.ClipOverlay ?? new(), "Clip saved", true,
+        new("Example game", "Example clip", "Game · Entire display", "30 s", "1920 × 1080", "60 FPS", "Save clip · Alt+F10"));
+
+    private async Task ShowOverlayAsync(ClipOverlayOptions options, string title, bool success,
+        ClipNotificationDetails? details, string? message = null)
     {
-        try { _clipOverlay.Show(AppSettings.Current.ClipOverlay ?? new(), success: true); }
-        catch (Exception ex) { Log.Write("Clip indicator preview unavailable: " + ex.GetType().Name); }
+        try { await _clipOverlay.ShowAsync(options, title, success, details, message); }
+        catch (Exception ex) { Log.Write("Clip overlay unavailable: " + ex.GetType().Name); }
     }
 
     private void UpdateTooltip()
@@ -209,7 +291,8 @@ internal sealed class AppHost : IDisposable
         if (!_iconAdded) return;
         var r = Recorder.Instance;
         string state = r.IsRunning
-            ? $"Recording · {new Hotkey(AppSettings.Current.HotkeyModifiers, AppSettings.Current.HotkeyKey)} saves a clip"
+            ? (ActiveSaveShortcut is { } shortcut ? $"Recording · {shortcut} saves a clip" : "Recording")
+            : r.State.Mode == RecordingMode.Recovering ? "Recovering display capture…"
             : r.Error != null ? "Not recording: " + r.Error
             : r.State.Mode == RecordingMode.Armed ? "Waiting for a game · not capturing" : "Recording is off";
         var data = NewIconData();
@@ -245,12 +328,17 @@ internal sealed class AppHost : IDisposable
     {
         if (msg == WM_HOTKEY)
         {
-            var command = (RecordingCommand)wParam.ToInt32();
+            int id = wParam.ToInt32();
+            var command = (RecordingCommand)(id & 0xFF);
             var chord = lParam.ToInt32();
-            if (HotkeyState(command) == HotkeyRegistration.Registered &&
-                RecordingHotkeys.Read(AppSettings.Current, command) == new Hotkey(chord & 0xF, (chord >> 16) & 0xFFFF))
+            var key = new Hotkey(chord & 0xF, (chord >> 16) & 0xFFFF);
+            if (id == _hotkeyIds.GetValueOrDefault(command, (int)command) &&
+                HotkeyState(command) == HotkeyRegistration.Registered &&
+                RecordingHotkeys.Read(AppSettings.Current, command) == key)
             {
-                RunRecordingCommand(command);
+                if (_captureHotkey is { } capture) capture(key);
+                else if (RecordingHotkeys.CanDispatch(command, AppSettings.Current, AppProfile.IsPersonal, Recorder.Instance.IsRunning))
+                    RunRecordingCommand(command);
                 handled = true;
             }
         }
@@ -292,7 +380,7 @@ internal sealed class AppHost : IDisposable
             sourceItem.ToolTip = guidance;
             menu.Items.Add(sourceItem);
         }
-        menu.Items.Add(Item($"Save clip ({new Hotkey(s.HotkeyModifiers, s.HotkeyKey)})",
+        menu.Items.Add(Item(ActiveSaveShortcut is { } shortcut ? $"Save clip ({shortcut})" : "Save clip",
             () => RunRecordingCommand(RecordingCommand.SaveClip), enabled: recorder.IsRunning));
         menu.Items.Add(new Separator());
         menu.Items.Add(Item(s.RecordingEnabled ? "Turn recording off" : "Turn recording on",
@@ -347,7 +435,7 @@ internal sealed class AppHost : IDisposable
             NotifySource("No other authorized display", "To switch, authorize another connected display in the manual desktop capture tray menu.");
     }
 
-    private void ToggleManualDesktop(Recorder recorder)
+    internal void ToggleManualDesktop(Recorder recorder)
     {
         if (recorder.ManualDesktopRequested)
         {
@@ -393,12 +481,16 @@ internal sealed class AppHost : IDisposable
     {
         if (AppProfile.IsPersonal) GameCatalogRuntime.Discovery.Dispose();
         _updateTimer?.Stop();
+        _captureAlertTimer?.Stop();
         Recorder.Instance.ReplaySaved -= OnReplaySaved;
         Recorder.Instance.SaveFailed -= OnSaveFailed;
         Recorder.Instance.StateChanged -= OnRecorderState;
         _clipOverlay.Dispose();
         if (_window == null) return;
-        SuspendHotkey();
+        _captureHotkey = null;
+        foreach (var (command, status) in _hotkeys)
+            if (status == HotkeyRegistration.Registered)
+                UnregisterShortcut(_hotkeyIds.GetValueOrDefault(command, (int)command));
         var data = NewIconData();
         Shell_NotifyIcon(NIM_DELETE, ref data);
         if (_icon != IntPtr.Zero) DestroyIcon(_icon);
@@ -408,7 +500,7 @@ internal sealed class AppHost : IDisposable
 
     private const int NIM_ADD = 0, NIM_MODIFY = 1, NIM_DELETE = 2, NIM_SETVERSION = 4;
     private const int NIF_MESSAGE = 0x1, NIF_ICON = 0x2, NIF_TIP = 0x4, NIF_INFO = 0x10, NIF_SHOWTIP = 0x80;
-    private const int NIIF_INFO = 0x1, NIIF_NOSOUND = 0x10;
+    private const int NIIF_INFO = 0x1, NIIF_WARNING = 0x2, NIIF_NOSOUND = 0x10;
 
     [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
     private struct NOTIFYICONDATAW
