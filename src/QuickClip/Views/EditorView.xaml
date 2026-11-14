@@ -491,10 +491,9 @@
                                     <TextBlock Text="Resolution" Style="{StaticResource FieldLabel}" />
                                     <ComboBox x:Name="ResolutionCombo" SelectionChanged="ExportOption_Changed" />
                                 </StackPanel>
-                                <CheckBox x:Name="MergeCheck" Margin="0,10,0,0" Checked="Merge_Changed" Unchecked="Merge_Changed"
-                                          ToolTip="Mix every checked track (at its volume) into a single audio track in the exported file.">
-                                    <TextBlock Text="Merge all audio tracks into one" TextWrapping="Wrap" />
-                                </CheckBox>
+                                <TextBlock Margin="0,10,0,0" TextWrapping="Wrap"
+                                           Foreground="{DynamicResource SubtleText}"
+                                           Text="Export as new file creates one playable soundtrack. Save over original also retains separate editable tracks." />
                             </StackPanel>
                         </Expander>
                     </StackPanel>

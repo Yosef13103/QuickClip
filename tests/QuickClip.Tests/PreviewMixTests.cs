@@ -65,6 +65,17 @@ public sealed class PreviewMixTests(MediaFixture media)
     }
 
     [Fact]
+    public void Hidden_hybrid_composite_is_not_a_preview_input()
+    {
+        var (graph, volumeGraph) = PreviewAudio.Build([2, 3, 4], i => i == 1 ? 0.5 : 1);
+        Assert.Contains("[aid2]", graph);
+        Assert.Contains("[aid3]", graph);
+        Assert.Contains("[aid4]", graph);
+        Assert.DoesNotContain("[aid1]", graph);
+        Assert.Contains("volume@t2=0.5", volumeGraph);
+    }
+
+    [Fact]
     public async Task Each_of_two_tracks_plays_at_its_own_volume()
     {
         string micOnly = await Record(media.TwoTracks, [1, 0], "mic-only.wav");
