@@ -28,6 +28,45 @@ internal static partial class CaptureEngine
     internal static int ReadAudioSignals(NativeAudioSignal[] buffer) =>
         Volatile.Read(ref _initialized) ? qc_read_audio_signals(buffer, buffer.Length, AudioSignalSize) : 0;
 
+    /// <summary>Returns a bounded snapshot of running lanes without exposing native device IDs or PCM.</summary>
+    internal static IReadOnlyList<EndpointStatus> ReadEndpointStatus()
+    {
+        var native = new NativeAudioSignal[EndpointAudio.MaxTracks];
+        int count = ReadAudioSignals(native);
+        var result = new EndpointStatus[count];
+        for (int i = 0; i < count; ++i)
+            result[i] = ToEndpointStatus(native[i]);
+        return result;
+    }
+
+    internal static EndpointStatus ToEndpointStatus(NativeAudioSignal lane) =>
+        new(lane.TrackIndex, lane.Flow, lane.Stage, lane.HResult, lane.MixRate, lane.MixChannels,
+            lane.CaptureRate, lane.PacketCount, lane.MillisecondsSincePacket >= 0 ? lane.MillisecondsSincePacket : null,
+            lane.LastPeak >= 0 ? lane.LastPeak : null)
+        {
+            MixFormat = DescribeMixFormat(lane),
+            CaptureChannels = lane.CaptureChannels,
+            SilentPackets = lane.SilentPackets,
+            TimestampFallbacks = lane.TimestampFallbacks,
+            Discontinuities = lane.Discontinuities,
+            LastPacketRms = lane.LastRms >= 0 ? lane.LastRms : null,
+            MaxPacketPeak = lane.MaxPeak,
+            MaxPacketRms = lane.MaxRms,
+        };
+
+    private static string DescribeMixFormat(NativeAudioSignal lane)
+    {
+        int subtype = lane.MixTag == 0xFFFE ? lane.MixSubtype : lane.MixTag;
+        return subtype switch
+        {
+            1 when lane.MixValidBits > 0 && lane.MixValidBits != lane.MixBits =>
+                $"PCM {lane.MixValidBits}/{lane.MixBits}-bit",
+            1 => $"PCM {lane.MixBits}-bit",
+            3 => $"float{lane.MixBits}",
+            _ => $"format 0x{subtype:X}",
+        };
+    }
+
     internal static int StartMicrophoneTest(string endpointId, out long token, int durationMs = MicrophoneTestDurationMs)
     {
         Initialize();
