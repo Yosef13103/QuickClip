@@ -16,6 +16,18 @@ extern "C" {
 
 namespace qc
 {
+    // Preserve ordinary sample values, compress only peaks above -1.9 dBFS.
+    // The derivative is continuous at the knee. Finite output stays below full scale.
+    float SoftLimitPlaybackSample(float value)
+    {
+        if (!std::isfinite(value)) return 0.f;
+        constexpr float knee = 0.8f;
+        const float peak = std::abs(value);
+        if (peak <= knee) return value;
+        return std::copysign(knee + (1.f - knee) *
+            std::tanh((peak - knee) / (1.f - knee)), value);
+    }
+
     static std::atomic<int> authorizedVideoWorkers{ 0 };
     // ---------------------------------------------------------------------------------------------
     // PacketRing
@@ -1121,6 +1133,11 @@ namespace qc
             }
         }
 
+        // An ordinary player chooses one audio stream. With at least two stems,
+        // encode a complete listening mix as stream 1 and keep the stems at 2..N.
+        hybridAudio_ = tracks_.size() > 1;
+        if (hybridAudio_ && !playbackMixEncoder_.Open(audioKbps_, error)) return false;
+
         if (shared_->AuthorizedDuplication())
         {
             if (++authorizedVideoWorkers > 2)
@@ -1348,21 +1365,38 @@ namespace qc
 
     void Engine::AudioLoop()
     {
-        std::vector<float> samples;
+        std::vector<float> samples, playbackMix;
         const int64_t latency = SampleRate / 5; // wait 200 ms for late packets before encoding a block
         while (!shared_->stop)
         {
             Sleep(20);
             if (canceller_) canceller_->Process();
             int64_t upTo = (NowUs() - shared_->t0) * SampleRate / 1000000 - latency;
+            playbackMix.clear();
             for (size_t i = 0; i < tracks_.size(); i++)
             {
                 tracks_[i]->mixer->Take(upTo, samples);
-                int stream = static_cast<int>(i) + 1;
+                if (hybridAudio_ && !samples.empty())
+                {
+                    if (playbackMix.size() < samples.size())
+                        playbackMix.resize(samples.size(), 0.f);
+                    for (size_t j = 0; j < samples.size(); ++j)
+                        playbackMix[j] += samples[j];
+                }
+                // Existing source streams are shifted by one only when the
+                // virtual composite is present. Diagnostic track IDs are unchanged.
+                int stream = static_cast<int>(i) + 1 + (hybridAudio_ ? 1 : 0);
                 tracks_[i]->encoder.Encode(samples, [&](AVPacket* p) {
                     if (endpointMode_ && shared_->videoOptions.diagnostics)
                         tracks_[i]->encodedPackets.fetch_add(1, std::memory_order_relaxed);
                     shared_->PushAudio(p, stream, p->pts * 1000000 / SampleRate);
+                });
+            }
+            if (hybridAudio_ && !playbackMix.empty())
+            {
+                for (auto& sample : playbackMix) sample = SoftLimitPlaybackSample(sample);
+                playbackMixEncoder_.Encode(playbackMix, [&](AVPacket* p) {
+                    shared_->PushAudio(p, 1, p->pts * 1000000 / SampleRate);
                 });
             }
         }
@@ -1473,12 +1507,24 @@ namespace qc
         vs->time_base = video->timeBase;
         vs->avg_frame_rate = AVRational{ shared_->fps, 1 };
         std::vector<AVRational> sourceBase{ video->timeBase };
+        if (hybridAudio_)
+        {
+            AVStream* mix = avformat_new_stream(out, nullptr);
+            avcodec_parameters_from_context(mix->codecpar, playbackMixEncoder_.Context());
+            mix->codecpar->codec_tag = 0;
+            mix->time_base = AVRational{ 1, SampleRate };
+            mix->disposition = AV_DISPOSITION_DEFAULT;
+            av_dict_set(&mix->metadata, "title", "QuickClip Full Mix", 0);
+            av_dict_set(&mix->metadata, "handler_name", "QuickClip Full Mix", 0);
+            sourceBase.push_back(AVRational{ 1, SampleRate });
+        }
         for (const auto& track : tracks_)
         {
             AVStream* as = avformat_new_stream(out, nullptr);
             avcodec_parameters_from_context(as->codecpar, track->encoder.Context());
             as->codecpar->codec_tag = 0;
             as->time_base = AVRational{ 1, SampleRate };
+            if (hybridAudio_) as->disposition = 0;
             av_dict_set(&as->metadata, "title", track->title.c_str(), 0);
             av_dict_set(&as->metadata, "handler_name", track->title.c_str(), 0);
             sourceBase.push_back(AVRational{ 1, SampleRate });
