@@ -386,7 +386,11 @@ public partial class EditorView : UserControl
         IsVisibleChanged += async (_, _) =>
         {
             if (!IsVisible) _player?.SetProperty("pause", true);
-            else await RefreshSourceAsync();
+            else
+            {
+                await RefreshSourceAsync();
+                QueueNativePreviewRepaint();
+            }
         };
 
         foreach (var combo in new[] { AspectCombo, FormatCombo, EncoderCombo, QualityCombo, ResolutionCombo, FpsCombo, AudioBitrateCombo })
