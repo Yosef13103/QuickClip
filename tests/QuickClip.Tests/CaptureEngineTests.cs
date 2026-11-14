@@ -142,11 +142,13 @@ public sealed class CaptureEngineTests(MediaFixture media, Xunit.Abstractions.IT
             CaptureEngine.Stop();
         }
         var info = await MediaInfo.ProbeAsync(clip);
-        Assert.Equal(["Game", "Chat", "Mic"], info.Audio.Select(a => a.DisplayName));
+        Assert.Equal(["QuickClip Full Mix", "Game", "Chat", "Mic"], info.Audio.Select(a => a.DisplayName));
+        Assert.True(info.Audio[0].IsDefault);
+        Assert.Equal(["Game", "Chat", "Mic"], info.EditableAudio.Select(a => a.DisplayName));
         Assert.InRange(span.DurationUs, 950_000, 2_050_000);
         Assert.InRange(Math.Abs(info.Duration - span.DurationUs / 1e6), 0, 0.15);
-        double game = await MediaFixture.BandLevel(clip, 0, 2000);
-        double chat = await MediaFixture.BandLevel(clip, 1, 2000);
+        double game = await MediaFixture.BandLevel(clip, 1, 2000);
+        double chat = await MediaFixture.BandLevel(clip, 2, 2000);
         Assert.True(game > -65 && game - chat > 20, $"Game {game:0.0} dB, unavailable Chat {chat:0.0} dB.");
     }
 
@@ -194,7 +196,9 @@ public sealed class CaptureEngineTests(MediaFixture media, Xunit.Abstractions.IT
         Assert.InRange(info.Duration, 1.9, 3.2); // starts on the keyframe before the 2 s mark
         Assert.NotNull(info.EmbeddedCreationTime);
         Assert.InRange(info.EmbeddedCreationTime.Value, captureStarted, DateTimeOffset.UtcNow);
-        Assert.Equal(["Desktop", "Chat", "Music", "Mic"], info.Audio.Select(a => a.DisplayName));
+        Assert.Equal(["QuickClip Full Mix", "Desktop", "Chat", "Music", "Mic"], info.Audio.Select(a => a.DisplayName));
+        Assert.True(info.Audio[0].IsDefault);
+        Assert.Equal(4, info.EditableAudio.Count);
         File.Delete(clip);
     }
 
@@ -227,7 +231,9 @@ public sealed class CaptureEngineTests(MediaFixture media, Xunit.Abstractions.IT
         }
 
         var info = await MediaInfo.ProbeAsync(clip);
-        Assert.Equal(tracks, info.Audio.Select(a => a.DisplayName));
+        Assert.Equal(["QuickClip Full Mix", .. tracks], info.Audio.Select(a => a.DisplayName));
+        Assert.True(info.Audio[0].IsDefault);
+        Assert.Equal(tracks, info.EditableAudio.Select(a => a.DisplayName));
         Assert.All(info.Audio, a => Assert.Equal("aac", a.Codec));
         File.Delete(clip);
     }
@@ -279,8 +285,8 @@ public sealed class CaptureEngineTests(MediaFixture media, Xunit.Abstractions.IT
 
         // How much of Music is in Desktop, at the best match within ±50 ms (each track is timed by its own capture).
         // Changes from sample to sample are compared, which the noise is full of and most real sound isn't.
-        var desktop = Changes(await Pcm(clip, 0));
-        var music = Changes(await Pcm(clip, 1));
+        var desktop = Changes(await Pcm(clip, 1));
+        var music = Changes(await Pcm(clip, 2));
         File.Delete(clip);
         int from = 2400, length = Math.Min(desktop.Length, music.Length) - 2 * from;
         double musicEnergy = 0, desktopEnergy = 0, best = 0;
