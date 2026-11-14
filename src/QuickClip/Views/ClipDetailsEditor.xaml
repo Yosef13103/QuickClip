@@ -11,10 +11,13 @@
                      TextWrapping="NoWrap" HorizontalScrollBarVisibility="Hidden" />
         </DockPanel>
         <TextBlock Text="Clip title" />
-        <TextBox x:Name="TitleBox" AutomationProperties.Name="Clip title" ToolTip="Leave blank to use the filename" />
+        <TextBox x:Name="TitleBox" AutomationProperties.Name="Clip title" ToolTip="Leave blank to use the filename"
+                 TextChanged="UserText_Changed" />
         <TextBlock Text="Game classification" Margin="0,6,0,0" />
-        <TextBox x:Name="GameBox" AutomationProperties.Name="Game classification" ToolTip="Leave blank to use the folder" />
-        <CheckBox x:Name="FavoriteBox" Content="Favorite" Margin="0,8,0,4" />
+        <TextBox x:Name="GameBox" AutomationProperties.Name="Game classification" ToolTip="Leave blank to use the folder"
+                 TextChanged="UserText_Changed" />
+        <CheckBox x:Name="FavoriteBox" Content="Favorite" Margin="0,8,0,4"
+                  Checked="UserField_Changed" Unchecked="UserField_Changed" />
         <TextBlock Text="Tags" />
         <WrapPanel x:Name="TagChips" />
         <DockPanel Margin="0,4,0,0">
@@ -28,6 +31,9 @@
             <TextBlock Text="Bookmarks" FontWeight="SemiBold" />
             <StackPanel x:Name="BookmarkRows" />
         </StackPanel>
+        <TextBlock x:Name="AutoSaveHint" Text="Changes save automatically after you stop editing."
+                   Visibility="Collapsed" TextWrapping="Wrap" Margin="0,6,0,0"
+                   AutomationProperties.LiveSetting="Polite" />
         <TextBlock x:Name="Feedback" TextWrapping="Wrap" Margin="0,4,0,0" />
         <StackPanel Orientation="Horizontal" Margin="0,6,0,0">
             <Button x:Name="SaveButton" Content="Save details" Click="Save_Click" />
