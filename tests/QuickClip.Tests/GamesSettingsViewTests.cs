@@ -20,13 +20,13 @@ public sealed class GamesSettingsViewTests
             [renderer, helper], new()) { RendererExecutables = [] };
         var row = new GamesSettingsView.GameRow(entry);
         Assert.Contains("no renderer evidence", row.Executables.First().Label);
-        Assert.True(row.CanApprove(renderer));
-        Assert.False(row.CanApprove(helper));
+        Assert.NotNull(row.RulesAfterApproval([renderer]));
+        Assert.Null(row.RulesAfterApproval([helper]));
         var approved = entry with { Rules = new() { ApprovedExecutables = [renderer] } };
         row.Update(approved, false, [], new(new([approved], [], 0, false, default)));
         Assert.Contains("Game · enabled", row.Summary);
         Assert.Contains("verified window and display permission", row.Executables.First().Label);
-        Assert.False(row.CanApprove(renderer));
+        Assert.Null(row.RulesAfterApproval([renderer]));
         row.Update(approved, true, [], new(new([approved], [], 0, false, default)));
         Assert.Contains("scan incomplete", row.Executables.First().Label);
     }
@@ -116,6 +116,32 @@ public sealed class GamesSettingsViewTests
         Assert.EndsWith(" · companion", Assert.Single(discord.Executables).Label);
         Assert.NotNull(GamesSettingsView.ValidateManualGameExecutables([@"C:\Apps\not-video.txt"]));
     }
+
+    [Fact]
+    public Task Catalog_totals_distinguish_manual_rows_and_overlapping_discovery_subsets() => OnSta(() =>
+    {
+        const string root = @"C:\Discovered";
+        var current = new CatalogEntry("folder:current", "Current", CatalogSource.Folder,
+            [root], [root + @"\Current.exe"], new());
+        var retained = current with { Id = "folder:retained", Name = "Retained", Executables = [root + @"\Retained.exe"] };
+        var state = Fixture(1);
+        state = state with
+        {
+            Request = state.Request with { GameRoots = [new(root)] },
+            Snapshot = new([current, retained], [], 12, true, default),
+            DiscoveredCount = 1,
+            RetainedIds = [retained.Id, "folder:missing"],
+            OfflineIds = [retained.Id],
+        };
+        var page = new GamesSettingsView();
+        page.RenderRows(state);
+
+        Assert.Equal("Catalog · 3 entries · 2 discovered · 1 manual", page.Count.Text);
+        Assert.Equal("Of discovered entries · 1 retained · 1 awaiting verification", page.DiscoveryCountDetail.Text);
+        page.Search.Text = "Retained";
+        Assert.EndsWith(" · 1 shown", page.Count.Text);
+        Assert.Single(page.Games.Items);
+    });
 
     private static GameCatalogSettings Fixture(int count) => new()
     {

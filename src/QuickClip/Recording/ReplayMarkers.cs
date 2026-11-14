@@ -107,7 +107,7 @@ internal sealed class ReplaySaveGate
             onBusy?.Invoke();
             return null;
         }
-        try { return await save(); }
+        try { return await Task.Run(save, cancellationToken).ConfigureAwait(false); }
         finally { _gate.Release(); }
     }
 }

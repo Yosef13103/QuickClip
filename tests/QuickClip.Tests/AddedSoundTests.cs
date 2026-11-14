@@ -109,7 +109,7 @@ public sealed class AddedSoundTests(MediaFixture media)
         var output = await Export("merged-sound.mp4", start: 1, end: 4, soundOffset: 0.5, merge: true);
 
         var track = Assert.Single(output.Audio);
-        Assert.Equal("Mic + Desktop Audio + Beep", track.DisplayName);
+        Assert.Equal("Mix", track.DisplayName);
         // The clip's own tones leak a little through the filter, so compare with the sound playing.
         double during = await MediaFixture.BandLevel(output.Path, 0, SoundHz, 0, 0.4);
         double after = await MediaFixture.BandLevel(output.Path, 0, SoundHz, 0.8, 2);

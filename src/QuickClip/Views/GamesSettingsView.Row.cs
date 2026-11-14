@@ -93,9 +93,23 @@ public partial class GamesSettingsView
         private CatalogMatch Match(string path) => GameDetector.ApplyProcessRole(path,
             (_catalog ??= new(new([Entry], [], 0, false, default), _blocked)).Match(path, true));
 
-        internal bool CanApprove(string path) =>
-            Match(path) is { Kind: CatalogMatchKind.Candidate, Entry: { } match } &&
-            match.Id == Entry.Id && match.Source is CatalogSource.Folder or CatalogSource.Epic;
+        internal CatalogRules? RulesAfterApproval(IReadOnlyList<string> paths)
+        {
+            if (_offline || Entry.Source == CatalogSource.Manual ||
+                Entry.Rules.Classification != AppClassification.Automatic) return null;
+
+            var rules = Entry.Rules;
+            var approved = rules.ApprovedExecutables.ToBuilder();
+            foreach (var path in paths)
+            {
+                var match = Match(path);
+                if (match.Entry?.Id != Entry.Id || match.Kind is not (CatalogMatchKind.Candidate or CatalogMatchKind.Game))
+                    return null;
+                if (match.Kind == CatalogMatchKind.Candidate && !approved.Contains(path, StringComparer.OrdinalIgnoreCase))
+                    approved.Add(path);
+            }
+            return approved.Count == rules.ApprovedExecutables.Length ? null : rules with { ApprovedExecutables = approved.ToImmutable() };
+        }
 
         public bool Matches(string query) => Matches(Entry, query);
         public static bool Matches(CatalogEntry entry, string query) =>

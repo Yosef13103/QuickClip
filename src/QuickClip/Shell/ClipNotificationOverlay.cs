@@ -23,7 +23,7 @@ internal sealed class ClipNotificationOverlay : IDisposable
     private DispatcherTimer? _frameTimer;
     private int _frame;
     private System.Diagnostics.Stopwatch? _imageClock;
-    private TimeSpan _nextFrame;
+    private TimeSpan[] _frameEnds = [];
     private TimeSpan _imageCycle;
     private int _showRevision;
     private Task<ClipOverlayImage.Asset?>? _imageLoad;
@@ -101,25 +101,49 @@ internal sealed class ClipNotificationOverlay : IDisposable
             _badge.BorderThickness = new Thickness(1);
             _badge.SetResourceReference(Border.BackgroundProperty, "OverlayBackgroundBrush");
         }
-        _imageView = _image == null ? null : new Image { Source = _image.First, Stretch = Stretch.Uniform };
+        _imageView = _image == null ? null : new Image
+        {
+            Source = _image.First,
+            Stretch = options.ImageFit == OverlayImageFit.Cover ? Stretch.UniformToFill : Stretch.Uniform,
+            ClipToBounds = true,
+        };
         _badge.Child = _imageView ?? (UIElement)_glyph;
         _details!.Children.Clear();
         _details.Children.Add(new TextBlock
         {
-            Text = title,
-            Foreground = accent, FontSize = 14, FontWeight = FontWeights.SemiBold,
-            TextWrapping = TextWrapping.Wrap,
+            Text = title, Foreground = accent, FontSize = options.Style == OverlayStyle.Detailed ? 16 : 15,
+            FontWeight = FontWeights.SemiBold, TextWrapping = TextWrapping.NoWrap,
+            TextTrimming = TextTrimming.CharacterEllipsis,
         });
         var lines = error != null ? new[] { error } : details?.Lines(options) ?? [];
-        foreach (var line in lines)
+        var foreground = Application.Current?.TryFindResource("PrimaryTextBrush") as Brush ?? Brushes.White;
+        if (options.Style == OverlayStyle.Compact)
         {
-            _details.Children.Add(new TextBlock
-            {
-                Text = line, Foreground = Application.Current?.TryFindResource("PrimaryTextBrush") as Brush ?? Brushes.White, FontSize = 12,
-                TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 3, 0, 0),
-            });
+            // Compact is actually compact: title + one horizontally readable summary.
+            // Full per-field breakdown remains available in Detailed.
+            string summary = string.Join("  ·  ", lines);
+            if (!string.IsNullOrEmpty(summary))
+                _details.Children.Add(new TextBlock
+                {
+                    Text = summary, Foreground = foreground, FontSize = 12,
+                    TextWrapping = TextWrapping.NoWrap, TextTrimming = TextTrimming.CharacterEllipsis,
+                    Margin = new Thickness(0, 5, 0, 0),
+                });
         }
-        double width = badge ? options.Size : (options.Style == OverlayStyle.Detailed ? 390 : 320) * options.Size / 72;
+        else
+        {
+            foreach (var line in lines)
+                _details.Children.Add(new TextBlock
+                {
+                    Text = line, Foreground = foreground, FontSize = 12,
+                    TextWrapping = TextWrapping.WrapWithOverflow, Margin = new Thickness(0, 5, 0, 0),
+                });
+        }
+        // Keep sufficient width at small icon sizes: previous 320*(Size/72) DIP
+        // squeezed every word into a character-wide column.
+        double width = options.Style == OverlayStyle.Detailed
+            ? Math.Clamp(450 * options.Size / 72, 390, 690)
+            : Math.Clamp(360 * options.Size / 72, 310, 570);
         if (imageOnly) width = options.Size * 2;
         if (imageOnly)
         {
@@ -136,6 +160,7 @@ internal sealed class ClipNotificationOverlay : IDisposable
         }
         _card.Measure(new Size(width, double.PositiveInfinity));
         double height = imageOnly ? options.Size : badge ? options.Size : _card.DesiredSize.Height;
+        _surface.RenderTransformOrigin = new Point(.5, .5);
         _surface.RenderTransform = new TranslateTransform();
         _window!.Width = width;
         _window.Height = height;
@@ -157,20 +182,21 @@ internal sealed class ClipNotificationOverlay : IDisposable
         {
             if (options.Animation == OverlayAnimation.Slide)
             {
-                // Translate the whole card fully outside its own width (not a 12px fade/slide).
-                // Keep it opaque while visible and slide back out at the end.
+                // Side anchors enter horizontally; top/bottom-center enter vertically.
+                // Exact center is normalized to Grow in ClipOverlayOptions.
                 _surface.Opacity = options.Opacity;
-                double offset = SlideOffset(width, options.Anchor);
-                double enterEnd = Math.Min(.24, options.Seconds / 3);
-                double exitStart = Math.Max(enterEnd, options.Seconds - .24);
-                var slide = new DoubleAnimationUsingKeyFrames();
-                slide.KeyFrames.Add(new DiscreteDoubleKeyFrame(offset, KeyTime.FromTimeSpan(TimeSpan.Zero)));
-                slide.KeyFrames.Add(new EasingDoubleKeyFrame(0, KeyTime.FromTimeSpan(TimeSpan.FromSeconds(enterEnd)),
-                    new CubicEase { EasingMode = EasingMode.EaseOut }));
-                slide.KeyFrames.Add(new DiscreteDoubleKeyFrame(0, KeyTime.FromTimeSpan(TimeSpan.FromSeconds(exitStart))));
-                slide.KeyFrames.Add(new EasingDoubleKeyFrame(offset, KeyTime.FromTimeSpan(TimeSpan.FromSeconds(options.Seconds)),
-                    new CubicEase { EasingMode = EasingMode.EaseIn }));
-                _surface.RenderTransform.BeginAnimation(TranslateTransform.XProperty, slide);
+                Point offset = SlideVector(width, height, options.Anchor);
+                var slide = EnterExitMotion(offset.X != 0 ? offset.X : offset.Y, options.Seconds);
+                _surface.RenderTransform.BeginAnimation(
+                    offset.X != 0 ? TranslateTransform.XProperty : TranslateTransform.YProperty, slide);
+            }
+            else if (options.Animation == OverlayAnimation.Grow)
+            {
+                _surface.Opacity = options.Opacity;
+                _surface.RenderTransform = new ScaleTransform(1, 1);
+                var scale = EnterExitMotion(.65, options.Seconds, visible: 1);
+                _surface.RenderTransform.BeginAnimation(ScaleTransform.ScaleXProperty, scale);
+                _surface.RenderTransform.BeginAnimation(ScaleTransform.ScaleYProperty, scale);
             }
             else
             {
@@ -191,13 +217,22 @@ internal sealed class ClipNotificationOverlay : IDisposable
             }
         }
         else _surface.Opacity = options.Opacity;
-        if (SystemParameters.ClientAreaAnimation && options.Animation != OverlayAnimation.None && _image?.Frames.Length > 1)
+        if (SystemParameters.ClientAreaAnimation && _image?.Frames.Length > 1)
         {
+            // GIF/WebM frame playback is independent of the banner entrance effect.
+            // Absolute elapsed-time lookup prevents timer catch-up storms and drift on
+            // every subsequent loop (especially 29 x 40 ms frames at 100% CPU).
             _frame = 0;
+            _frameEnds = new TimeSpan[_image.Frames.Length];
+            TimeSpan cumulative = TimeSpan.Zero;
+            for (int i = 0; i < _image.Frames.Length; i++)
+            {
+                cumulative += _image.Frames[i].Delay;
+                _frameEnds[i] = cumulative;
+            }
+            _imageCycle = cumulative;
             _imageClock = System.Diagnostics.Stopwatch.StartNew();
-            _nextFrame = _image.Frames[0].Delay;
-            _imageCycle = TimeSpan.FromTicks(_image.Frames.Sum(frame => frame.Delay.Ticks));
-            _frameTimer!.Interval = _nextFrame;
+            _frameTimer!.Interval = SafeFrameInterval(_frameEnds[0]);
             _frameTimer.Start();
         }
         _timer.Interval = TimeSpan.FromSeconds(options.Seconds);
@@ -220,9 +255,18 @@ internal sealed class ClipNotificationOverlay : IDisposable
         var icon = new Grid { VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 12, 0) };
         icon.Children.Add(_ring);
         icon.Children.Add(_badge);
-        _details = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
-        var content = new DockPanel();
-        DockPanel.SetDock(icon, Dock.Left);
+        _details = new StackPanel
+        {
+            VerticalAlignment = VerticalAlignment.Center,
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+        };
+        // Explicit flexible text column, rather than DockPanel intrinsic width
+        // collapsing wrapped TextBlocks to a near-vertical letter stack.
+        var content = new Grid();
+        content.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        content.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        Grid.SetColumn(icon, 0);
+        Grid.SetColumn(_details, 1);
         content.Children.Add(icon);
         content.Children.Add(_details);
         _card = new Border
@@ -249,28 +293,68 @@ internal sealed class ClipNotificationOverlay : IDisposable
         SetWindowLong(_handle, exStyle, GetWindowLong(_handle, exStyle) | 0x080000A0);
         _timer = new DispatcherTimer(DispatcherPriority.Background);
         _timer.Tick += (_, _) => Hide();
-        _frameTimer = new DispatcherTimer(DispatcherPriority.Background);
+        _frameTimer = new DispatcherTimer(DispatcherPriority.Render);
         _frameTimer.Tick += (_, _) =>
         {
-            if (_imageView == null || _image == null || _imageClock == null) return;
-            var elapsed = _imageClock.Elapsed;
-            if (elapsed >= _nextFrame + _imageCycle)
-                _nextFrame += TimeSpan.FromTicks((elapsed - _nextFrame).Ticks / _imageCycle.Ticks * _imageCycle.Ticks);
-            while (elapsed >= _nextFrame)
+            if (_imageView == null || _image == null || _imageClock == null || _frameEnds.Length == 0) return;
+            var (current, untilNext) = FrameAtElapsed(_imageClock.Elapsed, _frameEnds, _imageCycle);
+            if (current != _frame)
             {
-                _frame = (_frame + 1) % _image.Frames.Length;
-                _nextFrame += _image.Frames[_frame].Delay;
+                _frame = current;
+                _imageView.Source = _image.Frames[current].Bitmap;
             }
-            _imageView.Source = _image.Frames[_frame].Bitmap;
-            _frameTimer.Interval = _nextFrame - elapsed;
+            _frameTimer.Interval = SafeFrameInterval(untilNext);
         };
     }
 
     internal static bool MotionEnabled(bool windowsAnimations, OverlayAnimation animation) =>
         windowsAnimations && animation != OverlayAnimation.None;
 
+    internal static Point SlideVector(double cardWidth, double cardHeight, OverlayAnchor anchor)
+    {
+        int column = (int)anchor % 3, row = (int)anchor / 3;
+        if (column == 0) return new(-cardWidth - 24, 0);
+        if (column == 2) return new(cardWidth + 24, 0);
+        return row switch
+        {
+            0 => new(0, -cardHeight - 24),
+            2 => new(0, cardHeight + 24),
+            _ => new(0, 0), // center has no edge; Normalize() selects Grow.
+        };
+    }
+
     internal static double SlideOffset(double cardWidth, OverlayAnchor anchor) =>
-        ((int)anchor % 3 == 0 ? -1 : 1) * (cardWidth + 24);
+        SlideVector(cardWidth, cardWidth, anchor).X;
+
+    private static DoubleAnimationUsingKeyFrames EnterExitMotion(double start, double seconds, double visible = 0)
+    {
+        double enterEnd = Math.Min(.24, seconds / 3);
+        double exitStart = Math.Max(enterEnd, seconds - .24);
+        var motion = new DoubleAnimationUsingKeyFrames();
+        motion.KeyFrames.Add(new DiscreteDoubleKeyFrame(start, KeyTime.FromTimeSpan(TimeSpan.Zero)));
+        motion.KeyFrames.Add(new EasingDoubleKeyFrame(visible, KeyTime.FromTimeSpan(TimeSpan.FromSeconds(enterEnd)),
+            new CubicEase { EasingMode = EasingMode.EaseOut }));
+        motion.KeyFrames.Add(new DiscreteDoubleKeyFrame(visible, KeyTime.FromTimeSpan(TimeSpan.FromSeconds(exitStart))));
+        motion.KeyFrames.Add(new EasingDoubleKeyFrame(start, KeyTime.FromTimeSpan(TimeSpan.FromSeconds(seconds)),
+            new CubicEase { EasingMode = EasingMode.EaseIn }));
+        return motion;
+    }
+
+    // Pure, clock-based frame scheduling. No accumulation from previous dispatcher ticks.
+    internal static (int Frame, TimeSpan UntilNext) FrameAtElapsed(TimeSpan elapsed,
+        IReadOnlyList<TimeSpan> cumulativeEnds, TimeSpan cycle)
+    {
+        if (cumulativeEnds.Count == 0 || cycle.Ticks <= 0)
+            return (0, TimeSpan.FromMilliseconds(100));
+        long position = Math.Max(0, elapsed.Ticks) % cycle.Ticks;
+        for (int i = 0; i < cumulativeEnds.Count; i++)
+            if (position < cumulativeEnds[i].Ticks)
+                return (i, TimeSpan.FromTicks(cumulativeEnds[i].Ticks - position));
+        return (0, cumulativeEnds[0]);
+    }
+
+    private static TimeSpan SafeFrameInterval(TimeSpan due) =>
+        TimeSpan.FromMilliseconds(Math.Max(16, Math.Ceiling(due.TotalMilliseconds)));
 
     internal void Hide()
     {
@@ -278,6 +362,8 @@ internal sealed class ClipNotificationOverlay : IDisposable
         _timer?.Stop();
         _frameTimer?.Stop();
         _imageClock = null;
+        _frameEnds = [];
+        _imageCycle = TimeSpan.Zero;
         _imageView = null;
         _window?.Hide();
         _surface?.BeginAnimation(UIElement.OpacityProperty, null);

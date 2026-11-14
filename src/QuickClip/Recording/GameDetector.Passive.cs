@@ -14,29 +14,32 @@ internal sealed partial class GameDetector
     private static readonly TimeSpan WindowBudget = TimeSpan.FromMilliseconds(100);
 
     /// <summary>Call from an armed recorder's existing observation tick. This method never starts capture.</summary>
-    internal GameCaptureObservation? ObserveEligibleGame(GameCaptureObservation? retained, bool preferRetained) =>
+    internal GameCaptureObservation? ObserveEligibleGame(GameCaptureObservation? retained,
+        Func<GameCaptureObservation?, GameCaptureObservation?, bool> preferForeground) =>
         AppProfile.IsPersonal
             ? ResolveEligibleGame(retained, DetectForeground(), IsObservableOwner, ReadPassiveWindows,
-                GameCatalogRuntime.Match, preferRetained)
+                GameCatalogRuntime.Match, preferForeground)
             : null;
 
     internal static GameCaptureObservation? ResolveEligibleGame(GameCaptureObservation? retained,
         GameCaptureObservation? foreground, Func<WindowOwner, bool> isCurrent,
-        Func<IReadOnlyList<PassiveGameWindow>> windows, Func<string, bool, CatalogMatch> match, bool preferRetained = false)
+        Func<IReadOnlyList<PassiveGameWindow>> windows, Func<string, bool, CatalogMatch> match,
+        Func<GameCaptureObservation?, GameCaptureObservation?, bool>? preferForeground = null)
     {
         GameCaptureObservation? verifiedForeground = null;
         if (foreground?.VerifiedTarget != null)
         {
             var updated = Observe(foreground.Owner, foreground.Executable, match(foreground.Executable, true),
                 false, NoKnownGames);
-            if (updated.VerifiedTarget != null && isCurrent(updated.Owner))
-            {
-                if (!preferRetained || updated.Owner == retained?.Owner) return updated;
-                verifiedForeground = updated;
-            }
+            if (updated.VerifiedTarget != null && isCurrent(updated.Owner)) verifiedForeground = updated;
         }
-        if (SelectVerifiedObservation(retained, null, isCurrent, match) is { } live) return live;
-        if (verifiedForeground != null) return verifiedForeground;
+        if (preferForeground == null && verifiedForeground != null) return verifiedForeground;
+
+        var live = verifiedForeground != null && verifiedForeground.Owner == retained?.Owner ? verifiedForeground :
+            SelectVerifiedObservation(retained, null, isCurrent, match);
+        bool replace = preferForeground?.Invoke(live, verifiedForeground) ?? true;
+        if (verifiedForeground != null && (live == null || replace)) return verifiedForeground;
+        if (live != null) return live;
 
         GameCaptureObservation? best = null;
         long bestArea = 0;

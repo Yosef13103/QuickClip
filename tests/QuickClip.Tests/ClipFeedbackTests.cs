@@ -118,16 +118,64 @@ public sealed class ClipFeedbackTests
     }
 
     [Theory]
-    [InlineData("TopLeft", -344)]
-    [InlineData("TopCenter", 344)]
-    [InlineData("TopRight", 344)]
-    [InlineData("BottomLeft", -344)]
-    [InlineData("BottomRight", 344)]
-    public void Slide_animation_enters_and_exits_by_more_than_card_width(string anchorName, double expected)
+    [InlineData("TopLeft", -344, 0)]
+    [InlineData("TopCenter", 0, -124)]
+    [InlineData("TopRight", 344, 0)]
+    [InlineData("MiddleLeft", -344, 0)]
+    [InlineData("Center", 0, 0)]
+    [InlineData("MiddleRight", 344, 0)]
+    [InlineData("BottomLeft", -344, 0)]
+    [InlineData("BottomCenter", 0, 124)]
+    [InlineData("BottomRight", 344, 0)]
+    public void Slide_enters_from_nearest_edge_and_never_has_a_center_vector(
+        string anchorName, double x, double y)
     {
         var anchor = Enum.Parse<OverlayAnchor>(anchorName);
-        Assert.Equal(expected, ClipNotificationOverlay.SlideOffset(320, anchor));
-        Assert.True(Math.Abs(ClipNotificationOverlay.SlideOffset(320, anchor)) > 320);
+        Assert.Equal(new Point(x, y), ClipNotificationOverlay.SlideVector(320, 100, anchor));
+        if (anchor != OverlayAnchor.Center)
+            Assert.True(Math.Abs(x) > 320 || Math.Abs(y) > 100);
+        else Assert.Equal(OverlayAnimation.Grow, new ClipOverlayOptions
+        {
+            Anchor = OverlayAnchor.Center, Animation = OverlayAnimation.Slide,
+        }.Normalize().Animation);
+    }
+
+    [Fact]
+    public void Animated_gif_loops_follow_elapsed_time_not_dispatcher_tick_history()
+    {
+        // Owner's converted 512x512 test GIF: 29 frames, 40ms each, 1.16 seconds.
+        var ends = Enumerable.Range(1, 29).Select(n => TimeSpan.FromMilliseconds(n * 40)).ToArray();
+        var cycle = TimeSpan.FromMilliseconds(1160);
+        foreach (int cycleNumber in new[] { 0, 1, 2, 17, 1000 })
+        {
+            var start = TimeSpan.FromTicks(cycle.Ticks * cycleNumber);
+            Assert.Equal(0, ClipNotificationOverlay.FrameAtElapsed(start, ends, cycle).Frame);
+            Assert.Equal(14, ClipNotificationOverlay.FrameAtElapsed(start + TimeSpan.FromMilliseconds(565), ends, cycle).Frame);
+            Assert.Equal(28, ClipNotificationOverlay.FrameAtElapsed(start + TimeSpan.FromMilliseconds(1159), ends, cycle).Frame);
+            Assert.Equal(0, ClipNotificationOverlay.FrameAtElapsed(start + cycle, ends, cycle).Frame);
+            Assert.True(ClipNotificationOverlay.FrameAtElapsed(start + TimeSpan.FromMilliseconds(1159), ends, cycle).UntilNext > TimeSpan.Zero);
+        }
+    }
+
+    [Fact]
+    public void Retired_badge_settings_fall_back_to_compact_and_image_fit_round_trips()
+    {
+        var saved = new AppSettings
+        {
+            ClipOverlay = new()
+            {
+                Style = OverlayStyle.Badge, ImageFit = OverlayImageFit.Cover,
+                Anchor = OverlayAnchor.Center, Animation = OverlayAnimation.Slide,
+            },
+        };
+        var parsed = AppSettings.Parse(saved.ToJson());
+        Assert.Equal(OverlayStyle.Compact, parsed.ClipOverlay.Normalize().Style);
+        Assert.Equal(OverlayImageFit.Cover, parsed.ClipOverlay.Normalize().ImageFit);
+        Assert.Equal(OverlayAnimation.Grow, parsed.ClipOverlay.Normalize().Animation);
+        Assert.Equal(OverlayImageFit.Contain, new ClipOverlayOptions
+        {
+            ImageFit = (OverlayImageFit)999,
+        }.Normalize().ImageFit);
     }
 
     [Fact]

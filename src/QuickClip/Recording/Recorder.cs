@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Diagnostics;
 using Microsoft.Win32;
 using QuickClip.Discovery;
 using QuickClip.Gallery;
@@ -24,9 +25,11 @@ internal sealed class Recorder
     private readonly ReplaySaveGate _saveGate = new();
     private readonly ReplayMarkers _replayMarkers = new();
     private Guid _replaySession;
+    private long _replayGeneration;
     private int _replayBufferSeconds;
     private ImmutableArray<EndpointTrack> _runningEndpointPlan = [];
     private readonly GameDetector _games = new();
+    private readonly ForegroundGameHandoff _gameHandoff = new();
     private Timer? _poll;
     private int _pollGeneration;
     private readonly RecordingLifecycle _lifecycle;
@@ -194,6 +197,7 @@ internal sealed class Recorder
                 _manualAuthorized.Add(requested);
             }
             _manualDisplay = requested;
+            _gameHandoff.Reset();
             ReconcilePersonal();
         }
         StateChanged?.Invoke(State);
@@ -222,9 +226,21 @@ internal sealed class Recorder
     private void ReconcilePersonal()
     {
         var s = AppSettings.Current;
-        _observedGame = s.RecordingEnabled
-            ? _games.ObserveEligibleGame(_observedGame, preferRetained: true)
-            : null;
+        IReadOnlyList<MonitorInfo>? displays = null;
+        IReadOnlyList<MonitorInfo> Displays() => displays ??= Monitors.List();
+        bool AllowsDisplay(string identity) => CaptureSourcePolicy.AllowsGameDisplay(s, identity);
+        string? AuthorizedDisplay(GameCaptureObservation game) =>
+            CaptureSourcePolicy.ResolveGameDisplay(game, Displays(), Monitors.ForWindow)?.CaptureIdentity is { } identity &&
+                AllowsDisplay(identity) ? identity : null;
+
+        if (s.RecordingEnabled)
+            _observedGame = _games.ObserveEligibleGame(_observedGame, (retained, foreground) =>
+                _gameHandoff.PreferForeground(retained, foreground, AuthorizedDisplay));
+        else
+        {
+            _observedGame = null;
+            _gameHandoff.Reset();
+        }
 
         if (_manualDisplay != null && !ManualDesktopRequested)
         {
@@ -236,9 +252,9 @@ internal sealed class Recorder
             _lifecycle.FailActive("The display capture was interrupted. QuickClip will retry.");
         else if (IsRunning && Environment.TickCount64 - _captureStartedAt >= 15_000 && CaptureEngine.HasVideoOutput())
             _lifecycle.MarkHealthy();
-        var displays = s.RecordingEnabled && (_observedGame != null || _manualDisplay != null) ? Monitors.List() : [];
-        _lifecycle.Reconcile(s.RecordingEnabled, _manualDisplay, _observedGame, displays,
-            Monitors.ForWindow, identity => CaptureSourcePolicy.AllowsGameDisplay(s, identity));
+        _lifecycle.Reconcile(s.RecordingEnabled, _manualDisplay, _observedGame,
+            s.RecordingEnabled && (_observedGame != null || _manualDisplay != null) ? Displays() : [],
+            Monitors.ForWindow, AllowsDisplay);
         Error = _lifecycle.Error;
 
     }
@@ -330,8 +346,9 @@ internal sealed class Recorder
                           string.Join(", ", mics.Select(m => m.DeviceId == "" ? $"{m.Title} (Windows default)" : m.Title)));
 
             _runningEndpointPlan = endpoints?.ToImmutableArray() ?? [];
-            IsRunning = true;
             _replaySession = Guid.NewGuid();
+            Interlocked.Increment(ref _replayGeneration);
+            IsRunning = true;
             _replayBufferSeconds = s.BufferSeconds;
             _family = family;
             _captureTarget = null;
@@ -368,12 +385,14 @@ internal sealed class Recorder
         ++_pollGeneration;
         _poll?.Dispose();
         _poll = null;
+        _gameHandoff.Reset();
         if (AppProfile.IsPersonal) _lifecycle.Reset(forgetGame);
         else StopGraph();
     }
 
     private void StopGraph()
     {
+        Interlocked.Increment(ref _replayGeneration);
         if (IsRunning) CaptureEngine.Stop();
         IsRunning = false;
         _runningEndpointPlan = [];
@@ -529,17 +548,20 @@ internal sealed class Recorder
     private async Task<(SavedClip Clip, ReplaySaveReceipt Receipt)?> SaveCoreAsync(int? requestedSeconds, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
+        long requestedAtTick = Stopwatch.GetTimestamp();
+        long generation = Volatile.Read(ref _replayGeneration);
         if (!IsRunning)
         {
             SaveFailed?.Invoke(Error ?? (State.Mode == RecordingMode.Armed
                 ? "No recording is active. Start an eligible game or turn on manual desktop capture." : "Recording is turned off."));
             return null;
         }
-        return await _saveGate.RunAsync(() => SaveUnderGateAsync(requestedSeconds, cancellationToken), cancellationToken,
-            requestedSeconds.HasValue ? () => SaveFailed?.Invoke("A replay save is already in progress.") : null);
+        return await _saveGate.RunAsync(() => Task.FromResult(SaveOnWorker(requestedSeconds, generation, requestedAtTick, cancellationToken)),
+            cancellationToken, () => SaveFailed?.Invoke("A replay save is already in progress.")).ConfigureAwait(false);
     }
 
-    private async Task<(SavedClip Clip, ReplaySaveReceipt Receipt)?> SaveUnderGateAsync(int? requestedSeconds, CancellationToken cancellationToken)
+    private (SavedClip Clip, ReplaySaveReceipt Receipt)? SaveOnWorker(int? requestedSeconds, long generation,
+        long requestedAtTick, CancellationToken cancellationToken)
     {
         string? staged = null;
         bool complete = false;
@@ -556,7 +578,7 @@ internal sealed class Recorder
             string? gameId;
             lock (_gate)
             {
-                if (!IsRunning || (AppProfile.IsPersonal && !s.RecordingEnabled) ||
+                if (!IsRunning || generation != _replayGeneration || (AppProfile.IsPersonal && !s.RecordingEnabled) ||
                     CaptureEngine.GetReplayPosition() is not { } active)
                     throw new IOException("The recording session has ended.");
                 position = active;
@@ -567,6 +589,7 @@ internal sealed class Recorder
                 gameContext = AppProfile.IsPersonal ? _sessionGame : _captureTarget?.Game ?? _games.GameForClip(gameLookback);
                 gameId = _sessionGameId;
             }
+            long positionAtTick = Stopwatch.GetTimestamp();
             var anchors = candidates.Select(item => new CaptureEngine.ReplayAnchor { Sequence = item.Sequence, OffsetUs = -1 }).ToArray();
             string folder = gameContext ?? "Desktop";
             string mediaTitle = desktopSource != null
@@ -582,8 +605,18 @@ internal sealed class Recorder
             string stagingPath = staged = ClipNaming.ReserveStagingPath(dir, ".mp4");
             CaptureEngine.ReplaySpan span = default;
             CaptureEngine.ReplayVideo video = default;
-            string? error = await Task.Run(() => CaptureEngine.SaveReplay(stagingPath, seconds, mediaTitle, position,
-                requestedSeconds.HasValue, anchors, out span, out video), cancellationToken);
+            cancellationToken.ThrowIfCancellationRequested();
+            long nativeStarted = Stopwatch.GetTimestamp();
+            string? error = CaptureEngine.SaveReplay(stagingPath, seconds, mediaTitle, position,
+                requestedSeconds.HasValue, anchors, out span, out video);
+            if (s.RecordingDiagnostics)
+            {
+                double dispatchMs = Stopwatch.GetElapsedTime(requestedAtTick, positionAtTick).TotalMilliseconds;
+                double prepareMs = Stopwatch.GetElapsedTime(positionAtTick, nativeStarted).TotalMilliseconds;
+                double nativeMs = Stopwatch.GetElapsedTime(nativeStarted).TotalMilliseconds;
+                Log.Write(FormattableString.Invariant(
+                    $"Replay save: request to position {dispatchMs:F0} ms, preparation {prepareMs:F0} ms, native snapshot and mux {nativeMs:F0} ms."));
+            }
             cancellationToken.ThrowIfCancellationRequested();
             if (error != null)
             {

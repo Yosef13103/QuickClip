@@ -451,7 +451,7 @@
                                    AutomationProperties.LiveSetting="Polite" />
                         <Expander Header="Running audio lanes" Margin="0,10,0,0" Collapsed="EndpointStatus_Collapsed">
                             <StackPanel Margin="0,6,0,0">
-                                <TextBlock Text="Reads the current session without opening a device. Packet peaks appear when recording diagnostics sample them."
+                                <TextBlock Text="Reads stream formats, packet counts, and signal levels from the current session without opening a device."
                                            Style="{StaticResource Hint}" Margin="0,0,0,6" />
                                 <Button x:Name="ReadEndpointStatusButton" Content="Read current status" HorizontalAlignment="Left"
                                         Click="ReadEndpointStatus_Click" />
@@ -639,6 +639,9 @@
                                 <Button x:Name="ClearOverlayImage" Content="Use default icon" Click="ClearOverlayImage_Click" />
                             </WrapPanel>
                             <TextBlock x:Name="OverlayImageStatus" Style="{StaticResource Hint}" AutomationProperties.LiveSetting="Polite" />
+                            <TextBlock Text="Image fit" Margin="0,8,0,0" />
+                            <ComboBox x:Name="OverlayImageFitCombo" SelectionChanged="ClipFeedback_Changed"
+                                      AutomationProperties.Name="Image fit or cropped fill" />
                             <TextBlock x:Name="OverlayImageError" Foreground="{DynamicResource DangerBrush}"
                                        FontWeight="SemiBold" FontSize="{DynamicResource QuickClipText14}" TextWrapping="Wrap"
                                        Visibility="Collapsed" AutomationProperties.LiveSetting="Assertive" />

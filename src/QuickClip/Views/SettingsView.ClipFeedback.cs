@@ -127,7 +127,7 @@ public partial class SettingsView
         DesktopStoppedNotice.IsChecked = events.DesktopStopped;
         SaveFailedNotice.IsChecked = events.Failed;
         IdleSaveNotificationCheck.IsChecked = settings.ShowInactiveSaveNotifications;
-        SetChoices(OverlayStyleCombo, [new("Compact banner", OverlayStyle.Compact), new("QuickClip badge", OverlayStyle.Badge),
+        SetChoices(OverlayStyleCombo, [new("Compact banner", OverlayStyle.Compact),
             new("Detailed banner", OverlayStyle.Detailed), new("Image only (transparent)", OverlayStyle.ImageOnly)],
             options.ImageOnly ? OverlayStyle.ImageOnly : options.Style);
         OverlayShowResolution.IsChecked = options.ShowResolution;
@@ -138,6 +138,9 @@ public partial class SettingsView
         OverlayShowSource.IsChecked = options.ShowSource;
         OverlayShowDuration.IsChecked = options.ShowDuration;
         ShowOverlayImage(options.ImagePath);
+        SetChoices(OverlayImageFitCombo,
+            [new("Fit whole image", OverlayImageFit.Contain),
+             new("Fill area (crop edges)", OverlayImageFit.Cover)], options.ImageFit);
         UpdateFeedbackVisibility();
         var displays = new List<Choice> { new("Main display", "") };
         displays.AddRange(ClipNotificationOverlay.Displays().Select(d => new Choice(d.Label, d.Device)));
@@ -145,14 +148,26 @@ public partial class SettingsView
             displays.Add(new("Saved display (disconnected)", options.Display));
         SetChoices(OverlayDisplayCombo, displays, options.Display ?? "");
         SetChoices(OverlayAnchorCombo, Enum.GetValues<OverlayAnchor>().Select(a => new Choice(AnchorLabels[(int)a], a)), options.Anchor);
-        SetChoices(OverlayAnimationCombo, [new("Slide in", OverlayAnimation.Slide), new("Fade", OverlayAnimation.Fade),
-            new("Ripple", OverlayAnimation.Ripple), new("No animation", OverlayAnimation.None)], options.Animation);
+        SetChoices(OverlayAnimationCombo, OverlayAnimationChoices(options.Anchor), options.Animation);
         SetNumbers(OverlaySizeCombo, [48, 60, 72, 88, 104], options.Size, value => $"{value:0} DIP");
         SetNumbers(OverlayOpacityCombo, [.3, .5, .7, .9, 1], options.Opacity, value => $"{value:P0}");
         OverlayDurationBox.Text = options.Seconds.ToString("0.##", CultureInfo.CurrentCulture);
         OverlayDurationError.Text = "";
         OverlayImageError.Text = "";
         OverlayImageError.Visibility = Visibility.Collapsed;
+    }
+
+    private static Choice[] OverlayAnimationChoices(OverlayAnchor anchor)
+    {
+        var choices = new List<Choice>();
+        if (anchor != OverlayAnchor.Center) choices.Add(new("Slide in from edge", OverlayAnimation.Slide));
+        choices.AddRange([
+            new("Grow / shrink", OverlayAnimation.Grow),
+            new("Fade", OverlayAnimation.Fade),
+            new("Ripple", OverlayAnimation.Ripple),
+            new("No animation", OverlayAnimation.None),
+        ]);
+        return [.. choices];
     }
 
     private void SetChoices(ComboBox combo, IEnumerable<Choice> choices, object selected)
@@ -173,6 +188,20 @@ public partial class SettingsView
             settings.ClipWindowsNotification = WindowsClipNotificationCheck.IsChecked == true;
             settings.Save();
             return;
+        }
+
+        // Center has no edge to enter from. Refresh the combobox on anchor changes
+        // so Slide is not selectable there, and use Grow when switching to Center.
+        if (sender == OverlayAnchorCombo &&
+            OverlayAnchorCombo.SelectedItem is Choice { Value: OverlayAnchor selectedAnchor })
+        {
+            OverlayAnimation current = (OverlayAnimationCombo.SelectedItem as Choice)?.Value is OverlayAnimation a
+                ? a : OverlayAnimation.Grow;
+            if (selectedAnchor == OverlayAnchor.Center && current == OverlayAnimation.Slide)
+                current = OverlayAnimation.Grow;
+            _loading = true;
+            try { SetChoices(OverlayAnimationCombo, OverlayAnimationChoices(selectedAnchor), current); }
+            finally { _loading = false; }
         }
 
         if (ClipNotificationModeCombo.SelectedItem is not Choice { Value: ClipNotificationMode mode }) return;
@@ -209,6 +238,8 @@ public partial class SettingsView
                 ShowFps = OverlayShowFps.IsChecked == true,
                 ShowHotkey = OverlayShowHotkey.IsChecked == true,
                 ImageOnly = (OverlayStyleCombo.SelectedItem as Choice)?.Value is OverlayStyle.ImageOnly,
+                ImageFit = (OverlayImageFitCombo.SelectedItem as Choice)?.Value is OverlayImageFit fit
+                    ? fit : OverlayImageFit.Contain,
                 ShowTitle = OverlayShowTitle.IsChecked == true,
                 ShowGame = OverlayShowGame.IsChecked == true,
                 ShowSource = OverlayShowSource.IsChecked == true,
@@ -245,8 +276,9 @@ public partial class SettingsView
             if (asset == null)
             {
                 ShowOverlayImage(AppSettings.Current.ClipOverlay?.ImagePath);
-                OverlayImageError.Text = "Could not load this asset. Use a local PNG, JPG, WebP, GIF or transparent WebM up to 16 MiB. " +
-                    "GIFs allow 120 frames / 32 million source frame-pixels; WebM needs VP8/VP9 alpha and must be 30 seconds or shorter.";
+                OverlayImageError.Text = Path.GetExtension(dialog.FileName).Equals(".webp", StringComparison.OrdinalIgnoreCase)
+                    ? "This WebP could not be opened. Animated WebP isn't supported directly yet. Convert it to a GIF, then use Preview overlay to check the result."
+                    : "This file could not be opened as an overlay. Try a PNG, JPG, GIF, or transparent WebM under 16 MB. GIFs must be 120 frames or fewer; animations must be 30 seconds or shorter.";
                 OverlayImageError.Visibility = Visibility.Visible;
                 return;
             }

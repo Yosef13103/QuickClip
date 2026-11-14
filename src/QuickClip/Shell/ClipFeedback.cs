@@ -4,8 +4,9 @@ using System.Windows;
 namespace QuickClip.Shell;
 
 internal enum OverlayAnchor { TopLeft, TopCenter, TopRight, MiddleLeft, Center, MiddleRight, BottomLeft, BottomCenter, BottomRight }
-internal enum OverlayAnimation { Ripple, Fade, Slide, None }
+internal enum OverlayAnimation { Ripple, Fade, Slide, None, Grow }
 internal enum OverlayStyle { Compact, Badge, Detailed, ImageOnly }
+internal enum OverlayImageFit { Contain, Cover }
 internal enum ClipEvent { ReplayEnabled, Saved, DesktopStarted, DesktopStopped, Failed, Inactive }
 internal sealed record ClipEventOptions(bool ReplayEnabled = true, bool Saved = true, bool DesktopStarted = true,
     bool DesktopStopped = true, bool Failed = true)
@@ -26,6 +27,7 @@ internal sealed record ClipOverlayOptions
     public bool ShowFps { get; init; } = true;
     public bool ShowHotkey { get; init; }
     public bool ImageOnly { get; init; }
+    public OverlayImageFit ImageFit { get; init; } = OverlayImageFit.Contain;
     public bool ShowGame { get; init; } = true;
     public bool ShowTitle { get; init; } = true;
     public bool ShowSource { get; init; } = true;
@@ -48,12 +50,18 @@ internal sealed record ClipOverlayOptions
 
     internal ClipOverlayOptions Normalize() => this with
     {
-        Style = Enum.IsDefined(Style) ? Style : OverlayStyle.Compact,
+        // Badge is retired; old serialized preferences continue to load as Compact.
+        Style = Style == OverlayStyle.Badge ? OverlayStyle.Compact
+            : Enum.IsDefined(Style) ? Style : OverlayStyle.Compact,
         Anchor = Enum.IsDefined(Anchor) ? Anchor : OverlayAnchor.BottomRight,
         Size = double.IsFinite(Size) ? Math.Clamp(Size, 40, 120) : 72,
         Opacity = double.IsFinite(Opacity) ? Math.Clamp(Opacity, .2, 1) : .9,
+        ImageFit = Enum.IsDefined(ImageFit) ? ImageFit : OverlayImageFit.Contain,
         Seconds = double.IsFinite(Seconds) ? Math.Clamp(Seconds, MinSeconds, MaxSeconds) : 1.4,
-        Animation = Enum.IsDefined(Animation) ? Animation : OverlayAnimation.Ripple,
+        // Center has no outside screen edge to slide from; use a readable zoom instead.
+        Animation = Anchor == OverlayAnchor.Center && Animation == OverlayAnimation.Slide
+            ? OverlayAnimation.Grow
+            : Enum.IsDefined(Animation) ? Animation : OverlayAnimation.Ripple,
     };
 
     internal static Point Place(Rect display, double size, double margin, OverlayAnchor anchor)

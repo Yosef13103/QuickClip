@@ -20,7 +20,7 @@ public partial class GamesSettingsView : UserControl
     private GameCatalogSettings? _renderedState;
     private List<GameRow> _rows = [];
     private ListCollectionView? _gamesView;
-    private int _retainedCount, _offlineCount;
+    private int _manualCount, _retainedCount, _offlineCount;
     private GameRow? _expanded;
     private string _query = "";
     private static GameCatalogSettings State => AppSettings.Current.Games ?? new();
@@ -215,30 +215,31 @@ public partial class GamesSettingsView : UserControl
         var paths = selections.Select(item => item.Executable).Distinct(StringComparer.OrdinalIgnoreCase).ToImmutableArray();
         var state = State;
         var request = state.Request;
-        var existing = GameCatalogRuntime.Rows(state).Where(row => row.Id != entry?.Id &&
+        var entries = GameCatalogRuntime.Rows(state);
+        var existing = entries.Where(row => row.Id != entry?.Id &&
             row.Executables.Intersect(paths, StringComparer.OrdinalIgnoreCase).Any()).ToArray();
         if (existing.Length > 0)
         {
             if (existing is [var match] && paths.All(path => match.Executables.Contains(path, StringComparer.OrdinalIgnoreCase)))
             {
-                if ((match.Source is CatalogSource.Folder or CatalogSource.Epic) &&
-                    match.Rules is { Inclusion: not CatalogInclusion.Exclude, Classification: AppClassification.Automatic } &&
-                    paths.Any(path => !match.Rules.ApprovedExecutables.Contains(path, StringComparer.OrdinalIgnoreCase)) &&
-                    paths.All(path => CatalogPaths.DefaultRole(path) == CatalogMatchKind.Unknown &&
-                        !match.Rules.LauncherExecutables.Contains(path, StringComparer.OrdinalIgnoreCase) &&
-                        !match.DetectedLaunchers.Contains(path, StringComparer.OrdinalIgnoreCase) &&
-                        !state.BlockedExecutables.Contains(path, StringComparer.OrdinalIgnoreCase)) &&
-                    ModalDialog.ConfirmAction(owner, $"Enable automatic game detection for the selected executable(s) in {match.DisplayName}?",
-                        "Game already in the catalog", "Enable detection", "Keep current settings", destructive: false))
-                    SaveRules(match, match.Rules with
-                    {
-                        ApprovedExecutables = [.. match.Rules.ApprovedExecutables.Concat(paths)
-                            .Distinct(StringComparer.OrdinalIgnoreCase)],
-                    });
+                var catalogRow = _rows.FirstOrDefault(row => row.Entry.Id == match.Id);
+                bool approved = catalogRow?.RulesAfterApproval(paths) != null &&
+                    ModalDialog.ConfirmAction(owner,
+                        $"Allow the selected executables in {match.DisplayName} to trigger replay when they own the game window?",
+                        "Approve game executables", "Approve executables", "Keep current settings", destructive: false);
+                if (approved)
+                {
+                    // A discovery update can refresh the catalog while the confirmation is open.
+                    catalogRow = _rows.FirstOrDefault(row => row.Entry.Id == match.Id);
+                    if (catalogRow?.RulesAfterApproval(paths) is { } confirmedRules)
+                        SaveRules(catalogRow.Entry, confirmedRules);
+                    else approved = false;
+                }
                 Search.Text = "";
                 Games.SelectedItem = _rows.FirstOrDefault(row => row.Entry.Id == match.Id);
                 if (Games.SelectedItem is { } selected) Games.ScrollIntoView(selected);
-                Status.Text = $"Already in the catalog as {match.DisplayName}. Use its details to change detection or its name.";
+                Status.Text = approved ? ExecutablesApproved :
+                    $"Already in the catalog as {match.DisplayName}. Open its details to check executable eligibility.";
             }
             else Status.Text = "Some executables already belong to another catalog entry. Select only new executables.";
             return;
@@ -311,7 +312,7 @@ public partial class GamesSettingsView : UserControl
     private void ApproveExecutable_Click(object sender, RoutedEventArgs e)
     {
         if (sender is not Button { DataContext: GameRow row, CommandParameter: string path }) return;
-        if (!row.CanApprove(path))
+        if (row.RulesAfterApproval([path]) == null)
         {
             Status.Text = "This executable cannot be approved. Check its detection status.";
             return;
@@ -319,10 +320,16 @@ public partial class GamesSettingsView : UserControl
         if (!ModalDialog.ConfirmAction(Window.GetWindow(this),
             $"Allow {Path.GetFileName(path)} to trigger replay when it owns the game window?",
             "Approve game executable", "Approve executable", "Cancel", destructive: false)) return;
-        var rules = row.Entry.Rules;
-        SaveRules(row.Entry, rules with { ApprovedExecutables = rules.ApprovedExecutables.Add(path) });
-        Status.Text = "Executable approved. A verified game window and authorized display are required.";
+        if (!_rows.Contains(row) || row.RulesAfterApproval([path]) is not { } rules)
+        {
+            Status.Text = "This executable cannot be approved. Check its detection status.";
+            return;
+        }
+        SaveRules(row.Entry, rules);
+        Status.Text = ExecutablesApproved;
     }
+
+    private const string ExecutablesApproved = "Approval saved. Replay requires a verified game window and authorized display.";
 
     private void BlockFile_Click(object sender, RoutedEventArgs e)
     {
@@ -404,8 +411,9 @@ public partial class GamesSettingsView : UserControl
         var offline = state.OfflineIds.ToHashSet(StringComparer.Ordinal);
         var catalog = new GameCatalogIndex(new(entries, [], 0, false, default), state.BlockedExecutables);
         var retained = state.RetainedIds.ToHashSet(StringComparer.Ordinal);
-        _retainedCount = entries.Count(entry => retained.Contains(entry.Id));
-        _offlineCount = entries.Count(entry => offline.Contains(entry.Id));
+        _manualCount = entries.Count(entry => entry.Source == CatalogSource.Manual);
+        _retainedCount = entries.Count(entry => entry.Source != CatalogSource.Manual && retained.Contains(entry.Id));
+        _offlineCount = entries.Count(entry => entry.Source != CatalogSource.Manual && offline.Contains(entry.Id));
         var existing = _rows.ToDictionary(row => row.Entry.Id, StringComparer.Ordinal);
         var rows = new List<GameRow>(entries.Length);
         bool refilter = false;
@@ -438,10 +446,10 @@ public partial class GamesSettingsView : UserControl
     {
         if (Count != null && _gamesView != null)
         {
-            Count.Text = $"Catalog · {_rows.Count:N0} entries"
-                + (_query.Length == 0 ? "" : $" · {_gamesView.Count:N0} shown")
-                + (_retainedCount == 0 ? "" : $" · {_retainedCount:N0} retained")
-                + (_offlineCount == 0 ? "" : $" · {_offlineCount:N0} awaiting verification");
+            Count.Text = $"Catalog · {_rows.Count:N0} entries · {_rows.Count - _manualCount:N0} discovered · {_manualCount:N0} manual"
+                + (_query.Length == 0 ? "" : $" · {_gamesView.Count:N0} shown");
+            DiscoveryCountDetail.Text = $"Of discovered entries · {_retainedCount:N0} retained · {_offlineCount:N0} awaiting verification";
+            DiscoveryCountDetail.Visibility = _retainedCount + _offlineCount > 0 ? Visibility.Visible : Visibility.Collapsed;
         }
     }
 

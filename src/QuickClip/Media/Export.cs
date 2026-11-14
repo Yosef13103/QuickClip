@@ -152,7 +152,7 @@ internal static class ExportBuilder
                 graph.Add($"{labels}{string.Format(CultureInfo.InvariantCulture, SafeMixFilter, tracks.Count)}[aout]");
                 outArgs.AddRange(["-map", "[aout]"]);
                 AddAudioCodec(outArgs, 0, encoder, lossless, r.AudioBitrateK, 2);
-                AddTitle(outArgs, 0, string.Join(" + ", tracks.Select(t => t.Name)));
+                AddTitle(outArgs, 0, "Mix");
                 outArgs.AddRange(["-disposition:a:0", "default"]);
                 audioBits += lossless ? 0 : r.AudioBitrateK * 1000L;
             }

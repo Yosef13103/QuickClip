@@ -151,6 +151,35 @@ public sealed class ReplayRuntimeTests
         Assert.Equal(42, await gate.RunAsync(() => Task.FromResult<int?>(42), CancellationToken.None));
     }
 
+    [Fact]
+    public async Task Save_preparation_runs_off_the_request_thread_and_busy_bursts_are_acknowledged()
+    {
+        var gate = new ReplaySaveGate();
+        var entered = new TaskCompletionSource<int>(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var release = new ManualResetEventSlim();
+        int requestThread = Environment.CurrentManagedThreadId;
+        Task<int?> request = gate.RunAsync<int>(() =>
+        {
+            entered.SetResult(Environment.CurrentManagedThreadId);
+            release.Wait(TimeSpan.FromSeconds(5));
+            return Task.FromResult<int?>(42);
+        }, CancellationToken.None);
+
+        try
+        {
+            Assert.False(request.IsCompleted);
+            Assert.NotEqual(requestThread, await entered.Task.WaitAsync(TimeSpan.FromSeconds(5)));
+            int busy = 0;
+            await Task.WhenAll(Enumerable.Range(0, 16).Select(_ => Task.Run(async () =>
+                Assert.Null(await gate.RunAsync<int>(() => throw new InvalidOperationException("Overlapping save ran"),
+                    CancellationToken.None, () => Interlocked.Increment(ref busy))))));
+            Assert.Equal(16, busy);
+        }
+        finally { release.Set(); }
+
+        Assert.Equal(42, await request);
+    }
+
     private const long Second = 1_000_000;
     private static TestFrame Frame(int seconds, bool key = true, long source = 1, bool clear = false) =>
         new() { TimeUs = seconds * Second, Source = source, Key = key ? 1 : 0, ClearBefore = clear ? 1 : 0 };

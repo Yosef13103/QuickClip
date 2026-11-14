@@ -230,7 +230,7 @@ public partial class SettingsView
             var lanes = await Task.Run(Recorder.Instance.ReadRunningEndpointAudio);
             if (request != _statusRequest) return;
             EndpointStatusText.Text = lanes.Length == 0 ? "No endpoint audio lanes are running." :
-                "Snapshot of the running recorder. Pending Settings edits may differ.\n" +
+                "Snapshot of the running recorder. Packet counts and maxima are since the current device stream opened. Pending Settings edits may differ.\n" +
                 string.Join("\n", lanes.Select(DescribeLane));
         }
         catch (Exception ex)
@@ -256,10 +256,17 @@ public partial class SettingsView
         string heading = $"{index + 1} · {FlowName(lane.Track.Flow)} · {lane.Track.Label}";
         if (lane.Status is not { } status) return $"{heading} · Waiting for status";
         string stage = status.HResult < 0 ? $"{status.Stage} failed (0x{unchecked((uint)status.HResult):X8})" : status.Stage.ToString();
-        string format = status.MixRate > 0 ? $" · {status.MixRate:N0} Hz / {status.MixChannels} ch → {status.CaptureRate:N0} Hz" : "";
-        string peak = status.LastPacketPeak is { } value ? $" · last packet peak {value:P0}" : "";
+        string mix = status.MixRate > 0 ? $" · mix {status.MixRate:N0} Hz / {status.MixChannels} ch / {status.MixFormat}" : "";
+        string capture = status.CaptureRate > 0
+            ? $" · capture {status.CaptureRate:N0} Hz / {status.CaptureChannels} ch / float32" : "";
         string age = status.MillisecondsSincePacket is { } ms ? $" · last packet {ms:N0} ms ago" : "";
-        return $"{heading} · {stage}{format} · {status.PacketCount:N0} packets{age}{peak}";
+        string health = status.PacketCount > 0
+            ? $" · {status.SilentPackets:N0} silent · {status.Discontinuities:N0} discontinuities · {status.TimestampFallbacks:N0} timestamp fallbacks"
+            : "";
+        string levels = status.LastPacketPeak is { } peak && status.LastPacketRms is { } rms
+            ? $" · last packet peak {peak:P0}, RMS {rms:P0} · maximum packet peak {status.MaxPacketPeak:P0}, RMS {status.MaxPacketRms:P0}"
+            : "";
+        return $"{heading} · {stage}{mix}{capture} · {status.PacketCount:N0} packets{age}{health}{levels}";
     }
 
 #if DEBUG

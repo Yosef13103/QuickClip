@@ -1,0 +1,221 @@
+name: QuickClip Personal v1.0.0 release
+
+on:
+  pull_request:
+    branches: [custom/main]
+    paths:
+      - .github/workflows/personal-v1-release.yml
+      - src/QuickClip/QuickClip.csproj
+      - docs/releases/personal-v1.0.0.md
+  push:
+    branches: [custom/main]
+    paths:
+      - .github/workflows/personal-v1-release.yml
+      - src/QuickClip/QuickClip.csproj
+      - docs/releases/personal-v1.0.0.md
+
+permissions:
+  contents: read
+
+concurrency:
+  group: quickclip-personal-v1-release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  quality:
+    name: Strict Release verification (${{ matrix.profile }})
+    runs-on: windows-2025
+    timeout-minutes: 35
+    strategy:
+      fail-fast: false
+      matrix:
+        profile: [Personal, Upstream]
+    defaults:
+      run:
+        shell: pwsh
+    env:
+      QUICKCLIP_CI: '1'
+      QUICKCLIP_TEST_CAPTURE: '0'
+      QUICKCLIP_TEST_RECYCLE_BIN: '0'
+      QUICKCLIP_TEST_DISCOVERY_SYMLINK: '0'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.403'
+      - name: Validate release version
+        run: |
+          $version = (Select-Xml -Path src/QuickClip/QuickClip.csproj -XPath '//Version').Node.InnerText
+          if ($version -ne '1.0.0') { throw "Unexpected V1 release version: $version" }
+      - name: Provision SHA-256-verified dependencies
+        run: ./scripts/get-deps.ps1 -Force
+      - name: Restore
+        run: dotnet restore QuickClip.slnx
+      - name: Strict native and managed Release build
+        run: |
+          dotnet build QuickClip.slnx -c Release --no-restore "-p:QuickClipProfile=${{ matrix.profile }}" -p:RequireCaptureEngine=true
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          if (!(Test-Path src/QuickClip.Capture/bin/QuickClipCapture.dll)) { throw 'Native engine missing' }
+      - name: Headless tests
+        run: |
+          $testArgs = @('test','QuickClip.slnx','-c','Release','--no-build','--no-restore',
+            '--blame-hang-timeout','3m',"-p:QuickClipProfile=${{ matrix.profile }}")
+          if ('${{ matrix.profile }}' -eq 'Upstream') {
+            $testArgs += @('--filter','FullyQualifiedName~ProfileTests|FullyQualifiedName~RecordingDefaultsTests|FullyQualifiedName~MenuPackageTests|FullyQualifiedName~CaptureEngineTests|FullyQualifiedName~NativeAudioTimelineTests')
+          }
+          dotnet @testArgs
+          exit $LASTEXITCODE
+
+  package:
+    name: Build Personal installer and portable ZIP
+    needs: quality
+    runs-on: windows-2025
+    timeout-minutes: 45
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.403'
+      - name: Provision SHA-256-verified FFmpeg, libmpv, and Inno Setup
+        run: ./scripts/get-deps.ps1 -Force
+      - name: Publish self-contained x64 app and package
+        run: |
+          ./scripts/package.ps1 -Personal
+          $assets = @(Get-ChildItem publish-personal -File)
+          if (@($assets | Where-Object Extension -eq '.zip').Count -ne 1 -or
+              @($assets | Where-Object Extension -eq '.exe').Count -ne 1) {
+            throw 'Expected one portable ZIP and one setup EXE.'
+          }
+          $assets | ForEach-Object {
+            "$((Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant())  $($_.Name)"
+          } | Set-Content publish-personal/SHA256SUMS.txt -Encoding utf8
+      - uses: actions/upload-artifact@v4
+        with:
+          name: quickclip-personal-v1.0.0-release-assets
+          path: |
+            publish-personal/*.zip
+            publish-personal/*.exe
+            publish-personal/SHA256SUMS.txt
+          if-no-files-found: error
+          retention-days: 90
+
+  publish:
+    name: Publish owner-approved V1 release
+    needs: package
+    if: github.event_name == 'push' && github.ref == 'refs/heads/custom/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    outputs:
+      published: ${{ steps.release.outputs.published }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          name: quickclip-personal-v1.0.0-release-assets
+          path: release-assets
+      - name: Create QuickClip Personal v1.0.0 GitHub Release
+        id: release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          tag='personal-v1.0.0'
+          if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "Release $tag already exists; refusing to overwrite it."
+            exit 0
+          fi
+          gh release create "$tag" release-assets/*.zip release-assets/*.exe release-assets/SHA256SUMS.txt \
+            --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
+            --title 'QuickClip Personal v1.0.0' \
+            --notes-file docs/releases/personal-v1.0.0.md --latest
+          echo 'published=true' >> "$GITHUB_OUTPUT"
+
+  cleanup:
+    name: Archive and delete superseded remote branches
+    needs: publish
+    if: needs.publish.outputs.published == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Close superseded PRs, archive history, retain only main/custom-main
+        run: |
+          set -euo pipefail
+          repo="$GITHUB_REPOSITORY"
+          release='personal-v1.0.0'
+          stamp='pre-personal-v1-20261114'
+          echo 'Archiving superseded PRs; unmerged experiments are deferred, not claimed shipped.'
+          gh pr list -R "$repo" --state open --limit 500 --json number,headRefName,title \
+            | jq -c '.[]' | while IFS= read -r pr; do
+                n="$(jq -r '.number' <<< "$pr")"
+                head="$(jq -r '.headRefName' <<< "$pr")"
+                [[ "$head" == 'main' || "$head" == 'custom/main' ]] && continue
+                gh pr close "$n" -R "$repo" --comment \
+                  "Closed in the owner-approved QuickClip Personal v1.0.0 branch cleanup. This PR is superseded or deferred—not independently marked merged. Its source commit will remain recoverable through archive/$stamp/$head. Follow-up work belongs in a fresh post-V1 branch." || true
+              done
+
+          echo -e 'branch\tcommit_sha\tarchived_tag\tdeleted' > branch-archive-manifest.tsv
+          mapfile -t branches < <(gh api --paginate "repos/$repo/branches?per_page=100" --jq '.[].name')
+          failures=0
+          for branch in "${branches[@]}"; do
+            [[ "$branch" == 'main' || "$branch" == 'custom/main' ]] && continue
+            # Re-read the exact live ref. Never delete based on a stale snapshot.
+            sha="$(gh api "repos/$repo/git/ref/heads/$branch" --jq '.object.sha')" || { failures=$((failures+1)); continue; }
+            archived="archive/$stamp/$branch"
+            if existing="$(gh api "repos/$repo/git/ref/tags/$archived" --jq '.object.sha' 2>/dev/null)"; then
+              if [[ "$existing" != "$sha" ]]; then
+                echo "::error::Archived tag moved or branch advanced: $branch"
+                failures=$((failures+1))
+                continue
+              fi
+            else
+              gh api -X POST "repos/$repo/git/refs" -f "ref=refs/tags/$archived" -f "sha=$sha" >/dev/null || {
+                echo "::error::Cannot archive branch: $branch"
+                failures=$((failures+1))
+                continue
+              }
+            fi
+            verified="$(gh api "repos/$repo/git/ref/tags/$archived" --jq '.object.sha')"
+            if [[ "$verified" != "$sha" ]]; then
+              echo "::error::Tag verification mismatch for $branch"
+              failures=$((failures+1))
+              continue
+            fi
+            if gh api -X DELETE "repos/$repo/git/refs/heads/$branch" >/dev/null; then
+              printf '%s\t%s\t%s\tYES\n' "$branch" "$sha" "$archived" >> branch-archive-manifest.tsv
+              echo "Archived and deleted $branch"
+            else
+              printf '%s\t%s\t%s\tNO\n' "$branch" "$sha" "$archived" >> branch-archive-manifest.tsv
+              failures=$((failures+1))
+            fi
+          done
+          gh release upload "$release" branch-archive-manifest.tsv --repo "$repo" --clobber
+          mapfile -t remaining < <(gh api --paginate "repos/$repo/branches?per_page=100" --jq '.[].name')
+          printf 'Remaining branches: %s\n' "${remaining[*]}"
+          if (( failures > 0 )); then
+            echo "::error::$failures branch cleanup/archive operations failed; see manifest and retained refs."
+            exit 1
+          fi
+          if (( ${#remaining[@]} != 2 )) || [[ " ${remaining[*]} " != *' main '* ]] ||
+             [[ " ${remaining[*]} " != *' custom/main '* ]]; then
+            echo '::error::Expected only main and custom/main after cleanup.'
+            exit 1
+          fi
