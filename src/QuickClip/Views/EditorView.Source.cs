@@ -10,6 +10,7 @@ public partial class EditorView
     private FileStamp? _sourceStamp;
     private EditorSourceState _sourceState;
     private bool _sourceSuspended, _recheckingSource, _replacingSource;
+    private bool _previewReady;
     private Window? _sourceWindow;
     private bool SourceReady => _sourceState == EditorSourceState.Ready && !_sourceSuspended;
 
@@ -51,7 +52,20 @@ public partial class EditorView
         _soundPreviewTimer.Stop();
         _audioSyncTimer.Stop();
         _paused = true;
+        _previewReady = false;
+        // libmpv can retain the last rendered frame while idle. Hide its HWND until
+        // a FileLoaded event verifies that the requested current clip is playing.
+        Video.Visibility = Visibility.Hidden;
         _player?.Command("stop");
+    }
+
+    private void ClearNativePreview()
+    {
+        StopSourcePreview();
+        _player?.Command("playlist-clear");
+        _player?.SetList("audio-files", []);
+        EmptySourceHint.Text = "Open a video or drop it here";
+        EmptySourceHint.Visibility = Visibility.Visible;
     }
 
     private void SetSourceState(EditorSourceState state)
@@ -76,7 +90,13 @@ public partial class EditorView
             MissingSourceOverlayMessage.Text = EditorSource.Message(state) +
                 "\n\nClear editor closes this clip without deleting any recording.";
         }
-        Video.Visibility = ready ? Visibility.Visible : Visibility.Hidden;
+        Video.Visibility = ready && _media != null && _previewReady
+            ? Visibility.Visible : Visibility.Hidden;
+        EmptySourceHint.Visibility = ready
+            ? _previewReady && _media != null ? Visibility.Collapsed : Visibility.Visible
+            : Visibility.Collapsed;
+        if (ready && _media == null)
+            EmptySourceHint.Text = "Open a video or drop it here";
         UnavailableSource.Visibility = ready || showBlockingPrompt ? Visibility.Collapsed : Visibility.Visible;
         Timeline.HasMedia = ready && _media != null;
         UpdateUiState();
@@ -109,7 +129,7 @@ public partial class EditorView
         if (!ConfirmDiscardDraft()) return;
 
         // Forget the unavailable source in this editor only. Never delete media or Gallery entries.
-        StopSourcePreview();
+        ClearNativePreview();
         _keyframeCts?.Cancel();
         _stalePreviews.AddRange(_tracks.Select(t => t.PreviewFile).OfType<string>());
         foreach (var track in _tracks)
@@ -131,7 +151,8 @@ public partial class EditorView
 
         MissingSourceOverlay.Visibility = UnavailableSource.Visibility = Visibility.Collapsed;
         SetRecoveryInteraction(false);
-        Video.Visibility = Visibility.Visible;
+        Video.Visibility = Visibility.Hidden;
+        EmptySourceHint.Visibility = Visibility.Visible;
         RevealButton.Visibility = UndoButton.Visibility = Visibility.Collapsed;
         StatusText.Text = "";
         FileTitle = null;
@@ -148,7 +169,6 @@ public partial class EditorView
         UpdateTrackHeader();
         UpdateUiState();
         UpdateViewSeek();
-        ShowMessage("Open a video or drop it here");
         TitleChanged?.Invoke();
         Root.Focus();
     }
