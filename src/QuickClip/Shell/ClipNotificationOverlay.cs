@@ -106,20 +106,39 @@ internal sealed class ClipNotificationOverlay : IDisposable
         _details!.Children.Clear();
         _details.Children.Add(new TextBlock
         {
-            Text = title,
-            Foreground = accent, FontSize = 14, FontWeight = FontWeights.SemiBold,
-            TextWrapping = TextWrapping.Wrap,
+            Text = title, Foreground = accent, FontSize = options.Style == OverlayStyle.Detailed ? 16 : 15,
+            FontWeight = FontWeights.SemiBold, TextWrapping = TextWrapping.NoWrap,
+            TextTrimming = TextTrimming.CharacterEllipsis,
         });
         var lines = error != null ? new[] { error } : details?.Lines(options) ?? [];
-        foreach (var line in lines)
+        var foreground = Application.Current?.TryFindResource("PrimaryTextBrush") as Brush ?? Brushes.White;
+        if (options.Style == OverlayStyle.Compact)
         {
-            _details.Children.Add(new TextBlock
-            {
-                Text = line, Foreground = Application.Current?.TryFindResource("PrimaryTextBrush") as Brush ?? Brushes.White, FontSize = 12,
-                TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 3, 0, 0),
-            });
+            // Compact is actually compact: title + one horizontally readable summary.
+            // Full per-field breakdown remains available in Detailed.
+            string summary = string.Join("  ·  ", lines);
+            if (!string.IsNullOrEmpty(summary))
+                _details.Children.Add(new TextBlock
+                {
+                    Text = summary, Foreground = foreground, FontSize = 12,
+                    TextWrapping = TextWrapping.NoWrap, TextTrimming = TextTrimming.CharacterEllipsis,
+                    Margin = new Thickness(0, 5, 0, 0),
+                });
         }
-        double width = badge ? options.Size : (options.Style == OverlayStyle.Detailed ? 390 : 320) * options.Size / 72;
+        else
+        {
+            foreach (var line in lines)
+                _details.Children.Add(new TextBlock
+                {
+                    Text = line, Foreground = foreground, FontSize = 12,
+                    TextWrapping = TextWrapping.WrapWithOverflow, Margin = new Thickness(0, 5, 0, 0),
+                });
+        }
+        // Keep sufficient width at small icon sizes: previous 320*(Size/72) DIP
+        // squeezed every word into a character-wide column.
+        double width = options.Style == OverlayStyle.Detailed
+            ? Math.Clamp(450 * options.Size / 72, 390, 690)
+            : Math.Clamp(360 * options.Size / 72, 310, 570);
         if (imageOnly) width = options.Size * 2;
         if (imageOnly)
         {
@@ -231,9 +250,18 @@ internal sealed class ClipNotificationOverlay : IDisposable
         var icon = new Grid { VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 12, 0) };
         icon.Children.Add(_ring);
         icon.Children.Add(_badge);
-        _details = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
-        var content = new DockPanel();
-        DockPanel.SetDock(icon, Dock.Left);
+        _details = new StackPanel
+        {
+            VerticalAlignment = VerticalAlignment.Center,
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+        };
+        // Explicit flexible text column, rather than DockPanel intrinsic width
+        // collapsing wrapped TextBlocks to a near-vertical letter stack.
+        var content = new Grid();
+        content.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        content.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        Grid.SetColumn(icon, 0);
+        Grid.SetColumn(_details, 1);
         content.Children.Add(icon);
         content.Children.Add(_details);
         _card = new Border
