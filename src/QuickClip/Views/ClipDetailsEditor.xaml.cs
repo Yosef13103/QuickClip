@@ -282,7 +282,13 @@ public partial class ClipDetailsEditor : UserControl
             return false;
         if (automatic && !string.IsNullOrWhiteSpace(TagBox.Text)) return false;
         if (!automatic && !AddTag()) return false;
-        if (!HasDraft) return true;
+        if (!HasDraft)
+        {
+            // Explicit Save still closes the Gallery details panel when nothing
+            // remains to write (including when autosave already completed).
+            if (!automatic) Saved?.Invoke(target.Path, target.Details);
+            return true;
+        }
 
         long revision = _draftRevision;
         string title = TitleBox.Text.Trim();
