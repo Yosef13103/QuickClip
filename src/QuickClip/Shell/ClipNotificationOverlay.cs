@@ -101,7 +101,12 @@ internal sealed class ClipNotificationOverlay : IDisposable
             _badge.BorderThickness = new Thickness(1);
             _badge.SetResourceReference(Border.BackgroundProperty, "OverlayBackgroundBrush");
         }
-        _imageView = _image == null ? null : new Image { Source = _image.First, Stretch = Stretch.Uniform };
+        _imageView = _image == null ? null : new Image
+        {
+            Source = _image.First,
+            Stretch = options.ImageFit == OverlayImageFit.Cover ? Stretch.UniformToFill : Stretch.Uniform,
+            ClipToBounds = true,
+        };
         _badge.Child = _imageView ?? (UIElement)_glyph;
         _details!.Children.Clear();
         _details.Children.Add(new TextBlock
