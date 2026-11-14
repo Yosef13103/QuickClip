@@ -417,7 +417,11 @@ public partial class EditorView : UserControl
         }
         _childWindowTimer.Start();
         AttachSourceEvents();
-        ShowMessage("Open a video or drop it here");
+        // VideoHost.Created only completes when the host is first presented.
+        // Once libmpv is initialized with that real HWND, hide the idle native
+        // surface and show the WPF-owned placeholder until a verified FileLoaded.
+        Video.Visibility = Visibility.Hidden;
+        EmptySourceHint.Visibility = Visibility.Visible;
         _ = Task.Run(() => DeletePreviews(olderThan: TimeSpan.FromDays(1)));
 
         // Personal clips start with looping off; looping is an explicit per-editor choice.
