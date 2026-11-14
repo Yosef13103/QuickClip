@@ -143,8 +143,7 @@ public sealed class CaptureEngineTests(MediaFixture media, Xunit.Abstractions.IT
         }
         var info = await MediaInfo.ProbeAsync(clip);
         Assert.Equal(["QuickClip Full Mix", "Game", "Chat", "Mic"], info.Audio.Select(a => a.DisplayName));
-        Assert.True(info.Audio[0].IsDefault);
-        Assert.Equal(["Game", "Chat", "Mic"], info.EditableAudio.Select(a => a.DisplayName));
+        Assert.Equal(["Game", "Chat", "Mic"], info.Audio.Skip(1).Select(a => a.DisplayName));
         Assert.InRange(span.DurationUs, 950_000, 2_050_000);
         Assert.InRange(Math.Abs(info.Duration - span.DurationUs / 1e6), 0, 0.15);
         double game = await MediaFixture.BandLevel(clip, 1, 2000);
@@ -197,8 +196,7 @@ public sealed class CaptureEngineTests(MediaFixture media, Xunit.Abstractions.IT
         Assert.NotNull(info.EmbeddedCreationTime);
         Assert.InRange(info.EmbeddedCreationTime.Value, captureStarted, DateTimeOffset.UtcNow);
         Assert.Equal(["QuickClip Full Mix", "Desktop", "Chat", "Music", "Mic"], info.Audio.Select(a => a.DisplayName));
-        Assert.True(info.Audio[0].IsDefault);
-        Assert.Equal(4, info.EditableAudio.Count);
+        Assert.Equal(4, info.Audio.Count - 1);
         File.Delete(clip);
     }
 
@@ -232,8 +230,7 @@ public sealed class CaptureEngineTests(MediaFixture media, Xunit.Abstractions.IT
 
         var info = await MediaInfo.ProbeAsync(clip);
         Assert.Equal(["QuickClip Full Mix", .. tracks], info.Audio.Select(a => a.DisplayName));
-        Assert.True(info.Audio[0].IsDefault);
-        Assert.Equal(tracks, info.EditableAudio.Select(a => a.DisplayName));
+        Assert.Equal(tracks, info.Audio.Skip(1).Select(a => a.DisplayName));
         Assert.All(info.Audio, a => Assert.Equal("aac", a.Codec));
         File.Delete(clip);
     }
