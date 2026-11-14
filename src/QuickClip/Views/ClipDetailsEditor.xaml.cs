@@ -312,6 +312,15 @@ public partial class ClipDetailsEditor : UserControl
                     // Retain the user's current text and focus, even if they kept typing
                     // while the asynchronous metadata write was in flight.
                     _details = saved;
+                    if (revision == _draftRevision && string.IsNullOrWhiteSpace(GameBox.Text) &&
+                        !string.IsNullOrWhiteSpace(saved.Game))
+                    {
+                        // Empty classification resolves to its folder name. Show that
+                        // canonical value so the same already-saved draft won't remain dirty.
+                        _settingFields = true;
+                        try { GameBox.Text = saved.Game; }
+                        finally { _settingFields = false; }
+                    }
                     Feedback.Text = "Saved automatically";
                 }
                 else
