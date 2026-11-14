@@ -68,7 +68,8 @@ internal sealed class MediaInfo
 
     /// <summary>Legacy multitrack media stays unchanged; a recognized hybrid hides only its first composite stream.</summary>
     public IReadOnlyList<AudioStreamInfo> EditableAudio =>
-        Audio.Count > 1 && Audio[0].IsPlaybackMix ? Audio.Skip(1).ToArray() : Audio;
+        Audio.Count > 1 && Audio[0].IsPlaybackMix && Audio[0].IsDefault
+            ? Audio.Skip(1).ToArray() : Audio;
 
     public string Summary
     {
