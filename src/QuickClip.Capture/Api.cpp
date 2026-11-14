@@ -218,6 +218,16 @@ extern "C"
         }
     }
 
+    // Synthetic float fixture only: validates the default listening mix's
+    // summation/soft limit without capturing any private device audio.
+    __declspec(dllexport) int qc_test_playback_mix(const float* left, const float* right, int count, float* output)
+    {
+        if (!left || !right || !output || count < 0 || count > 192000) return -1;
+        for (int i = 0; i < count; ++i)
+            output[i] = qc::SoftLimitPlaybackSample(left[i] + right[i]);
+        return count;
+    }
+
     // Synthetic float fixture only. Does not open an endpoint.
     __declspec(dllexport) float qc_test_audio_packet_peak(const float* samples, int count)
     {

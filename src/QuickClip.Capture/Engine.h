@@ -111,6 +111,10 @@ extern "C"
 namespace qc
 {
     std::string DisplayDiagnostics();
+
+    // The default listening mix has its own encoder. Keep every raw stem intact.
+    // Deterministic soft knee, unlike a hard clamp which creates its own crackle.
+    float SoftLimitPlaybackSample(float value);
     /// Encoded packets of all streams for the last N seconds.
     class PacketRing
     {
@@ -217,6 +221,8 @@ namespace qc
             std::atomic<int64_t> encodedPackets{ 0 };
         };
         std::vector<std::unique_ptr<Track>> tracks_;
+        AudioEncoder playbackMixEncoder_;
+        bool hybridAudio_ = false;
         int chatTrack_ = -1, musicTrack_ = -1;
 
         // App capture streams by what they record. When the apps change, only the streams that differ are
