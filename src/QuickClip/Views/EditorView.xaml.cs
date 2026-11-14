@@ -347,7 +347,9 @@ public partial class EditorView : UserControl
         TrackList.ItemsSource = _tracks;
         Timeline.State = _timeline;
         Timeline.SeekRequested += OnSeekRequested;
-        WaveformLane.SeekRequested += OnSeekRequested;
+        // Routed seeks bubble only to this Editor, not through a static event
+        // that retains closed windows and affects other Editor instances.
+        AddHandler(WaveformLane.SeekRequestedEvent, new RoutedEventHandler(OnWaveformSeekRequested));
         _timeline.SelectionChanged += OnSelectionChanged;
         _crop.Changed += OnCropChanged;
 
@@ -1136,6 +1138,13 @@ public partial class EditorView : UserControl
         ApplyLoop();
         UpdateTimeText();
         _player.CommandAsync("seek", Fmt.Num(t, "0.######"), exact ? "absolute+exact" : "absolute+keyframes");
+    }
+
+    private void OnWaveformSeekRequested(object sender, RoutedEventArgs e)
+    {
+        if (e is not WaveformLane.WaveformSeekEventArgs seek || _closed || !SourceReady) return;
+        OnSeekRequested(seek.Time, seek.Finished);
+        e.Handled = true;
     }
 
     private void OnSeekRequested(double t, bool final)
