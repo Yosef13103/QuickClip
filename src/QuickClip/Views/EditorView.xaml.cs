@@ -74,7 +74,6 @@ public partial class EditorView : UserControl
     /// <summary>The frame rate choice "Smooth 60 fps": 60 fps with the extra frames blended into motion blur.</summary>
     private const double SmoothFps = -60;
     private (string Clip, DateTime RecycledUtc, ClipDetails OriginalDetails)? _undo;
-    private bool _settingMerge;
     private int _timePosQueued;
     private double _mpvTimePos;
 
@@ -430,8 +429,6 @@ public partial class EditorView : UserControl
 
         // Personal clips start with looping off; looping is an explicit per-editor choice.
         LoopToggle.IsChecked = AppProfile.IsPersonal ? false : _settings.Loop;
-        // Merging always starts off (it used to be remembered, which quietly merged every later export).
-        _settings.MergeAudio = false;
         _uiReady = true;
 
         if (_pendingFile != null)
@@ -652,7 +649,7 @@ public partial class EditorView : UserControl
                 if (t.PreviewFile != null) _stalePreviews.Add(t.PreviewFile);
             }
             _tracks.Clear();
-            foreach (var a in info.Audio)
+            foreach (var a in info.EditableAudio)
             {
                 var track = new AudioTrack(a, _timeline, info.Duration);
                 track.Changed += OnTrackChanged;
@@ -952,7 +949,13 @@ public partial class EditorView : UserControl
         _audioSyncTimer.Stop();
         // The clip's own tracks, then the added sounds that are ready (mpv numbers external tracks after the file's).
         _previewTracks = [.. _tracks.Where(t => !t.IsSound || t.PreviewFile != null)];
-        _previewAudio?.Configure(_previewTracks.Count, i => PreviewVolume(_previewTracks[i]));
+        // A hybrid file's aid1 is a composite, intentionally hidden from the
+        // editable tracks. Added sounds start AFTER every embedded audio stream.
+        var aids = new List<int>(_previewTracks.Count);
+        int external = 0;
+        foreach (var track in _previewTracks)
+            aids.Add(track.IsSound ? _media.Audio.Count + ++external : track.Info.Ordinal + 1);
+        _previewAudio?.Configure(aids, i => PreviewVolume(_previewTracks[i]));
     }
 
     /// <summary>Makes the current volumes stick across mpv rebuilding its filters (it does on every seek).</summary>
@@ -986,24 +989,6 @@ public partial class EditorView : UserControl
     private void VolumeSlider_DoubleClick(object sender, MouseButtonEventArgs e)
     {
         if (sender is FrameworkElement { DataContext: AudioTrack t }) t.Volume = 1;
-    }
-
-    private void Merge_Changed(object sender, RoutedEventArgs e)
-    {
-        if (!_settingMerge && MergeCheck.IsChecked == true)
-        {
-            var answer = ModalDialog.Show(OwnerWindow,
-                "Merge all audio tracks into one when exporting?\n\nThe exported file will have a single audio track, so its game, " +
-                "chat, mic and music can't be turned up or down separately any more.",
-                "Merge audio tracks", MessageBoxButton.OKCancel, MessageBoxImage.Question);
-            if (answer != MessageBoxResult.OK)
-            {
-                _settingMerge = true;
-                MergeCheck.IsChecked = false;
-                _settingMerge = false;
-            }
-        }
-        UpdateSummary();
     }
 
     private void Transport_SizeChanged(object sender, SizeChangedEventArgs e)
@@ -1624,9 +1609,6 @@ public partial class EditorView : UserControl
         Select(QualityCombo, "original");
         Select(ResolutionCombo, 0);
         Select(FormatCombo, "source");
-        _settingMerge = true;
-        MergeCheck.IsChecked = false;
-        _settingMerge = false;
         RefreshEncoderList();
         UpdateUiState();
         Root.Focus();
@@ -1636,7 +1618,7 @@ public partial class EditorView : UserControl
     private bool OptionsChanged() =>
         _crop.Enabled || (FpsCombo.SelectedItem as Choice)?.Value is not 0.0 || (QualityCombo.SelectedItem as Choice)?.Value as string != "original"
         || (ResolutionCombo.SelectedItem as Choice)?.Value is not 0 || (FormatCombo.SelectedItem as Choice)?.Value as string != "source"
-        || EncoderCombo.SelectedItem is Choice { Value: string { Length: > 0 } } || MergeCheck.IsChecked == true;
+        || EncoderCombo.SelectedItem is Choice { Value: string { Length: > 0 } };
 
     private void TargetSize_Changed(object sender, TextChangedEventArgs e) => UpdateSummary();
 
@@ -1671,8 +1653,6 @@ public partial class EditorView : UserControl
         DeleteMediaButton.IsEnabled = _media != null && !busy && !_deletingMedia;
         FavoriteButton.IsEnabled = _media != null && !busy && !_deletingMedia;
         MetadataEditor.IsEnabled = !busy;
-        MergeCheck.IsEnabled = _tracks.Count > 1;
-        MergeCheck.Visibility = container.IsGif ? Visibility.Collapsed : Visibility.Visible;
         AddSoundButton.IsEnabled = _media != null;
         UpdateSummary();
     }
@@ -1712,8 +1692,7 @@ public partial class EditorView : UserControl
         {
             0 => "no audio",
             1 => "1 audio track" + withSounds,
-            _ when MergeCheck.IsChecked == true || c.SingleAudioTrack => $"{audio} audio tracks{withSounds} merged into 1",
-            _ => $"{audio} audio tracks{withSounds}",
+            _ => $"{audio} tracks mixed into 1 for sharing" + withSounds,
         };
         parts.Add(tracks);
         SummaryText.Text = string.Join("  ·  ", parts);
@@ -1796,7 +1775,8 @@ public partial class EditorView : UserControl
                     Offset = t.Offset,
                 })
                 .ToList(),
-            MergeAudio = MergeCheck.IsChecked == true,
+            // The UI chooses the output layout at export time: compatible share
+            // or lossless-workflow overwrite, never a confusing checkbox.
             VideoMode = VideoMode.Encode,
             EncoderId = chosenEncoder,
             Quality = (QualityCombo.SelectedItem as Choice)?.Value as string ?? "original",
@@ -1894,14 +1874,12 @@ public partial class EditorView : UserControl
         var container = CurrentContainer(forOverwrite: true);
         string fileName = Path.GetFileName(_media.Path);
         int tracks = _tracks.Count(t => t.Include);
-        bool merging = MergeCheck.IsChecked == true && tracks > 1 && !container.SingleAudioTrack;
-        string warning = merging
-            ?
-                $"Merge all audio tracks is on.\n\nSaving over \"{fileName}\" mixes its {tracks} audio tracks into one, so the clip " +
-                "loses its separate game, chat, mic and music tracks. The original will be moved to the Recycle Bin."
-            : $"Replace \"{fileName}\" with the edited clip?\n\nThe original will be moved to the Recycle Bin.";
+        string layout = tracks > 1 && container.HasVideo && !container.SingleAudioTrack
+            ? "The saved file will play a complete mixed soundtrack by default AND retain separate audio tracks for future editing."
+            : "The saved file will retain the selected audio.";
+        string warning = $"Replace \"{fileName}\" with the edited clip?\n\n{layout}\n\nThe original will be moved to the Recycle Bin.";
         if (!ModalDialog.ConfirmAction(OwnerWindow, warning, "Save over original",
-            merging ? "Merge tracks and replace" : "Replace original", "Keep original", destructive: true)) return;
+            "Replace original", "Keep original", destructive: true)) return;
 
         string dir = Path.GetDirectoryName(_media.Path)!;
         string temp = UniquePath(dir, Path.GetFileNameWithoutExtension(_media.Path) + ".quickclip-tmp", Path.GetExtension(_media.Path));
@@ -1925,6 +1903,13 @@ public partial class EditorView : UserControl
             }
             staging = ClipNaming.ReserveStagingPath(Path.GetDirectoryName(outputPath)!, container.Extension);
             request = BuildRequest(staging, container);
+            // Export as new -> ordinary playable single soundtrack.
+            // Save over -> first stream is a default mix, followed by editable stems.
+            request = request with
+            {
+                MergeAudio = !overwrite && request.Tracks.Count > 1,
+                HybridAudio = overwrite && container.HasVideo && !container.SingleAudioTrack,
+            };
             if (AppProfile.IsPersonal) request = request with { CaptureTime = details.CapturedAt, ClipTitle = details.Title };
             args = ExportBuilder.BuildArgs(request);
         }
