@@ -30,6 +30,17 @@ public sealed class EditorTimelineInteractionTests
     }
 
     [Theory]
+    [InlineData(0, 0, true)]
+    [InlineData(12, 18, true)]
+    [InlineData(-13, 22, true)]
+    [InlineData(14, 5, false)]
+    [InlineData(5, 23, false)]
+    [InlineData(0, -1, false)]
+    public void Bookmark_target_is_large_enough_to_click_but_does_not_capture_the_whole_ruler(
+        double deltaX, double y, bool expected) =>
+        Assert.Equal(expected, TimelineBar.WithinBookmarkHitTarget(deltaX, y));
+
+    [Theory]
     [InlineData(600, 280, 280)]
     [InlineData(450, 600, 305)]
     [InlineData(450, 40, 112)]
