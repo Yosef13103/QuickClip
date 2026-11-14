@@ -36,6 +36,9 @@ public sealed class AudioStreamInfo
 
     public string DisplayName => !string.IsNullOrWhiteSpace(Title) ? Title! : $"Track {Ordinal + 1}";
 
+    /// <summary>QuickClip's generated default playback mix; never an independently editable stem.</summary>
+    public bool IsPlaybackMix => string.Equals(Title, ExportBuilder.FullMixTitle, StringComparison.Ordinal);
+
     public string Description
     {
         get
@@ -62,6 +65,10 @@ internal sealed class MediaInfo
     public VideoStreamInfo? Video { get; init; }
     public List<AudioStreamInfo> Audio { get; } = [];
 
+    /// <summary>Legacy multitrack media stays unchanged; a recognized hybrid hides only its first composite stream.</summary>
+    public IReadOnlyList<AudioStreamInfo> EditableAudio =>
+        Audio.Count > 1 && Audio[0].IsPlaybackMix ? Audio.Skip(1).ToArray() : Audio;
+
     public string Summary
     {
         get
@@ -76,7 +83,8 @@ internal sealed class MediaInfo
             else parts.Add("Audio only");
             parts.Add(Fmt.Time(Duration, millis: false));
             parts.Add(Fmt.Size(Size));
-            if (Audio.Count > 1) parts.Add($"{Audio.Count} audio tracks");
+            if (EditableAudio.Count > 1) parts.Add($"{EditableAudio.Count} audio tracks");
+            if (EditableAudio.Count < Audio.Count) parts.Add("playback mix + editable tracks");
             return string.Join("  ·  ", parts);
         }
     }
