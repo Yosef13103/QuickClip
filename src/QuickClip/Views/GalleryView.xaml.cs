@@ -98,6 +98,8 @@ public partial class GalleryView : UserControl
     {
         InitializeComponent();
         GalleryDetailsEditor.KnownTags = () => KnownTags;
+        GalleryDetailsEditor.AutoSaveEnabled = AppProfile.IsPersonal;
+        GalleryDetailsEditor.AutoSaved += ApplyClipDetails;
         AnnotationActions = PersonalLibrary.Current;
         StorageButton.Visibility = PersonalAnnotations ? Visibility.Visible : Visibility.Collapsed;
         StoragePane.BackRequested += () =>
