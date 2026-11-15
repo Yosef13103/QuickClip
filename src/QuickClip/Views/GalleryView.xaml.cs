@@ -158,6 +158,8 @@ public partial class GalleryView : UserControl
     }
 
     /// <summary>Stops watching the folder, closes the project preview and drops the thumbnails (the window is closing).</summary>
+    internal bool HasActiveMontageExport => ProjectPane.Exporting;
+
     public async Task CloseAsync()
     {
         _released = true;

@@ -1921,8 +1921,11 @@ public partial class EditorView : UserControl
         await RunExportAsync(temp, container, overwrite: true);
     }
 
+    internal bool HasActiveExport => _exportCts != null;
+
     private async Task RunExportAsync(string outputPath, Container container, bool overwrite)
     {
+        if (App.IsQuittingForUpdate) return;
         if (CurrentFile is not { } source || !VerifySource(source) || !SourceReady) return;
         string? staging = null;
         var details = CurrentClipDetails();

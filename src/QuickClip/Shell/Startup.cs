@@ -24,8 +24,7 @@ internal static class Startup
             return false;
 #else
             if (!AppProfile.UsesDefaultDataRoot || AppSettings.SaveDisabled) return false;
-            using var install = Registry.CurrentUser.OpenSubKey(PersonalInstallKey);
-            return MatchesInstallation(Environment.ProcessPath, install?.GetValue("Executable") as string);
+            return MatchesInstallation(Environment.ProcessPath, ReadPersonalExecutable());
 #endif
         }
     }
@@ -54,6 +53,19 @@ internal static class Startup
         }
         if (enabled) key.SetValue(ValueName, Command);
         else key.DeleteValue(ValueName, throwOnMissingValue: false);
+    }
+
+    internal static string? ReadPersonalExecutable()
+    {
+        try
+        {
+            using var install = Registry.CurrentUser.OpenSubKey(PersonalInstallKey);
+            return install?.GetValue("Executable") as string;
+        }
+        catch (Exception ex) when (ex is UnauthorizedAccessException or System.Security.SecurityException)
+        {
+            return null;
+        }
     }
 
     internal static bool MatchesInstallation(string? processPath, string? installedPath) =>

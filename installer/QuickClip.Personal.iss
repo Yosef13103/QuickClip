@@ -8,6 +8,7 @@ AppName=QuickClip Personal
 AppVersion={#AppVersion}
 AppVerName=QuickClip Personal {#DisplayVersion}
 VersionInfoVersion={#NumericVersion}
+VersionInfoDescription=QuickClip Personal setup (in-place update v1)
 DefaultDirName={localappdata}\Programs\QuickClip Personal
 PrivilegesRequired=lowest
 DisableProgramGroupPage=yes
@@ -26,6 +27,7 @@ ArchitecturesInstallIn64BitMode=x64compatible
 MinVersion=10.0.19045
 CloseApplications=yes
 RestartApplications=no
+SetupMutex=Local\QuickClip.Personal.Setup
 
 [Languages]
 Name: "english"; MessagesFile: "compiler:Default.isl"
@@ -122,7 +124,24 @@ begin
 end;
 
 function PrepareToInstall(var NeedsRestart: Boolean): String;
+var
+  Previous, Exe, FileVersion: String;
 begin
+  Previous := ExpandConstant('{param:QCUPDATE|}');
+  if Previous <> '' then
+  begin
+    Result := 'The existing QuickClip Personal installation has changed. Use the manual setup.';
+    if not RegQueryStringValue(HKCU, InstallKey, 'Executable', Exe) then exit;
+    if CompareText(AddBackslash(WizardDirValue) + 'QuickClip.exe', Exe) <> 0 then exit;
+    if not FileExists(AddBackslash(WizardDirValue) + 'quickclip-install-files.txt') then exit;
+    if not GetVersionNumbersString(Exe, FileVersion) then exit;
+    if FileVersion <> Previous + '.0' then exit;
+    if CheckForMutexes('Local\QuickClip.Personal.Instance') then
+    begin
+      Result := 'QuickClip Personal is still running. Close it before installing the update.';
+      exit;
+    end;
+  end;
   Result := DestinationError(WizardDirValue);
 end;
 

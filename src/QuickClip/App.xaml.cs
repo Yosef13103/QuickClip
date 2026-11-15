@@ -72,6 +72,12 @@ public partial class App : Application
         Themes.Attach(this);
         Themes.Apply(this, AppSettings.Current);
 
+        if (!CanOpenDuringUpdate(args))
+        {
+            Shutdown(0);
+            return;
+        }
+
         // One QuickClip per user: a second launch (e.g. "Edit with QuickClip") hands its file to the first.
         if (!renderTest && !SingleInstance.TryBecomePrimary())
         {
@@ -79,7 +85,7 @@ public partial class App : Application
             Shutdown(0);
             return;
         }
-        if (args.Contains("--quit") || args.Contains("--save-clip"))
+        if (!CanOpenDuringUpdate(args) || args.Contains("--quit") || args.Contains("--save-clip"))
         {
             Shutdown(0); // nothing running to talk to
             return;
@@ -179,6 +185,7 @@ public partial class App : Application
     /// <summary>Arguments from a later launch: a file to edit, or a command for the running QuickClip.</summary>
     private void HandleArgs(string[] args)
     {
+        if (_quittingForUpdate) return;
         if (AppProfile.IsPersonal && args.Contains(Shell.Startup.WindowsStartupArgument)) return;
         if (AppProfile.IsPersonal && args.Contains("--reset-theme", StringComparer.OrdinalIgnoreCase))
         {
@@ -312,7 +319,13 @@ public partial class App : Application
         AppSettings.Current.Save();
         ShellClipboard.KeepAfterExit();
         Log.Flush();
-        beforeExit?.Invoke();
+        try { beforeExit?.Invoke(); }
+        catch (Exception ex) when (_quittingForUpdate)
+        {
+            Log.Write("Could not hand off the approved update: " + ex.Message);
+            MessageBox.Show("The update could not start. Open QuickClip to continue using the current version.\n\n" + ex.Message,
+                "QuickClip Personal update", MessageBoxButton.OK, MessageBoxImage.Error);
+        }
         Shutdown(0);
         return true;
     }

@@ -539,7 +539,7 @@ public partial class ProjectView : UserControl
 
     private async void Export_Click(object sender, RoutedEventArgs e)
     {
-        if (_project == null || _clips.Count == 0 || _exportCts != null) return;
+        if (App.IsQuittingForUpdate || _project == null || _clips.Count == 0 || _exportCts != null) return;
         var missing = _clips.FirstOrDefault(c => c.Info == null);
         if (missing != null)
         {
@@ -586,6 +586,8 @@ public partial class ProjectView : UserControl
         }
     }
 
+    internal bool Exporting => _exportCts != null;
+
     private void CancelExport_Click(object sender, RoutedEventArgs e) => _exportCts?.Cancel();
 
     private void OpenFolder_Click(object sender, RoutedEventArgs e)
@@ -619,6 +621,5 @@ public partial class ProjectView : UserControl
         CommitOrder();
     }
     internal void ExportForRender() => Export_Click(this, new RoutedEventArgs());
-    internal bool Exporting => _exportCts != null;
 #endif
 }

@@ -449,6 +449,7 @@ internal sealed class AppHost : IDisposable
 
     private void RunRecordingCommand(RecordingCommand command)
     {
+        if (App.IsQuittingForUpdate) return;
         var recorder = Recorder.Instance;
         var settings = AppSettings.Current;
         switch (command)
