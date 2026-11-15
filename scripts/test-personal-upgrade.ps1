@@ -72,6 +72,7 @@ try {
     $setupArgs = '/SP- /VERYSILENT /SUPPRESSMSGBOXES /NORESTART /DIR="{0}"' -f $destination
     $old = Start-Process -FilePath $oldSetup -ArgumentList $setupArgs -Wait -PassThru
     if ($old.ExitCode -ne 0) { throw "Fresh fixture setup failed ($($old.ExitCode))." }
+    $destinationAcl = (Get-Acl -LiteralPath $destination).Sddl
 
     $wrongRoot = "$drive\wrong-destination"
     $badArgs = '/SP- /VERYSILENT /SUPPRESSMSGBOXES /NORESTART /QCUPDATE=1.0.0 /DIR="{0}"' -f $wrongRoot
@@ -120,6 +121,7 @@ try {
         (Test-Path -LiteralPath (Join-Path $updates 'pending')) -or
         (Get-ItemProperty -LiteralPath 'HKCU:\Software\QuickClip Personal\Install').Executable -ne $exe -or
         $registration.InstallLocation -ne ($destination + '\') -or $registration.DisplayVersion -ne '1.0.1' -or
+        (Get-Acl -LiteralPath $destination).Sddl -ne $destinationAcl -or
         (Get-FileHash -LiteralPath $sentinel).Hash -ne $sentinelHash) {
         throw 'Upgrade did not preserve the destination and registration or did not restart.'
     }

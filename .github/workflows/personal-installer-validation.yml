@@ -1,7 +1,7 @@
 name: Personal installer validation
 on:
   pull_request:
-    branches: [custom/main, integration/wave2-discovery-maintenance]
+    branches: [custom/main]
     paths:
       - installer/QuickClip.Personal.iss
       - scripts/test-personal-installer.ps1

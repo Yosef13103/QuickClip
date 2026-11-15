@@ -61,9 +61,12 @@ jobs:
             '--logger','trx;LogFileName=results.trx','--results-directory','TestResults',
             '--blame-hang-timeout','3m',"-p:QuickClipProfile=$env:PROFILE")
           if ($env:PROFILE -eq 'Upstream') {
-            $testArgs += @('--filter','FullyQualifiedName~ProfileTests|FullyQualifiedName~RecordingDefaultsTests|FullyQualifiedName~MenuPackageTests|FullyQualifiedName~CaptureEngineTests|FullyQualifiedName~NativeAudioTimelineTests')
+            $testArgs += @('--filter','FullyQualifiedName~ProfileTests|FullyQualifiedName~RecordingDefaultsTests|FullyQualifiedName~MenuPackageTests|FullyQualifiedName~CaptureEngineTests|FullyQualifiedName~NativeAudioTimelineTests|FullyQualifiedName~UpdaterTests')
           }
           dotnet @testArgs
+      - name: Exercise the Personal installer handoff on an alternate drive
+        if: matrix.profile == 'Personal' && github.base_ref == 'integration/wave2-discovery-maintenance'
+        run: ./scripts/test-personal-upgrade.ps1
       - name: Report results
         if: always()
         run: ./scripts/summarize-ci-tests.ps1 -Path TestResults/results.trx
