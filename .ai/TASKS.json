@@ -148,27 +148,27 @@
         "DISCOVERY D4"
       ],
       "scope": [
-        "Read-only research, existing Steam/Epic gaps; GOG first, Xbox and EA conditional, other launcher feasibility. ChatGPT research reusable. No install or source write required."
+        "Reuse the existing provider matrix and evaluate source-specific GameFinder, Playnite and direct local readers for broad primary and secondary Windows launcher coverage."
       ],
       "acceptance": [
-        "Per-provider source/pin/license/ACL/metadata/identity/error/dependency/test decision, approve subset before G5. Unsupported explicit."
+        "Record pins, licensing, dependencies, read-only metadata and identity decisions. Document concrete limits and fallbacks for unsupported source variants."
       ],
       "effort": "medium",
       "status": "reviewed",
-      "candidate": "1493d7431d07e96f2594a07d0eaf83e6080b9faa",
+      "candidate": "6b85607444abbf2ef98c565991e4d31d6a1d0805",
       "gates": {
         "local": "pass",
         "ci": "not_applicable",
         "review": "pending",
         "hardware": "not_applicable"
       },
-      "evidence": ["Decision matrix and sources in .ai/RESEARCH.md. Owner approved GOG only. Retain Steam/Epic direct readers; other providers remain research. No packages adopted."],
+      "evidence": ["Owner scope clarification on PR #77. See the current implementation decisions in .ai/RESEARCH.md. Uses direct metadata contracts informed by pinned GameFinder, PlayniteExtensions, RiotGamesLibrary and itch client code. No new packages."],
       "blocker": null,
-      "next_action": "Use the matrix for future separately approved provider proposals."
+      "next_action": "Review implementation against the recorded formats and collect real launcher evidence."
     },
     {
       "id": "W2-G5",
-      "title": "Bounded launcher-provider additions",
+      "title": "Broad local launcher discovery",
       "kind": "implementation",
       "depends_on": [
         {
@@ -182,10 +182,6 @@
         {
           "task": "W2-G4",
           "gate": "local"
-        },
-        {
-          "task": "W2-G4",
-          "gate": "review"
         }
       ],
       "read": [
@@ -193,23 +189,23 @@
         "RESEARCH Game providers"
       ],
       "scope": [
-        "Implement only owner-approved subset from G4, preserve Steam/Epic launch evidence; optional modular GOG baseline if approved, others conditional. No blanket launcher package or whole disk scans."
+        "Primary: Xbox PC / Game Pass, Microsoft Store, EA App, Riot, Battle.net, Ubisoft Connect and Rockstar. Secondary: Heroic, legacy Origin, itch.io and Amazon Games. Preserve Steam, Epic, GOG, standalone and manual discovery."
       ],
       "acceptance": [
-        "Per-provider parser and lookup fixtures, missing/malformed/offline/access errors, no automatic consent, correct stable IDs and UI coverage; pin/audit licenses/dependencies. Actual launcher checks when available."
+        "Integrated claims, source-local enable and refresh, Games status and counts, deterministic provider and eligibility fixtures, partial cache retention, deny persistence, exact IDs and provenance. Record supported metadata scope and fallback for each limitation."
       ],
       "effort": "high",
       "status": "implemented",
-      "candidate": "1493d7431d07e96f2594a07d0eaf83e6080b9faa",
+      "candidate": "6b85607444abbf2ef98c565991e4d31d6a1d0805",
       "gates": {
         "local": "pass",
         "ci": "pending",
         "review": "pending",
         "hardware": "pending"
       },
-      "evidence": ["Opt-in read-only GOG Registry32 reader. Injected fixtures cover product ID, duplicate/dependent records, invalid and unavailable sources, persisted overrides, and overlapping folder permission. No external dependency."],
-      "blocker": null,
-      "next_action": "Validate against actual GOG registrations and an offline GOG install in a supervised scratch profile."
+      "evidence": ["Added opt-in local readers and deterministic fixtures for Xbox gaming roots, EA App, Riot, Battle.net, Ubisoft Connect, Rockstar, Heroic, Origin, Amazon and itch.io. GOG remains integrated. Personal full suite includes 15 passing launcher fixture cases. See .ai/RESEARCH.md for source limits."],
+      "blocker": "Other Microsoft Store installs lack a local game-specific classification and supported renderer path in this candidate.",
+      "next_action": "Verify both Windows profiles and representative real launcher installs, denials and offline sources."
     },
     {
       "id": "W2-G6",
@@ -242,23 +238,27 @@
         "QUALITY Q2/Q5"
       ],
       "scope": [
-        "Integrate coherent discovery changes including only approved provider subset; G5 may be N/A with explicit owner deferral and reason. Review actual diff, both profiles, owner scenario script."
+        "Carry broad discovery forward on PR #77 while preserving both constituent PR heads. Review the actual diff, strict Personal and Upstream builds/tests and supervised owner scenarios."
       ],
       "acceptance": [
         "No unresolved discovery safety failures; full Personal/Upstream CI exact candidate, independent review, actual owner game/monitor and helper results or explicit pending."
       ],
       "effort": "high",
       "status": "in_progress",
-      "candidate": "1493d7431d07e96f2594a07d0eaf83e6080b9faa",
+      "candidate": "6b85607444abbf2ef98c565991e4d31d6a1d0805",
       "gates": {
         "local": "pass",
         "ci": "pending",
         "review": "pending",
         "hardware": "pending"
       },
-      "evidence": ["2026-11-15: native compile and both strict Release builds passed. Personal 780 passed, 19 skipped; Upstream 33 passed, 14 skipped; zero failures. The earlier notification-audio timeout did not recur. See private W2-milestone2."],
-      "blocker": null,
-      "next_action": "Track Windows quality on the draft PR, complete independent review and run the supervised D5 hardware checklist."
+      "evidence": [
+        "2026-11-15: PR #77 head verified. Windows quality 43750826370 tested an identical merge tree: Personal 785 passed/19 skipped, Upstream 33 passed/14 skipped. Actual Personal installer passed fresh install on a SUBST drive in run 43750826361.",
+        "Baseline local strict Personal focused suite passed (276 passed/5 skipped). Baseline full suite had 784 passed/19 skipped and one sandbox-denied registry fixture. See private W2-G6/VERIFICATION.md for baseline and maintenance findings.",
+        "2026-11-16: native compilation and both strict Windows Release builds passed. Exact tested candidate Personal 800 passed/19 skipped, Upstream CI profile filter 33 passed/14 skipped, zero failures. Includes malformed-record eligibility, disabled-source denial and cancellation fixtures. See private W2-G6 verification and broad-discovery TRX files."
+      ],
+      "blocker": "Maintenance recorder-state and display-revocation review findings remain open. Supervised hardware and installer upgrade checks are pending.",
+      "next_action": "Check draft PR CI, obtain independent review and complete supervised acceptance. Guided setup and Basic/Advanced are a separate implementation after discovery stabilizes."
     },
     {
       "id": "W2-R1",

@@ -14,6 +14,7 @@ internal sealed record GameCatalogSettings
     public bool DiscoverGog { get; init; }
     public bool? DiscoverSteam { get; init; }
     public bool? DiscoverEpic { get; init; }
+    public ImmutableArray<CatalogSource> EnabledLaunchers { get; init; } = [];
     public ImmutableArray<string> DisabledSourceKeys { get; init; } = [];
     public ImmutableArray<CatalogSourceClaim>? SourceClaims { get; init; }
     public ImmutableArray<CatalogEntry> LegacyEntries { get; init; } = [];
@@ -58,7 +59,7 @@ internal static class GameCatalogRuntime
             if (!ReferenceEquals(settings, _settings))
             {
                 var rows = CatalogClaims.Rows(CatalogClaims.Start(settings));
-                _index = new(new(rows, [], 0, false, default), settings.BlockedExecutables);
+                _index = new(new(rows, [], 0, false, default), CatalogClaims.BlockedExecutables(settings));
                 _settings = settings;
             }
             return _index!.Match(path, foreground);

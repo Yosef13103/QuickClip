@@ -41,7 +41,9 @@ public partial class GamesSettingsView
         public string Inheritance => "Uses global Recording and Audio settings.";
         public string Diagnostics => $"{Entry.Id} · Catalog association confidence: {Entry.Confidence}";
 
-        private string Source => Entry.Source == CatalogSource.Folder ? "Approved folder" : Entry.Source.ToString();
+        private string Source => string.Join(" / ",
+            (Entry.Provenance.IsEmpty ? [Entry.Source] : Entry.Provenance)
+                .Select(source => source == CatalogSource.Folder ? "Approved folder" : LocalLaunchers.Name(source)));
         private string Eligibility => IsExcluded ? "Ignored · Disabled" : Entry.Rules.Classification switch
         {
             AppClassification.Application => "Utility",

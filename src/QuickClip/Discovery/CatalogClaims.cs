@@ -15,6 +15,7 @@ internal sealed record CatalogScope(CatalogSource Kind, string? Root = null, boo
         if (settings.DiscoverSteam ?? settings.AutoScan) scopes = scopes.Append(new(CatalogSource.Steam));
         if (settings.DiscoverEpic ?? settings.AutoScan) scopes = scopes.Append(new(CatalogSource.Epic));
         if (settings.DiscoverGog) scopes = scopes.Append(new(CatalogSource.Gog));
+        scopes = scopes.Concat(settings.EnabledLaunchers.Where(LocalLaunchers.IsSupported).Select(source => new CatalogScope(source)));
         return scopes.DistinctBy(scope => scope.Key);
     }
 
@@ -29,6 +30,7 @@ internal sealed record CatalogScope(CatalogSource Kind, string? Root = null, boo
         DiscoverSteam = Kind == CatalogSource.Steam && Root == null,
         DiscoverEpic = Kind == CatalogSource.Epic,
         DiscoverGog = Kind == CatalogSource.Gog,
+        Launchers = LocalLaunchers.IsSupported(Kind) ? [Kind] : [],
         ExcludedDirectories = [.. Exclusions(settings).Where(path => Root == null ||
             CatalogPaths.IsWithin(path, Root) || CatalogPaths.IsWithin(Root, path))],
         MaxEntries = settings.MaxEntries,
@@ -44,10 +46,14 @@ internal sealed record CatalogScope(CatalogSource Kind, string? Root = null, boo
     private static string? Normalize(string path) => CatalogPaths.LocalPath(path) is { Length: > 3 } normal ? normal : null;
 }
 
-internal sealed record CatalogSourceClaim(CatalogScope Scope, CatalogResult Result, bool Verified, string Signature);
+internal sealed record CatalogSourceClaim(CatalogScope Scope, CatalogResult Result, bool Verified, string Signature)
+{
+    public ImmutableArray<CatalogEntry> VerifiedInstalls { get; init; } = [];
+    public int? DiscoveredCount { get; init; }
+}
 internal sealed record CatalogInstallAlias(string Path, string Id);
 
-/// <summary>Projects source claims into catalog rows. Only a complete source result can add live executable evidence.</summary>
+/// <summary>Projects cached claims and independently verified installs into catalog rows.</summary>
 internal static class CatalogClaims
 {
     private static readonly StringComparer Paths = StringComparer.OrdinalIgnoreCase;
@@ -58,13 +64,14 @@ internal static class CatalogClaims
 
     public static GameCatalogSettings Reconfigure(GameCatalogSettings settings)
     {
+        settings = RememberDenials(settings);
         if (settings.SourceClaims is not { } claims) return settings;
         var enabled = CatalogScope.Enabled(settings).ToDictionary(scope => scope.Key, StringComparer.Ordinal);
         var configured = CatalogScope.Configured(settings).Select(scope => scope.Key).ToHashSet(StringComparer.Ordinal);
         var next = claims.Where(claim => claim.Scope.Root == null || configured.Contains(claim.Scope.Key))
-            .Select(claim => claim.Verified && (!enabled.TryGetValue(claim.Scope.Key, out var scope) ||
+            .Select(claim => (claim.Verified || !claim.VerifiedInstalls.IsEmpty) && (!enabled.TryGetValue(claim.Scope.Key, out var scope) ||
                 claim.Signature != CatalogScope.Signature(scope.Request(settings.Request)))
-                ? claim with { Verified = false } : claim);
+                ? claim with { Verified = false, VerifiedInstalls = [] } : claim);
         return claims.SequenceEqual(next) ? settings : settings with { SourceClaims = [.. next] };
     }
 
@@ -74,13 +81,15 @@ internal static class CatalogClaims
 
     public static GameCatalogSettings Apply(GameCatalogSettings settings, CatalogScope scope, CatalogResult result, bool preview)
     {
-        settings = Start(settings);
+        settings = RememberDenials(Start(settings));
         string signature = CatalogScope.Signature(scope.Request(settings.Request));
         var previous = settings.SourceClaims!.Value.FirstOrDefault(claim => claim.Scope.Key == scope.Key);
         bool complete = Complete(result);
         if (preview)
             return settings with { ScanPreview = new(scope, result, false, signature) };
 
+        var verifiedInstalls = complete ? result.Entries : result.VerifiedInstalls;
+        int discoveredCount = result.Entries.Length;
         // Keep the previous complete inventory on failure, including paths the current scan did not reach.
         if (!complete && previous != null)
             result = result with
@@ -91,15 +100,17 @@ internal static class CatalogClaims
                 EpicManifestDirectory = result.EpicManifestDirectory ?? previous.Result.EpicManifestDirectory,
             };
         var claims = settings.SourceClaims.Value.RemoveAll(claim => claim.Scope.Key == scope.Key)
-            .Add(new(scope, result, complete, signature));
+            .Add(new(scope, result, complete, signature)
+            {
+                VerifiedInstalls = complete ? [] : verifiedInstalls,
+                DiscoveredCount = discoveredCount,
+            });
         var enabled = CatalogScope.Enabled(settings).Select(source => source.Key).ToHashSet(StringComparer.Ordinal);
         var legacy = settings.LegacyEntries.Where(entry => !complete || !CoveredByCompleteClaims(entry, claims, enabled));
         // Record only proven provider identities. Exact shared install paths can retain an override
         // when a provider is disabled or removed and an independently verified folder remains.
-        var aliases = complete
-            ? settings.InstallAliases.Concat(result.Entries.Where(entry => entry.Source is CatalogSource.Steam or CatalogSource.Epic or CatalogSource.Gog)
-                .SelectMany(entry => entry.InstallDirectories.Select(path => new CatalogInstallAlias(path, entry.Id))))
-            : settings.InstallAliases;
+        var aliases = settings.InstallAliases.Concat(verifiedInstalls.Where(entry => entry.Source is not (CatalogSource.Folder or CatalogSource.Manual))
+            .SelectMany(entry => entry.InstallDirectories.Select(path => new CatalogInstallAlias(path, entry.Id))));
         var referenced = claims.SelectMany(claim => claim.Result.Entries).SelectMany(entry => entry.InstallDirectories).ToHashSet(Paths);
         var overridden = settings.Request.Overrides.Select(rule => rule.Id).ToHashSet(StringComparer.Ordinal);
         return settings with
@@ -128,8 +139,9 @@ internal static class CatalogClaims
         var rows = Rows(settings);
         var enabled = CatalogScope.Enabled(settings).Select(scope => scope.Key).ToHashSet(StringComparer.Ordinal);
         var claims = settings.SourceClaims!.Value.Where(claim => enabled.Contains(claim.Scope.Key)).ToArray();
-        var discovered = claims.Where(claim => claim.Verified && refreshed.Contains(claim.Scope.Key))
-            .SelectMany(claim => claim.Result.Entries).Select(entry => entry.Id).ToHashSet(StringComparer.Ordinal);
+        var discovered = claims.Where(claim => refreshed.Contains(claim.Scope.Key))
+            .SelectMany(claim => claim.Verified ? claim.Result.Entries : claim.VerifiedInstalls)
+            .Select(entry => entry.Id).ToHashSet(StringComparer.Ordinal);
         return settings with
         {
             Snapshot = activity with
@@ -157,8 +169,11 @@ internal static class CatalogClaims
         {
             if (!scopes.TryGetValue(claim.Scope.Key, out var scope)) continue;
             if (claim.Result.EpicManifestDirectory is { } epic && !Allowed(epic)) continue;
-            bool verified = claim.Verified && claim.Signature == CatalogScope.Signature(scope.Request(settings.Request));
-            foreach (var entry in claim.Result.Entries)
+            bool current = claim.Signature == CatalogScope.Signature(scope.Request(settings.Request));
+            bool verified = claim.Verified && current;
+            var live = current ? claim.VerifiedInstalls : [];
+            foreach (var (entry, isVerified) in claim.Result.Entries.Select(entry => (entry, verified))
+                .Concat(live.Select(entry => (entry, true))))
             {
                 if (entry.Source != scope.Kind) continue;
                 var installs = entry.InstallDirectories.Where(path => Allowed(path) &&
@@ -171,7 +186,7 @@ internal static class CatalogClaims
                     Executables = [.. entry.Executables.Where(InInstall)],
                     RendererExecutables = entry.RendererExecutables is { } renderers ? [.. renderers.Where(InInstall)] : null,
                     DetectedLaunchers = [.. entry.DetectedLaunchers.Where(InInstall)],
-                }, verified));
+                }, isVerified));
             }
         }
         foreach (var entry in settings.LegacyEntries.Where(entry => entry.Source != CatalogSource.Manual))
@@ -190,13 +205,36 @@ internal static class CatalogClaims
             .ToDictionary(group => group.Key, group => group.Last().Rules, StringComparer.Ordinal);
         var aliases = settings.InstallAliases.ToLookup(alias => alias.Path, alias => alias.Id, Paths);
         var providers = contributions.Where(item => item.Entry.Source != CatalogSource.Folder)
-            .SelectMany(item => item.Entry.InstallDirectories.Select(path => (path, item.Entry.Id)))
-            .ToLookup(item => item.path, item => item.Id, Paths);
+            .SelectMany(item => item.Entry.InstallDirectories.Select(path => (path, item)))
+            .ToLookup(pair => pair.path, pair => pair.item, Paths);
+        var sharedIds = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (var group in providers)
+        {
+            var linked = group.OrderByDescending(item => item.Verified).DistinctBy(item => item.Entry.Id).ToArray();
+            // Multiple product IDs from one launcher at that root may identify different editions.
+            if (linked.Length < 2 || linked.Any(item => item.Entry.InstallDirectories.Length != 1) ||
+                linked.DistinctBy(item => item.Entry.Source).Count() != linked.Length) continue;
+            bool SameStoreId(CatalogEntry heroic, CatalogEntry other) =>
+                heroic.Source == CatalogSource.Heroic && (other.Source is CatalogSource.Epic or CatalogSource.Gog) &&
+                heroic.Id.Equals("heroic:" + other.Id, StringComparison.OrdinalIgnoreCase);
+            var primary = linked.MinBy(item => item.Entry.Source)!;
+            var rendererPaths = primary.Entry.Source == CatalogSource.Steam ? primary.Entry.Executables : primary.Entry.RendererExecutables ?? [];
+            foreach (var secondary in linked.Where(item => item != primary))
+            {
+                bool sameRenderer = primary.Verified && secondary.Verified &&
+                    (secondary.Entry.RendererExecutables ?? []).Intersect(rendererPaths, Paths).Any();
+                if (sameRenderer || SameStoreId(secondary.Entry, primary.Entry))
+                    sharedIds[secondary.Entry.Id] = primary.Entry.Id;
+            }
+        }
+
         string Identity(Contribution item)
         {
-            if (item.Entry.Source != CatalogSource.Folder || item.Entry.InstallDirectories is not [var path]) return item.Entry.Id;
+            if (item.Entry.Source != CatalogSource.Folder)
+                return sharedIds.GetValueOrDefault(item.Entry.Id, item.Entry.Id);
+            if (item.Entry.InstallDirectories is not [var path]) return item.Entry.Id;
             // Two different provider titles claiming the same directory are still ambiguous.
-            var ids = providers[path].Distinct(StringComparer.Ordinal).ToArray();
+            var ids = providers[path].Select(item => sharedIds.GetValueOrDefault(item.Entry.Id, item.Entry.Id)).Distinct(StringComparer.Ordinal).ToArray();
             if (ids.Length == 0) ids = aliases[path].Distinct(StringComparer.Ordinal).ToArray();
             return ids is [var id] ? id : item.Entry.Id;
         }
@@ -212,6 +250,33 @@ internal static class CatalogClaims
         });
         return [.. rows.Concat(manual).OrderBy(row => row.DisplayName, Paths).ThenBy(row => row.Id, StringComparer.Ordinal)];
     }
+
+    internal static IEnumerable<string> BlockedExecutables(GameCatalogSettings settings)
+    {
+        var denies = settings.Request.Overrides.Reverse().DistinctBy(rule => rule.Id)
+            .Where(rule => rule.Rules.Inclusion == CatalogInclusion.Exclude).ToArray();
+        if (denies.Length == 0) return settings.BlockedExecutables;
+        var paths = CachedExecutables(settings);
+        return settings.BlockedExecutables.Concat(denies.SelectMany(rule => rule.DeniedExecutables.Concat(paths[rule.Id])));
+    }
+
+    private static GameCatalogSettings RememberDenials(GameCatalogSettings settings)
+    {
+        if (!settings.Request.Overrides.Any(rule => rule.Rules.Inclusion == CatalogInclusion.Exclude)) return settings;
+        var paths = CachedExecutables(settings);
+        var rules = settings.Request.Overrides.Select(rule =>
+        {
+            if (rule.Rules.Inclusion != CatalogInclusion.Exclude) return rule;
+            var known = rule.DeniedExecutables.Concat(paths[rule.Id]).Distinct(Paths).ToImmutableArray();
+            return known.Length == rule.DeniedExecutables.Length ? rule : rule with { DeniedExecutables = known };
+        }).ToImmutableArray();
+        return settings.Request.Overrides.SequenceEqual(rules) ? settings : settings with { Request = settings.Request with { Overrides = rules } };
+    }
+
+    private static ILookup<string, string> CachedExecutables(GameCatalogSettings settings) =>
+        (settings.SourceClaims ?? []).SelectMany(claim => claim.Result.Entries).Concat(settings.LegacyEntries)
+            .Concat(settings.Snapshot?.Entries ?? []).SelectMany(entry => entry.Executables.Select(exe => (entry.Id, exe)))
+            .ToLookup(item => item.Id, item => item.exe, StringComparer.Ordinal);
 
     private static CatalogEntry Project(string id, Contribution[] parts, Dictionary<string, CatalogRules> rules, bool hasFolderOverrides)
     {
@@ -239,6 +304,7 @@ internal static class CatalogClaims
             Id = id,
             Rules = rule,
             AliasIds = [.. ids.Where(key => key != id)],
+            Provenance = [.. all.Select(entry => entry.Source).Distinct().Order()],
             InstallDirectories = [.. all.SelectMany(entry => entry.InstallDirectories).Distinct(Paths)],
             Executables = executables,
             UnverifiedExecutables = [.. executables.Where(path => !livePaths.Contains(path))],

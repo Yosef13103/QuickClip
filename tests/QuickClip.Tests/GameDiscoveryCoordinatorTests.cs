@@ -181,6 +181,7 @@ public sealed class GameDiscoveryCoordinatorTests : IDisposable
         Assert.Equal(0, publications);
         Assert.Same(snapshot, state.Snapshot);
         Assert.False(coordinator.IsRunning);
+        Assert.Equal("Scan canceled", coordinator.Status);
     }
 
     private string AddInstall(string name)

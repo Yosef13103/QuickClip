@@ -35,6 +35,7 @@ internal sealed class GameDiscoveryCoordinator : IDisposable
     private Work? _active;
     private Task _running = Task.CompletedTask;
     private bool _started, _disposed, _paused, _autoScan;
+    private bool _canceled;
 
     internal GameDiscoveryCoordinator(Func<GameCatalogSettings> read, Action<GameCatalogSettings, bool> publish,
         Func<CatalogRequest, GameCatalogService.Scan>? create = null, TimeProvider? clock = null, int segmentsPerSlice = 12)
@@ -161,6 +162,7 @@ internal sealed class GameDiscoveryCoordinator : IDisposable
             {
                 if (_pending.Remove(key, out var work))
                 {
+                    _canceled = true;
                     if (ReferenceEquals(_active, work) && IsRunning) work.Cancellation.Cancel();
                     else
                     {
@@ -198,6 +200,7 @@ internal sealed class GameDiscoveryCoordinator : IDisposable
         if (IsRunning) return _running;
         if (_pending.Count == 0 || _paused) return Task.CompletedTask;
         IsRunning = true;
+        _canceled = false;
         Status = "Scanning game libraries…";
         _running = RunAsync();
         Changed?.Invoke();
@@ -217,6 +220,13 @@ internal sealed class GameDiscoveryCoordinator : IDisposable
                 {
                     IsRunning = false;
                     if (_paused && _read().Snapshot is { } snapshot) Status = Describe(_read(), "Paused", snapshot);
+                    else if (_canceled && !_disposed && Status.StartsWith("Scanning", StringComparison.Ordinal))
+                    {
+                        var state = _read();
+                        if (state.Snapshot is { InProgress: true } canceled)
+                            _publish(state with { ScanPreview = null, Snapshot = canceled with { InProgress = false } }, true);
+                        Status = "Scan canceled";
+                    }
                     if (!_disposed) Changed?.Invoke();
                     return;
                 }
@@ -232,7 +242,7 @@ internal sealed class GameDiscoveryCoordinator : IDisposable
                 while (true)
                 {
                     var result = await work.Scan.ContinueAsync(_segmentsPerSlice, TimeSpan.FromMilliseconds(250), token, throttleSnapshots: true);
-                    activity.Report($"Discovering games · {scope.Kind} · {result.CandidateExecutablesVisited:N0} executable visits");
+                    activity.Report($"Discovering games · {LocalLaunchers.Name(scope.Kind)} · {result.VisitedEntries:N0} items checked");
                     bool pause;
                     lock (_gate)
                     {
