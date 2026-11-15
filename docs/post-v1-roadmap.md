@@ -1,6 +1,6 @@
 # QuickClip Personal — Post-V1 roadmap (four waves)
 
-Owner: Yosef. Updated 2026-11-15. This is the durable implementation backlog, not a claim that these tasks have been completed. Read [Wave 1 history and acceptance](post-v1-wave1-frontend.md), current source and latest PRs before starting any wave. Cross off only after evidence; record commit, tests, local acceptance and residual limitations. Existing V1.0.0 release remains the baseline. PR #74 is the combined Wave 1 candidate for V1.0.1; do not merge or release without owner approval. No Codex work has been dispatched yet.
+Owner: Yosef. Updated 2026-11-15. This is the durable implementation backlog, not a claim that these tasks have been completed. Read [Wave 1 history and acceptance](post-v1-wave1-frontend.md), current source and latest PRs before starting any wave. Cross off only after evidence; record commit, tests, local acceptance and residual limitations. Existing V1.0.0 release remains the baseline. PR #74 is the combined Wave 1 candidate for V1.1.0; do not merge or release without owner approval. No Codex work has been dispatched yet.
 
 ## Shared constraints
 
@@ -18,7 +18,7 @@ Owner: Yosef. Updated 2026-11-15. This is the durable implementation backlog, no
 - [ ] Existing diagnostics sample UI auto-refresh only when opted in/visible; timing warning; broader diagnostic system deferred to Wave 2.
 - [ ] Notification redesign: saved-only custom image, independent banner/image controls, compact other events, detailed saved-only, new animations and ripple, no banner-center position; see [overlay redesign and acceptance](notification-overlay-redesign.md).
 - [ ] Bundle owner-provided camera GIF (exact file), verify redistribution permission, embedded resource/decoder and actual preview. Retain custom override and independent image mode. Do not release without the asset.
-- [ ] After owner accepts exact head and CI succeeds: merge with approval. Prepare V1.0.1 separately (version + changelog + package workflow currently pins 1.0.0; update safely, do not overwrite old release). Verify installer/portable packages, hashes, upgrade/settings isolation; release tags personal-v1.0.1. No automatic publication here.
+- [ ] After owner accepts exact head and CI succeeds: merge with approval. Prepare V1.1.0 separately (version, release notes and release workflow updated in PR #74; do not overwrite old release or archive unrelated branches). Verify installer/portable packages, hashes, upgrade/settings isolation; release tags personal-v1.1.0. No automatic publication here.
 
 ## Wave 2 — Discovery, operational reliability, diagnostics and updater (Codex High)
 - [ ] V3-002 explicitly authorized folders allow eligible game executables without per-exe confidence/renderer approval; retain disable overrides, verified live HWND, helper/launcher discrimination and authorization; no recording unrelated apps.
@@ -38,3 +38,5 @@ Owner: Yosef. Updated 2026-11-15. This is the durable implementation backlog, no
 - [ ] V3-008 optional experimental selected-display capture with native topology (negative coordinates, vertical/portrait rotations, DPI-independent physical resolution), DDA per display -> GPU compositor -> single encoder/ring + audio set. Native bounding box, optional scaling/crop/preview; owner's horizontal layout approx 5360x1440; query actual H264/HEVC/AV1 encoder caps, do not assume supported hardware or widths. Static display reuse; implement only proven optimization. Handle disconnect/reconnect and consent, preserve no-default multi-display capture.
 - [ ] End-to-end integration and regression, performance and native correctness on owner's hardware, all themes/scales, installer/nightly/stable upgrade, release notes, archive branch provenance. Review remaining defects, rebaseline; production release only after explicit owner acceptance.
 
+
+Wave 1 final candidate: v1.1.0 (minor release for backward-compatible new frontend/notification functions), owner accepted earlier implementation; final image edge placement and fresh CI/package acceptance remain. Release workflow publishes only after an approved merge to custom/main and successful quality/package jobs. No automatic remote branch cleanup in v1.1.0.

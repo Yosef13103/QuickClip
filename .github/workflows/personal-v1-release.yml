@@ -1,4 +1,4 @@
-name: QuickClip Personal v1.0.0 release
+name: QuickClip Personal v1.1.0 release
 
 on:
   pull_request:
@@ -6,13 +6,13 @@ on:
     paths:
       - .github/workflows/personal-v1-release.yml
       - src/QuickClip/QuickClip.csproj
-      - docs/releases/personal-v1.0.0.md
+      - docs/releases/personal-v1.1.0.md
   push:
     branches: [custom/main]
     paths:
       - .github/workflows/personal-v1-release.yml
       - src/QuickClip/QuickClip.csproj
-      - docs/releases/personal-v1.0.0.md
+      - docs/releases/personal-v1.1.0.md
 
 permissions:
   contents: read
@@ -48,7 +48,7 @@ jobs:
       - name: Validate release version
         run: |
           $version = (Select-Xml -Path src/QuickClip/QuickClip.csproj -XPath '//Version').Node.InnerText
-          if ($version -ne '1.0.0') { throw "Unexpected V1 release version: $version" }
+          if ($version -ne '1.1.0') { throw "Unexpected Personal release version: $version" }
       - name: Provision SHA-256-verified dependencies
         run: ./scripts/get-deps.ps1 -Force
       - name: Restore
@@ -98,7 +98,7 @@ jobs:
           } | Set-Content publish-personal/SHA256SUMS.txt -Encoding utf8
       - uses: actions/upload-artifact@v4
         with:
-          name: quickclip-personal-v1.0.0-release-assets
+          name: quickclip-personal-v1.1.0-release-assets
           path: |
             publish-personal/*.zip
             publish-personal/*.exe
@@ -107,7 +107,7 @@ jobs:
           retention-days: 90
 
   publish:
-    name: Publish owner-approved V1 release
+    name: Publish owner-approved Personal release
     needs: package
     if: github.event_name == 'push' && github.ref == 'refs/heads/custom/main'
     runs-on: ubuntu-latest
@@ -121,101 +121,22 @@ jobs:
           persist-credentials: false
       - uses: actions/download-artifact@v4
         with:
-          name: quickclip-personal-v1.0.0-release-assets
+          name: quickclip-personal-v1.1.0-release-assets
           path: release-assets
-      - name: Create QuickClip Personal v1.0.0 GitHub Release
+      - name: Create QuickClip Personal v1.1.0 GitHub Release
         id: release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          tag='personal-v1.0.0'
+          tag='personal-v1.1.0'
           if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             echo "Release $tag already exists; refusing to overwrite it."
             exit 0
           fi
           gh release create "$tag" release-assets/*.zip release-assets/*.exe release-assets/SHA256SUMS.txt \
             --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
-            --title 'QuickClip Personal v1.0.0' \
-            --notes-file docs/releases/personal-v1.0.0.md --latest
+            --title 'QuickClip Personal v1.1.0' \
+            --notes-file docs/releases/personal-v1.1.0.md --latest
           echo 'published=true' >> "$GITHUB_OUTPUT"
 
-  cleanup:
-    name: Archive and delete superseded remote branches
-    needs: publish
-    if: needs.publish.outputs.published == 'true'
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    permissions:
-      contents: write
-      pull-requests: write
-      issues: write
-    env:
-      GH_TOKEN: ${{ github.token }}
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          persist-credentials: false
-      - name: Close superseded PRs, archive history, retain only main/custom-main
-        run: |
-          set -euo pipefail
-          repo="$GITHUB_REPOSITORY"
-          release='personal-v1.0.0'
-          stamp='pre-personal-v1-20261114'
-          echo 'Archiving superseded PRs; unmerged experiments are deferred, not claimed shipped.'
-          gh pr list -R "$repo" --state open --limit 500 --json number,headRefName,title \
-            | jq -c '.[]' | while IFS= read -r pr; do
-                n="$(jq -r '.number' <<< "$pr")"
-                head="$(jq -r '.headRefName' <<< "$pr")"
-                [[ "$head" == 'main' || "$head" == 'custom/main' ]] && continue
-                gh pr close "$n" -R "$repo" --comment \
-                  "Closed in the owner-approved QuickClip Personal v1.0.0 branch cleanup. This PR is superseded or deferred—not independently marked merged. Its source commit will remain recoverable through archive/$stamp/$head. Follow-up work belongs in a fresh post-V1 branch." || true
-              done
-
-          echo -e 'branch\tcommit_sha\tarchived_tag\tdeleted' > branch-archive-manifest.tsv
-          mapfile -t branches < <(gh api --paginate "repos/$repo/branches?per_page=100" --jq '.[].name')
-          failures=0
-          for branch in "${branches[@]}"; do
-            [[ "$branch" == 'main' || "$branch" == 'custom/main' ]] && continue
-            # Re-read the exact live ref. Never delete based on a stale snapshot.
-            sha="$(gh api "repos/$repo/git/ref/heads/$branch" --jq '.object.sha')" || { failures=$((failures+1)); continue; }
-            archived="archive/$stamp/$branch"
-            if existing="$(gh api "repos/$repo/git/ref/tags/$archived" --jq '.object.sha' 2>/dev/null)"; then
-              if [[ "$existing" != "$sha" ]]; then
-                echo "::error::Archived tag moved or branch advanced: $branch"
-                failures=$((failures+1))
-                continue
-              fi
-            else
-              gh api -X POST "repos/$repo/git/refs" -f "ref=refs/tags/$archived" -f "sha=$sha" >/dev/null || {
-                echo "::error::Cannot archive branch: $branch"
-                failures=$((failures+1))
-                continue
-              }
-            fi
-            verified="$(gh api "repos/$repo/git/ref/tags/$archived" --jq '.object.sha')"
-            if [[ "$verified" != "$sha" ]]; then
-              echo "::error::Tag verification mismatch for $branch"
-              failures=$((failures+1))
-              continue
-            fi
-            if gh api -X DELETE "repos/$repo/git/refs/heads/$branch" >/dev/null; then
-              printf '%s\t%s\t%s\tYES\n' "$branch" "$sha" "$archived" >> branch-archive-manifest.tsv
-              echo "Archived and deleted $branch"
-            else
-              printf '%s\t%s\t%s\tNO\n' "$branch" "$sha" "$archived" >> branch-archive-manifest.tsv
-              failures=$((failures+1))
-            fi
-          done
-          gh release upload "$release" branch-archive-manifest.tsv --repo "$repo" --clobber
-          mapfile -t remaining < <(gh api --paginate "repos/$repo/branches?per_page=100" --jq '.[].name')
-          printf 'Remaining branches: %s\n' "${remaining[*]}"
-          if (( failures > 0 )); then
-            echo "::error::$failures branch cleanup/archive operations failed; see manifest and retained refs."
-            exit 1
-          fi
-          if (( ${#remaining[@]} != 2 )) || [[ " ${remaining[*]} " != *' main '* ]] ||
-             [[ " ${remaining[*]} " != *' custom/main '* ]]; then
-            echo '::error::Expected only main and custom/main after cleanup.'
-            exit 1
-          fi

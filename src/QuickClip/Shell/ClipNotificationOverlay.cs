@@ -47,7 +47,7 @@ internal sealed class ClipNotificationOverlay : IDisposable
             _imagePath = options.ImagePath;
             _image = null;
             string? path = options.ImagePath;
-            _imageLoad = string.IsNullOrWhiteSpace(path) ? Task.Run(ClipOverlayImage.LoadDefaultAsset) : ClipOverlayImage.LoadAssetAsync(path);
+            _imageLoad = ClipOverlayImage.LoadTightOverlayAsync(path);
         }
         if (imageOnly && _imageLoad != null)
         {
@@ -88,8 +88,9 @@ internal sealed class ClipNotificationOverlay : IDisposable
         double factor = options.Size / 72;
         if (imageOnly)
         {
-            width = options.Size * 2;
-            height = options.Size;
+            var imageSize = ImageCanvasSize(_image!.First.PixelWidth, _image.First.PixelHeight, options.Size, options.ImageFit);
+            width = imageSize.Width;
+            height = imageSize.Height;
             _card.Background = Brushes.Transparent;
             _imageView = new Image { Source = _image!.First,
                 Stretch = options.ImageFit == OverlayImageFit.Cover ? Stretch.UniformToFill : Stretch.Uniform,
@@ -194,7 +195,9 @@ internal sealed class ClipNotificationOverlay : IDisposable
             GetDpiForMonitor(display.Handle, 0, out uint dpi, out _);
             double scale = dpi == 0 ? 1 : dpi / 96d;
             var pixels = new Size(Math.Round(width * scale), Math.Round(height * scale));
-            Point position = ClipOverlayOptions.Place(display.Bounds, pixels, 18 * scale, options.Anchor);
+            // Image-only overlays sit four physical pixels from the edge. The
+            // ripple reserve stays inside the window so the wave cannot be cut off.
+            Point position = ClipOverlayOptions.Place(display.Bounds, pixels, imageOnly ? 4 : 18 * scale, options.Anchor);
             SetWindowPos(_handle, new IntPtr(-1), (int)Math.Round(position.X), (int)Math.Round(position.Y),
                 (int)pixels.Width, (int)pixels.Height, 0x0210);
         }
@@ -306,6 +309,15 @@ internal sealed class ClipNotificationOverlay : IDisposable
             }
             _frameTimer.Interval = SafeFrameInterval(untilNext);
         };
+    }
+
+    internal static Size ImageCanvasSize(int pixelWidth, int pixelHeight, double size, OverlayImageFit fit)
+    {
+        // Preserve the existing maximum footprint. Contain uses only the space
+        // the asset needs; explicit Cover still fills the requested 2:1 area.
+        if (fit == OverlayImageFit.Cover) return new Size(size * 2, size);
+        double scale = Math.Min(2 * size / Math.Max(1, pixelWidth), size / Math.Max(1, pixelHeight));
+        return new Size(Math.Max(1, pixelWidth * scale), Math.Max(1, pixelHeight * scale));
     }
 
     internal static bool MotionEnabled(bool windowsAnimations, OverlayAnimation animation) =>

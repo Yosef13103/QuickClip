@@ -448,4 +448,56 @@ public sealed class ClipFeedbackTests
         Assert.All(animation.Frames, frame => Assert.True(frame.Bitmap.IsFrozen));
         Assert.True(ClipOverlayImage.WithinGifBudget(512, 512, 85));
     }
+
+    [Theory]
+    [InlineData(512, 512, 72, 72)]
+    [InlineData(512, 256, 144, 72)]
+    [InlineData(256, 512, 36, 72)]
+    [InlineData(512, 128, 144, 36)]
+    public void Contained_image_uses_only_its_actual_aspect_ratio(int w, int h, double expectedW, double expectedH)
+    {
+        Assert.Equal(new Size(expectedW, expectedH),
+            ClipNotificationOverlay.ImageCanvasSize(w, h, 72, OverlayImageFit.Contain));
+    }
+
+    [Theory]
+    [InlineData(1)]
+    [InlineData(1.25)]
+    [InlineData(1.5)]
+    public void Image_stays_four_physical_pixels_inside_all_monitor_edges(double dpiScale)
+    {
+        var monitor = new Rect(-1920, -1080, 1920, 1080);
+        var size = new Size(Math.Round(72 * dpiScale), Math.Round(72 * dpiScale));
+        foreach (var anchor in Enum.GetValues<OverlayAnchor>())
+        {
+            var p = ClipOverlayOptions.Place(monitor, size, 4, anchor);
+            Assert.True(p.X >= monitor.Left + 4 && p.X + size.Width <= monitor.Right - 4);
+            Assert.True(p.Y >= monitor.Top + 4 && p.Y + size.Height <= monitor.Bottom - 4);
+            int column = (int)anchor % 3, row = (int)anchor / 3;
+            if (column == 0) Assert.Equal(monitor.Left + 4, p.X);
+            if (column == 2) Assert.Equal(monitor.Right - 4, p.X + size.Width);
+            if (row == 0) Assert.Equal(monitor.Top + 4, p.Y);
+            if (row == 2) Assert.Equal(monitor.Bottom - 4, p.Y + size.Height);
+        }
+    }
+
+    [Fact]
+    public void Tight_image_crop_uses_shared_bounds_over_all_frames_without_changing_timing()
+    {
+        ClipOverlayImage.Frame Frame(int x, int y, int ms)
+        {
+            byte[] pixels = new byte[8 * 8 * 4];
+            pixels[(y * 8 + x) * 4 + 3] = 255;
+            var bitmap = System.Windows.Media.Imaging.BitmapSource.Create(8, 8, 96, 96,
+                System.Windows.Media.PixelFormats.Bgra32, null, pixels, 32);
+            bitmap.Freeze();
+            return new(bitmap, TimeSpan.FromMilliseconds(ms));
+        }
+        var original = new ClipOverlayImage.Asset([Frame(2, 1, 30), Frame(5, 6, 70)]);
+        var tight = Assert.IsType<ClipOverlayImage.Asset>(ClipOverlayImage.Tighten(original));
+        Assert.Equal(4, tight.First.PixelWidth);
+        Assert.Equal(6, tight.First.PixelHeight);
+        Assert.All(tight.Frames, f => { Assert.Equal(4, f.Bitmap.PixelWidth); Assert.Equal(6, f.Bitmap.PixelHeight); Assert.True(f.Bitmap.IsFrozen); });
+        Assert.Equal(original.Frames.Select(f => f.Delay), tight.Frames.Select(f => f.Delay));
+    }
 }

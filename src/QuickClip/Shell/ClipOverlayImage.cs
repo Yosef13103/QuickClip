@@ -45,6 +45,48 @@ internal static class ClipOverlayImage
         }
     }
 
+    // This work runs once per selected overlay asset, on the decoder worker.
+    // Take the union of all visible pixels, never the bounds of a single frame:
+    // cropping individual frames would make the animation jump at the edges.
+    internal static Asset? Tighten(Asset? asset)
+    {
+        if (asset == null || asset.Frames.Length == 0) return asset;
+        int width = asset.First.PixelWidth, height = asset.First.PixelHeight;
+        if (asset.Frames.Any(f => f.Bitmap.PixelWidth != width || f.Bitmap.PixelHeight != height))
+            return asset;
+        int left = width, top = height, right = 0, bottom = 0;
+        int stride = checked(width * 4);
+        var pixels = new byte[checked(stride * height)];
+        foreach (var frame in asset.Frames)
+        {
+            var bitmap = frame.Bitmap;
+            if (bitmap.Format != System.Windows.Media.PixelFormats.Bgra32 &&
+                bitmap.Format != System.Windows.Media.PixelFormats.Pbgra32)
+                bitmap = new FormatConvertedBitmap(bitmap, System.Windows.Media.PixelFormats.Bgra32, null, 0);
+            bitmap.CopyPixels(pixels, stride, 0);
+            for (int y = 0; y < height; y++)
+                for (int x = 0; x < width; x++)
+                    if (pixels[y * stride + x * 4 + 3] != 0)
+                    {
+                        left = Math.Min(left, x); top = Math.Min(top, y);
+                        right = Math.Max(right, x + 1); bottom = Math.Max(bottom, y + 1);
+                    }
+            if (left == 0 && top == 0 && right == width && bottom == height) return asset;
+        }
+        if (right <= left || bottom <= top) return asset;
+        var crop = new System.Windows.Int32Rect(left, top, right - left, bottom - top);
+        return new(asset.Frames.Select(frame =>
+        {
+            var bitmap = new CroppedBitmap(frame.Bitmap, crop);
+            bitmap.Freeze();
+            return new Frame(bitmap, frame.Delay);
+        }).ToArray());
+    }
+
+    internal static async Task<Asset?> LoadTightOverlayAsync(string? path) =>
+        await Task.Run(async () => Tighten(string.IsNullOrWhiteSpace(path)
+            ? LoadDefaultAsset() : await LoadAssetAsync(path).ConfigureAwait(false))).ConfigureAwait(false);
+
     internal static BitmapSource? Load(string? path) => LoadAsset(path)?.First;
 
     internal static Task<Asset?> LoadAssetAsync(string? path, CancellationToken cancellationToken = default) =>
