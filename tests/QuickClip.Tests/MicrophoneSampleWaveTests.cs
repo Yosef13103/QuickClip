@@ -4,6 +4,7 @@ using static QuickClip.Recording.CaptureEngine;
 
 namespace QuickClip.Tests;
 
+[Collection("media")]
 public sealed class MicrophoneSampleWaveTests
 {
     [Fact]
@@ -35,7 +36,14 @@ public sealed class MicrophoneSampleWaveTests
     {
         const string missing = "{0.0.1.00000000}.{00000000-0000-0000-0000-000000000000}";
         Assert.True(IsAvailable);
-        Assert.Equal(0, StartMicrophoneSample(missing, out long token));
+        long token = 0;
+        int start = unchecked((int)0x800700AA);
+        for (int i = 0; i < 100 && start == unchecked((int)0x800700AA); i++)
+        {
+            start = StartMicrophoneSample(missing, out token);
+            if (start == unchecked((int)0x800700AA)) await Task.Delay(10);
+        }
+        Assert.Equal(0, start);
         var buffer = new short[MicrophoneSampleCapacity];
         try
         {

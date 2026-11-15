@@ -257,8 +257,8 @@
         "Baseline local strict Personal focused suite passed (276 passed/5 skipped). Baseline full suite had 784 passed/19 skipped and one sandbox-denied registry fixture. See private W2-G6/VERIFICATION.md for baseline and maintenance findings.",
         "2026-11-16: native compilation and both strict Windows Release builds passed. Exact tested candidate Personal 800 passed/19 skipped, Upstream CI profile filter 33 passed/14 skipped, zero failures. Includes malformed-record eligibility, disabled-source denial and cancellation fixtures. See private W2-G6 verification and broad-discovery TRX files."
       ],
-      "blocker": "Maintenance recorder-state and display-revocation review findings remain open. Supervised hardware and installer upgrade checks are pending.",
-      "next_action": "Check draft PR CI, obtain independent review and complete supervised acceptance. Guided setup and Basic/Advanced are a separate implementation after discovery stabilizes."
+      "blocker": "Supervised game, display, and installer upgrade checks remain pending.",
+      "next_action": "Use the combined PR #78 for owner acceptance. Recorder readiness and revocation work is tracked in W2-R2."
     },
     {
       "id": "W2-R1",
@@ -283,17 +283,17 @@
         "Issue-by-issue classification and evidence; prioritize real defects, assign bounded fixes; do not redispatch shipped Wave 1 work."
       ],
       "effort": "high",
-      "status": "not_started",
-      "candidate": null,
+      "status": "in_progress",
+      "candidate": "working_tree_uncommitted",
       "gates": {
         "local": "pending",
         "ci": "not_applicable",
         "review": "pending",
         "hardware": "not_applicable"
       },
-      "evidence": [],
+      "evidence": ["Reconciled the earlier display/replay ordering and delayed recorder feedback against PR #78. Reproduced layered HUD affinity error and custom theme return failure in disposable WPF tests. Discovery regressions remain covered by prior W2-G6 fixtures. See private W2-FRONTEND and docs/owner-field-polish.md."],
       "blocker": null,
-      "next_action": null
+      "next_action": "Continue hardware-only game migration, audio, recovery, save latency and editor/gallery lifecycle reconciliation using approved disposable owner scenarios."
     },
     {
       "id": "W2-P",
@@ -353,17 +353,17 @@
         "Regression test or concrete evidence for each issue; owner hardware as relevant; record resolved/superseded/blocked. If no defects owner may mark N/A with evidence."
       ],
       "effort": "high",
-      "status": "not_started",
-      "candidate": null,
+      "status": "implemented",
+      "candidate": "working_tree_uncommitted",
       "gates": {
         "local": "pending",
         "ci": "pending",
         "review": "pending",
         "hardware": "pending"
       },
-      "evidence": [],
-      "blocker": null,
-      "next_action": null
+      "evidence": ["Combined PR #78/#79 adds serialized capture grants and publication, video-ready HUD notifications, abandoned setup verification protection, and corrected WPF theme transitions. New fixtures cover policy, save failure, cancellation, microphone sample and desktop preview."],
+      "blocker": "Supervised real capture, HUD exclusion in a DDA replay, physical microphone playback and full theme restart remain pending.",
+      "next_action": "Verify the final strict Windows candidate and complete the supervised checklist in docs/owner-field-polish.md."
     },
     {
       "id": "W2-D",

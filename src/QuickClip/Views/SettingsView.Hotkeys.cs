@@ -20,7 +20,7 @@ public partial class SettingsView
             AddRow(RecordingCommand.ToggleMaster, "Toggle recording",
                 "Turn recording on or off. Turning it off also stops desktop recording.");
             AddRow(RecordingCommand.ToggleDesktop, "Toggle desktop recording",
-                "Start or stop recording your selected screen. QuickClip asks before starting.");
+                "Start or stop recording the selected screen. Allow that screen in Recording settings first.");
             AddRow(RecordingCommand.SwitchMonitor, "Switch recording display",
                 "During desktop recording, switch to the next screen you've approved for this session. This starts a new replay buffer.");
         }

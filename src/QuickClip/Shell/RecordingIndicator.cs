@@ -19,7 +19,7 @@ internal sealed class RecordingIndicator : IDisposable
     private readonly ClipNotificationOverlay _preview = new();
     private DispatcherTimer? _previewTimer;
     internal string Status => _overlay.IndicatorFailure ?? (_overlay.IsVisible
-        ? (_overlay.IndicatorOpaque ? "Visible using compact opaque fallback; test saved clips." : "Visible; verify exclusion in a saved clip.")
+        ? (_overlay.IndicatorOpaque ? $"Visible using compact opaque fallback (layered Win32 {_overlay.IndicatorLayeredError}); test saved clips." : "Visible; verify exclusion in a saved clip.")
         : "Icons appear during actual replay recording.");
 
     internal RecordingIndicator()
@@ -94,7 +94,8 @@ internal sealed class RecordingIndicator : IDisposable
         }
         _previewTimer.Stop();
         _previewTimer.Start();
-        return _preview.IndicatorOpaque ? "Preview: compact opaque fallback. Test actual capture exclusion." : "Preview on primary display for four seconds.";
+        return _preview.IndicatorOpaque ? $"Preview uses compact opaque fallback (layered Win32 {_preview.IndicatorLayeredError}). Test actual capture exclusion."
+            : "Preview on primary display for four seconds.";
     }
 
     private void Sample()

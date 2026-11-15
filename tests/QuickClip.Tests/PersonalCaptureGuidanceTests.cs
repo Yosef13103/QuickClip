@@ -50,9 +50,8 @@ public sealed class PersonalCaptureGuidanceTests
         if (!AppProfile.IsPersonal) return;
         var settings = AppSettings.Parse(json);
         string before = settings.ToJson();
-        Assert.Null(settings.AuthorizedGameDisplay);
-        Assert.False(CaptureSourcePolicy.AcceptGameDisplay(settings, new("display1", "", 0, 0, 1920, 1080), false));
-        Assert.False(CaptureSourcePolicy.AcceptGameDisplay(settings, null, true));
+        Assert.Empty(settings.AllowedRecordingDisplays);
+        CaptureSourcePolicy.SetDisplayPermission(settings, "", true);
         Assert.Equal(before, settings.ToJson());
         Assert.True(AppSettings.Parse(settings.ToJson()).PreferGameWindow);
     }
@@ -61,28 +60,29 @@ public sealed class PersonalCaptureGuidanceTests
     public void Explicit_consent_persists_specific_display_and_DDA_without_enabling_recording()
     {
         var settings = AppSettings.Parse("""{"PreferGameWindow":true,"RecordingEnabled":false}""");
-        Assert.True(CaptureSourcePolicy.AcceptGameDisplay(settings, new("display2", "", 1920, 0, 1920, 1080)
-        { CaptureIdentity = "synthetic-display-identity" }, true));
+        CaptureSourcePolicy.SetDisplayPermission(settings, "synthetic-display-identity", true);
         var reloaded = AppSettings.Parse(settings.ToJson());
         Assert.True(reloaded.PreferGameWindow);
         Assert.False(reloaded.RecordingEnabled);
         Assert.Empty(reloaded.RecordMonitor);
-        Assert.Equal("synthetic-display-identity", reloaded.AuthorizedGameDisplay);
+        Assert.Equal("synthetic-display-identity", Assert.Single(reloaded.AllowedRecordingDisplays));
     }
 
     [Fact]
-    public void Legacy_consent_stays_scoped_until_explicit_following_is_saved()
+    public void Legacy_consent_keeps_an_active_exact_grant_and_never_expands_to_new_displays()
     {
-        var legacy = AppSettings.Parse("""{"RecordingEnabled":true,"PreferGameWindow":false,"AuthorizedGameDisplay":"physical-a"}""");
-        Assert.False(CaptureSourcePolicy.AllowsGameDisplay(legacy, "PHYSICAL-A"));
-        legacy.PreferGameWindow = true;
-        Assert.True(CaptureSourcePolicy.AllowsGameDisplay(legacy, "PHYSICAL-A"));
-        Assert.False(CaptureSourcePolicy.AllowsGameDisplay(legacy, "physical-b"));
-        legacy.PreferGameWindow = false;
-        legacy.AllowGameDisplayFollowing = true;
-        var reloaded = AppSettings.Parse(legacy.ToJson());
-        Assert.True(CaptureSourcePolicy.AllowsGameDisplay(reloaded, "physical-b"));
-        Assert.False(reloaded.PreferGameWindow);
+        if (!AppProfile.IsPersonal) return;
+        var disabled = AppSettings.Parse("""{"PreferGameWindow":false,"AuthorizedGameDisplay":"physical-a"}""");
+        var global = AppSettings.Parse("""{"AllowGameDisplayFollowing":true,"RecordMonitor":"display2"}""");
+        var excluded = AppSettings.Parse("""{"PreferGameWindow":true,"AuthorizedGameDisplay":"physical-a","ExcludedGameDisplays":["PHYSICAL-A"]}""");
+        var legacy = AppSettings.Parse("""{"PreferGameWindow":true,"AuthorizedGameDisplay":"physical-a","AllowGameDisplayFollowing":true}""");
+        Assert.Empty(disabled.AllowedRecordingDisplays);
+        Assert.Empty(global.AllowedRecordingDisplays);
+        Assert.Empty(excluded.AllowedRecordingDisplays);
+        Assert.True(CaptureSourcePolicy.AllowsRecordingDisplay(legacy, "PHYSICAL-A"));
+        Assert.False(CaptureSourcePolicy.AllowsRecordingDisplay(legacy, "physical-b"));
+        CaptureSourcePolicy.SetDisplayPermission(legacy, "physical-a", false);
+        Assert.Empty(AppSettings.Parse(legacy.ToJson()).AllowedRecordingDisplays);
     }
 
     [Fact]

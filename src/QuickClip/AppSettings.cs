@@ -51,8 +51,7 @@ internal sealed class AppSettings
     public bool CaptureCursor { get; set; } = true;
     public bool PreferGameWindow { get; set; } = AppProfile.IsPersonal;
     // Preserve the original physical-display grant without broadening it on upgrade.
-    public string? AuthorizedGameDisplay { get; set; }
-    public bool AllowGameDisplayFollowing { get; set; }
+    public string[] AllowedRecordingDisplays { get; set; } = [];
     public string[] ExcludedGameDisplays { get; set; } = [];
     public bool SplitChatAudio { get; set; } = true;
     public bool SplitMusicAudio { get; set; } = true;
@@ -168,6 +167,17 @@ internal sealed class AppSettings
                 if (!root.TryGetProperty(nameof(BasicSettings), out _)) settings.BasicSettings = false;
                 if (!root.TryGetProperty(nameof(GuidedSetupStep), out _)) settings.GuidedSetupStep = null;
                 if (settings.GuidedSetupStep is < 0 or > 8) settings.GuidedSetupStep = 0;
+                // Only the old exact physical identity is safe to migrate. The former
+                // global toggle does not identify which monitors the owner had used.
+                if (AppProfile.IsPersonal && !root.TryGetProperty(nameof(AllowedRecordingDisplays), out _) &&
+                    root.TryGetProperty("AuthorizedGameDisplay", out var legacyDisplay) &&
+                    legacyDisplay.ValueKind == JsonValueKind.String && legacyDisplay.GetString() is { } identity &&
+                    (settings.PreferGameWindow ||
+                        root.TryGetProperty("AllowGameDisplayFollowing", out var following) && following.ValueKind == JsonValueKind.True) &&
+                    !CaptureSourcePolicy.IsDisplayExcluded(settings, identity))
+                    settings.AllowedRecordingDisplays = [identity];
+                settings.AllowedRecordingDisplays = [.. (settings.AllowedRecordingDisplays ?? [])
+                    .Where(id => !string.IsNullOrWhiteSpace(id)).Distinct(StringComparer.OrdinalIgnoreCase)];
             }
             if (root.ValueKind == JsonValueKind.Object &&
                 !root.TryGetProperty(nameof(StartInTray), out _) &&

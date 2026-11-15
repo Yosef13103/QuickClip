@@ -301,7 +301,7 @@
                             <CheckBox Style="{StaticResource SwitchCheckBox}" x:Name="ManualDesktopButton" Visibility="Collapsed"
                                       Content="Manual desktop capture" FontWeight="SemiBold"
                                       ToolTip="Records everything visible on the chosen display until stopped" Click="ManualDesktop_Click" />
-                            <TextBlock x:Name="ManualDisplayHint" Style="{StaticResource Hint}" Text="Records everything visible on the chosen display, including messages and notifications. Change the monitor to switch an active manual capture." Margin="0,3,0,6" />
+                            <TextBlock x:Name="ManualDisplayHint" Style="{StaticResource Hint}" Text="Manual capture records everything visible, including messages. Start or stop it with the switch above." Margin="0,3,0,6" />
                             <TextBlock x:Name="MonitorLabel" Text="Monitor" TextWrapping="Wrap" Margin="0,6,0,4" />
                             <Grid>
                                 <Grid.ColumnDefinitions>
@@ -311,20 +311,12 @@
                                 <ComboBox x:Name="MonitorCombo" MinWidth="0" SelectionChanged="Changed" AutomationProperties.Name="Manual desktop display" />
                                 <CheckBox Grid.Column="1" x:Name="DisplayPermissionCheck" Style="{StaticResource SwitchCheckBox}"
                                           Margin="10,0,0,0" Visibility="Collapsed" Click="DisplayPermission_Click"
-                                          ToolTip="Allow this display as a capture target. Off excludes it from manual desktop and automatic game recording without turning off recording globally."
+                                          Content="Allow recording on this display"
+                                          ToolTip="Allows automatic game recording and deliberate manual recording on this display."
                                           ToolTipService.ShowOnDisabled="True"
                                           AutomationProperties.Name="Allow capture on selected display" />
                             </Grid>
                             <TextBlock x:Name="DisplayPermissionHint" Style="{StaticResource Hint}" TextWrapping="Wrap" Margin="0,5,0,0" Visibility="Collapsed" />
-                            <Expander x:Name="GamePermissionOptions" Header="Game display permissions" Visibility="Collapsed" Margin="0,8,0,0">
-                                <StackPanel Margin="0,6,0,0">
-                                    <TextBlock Style="{StaticResource Hint}" Text="Game capture records everything visible on permitted displays. The selected-display switch excludes this monitor from both automatic game and manual desktop capture. It does not turn off recording globally." />
-                                    <WrapPanel Margin="0,6,0,0">
-                                        <Button x:Name="GameDisplayConsent" Click="GameDisplayConsent_Click" Margin="0,0,8,4" />
-                                        <Button x:Name="RevokeLegacyDisplayConsent" Content="Revoke legacy display permission" Click="RevokeLegacyDisplayConsent_Click" Visibility="Collapsed" />
-                                    </WrapPanel>
-                                </StackPanel>
-                            </Expander>
                         </StackPanel>
                     </Border>
 

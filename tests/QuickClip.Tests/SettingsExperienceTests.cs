@@ -27,13 +27,13 @@ public sealed class SettingsExperienceTests
             BasicSettings = true, GuidedSetupStep = 4, RecordingEnabled = false,
             RecordEncoder = "hevc_nvenc", RecordFps = 144, RecordAspect = "21:9",
             UseAudioEndpoints = true, EndpointTracks = [new(EndpointFlow.Microphone, "test-mic", "Mic")],
-            AllowGameDisplayFollowing = false, ExcludedGameDisplays = ["test-display"],
+            AllowedRecordingDisplays = ["allowed-display"], ExcludedGameDisplays = ["test-display"],
         };
         var saved = AppSettings.Parse(settings.ToJson());
         Assert.True(saved.BasicSettings);
         Assert.Equal(4, saved.GuidedSetupStep);
         Assert.False(saved.RecordingEnabled);
-        Assert.False(saved.AllowGameDisplayFollowing);
+        Assert.Equal(settings.AllowedRecordingDisplays, saved.AllowedRecordingDisplays);
         Assert.Equal(settings.RecordEncoder, saved.RecordEncoder);
         Assert.Equal(settings.RecordFps, saved.RecordFps);
         Assert.Equal(settings.RecordAspect, saved.RecordAspect);
@@ -75,7 +75,7 @@ public sealed class SettingsExperienceTests
         Assert.True(settings.RecordingEnabled);
         Assert.True(settings.ReplayOnboardingCompleted);
         Assert.Null(settings.GuidedSetupStep);
-        Assert.False(settings.AllowGameDisplayFollowing);
+        Assert.Empty(settings.AllowedRecordingDisplays);
     }
 
     [Fact]
@@ -95,7 +95,7 @@ public sealed class SettingsExperienceTests
         var settings = new AppSettings { GuidedSetupStep = 3, RecordingEnabled = alreadyEnabled };
         Assert.True(SettingsView.SaveGuideCompletion(settings, false, (_, candidate) => candidate == null));
         Assert.Equal(alreadyEnabled, settings.RecordingEnabled);
-        Assert.Null(settings.AuthorizedGameDisplay);
+        Assert.Empty(settings.AllowedRecordingDisplays);
         Assert.Null(settings.GuidedSetupStep);
     }
 }

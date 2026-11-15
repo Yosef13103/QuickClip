@@ -296,6 +296,9 @@ public partial class GamesSettingsView : UserControl
             Status.Text = $"{Path.GetFileName(nonGame)} is recognized as a non-game executable. Choose the game executable directly.";
             return;
         }
+        if (paths.Any(IsJavaRuntime) && !ModalDialog.ConfirmAction(owner,
+            "This Java executable can run more than one app. Only add it if this exact file is dedicated to your game. For a shared Java installation, use manual recording on an allowed display.",
+            "Confirm dedicated Java executable", "Add dedicated executable", "Cancel", destructive: false)) return;
         var state = State;
         var request = state.Request;
         var entries = GameCatalogRuntime.Rows(state);
@@ -345,6 +348,10 @@ public partial class GamesSettingsView : UserControl
             ? "Entry saved. Blocked paths stay ignored until restored under Ignored executables."
             : "Entry saved.";
     }
+
+    private static bool IsJavaRuntime(string path) =>
+        Path.GetFileName(path) is { } name &&
+        (name.Equals("javaw.exe", StringComparison.OrdinalIgnoreCase) || name.Equals("java.exe", StringComparison.OrdinalIgnoreCase));
 
     private void Remove_Click(object sender, RoutedEventArgs e)
     {
@@ -399,8 +406,11 @@ public partial class GamesSettingsView : UserControl
             Status.Text = "This executable cannot be approved. Check its detection status.";
             return;
         }
+        string prompt = IsJavaRuntime(path)
+            ? "Only approve this exact Java executable if it is dedicated to this game. For a shared Java installation, use manual recording on an allowed display."
+            : $"Allow {Path.GetFileName(path)} to trigger replay when it owns the game window?";
         if (!ModalDialog.ConfirmAction(Window.GetWindow(this),
-            $"Allow {Path.GetFileName(path)} to trigger replay when it owns the game window?",
+            prompt,
             "Approve game executable", "Approve executable", "Cancel", destructive: false)) return;
         if (!_rows.Contains(row) || row.RulesAfterApproval([path]) is not { } rules)
         {

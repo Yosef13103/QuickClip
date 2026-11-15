@@ -24,11 +24,11 @@ public sealed class RecordingFeedbackReadinessTests
     [InlineData(RecordingMode.ManualDesktop)]
     public void Replay_cannot_publish_after_revocation_during_mux(RecordingMode mode)
     {
-        var settings = new AppSettings { RecordingEnabled = true, AllowGameDisplayFollowing = true };
+        var settings = new AppSettings { RecordingEnabled = true, AllowedRecordingDisplays = ["physical-1", "physical-2"] };
         Assert.True(Recorder.MaySaveFromDisplay(settings, mode, "physical-1", true));
-        Assert.False(Recorder.TryUpdateDisplayPermission(settings, s => s.ExcludedGameDisplays = ["physical-1"], _ => false));
+        Assert.False(Recorder.TryUpdateDisplayPermission(settings, s => CaptureSourcePolicy.SetDisplayPermission(s, "physical-1", false), _ => false));
         Assert.True(Recorder.MaySaveFromDisplay(settings, mode, "physical-1", true));
-        Assert.True(Recorder.TryUpdateDisplayPermission(settings, s => s.ExcludedGameDisplays = ["physical-1"], _ => true));
+        Assert.True(Recorder.TryUpdateDisplayPermission(settings, s => CaptureSourcePolicy.SetDisplayPermission(s, "physical-1", false), _ => true));
         Assert.False(Recorder.MaySaveFromDisplay(settings, mode, "physical-1", true));
         Assert.True(Recorder.MaySaveFromDisplay(settings, mode, "physical-2", true));
         settings.RecordingEnabled = false;
@@ -38,7 +38,7 @@ public sealed class RecordingFeedbackReadinessTests
     [Fact]
     public void Final_readiness_needs_a_connected_authorized_physical_display()
     {
-        var settings = new AppSettings { AllowGameDisplayFollowing = true, ExcludedGameDisplays = ["physical-a"] };
+        var settings = new AppSettings { AllowedRecordingDisplays = ["physical-b"], ExcludedGameDisplays = ["physical-a"] };
         var display = new MonitorInfo("DISPLAY1", "Fixture", 0, 0, 1920, 1080) { CaptureIdentity = "physical-a" };
         Assert.False(SettingsView.HasAuthorizedDisplay(settings, []));
         Assert.False(SettingsView.HasAuthorizedDisplay(settings, [display]));

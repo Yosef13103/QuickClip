@@ -65,11 +65,18 @@ internal static class CaptureSourcePolicy
             : new(default, unavailable);
     }
 
-    internal static bool AcceptGameDisplay(AppSettings settings, MonitorInfo? display, bool confirmed)
+    internal static void SetDisplayPermission(AppSettings settings, string identity, bool allowed)
     {
-        if (!confirmed || string.IsNullOrWhiteSpace(display?.CaptureIdentity)) return false;
-        settings.AuthorizedGameDisplay = display.CaptureIdentity;
-        return true;
+        if (string.IsNullOrWhiteSpace(identity)) return;
+        var displays = new HashSet<string>(settings.AllowedRecordingDisplays ?? [], StringComparer.OrdinalIgnoreCase);
+        if (allowed)
+        {
+            displays.Add(identity);
+            settings.ExcludedGameDisplays = [.. (settings.ExcludedGameDisplays ?? [])
+                .Where(blocked => !string.Equals(blocked, identity, StringComparison.OrdinalIgnoreCase))];
+        }
+        else displays.Remove(identity);
+        settings.AllowedRecordingDisplays = [.. displays];
     }
 
     internal static MonitorInfo? ResolveGameDisplay(GameCaptureObservation game,
@@ -85,13 +92,9 @@ internal static class CaptureSourcePolicy
     internal static bool IsDisplayExcluded(AppSettings settings, string identity) =>
         (settings.ExcludedGameDisplays ?? []).Contains(identity, StringComparer.OrdinalIgnoreCase);
 
-    internal static bool AllowsManualDisplay(AppSettings settings, string identity) =>
-        !string.IsNullOrWhiteSpace(identity) && !IsDisplayExcluded(settings, identity);
-
-    internal static bool AllowsGameDisplay(AppSettings settings, string identity) =>
-        AllowsManualDisplay(settings, identity) &&
-        (settings.AllowGameDisplayFollowing || (settings.PreferGameWindow &&
-            string.Equals(settings.AuthorizedGameDisplay, identity, StringComparison.OrdinalIgnoreCase)));
+    internal static bool AllowsRecordingDisplay(AppSettings settings, string identity) =>
+        !string.IsNullOrWhiteSpace(identity) && !IsDisplayExcluded(settings, identity) &&
+        (settings.AllowedRecordingDisplays ?? []).Contains(identity, StringComparer.OrdinalIgnoreCase);
 
     internal static MonitorInfo? SelectMonitor(IReadOnlyList<MonitorInfo> monitors, string device, bool requireSelected)
     {

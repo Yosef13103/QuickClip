@@ -47,7 +47,7 @@ internal sealed class RecordingLifecycle(Func<CaptureActivation, string?> start,
             else if (CaptureSourcePolicy.ResolveGameDisplay(game, displays, windowDisplay) is not { CaptureIdentity: { } identity } display)
                 unavailable = "QuickClip cannot verify which physical display contains the game.";
             else if (!allowsGameDisplay(identity))
-                unavailable = "The game's entire display needs permission. Open Settings → Recording to allow display following.";
+                unavailable = "The game's display needs permission. Open Settings → Recording and allow recording on that display.";
             else desired = new(new(display.DeviceName, identity), game.Owner, game.Match.Entry?.Id);
         }
 

@@ -34,6 +34,7 @@ internal sealed class ClipNotificationOverlay : IDisposable
 
     private bool _indicatorOpaque;
     internal string? IndicatorFailure { get; private set; }
+    internal int? IndicatorLayeredError { get; private set; }
     internal bool IndicatorOpaque => _indicatorOpaque;
     internal bool IsVisible => _window?.IsVisible == true;
     internal bool IsAnimatingImage => _frameTimer?.IsEnabled == true;
@@ -458,19 +459,19 @@ internal sealed class ClipNotificationOverlay : IDisposable
         EnsureWindow(!_indicatorOpaque);
         // Layered WPF windows may reject display affinity. Try a non-layered
         // compact window, but never show an unexcluded HUD as a fallback.
-        if (!SetWindowDisplayAffinity(_handle, 0x11))
+        if (!TryExcludeIndicator(out int affinityError))
         {
-            int layeredError = Marshal.GetLastWin32Error();
             if (!_indicatorOpaque)
             {
+                IndicatorLayeredError = affinityError;
                 _window!.Close();
                 _window = null;
                 _indicatorOpaque = true;
                 EnsureWindow(false);
             }
-            if (!SetWindowDisplayAffinity(_handle, 0x11))
+            if (!TryExcludeIndicator(out affinityError))
             {
-                IndicatorFailure = $"Windows could not exclude the recording icons (Win32 {Marshal.GetLastWin32Error()}, first attempt {layeredError}).";
+                IndicatorFailure = $"Windows could not exclude the recording icons (Win32 {affinityError}, layered attempt {IndicatorLayeredError?.ToString() ?? "unavailable"}).";
                 return;
             }
         }
@@ -506,17 +507,42 @@ internal sealed class ClipNotificationOverlay : IDisposable
                 return;
             }
             _window.Show();
-            if (!SetWindowDisplayAffinity(_handle, 0x11) ||
-                !SetWindowPos(_handle, new IntPtr(-1), (int)Math.Round(p.X), (int)Math.Round(p.Y), (int)size.Width, (int)size.Height, 0x0210))
+            if (!TryExcludeIndicator(out affinityError))
             {
-                IndicatorFailure = $"Windows could not keep the recording icons visible and excluded (Win32 {Marshal.GetLastWin32Error()}).";
                 Hide();
+                IndicatorFailure = $"Windows could not keep the recording icons excluded (Win32 {affinityError}).";
+                return;
+            }
+            if (!SetWindowPos(_handle, new IntPtr(-1), (int)Math.Round(p.X), (int)Math.Round(p.Y), (int)size.Width, (int)size.Height, 0x0210))
+            {
+                int positionError = Marshal.GetLastWin32Error();
+                Hide();
+                IndicatorFailure = $"Windows could not position the recording icons (Win32 {positionError}).";
                 return;
             }
             IndicatorFailure = null;
             _indicatorPlacement = placement;
         }
         finally { if (prior != IntPtr.Zero) SetThreadDpiAwarenessContext(prior); }
+    }
+
+    private bool TryExcludeIndicator(out int error)
+    {
+        const uint excludeFromCapture = 0x11;
+        if (!SetWindowDisplayAffinity(_handle, excludeFromCapture))
+        {
+            error = Marshal.GetLastWin32Error();
+            return false;
+        }
+        // The documented readback only supports layered windows.
+        if (_indicatorOpaque) { error = 0; return true; }
+        if (!GetWindowDisplayAffinity(_handle, out uint actual))
+        {
+            error = Marshal.GetLastWin32Error();
+            return false;
+        }
+        error = actual == excludeFromCapture ? 0 : 50; // ERROR_NOT_SUPPORTED
+        return error == 0;
     }
 
     private static Grid StatusGlyph(string geometry, out System.Windows.Shapes.Path foreground)
@@ -609,4 +635,5 @@ internal sealed class ClipNotificationOverlay : IDisposable
     [DllImport("user32.dll", EntryPoint = "SetWindowLongW")] private static extern int SetWindowLong(IntPtr window, int index, int value);
     [DllImport("user32.dll", SetLastError = true)] private static extern bool SetWindowPos(IntPtr window, IntPtr order, int x, int y, int width, int height, uint flags);
     [DllImport("user32.dll", SetLastError = true)] private static extern bool SetWindowDisplayAffinity(IntPtr window, uint affinity);
+    [DllImport("user32.dll", SetLastError = true)] private static extern bool GetWindowDisplayAffinity(IntPtr window, out uint affinity);
 }

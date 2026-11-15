@@ -4,6 +4,7 @@ using static QuickClip.Recording.CaptureEngine;
 
 namespace QuickClip.Tests;
 
+[Collection("media")]
 public sealed class MicrophoneSignalTests
 {
     [Fact]

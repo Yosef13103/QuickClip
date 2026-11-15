@@ -431,7 +431,7 @@ internal sealed class AppHost : IDisposable
                 menu.Items.Add(Item("Switch to next authorized display", () => RunRecordingCommand(RecordingCommand.SwitchMonitor)));
                 var authorize = new MenuItem { Header = "Switch desktop display…" };
                 foreach (var monitor in Monitors.List().Where(m => m.CaptureIdentity is { } identity &&
-                    CaptureSourcePolicy.AllowsManualDisplay(AppSettings.Current, identity)))
+                    CaptureSourcePolicy.AllowsRecordingDisplay(AppSettings.Current, identity)))
                     authorize.Items.Add(Item(monitor.Label, () => SelectManualDisplay(recorder, monitor, onlyIfActive: true)));
                 authorize.IsEnabled = authorize.Items.Count > 0;
                 menu.Items.Add(authorize);
@@ -505,9 +505,9 @@ internal sealed class AppHost : IDisposable
     {
         if (selected.CaptureIdentity == null || !AppSettings.Current.RecordingEnabled) return;
         var settings = AppSettings.Current;
-        if (!CaptureSourcePolicy.AllowsManualDisplay(settings, selected.CaptureIdentity))
+        if (!CaptureSourcePolicy.AllowsRecordingDisplay(settings, selected.CaptureIdentity))
         {
-            NotifySource("Display excluded", "Enable capture for this display in Recording settings first.");
+            NotifySource("Display permission required", "Allow recording on this display in Recording settings first.");
             return;
         }
         string previous = settings.RecordMonitor;

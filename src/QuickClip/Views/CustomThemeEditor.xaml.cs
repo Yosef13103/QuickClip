@@ -116,11 +116,11 @@ public partial class CustomThemeEditor : UserControl
 
     private void Save_Click(object sender, RoutedEventArgs e)
     {
-        if (!SaveButton.IsEnabled || Application.Current is not App app) return;
-        SaveTheme(Draft, app);
+        if (!SaveButton.IsEnabled || Application.Current is not App) return;
+        SaveTheme(Draft);
     }
 
-    private void SaveTheme(ThemeDocument theme, App app)
+    private void SaveTheme(ThemeDocument theme)
     {
         if (ThemePalette.ReadabilityWarnings(theme.Palette).Any())
         {
@@ -161,12 +161,17 @@ public partial class CustomThemeEditor : UserControl
     {
         var dialog = new OpenFileDialog { Filter = "QuickClip theme (*.json)|*.json", CheckFileExists = true };
         if (dialog.ShowDialog(Window.GetWindow(this)) != true) return;
+        ImportTheme(dialog.FileName);
+    }
+
+    internal void ImportTheme(string path)
+    {
         try
         {
-            using var stream = File.OpenRead(dialog.FileName);
-            var theme = ThemeDocument.Read(stream);
+            ThemeDocument theme;
+            using (var stream = File.OpenRead(path)) theme = ThemeDocument.Read(stream);
             LoadDraft(theme);
-            if (Application.Current is App app) SaveTheme(theme, app);
+            if (Application.Current is App) SaveTheme(theme);
         }
         catch (Exception ex) when (ex is IOException or InvalidDataException or UnauthorizedAccessException)
         {

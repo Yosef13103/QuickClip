@@ -43,7 +43,9 @@ public sealed class RecordingSettingsViewTests
                     Assert.Equal("microphone Saved mic activity", AutomationProperties.GetName(meter.Children[0]));
                     var actions = Assert.IsType<WrapPanel>(meter.Children[2]);
                     Assert.Equal("Test microphone", Assert.IsType<Button>(actions.Children[0]).Content);
-                    Assert.False(Assert.IsType<Button>(actions.Children[1]).IsEnabled);
+                    Assert.Equal("Record 5 seconds", Assert.IsType<Button>(actions.Children[1]).Content);
+                    Assert.False(Assert.IsType<Button>(actions.Children[2]).IsEnabled);
+                    Assert.False(Assert.IsType<Button>(actions.Children[3]).IsEnabled);
                 }
 
                 view.HotkeysSection.IsChecked = true;

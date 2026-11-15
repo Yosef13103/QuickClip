@@ -22,13 +22,14 @@ public partial class AppearanceSettings : UserControl
         ThemePicker.DropDownOpened += (_, _) => RefreshSelection();
     }
 
-    private void RefreshSelection()
+    private void RefreshSelection() => RefreshSelection(AppSettings.Current);
+
+    internal void RefreshSelection(AppSettings settings)
     {
         bool previousLoading = _loading;
         _loading = true;
         try
         {
-            var settings = AppSettings.Current;
             var options = new List<Option>
             {
                 new(ThemeChoice.Dark, "QuickClip Dark"), new(ThemeChoice.Amoled, "AMOLED"),
@@ -73,9 +74,14 @@ public partial class AppearanceSettings : UserControl
 
     private void ThemePicker_Changed(object sender, SelectionChangedEventArgs e)
     {
-        if (_loading || !IsLoaded || Application.Current is not App app || ThemePicker.SelectedItem is not Option option)
+        // ThemeMode can briefly unload the picker during Fluent resource invalidation.
+        // Programmatic selection is already guarded by RefreshSelection.
+        if (_loading || !ReferenceEquals(e.OriginalSource, ThemePicker) ||
+            Application.Current is not App app || ThemePicker.SelectedItem is not Option option)
             return;
         var settings = AppSettings.Current;
+        if (ThemeResources.ThemeChoiceFrom(settings.Theme) == option.Choice &&
+            (option.Choice != ThemeChoice.Custom || settings.CustomThemeJson == option.Json)) return;
         if (option.Choice == ThemeChoice.Custom && (ThemeResources.ReadSaved(option.Json) is not { } custom ||
             ThemePalette.ReadabilityWarnings(custom.Palette).Any()))
         {

@@ -3,7 +3,7 @@
 This is a contract, not a claim of completeness. Verify current code. Read only the relevant section.
 
 ## Capture and platform
-- Master OFF = no recording and no implicit manual grants. Master ON = lightweight eligibility watch; no encoder while waiting for game. Manual desktop explicitly selected session overrides game capture; explicit display change changes session/source and resets replay. Game display exclusions independent of manual permission.
+- Master OFF = no recording and no implicit manual grants. Master ON = lightweight eligibility watch; no encoder while waiting for game. Automatic and manual Personal capture share explicit permission for each physical display. Manual desktop also needs deliberate session activation, overrides game capture, and starts a fresh replay when its display changes.
 - Game priority sticky through ordinary alt-tab/Discord focus, but separately reason about multiple genuinely eligible games and deliberate transitions; do not pin dead/stale source. Verify running process, actual window/PID and physical display identity; label whole-monitor vs isolated window truthfully.
 - Do not confuse discovery, capture eligibility, source authorization or backend capability. Approved folders should make legitimate game EXEs eligible without extra confidence/renderer approvals (Wave 2), not authorize every helper or unrelated executable. Explicit disable/exclude wins.
 - Windows 10 no supported WGC border-removal API. Windows 11 supported borderless WGC requires runtime API/build 20348+, proper package capability, user consent, and actual confirmation; DDA full monitor is not game-only. No silent fallback to whole monitor, no anti-cheat or protected-content bypass.

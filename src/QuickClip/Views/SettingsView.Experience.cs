@@ -22,7 +22,7 @@ public partial class SettingsView
         ("What should your clips sound like?", "Choose computer sound and a microphone. Use Test microphone and speak to check that QuickClip can hear you."),
         ("Choose recording quality", "Set how much gameplay to keep before you press Save Clip. Higher resolution, frame rate and quality make bigger clips."),
         ("Find your games", "Let QuickClip look for installed games. Use Add Game if one is missing."),
-        ("Choose what QuickClip can capture", "QuickClip currently records the whole display containing an eligible game. Other windows, messages and notifications on it may appear in clips. Review exclusions for each monitor and explicitly allow game display following if desired."),
+        ("Choose which displays QuickClip can record", "Choose each display you want to allow. QuickClip records everything visible on the game's display, including other windows and messages. Manual recording also needs display permission and a separate start action."),
         ("Know when your clips are saved", "Choose a sound, notifications, and optional recording status icons. Preview the save feedback without recording. Detailed customization is available in Advanced settings."),
         ("Review and finish", "Your preferences are saved. Review the summary and choose whether to enable recording. Enabling waits for an eligible game and uses only existing display permissions. You can return to any page or finish without changing recording.")
     ];
@@ -173,7 +173,6 @@ public partial class SettingsView
         };
         section.IsChecked = true;
         ApplySettingsSection(section);
-        if (GuideStep == 6) GamePermissionOptions.IsExpanded = true;
         UpdateSettingsExperience();
         if (IsVisible && !_loading) GuideNext.Focus();
     }
@@ -197,7 +196,7 @@ public partial class SettingsView
     }
 
     internal static bool HasAuthorizedDisplay(AppSettings settings, IEnumerable<MonitorInfo> monitors) =>
-        monitors.Any(monitor => monitor.CaptureIdentity is { } id && CaptureSourcePolicy.AllowsGameDisplay(settings, id));
+        monitors.Any(monitor => monitor.CaptureIdentity is { } id && CaptureSourcePolicy.AllowsRecordingDisplay(settings, id));
 
     private string SetupSummary()
     {

@@ -64,13 +64,13 @@ public sealed class CaptureSourcePolicyTests
     [Fact]
     public void Display_exclusions_restrict_an_existing_grant_without_creating_one()
     {
-        var settings = new AppSettings { AllowGameDisplayFollowing = false, ExcludedGameDisplays = ["blocked"] };
-        Assert.False(CaptureSourcePolicy.AllowsGameDisplay(settings, "other"));
-        settings.AllowGameDisplayFollowing = true;
-        Assert.True(CaptureSourcePolicy.AllowsGameDisplay(settings, "other"));
-        Assert.False(CaptureSourcePolicy.AllowsGameDisplay(settings, "BLOCKED"));
+        var settings = new AppSettings { ExcludedGameDisplays = ["blocked"] };
+        Assert.False(CaptureSourcePolicy.AllowsRecordingDisplay(settings, "other"));
+        CaptureSourcePolicy.SetDisplayPermission(settings, "other", true);
+        Assert.True(CaptureSourcePolicy.AllowsRecordingDisplay(settings, "other"));
+        Assert.False(CaptureSourcePolicy.AllowsRecordingDisplay(settings, "BLOCKED"));
         var restored = AppSettings.Parse(settings.ToJson());
-        Assert.False(CaptureSourcePolicy.AllowsGameDisplay(restored, "blocked"));
+        Assert.False(CaptureSourcePolicy.AllowsRecordingDisplay(restored, "blocked"));
     }
 
     [Fact]
@@ -81,16 +81,16 @@ public sealed class CaptureSourcePolicyTests
     }
 
     [Fact]
-    public void Excluded_displays_veto_manual_and_automatic_capture_without_granting_game_permission()
+    public void Allowing_and_revoking_one_display_leaves_other_displays_unchanged()
     {
-        var s = new AppSettings { AllowGameDisplayFollowing = false, ExcludedGameDisplays = ["blocked"] };
-        Assert.False(CaptureSourcePolicy.AllowsManualDisplay(s, "BLOCKED"));
-        Assert.False(CaptureSourcePolicy.AllowsGameDisplay(s, "BLOCKED"));
-        Assert.True(CaptureSourcePolicy.AllowsManualDisplay(s, "other"));
-        Assert.False(CaptureSourcePolicy.AllowsGameDisplay(s, "other"));
-        s.AllowGameDisplayFollowing = true;
-        Assert.True(CaptureSourcePolicy.AllowsGameDisplay(s, "other"));
-        Assert.False(CaptureSourcePolicy.AllowsManualDisplay(s, "blocked"));
-        Assert.False(CaptureSourcePolicy.AllowsGameDisplay(s, "blocked"));
+        var s = new AppSettings { RecordingEnabled = false, AllowedRecordingDisplays = ["other"], ExcludedGameDisplays = ["blocked"] };
+        Assert.False(CaptureSourcePolicy.AllowsRecordingDisplay(s, "BLOCKED"));
+        CaptureSourcePolicy.SetDisplayPermission(s, "BLOCKED", true);
+        Assert.True(CaptureSourcePolicy.AllowsRecordingDisplay(s, "blocked"));
+        Assert.False(s.RecordingEnabled);
+        CaptureSourcePolicy.SetDisplayPermission(s, "Blocked", false);
+        Assert.True(CaptureSourcePolicy.AllowsRecordingDisplay(s, "other"));
+        Assert.False(CaptureSourcePolicy.AllowsRecordingDisplay(s, "blocked"));
+        Assert.False(CaptureSourcePolicy.AllowsRecordingDisplay(s, "new"));
     }
 }

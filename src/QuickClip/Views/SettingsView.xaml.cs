@@ -349,26 +349,19 @@ public partial class SettingsView : UserControl
         if (AppProfile.IsPersonal)
         {
             var settings = AppSettings.Current;
-            GamePermissionOptions.Visibility = DisplayPermissionCheck.Visibility = DisplayPermissionHint.Visibility = Visibility.Visible;
+            DisplayPermissionCheck.Visibility = DisplayPermissionHint.Visibility = Visibility.Visible;
             ManualDesktopButton.Visibility = _guideActive ? Visibility.Collapsed : Visibility.Visible;
-            GameDisplayConsent.Content = settings.AllowGameDisplayFollowing
-                ? "Disable game display following" : "Allow game display following…";
             var identity = SelectedMonitor?.CaptureIdentity;
             DisplayPermissionCheck.IsEnabled = identity != null;
-            DisplayPermissionCheck.IsChecked = identity != null && CaptureSourcePolicy.AllowsManualDisplay(settings, identity);
+            DisplayPermissionCheck.IsChecked = identity != null && CaptureSourcePolicy.AllowsRecordingDisplay(settings, identity);
             DisplayPermissionHint.Text = identity == null ? "Choose a connected, identifiable display."
                 : DisplayPermissionCheck.IsChecked == true
-                    ? "Display included. Manual capture can use it; automatic games also need game display permission."
-                    : "Display excluded from manual and automatic game capture. Recording stays enabled elsewhere.";
-            RevokeLegacyDisplayConsent.Visibility = !settings.AllowGameDisplayFollowing && settings.AuthorizedGameDisplay != null
-                ? Visibility.Visible : Visibility.Collapsed;
+                    ? "This display is allowed for automatic game recording and manual recording."
+                    : "Recording is blocked on this display. Other allowed displays keep their permission.";
             BackendCombo.IsEnabled = false;
-            CaptureTargetHint.Text = "Instant replay waits for an eligible game. Desktop Duplication records the game's display, including other visible apps and notifications. Switching displays starts a fresh replay buffer."
-                + (settings.AllowGameDisplayFollowing ? "" : settings.AuthorizedGameDisplay != null
-                    ? settings.PreferGameWindow ? " Your existing permission covers one display." : " Your previous settings disabled automatic capture. Allow game display following to start it."
-                    : " Game display permission is required.");
+            CaptureTargetHint.Text = "Automatic recording follows an eligible game to an allowed display. QuickClip records everything visible there, including messages and notifications. Changing the recording display starts a fresh replay.";
             ManualDesktopButton.IsEnabled = settings.RecordingEnabled && (Recorder.Instance.ManualDesktopRequested ||
-                identity != null && CaptureSourcePolicy.AllowsManualDisplay(settings, identity));
+                identity != null && CaptureSourcePolicy.AllowsRecordingDisplay(settings, identity));
             ManualDesktopButton.IsChecked = Recorder.Instance.ManualDesktopRequested;
             return;
         }
@@ -476,35 +469,12 @@ public partial class SettingsView : UserControl
         MicTracksCombo.IsEnabled = on;
     }
 
-    private async void GameDisplayConsent_Click(object sender, RoutedEventArgs e)
-    {
-        var settings = AppSettings.Current;
-        bool allow = !settings.AllowGameDisplayFollowing;
-        if (allow && !ModalDialog.ConfirmAction(Window.GetWindow(this),
-                "Allow QuickClip to record the entire display containing an eligible game? Capture follows the game to any connected display, including displays connected later. Other apps, messages and notifications visible on that display can appear in clips.",
-                "Allow game display following?", "Allow", "Cancel", destructive: false)) return;
-        await ApplyDisplayPermissionAsync(current =>
-        {
-            current.AllowGameDisplayFollowing = allow;
-            if (!allow) current.AuthorizedGameDisplay = null;
-        });
-    }
-
-    private async void RevokeLegacyDisplayConsent_Click(object sender, RoutedEventArgs e) =>
-        await ApplyDisplayPermissionAsync(settings => settings.AuthorizedGameDisplay = null);
-
     private async void DisplayPermission_Click(object sender, RoutedEventArgs e)
     {
         if (SelectedMonitor?.CaptureIdentity is { } identity)
         {
             bool allow = DisplayPermissionCheck.IsChecked == true;
-            await ApplyDisplayPermissionAsync(settings =>
-            {
-                var blocked = new HashSet<string>(settings.ExcludedGameDisplays ?? [], StringComparer.OrdinalIgnoreCase);
-                if (allow) blocked.Remove(identity);
-                else blocked.Add(identity);
-                settings.ExcludedGameDisplays = blocked.ToArray();
-            });
+            await ApplyDisplayPermissionAsync(settings => CaptureSourcePolicy.SetDisplayPermission(settings, identity, allow));
         }
         else ShowGameWindowState();
     }

@@ -63,12 +63,16 @@ public partial class GamesSettingsView
             Entry.Executables.IsEmpty ? "No executable found · check the source and rescan" :
             _unavailable.Length > 0 ? "Executable unavailable · check the drive or edit executables" : null;
         public bool ShowAdvanced => !_basic;
+        private bool MinecraftProxy => Entry.Executables.Any(path =>
+            Path.GetFileName(path).Equals("MCPlaceholderStub.exe", StringComparison.OrdinalIgnoreCase));
         internal bool DetectionReady => !IsExcluded && Entry.Executables.Any(path =>
         {
             var match = Match(path);
             return match.Entry?.Id == Entry.Id && GameDetector.HasCatalogEligibility(match);
         });
-        public string Summary => _basic ? IsExcluded ? "Recording for this game is off" : DetectionReady ? "Ready for automatic detection" :
+        public string Summary => !IsExcluded && MinecraftProxy && !DetectionReady
+            ? "Minecraft launcher found. For Java Edition, start manual recording on the allowed display unless you have a dedicated game executable."
+            : _basic ? IsExcluded ? "Recording for this game is off" : DetectionReady ? "Ready for automatic detection" :
             _offline ? "Game needs checking" : "Automatic detection needs setup" :
             Availability is { } issue ? $"{Source} · {Eligibility} · {issue}" : $"{Source} · {Eligibility}";
 
