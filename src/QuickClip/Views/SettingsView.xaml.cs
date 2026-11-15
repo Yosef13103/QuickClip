@@ -54,9 +54,14 @@ public partial class SettingsView : UserControl
         }, Dispatcher) { IsEnabled = false };
         CaptureAdvanced.IsVisibleChanged += (_, _) => UpdateDiagnosticsTimer();
         CaptureAdvanced.Collapsed += (_, _) => UpdateDiagnosticsTimer();
-        IsVisibleChanged += (_, _) => UpdateDiagnosticsTimer();
+        IsVisibleChanged += (_, _) =>
+        {
+            UpdateDiagnosticsTimer();
+            if (!IsVisible && _guideActive) ExitGuide();
+        };
         Unloaded += (_, _) =>
         {
+            if (_guideActive) ExitGuide();
             _diagnosticsTimer?.Stop();
             Recorder.Instance.StateChanged -= OnRecorderState;
             Updater.Changed -= OnUpdaterChanged;
@@ -471,58 +476,53 @@ public partial class SettingsView : UserControl
         MicTracksCombo.IsEnabled = on;
     }
 
-    private void GameDisplayConsent_Click(object sender, RoutedEventArgs e)
+    private async void GameDisplayConsent_Click(object sender, RoutedEventArgs e)
     {
         var settings = AppSettings.Current;
-        if (settings.AllowGameDisplayFollowing)
-        {
-            settings.AllowGameDisplayFollowing = false;
-            settings.AuthorizedGameDisplay = null;
-        }
-        else
-        {
-            if (!ModalDialog.ConfirmAction(Window.GetWindow(this),
+        bool allow = !settings.AllowGameDisplayFollowing;
+        if (allow && !ModalDialog.ConfirmAction(Window.GetWindow(this),
                 "Allow QuickClip to record the entire display containing an eligible game? Capture follows the game to any connected display, including displays connected later. Other apps, messages and notifications visible on that display can appear in clips.",
                 "Allow game display following?", "Allow", "Cancel", destructive: false)) return;
-            settings.AllowGameDisplayFollowing = true;
-        }
-        ApplyDisplayPermission();
+        await ApplyDisplayPermissionAsync(current =>
+        {
+            current.AllowGameDisplayFollowing = allow;
+            if (!allow) current.AuthorizedGameDisplay = null;
+        });
     }
 
-    private void RevokeLegacyDisplayConsent_Click(object sender, RoutedEventArgs e)
-    {
-        AppSettings.Current.AuthorizedGameDisplay = null;
-        ApplyDisplayPermission();
-    }
+    private async void RevokeLegacyDisplayConsent_Click(object sender, RoutedEventArgs e) =>
+        await ApplyDisplayPermissionAsync(settings => settings.AuthorizedGameDisplay = null);
 
-    private void DisplayPermission_Click(object sender, RoutedEventArgs e)
+    private async void DisplayPermission_Click(object sender, RoutedEventArgs e)
     {
-        var settings = AppSettings.Current;
         if (SelectedMonitor?.CaptureIdentity is { } identity)
         {
-            var blocked = new HashSet<string>(settings.ExcludedGameDisplays ?? [], StringComparer.OrdinalIgnoreCase);
-            if (DisplayPermissionCheck.IsChecked == true) blocked.Remove(identity);
-            else blocked.Add(identity);
-            var previous = settings.ExcludedGameDisplays;
-            settings.ExcludedGameDisplays = blocked.ToArray();
-            if (!settings.TrySave())
+            bool allow = DisplayPermissionCheck.IsChecked == true;
+            await ApplyDisplayPermissionAsync(settings =>
             {
-                settings.ExcludedGameDisplays = previous;
-                ShowGameWindowState();
-                ModalDialog.Show(Window.GetWindow(this), "Could not save the display exclusion. No permission has changed.", "Settings");
-                return;
-            }
-            ShowGameWindowState();
-            _ = Recorder.Instance.ReconcileDisplayPermissionsAsync();
+                var blocked = new HashSet<string>(settings.ExcludedGameDisplays ?? [], StringComparer.OrdinalIgnoreCase);
+                if (allow) blocked.Remove(identity);
+                else blocked.Add(identity);
+                settings.ExcludedGameDisplays = blocked.ToArray();
+            });
         }
         else ShowGameWindowState();
     }
 
-    private void ApplyDisplayPermission()
+    private async Task ApplyDisplayPermissionAsync(Action<AppSettings> update)
     {
-        AppSettings.Current.Save();
-        ShowGameWindowState();
-        _ = Recorder.Instance.ReconcileDisplayPermissionsAsync();
+        CapturePermissionCard.IsEnabled = false;
+        try
+        {
+            if (!await Recorder.Instance.UpdateDisplayPermissionsAsync(update) && IsVisible)
+                ModalDialog.Show(Window.GetWindow(this), "Could not save display permissions.", "Settings");
+        }
+        finally
+        {
+            CapturePermissionCard.IsEnabled = true;
+            ShowGameWindowState();
+            if (_guideActive) UpdateGuideHeader();
+        }
     }
 
     private void ManualDesktop_Click(object sender, RoutedEventArgs e)
@@ -540,6 +540,12 @@ public partial class SettingsView : UserControl
     {
         if (_loading || !IsInitialized) return;
         var s = AppSettings.Current;
+        if (sender == RecordingCheck && AppProfile.IsPersonal)
+        {
+            _restartTimer.Stop();
+            _ = ChangeRecordingEnabledAsync(RecordingCheck.IsChecked == true);
+            return;
+        }
         if (sender == MonitorCombo && AppProfile.IsPersonal)
         {
             // This control owns only manual display selection. Do not rewrite other
@@ -594,6 +600,7 @@ public partial class SettingsView : UserControl
             s.MicDeviceIds = SelectedMics;
         if (!AppProfile.IsPersonal || sender == MicTracksCombo) s.SeparateMicTracks = MicTracksCombo.SelectedItem is Choice { Value: true };
         UpdateMicControls();
+        UpdateBasicAudio();
         if (!AppProfile.IsPersonal || sender == StartTrayCheck) s.StartInTray = StartTrayCheck.IsChecked == true;
         if (!AppProfile.IsPersonal || sender == CloseTrayCheck) s.CloseToTray = CloseTrayCheck.IsChecked == true;
         if (!AppProfile.IsPersonal || sender == SoundCheck) s.ClipSound = SoundCheck.IsChecked == true;
@@ -610,6 +617,20 @@ public partial class SettingsView : UserControl
             _ = Recorder.Instance.ApplySettingsAsync();
         }
         else if (recordingSetting) ScheduleRecorderRestart();
+    }
+
+    private async Task ChangeRecordingEnabledAsync(bool enabled)
+    {
+        RecordingCheck.IsEnabled = false;
+        try
+        {
+            if (!await Recorder.Instance.ChangeRecordingEnabledAsync(enabled))
+            {
+                OnRecorderState(Recorder.Instance.State);
+                if (IsVisible) ModalDialog.Show(Window.GetWindow(this), "Could not save the recording setting.", "Recording");
+            }
+        }
+        finally { RecordingCheck.IsEnabled = true; }
     }
 
     private void ScheduleRecorderRestart()
@@ -745,9 +766,10 @@ public partial class SettingsView : UserControl
         var encoder = VideoEncoders.Find(encoderId);
         string encoderLabel = s.RecordEncoder.Length > 0 ? encoder?.Label ?? encoderId :
             RecordingPresets.DefaultEncoder(_encoders) is { } preferred ? $"Auto ({preferred.Label})" : "Auto";
-        ResourceVideo.Text = $"{BufferText.Text} · {w} × {h} estimated · {s.RecordFps} FPS target · " +
-            $"{RecordingPresets.Label(s.RecordQuality)} · {BitrateText.Text} video · {encoderLabel}";
-        ResourceSize.Text = $"Estimated full clip {Fmt.Size(clip)} · Replay buffer about {Fmt.Size(ram)} RAM · {tracks} audio track(s)";
+        ResourceVideo.Text = IsBasicExperience ? $"{BufferText.Text} · {w} × {h} · {s.RecordFps} FPS · {RecordingPresets.Label(s.RecordQuality)}" :
+            $"{BufferText.Text} · {w} × {h} estimated · {s.RecordFps} FPS target · {RecordingPresets.Label(s.RecordQuality)} · {BitrateText.Text} video · {encoderLabel}";
+        ResourceSize.Text = IsBasicExperience ? $"A full-length clip takes about {Fmt.Size(clip)} on disk." :
+            $"Estimated full clip {Fmt.Size(clip)} · Replay buffer about {Fmt.Size(ram)} RAM · {tracks} audio track(s)";
         RamText.Text = $"The replay buffer needs about {Fmt.Size(ram)} of memory. A full-length clip is about {Fmt.Size(clip)} on disk.";
     }
 

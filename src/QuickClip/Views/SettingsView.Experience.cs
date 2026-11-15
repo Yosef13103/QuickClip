@@ -10,17 +10,18 @@ namespace QuickClip.Views;
 public partial class SettingsView
 {
     private bool _guideActive, _finishingGuide;
+    private int _guideAttempt;
     private bool IsBasicExperience => AppProfile.IsPersonal && (_guideActive || AppSettings.Current.BasicSettings);
     private int GuideStep => Math.Clamp(AppSettings.Current.GuidedSetupStep ?? 0, 0, 8);
 
     private static readonly (string Title, string Hint)[] GuideSteps =
     [
-        ("Welcome to QuickClip", "QuickClip remembers your recent gameplay in memory. Press a shortcut to save a video. While waiting for a game, no capture engine runs. You choose whether to enable recording at the end. Changes you make on the following pages are saved as you go."),
+        ("Save the moments you want to keep", "QuickClip can remember the last few minutes while you play. Press your save shortcut to keep that moment as a clip. Your choices save as you go. You decide when to turn recording on."),
         ("Where should clips go?", "Choose a local folder for new clips. Existing videos are never moved. You can return here to change the location later."),
         ("How will you save a clip?", "Assign a shortcut you can remember. Check that Windows registered it. You can always save from the QuickClip window too."),
-        ("What should your clips sound like?", "Computer audio includes game and voice chat unless routed to separate playback devices. Choose your microphone and run its test if needed. You can use selected Windows devices for separate tracks or video only."),
-        ("Choose recording quality", "Start with a suitable resolution and frame rate for your hardware, then choose how much history to keep. Higher settings use more memory, disk space and GPU resources. The estimate is not a performance guarantee."),
-        ("Find your games", "Review installed games from the enabled libraries. Scan, add a missing game or approve a game folder. Discovery can continue in the background; never approve unrelated applications as games."),
+        ("What should your clips sound like?", "Choose computer sound and a microphone. Use Test microphone and speak to check that QuickClip can hear you."),
+        ("Choose recording quality", "Set how much gameplay to keep before you press Save Clip. Higher resolution, frame rate and quality make bigger clips."),
+        ("Find your games", "Let QuickClip look for installed games. Use Add Game if one is missing."),
         ("Choose what QuickClip can capture", "QuickClip currently records the whole display containing an eligible game. Other windows, messages and notifications on it may appear in clips. Review exclusions for each monitor and explicitly allow game display following if desired."),
         ("Know when your clips are saved", "Choose a sound, notifications, and optional recording status icons. Preview the save feedback without recording. Detailed customization is available in Advanced settings."),
         ("Review and finish", "Your preferences are saved. Review the summary and choose whether to enable recording. Enabling waits for an eligible game and uses only existing display permissions. You can return to any page or finish without changing recording.")
@@ -29,8 +30,15 @@ public partial class SettingsView
     internal void BeginGuidedSetup()
     {
         if (!AppProfile.IsPersonal || _guideActive) return;
-        if (AppSettings.Current.GuidedSetupStep == null) AppSettings.Current.GuidedSetupStep = 0;
-        AppSettings.Current.Save();
+        var settings = AppSettings.Current;
+        var previous = settings.GuidedSetupStep;
+        settings.GuidedSetupStep ??= 0;
+        if (!settings.TrySave())
+        {
+            settings.GuidedSetupStep = previous;
+            ModalDialog.Show(Window.GetWindow(this), "Could not save the setup starting point. Check that QuickClip can save settings and try again.", "Guided setup");
+            return;
+        }
         _guideActive = true;
         GuideError.Text = "";
         ShowGuideStep();
@@ -64,6 +72,7 @@ public partial class SettingsView
         SetupGuideButton.Visibility = _guideActive ? Visibility.Collapsed : Visibility.Visible;
         SetupGuideButton.Content = AppSettings.Current.GuidedSetupStep.HasValue ? "Resume setup" : "Guided setup";
         SettingsSidebar.IsEnabled = !_guideActive;
+        SectionsColumn.Width = _guideActive ? new GridLength(0) : new GridLength(176);
         GuideBanner.Visibility = _guideActive ? Visibility.Visible : Visibility.Collapsed;
         SharingSection.Visibility = DiagnosticsSection.Visibility = basic ? Visibility.Collapsed : Visibility.Visible;
         if (basic && (SharingSection.IsChecked == true || DiagnosticsSection.IsChecked == true))
@@ -78,8 +87,11 @@ public partial class SettingsView
         bool basic = IsBasicExperience;
         var advanced = basic ? Visibility.Collapsed : Visibility.Visible;
         foreach (FrameworkElement element in new FrameworkElement[] { CaptureAreaAdvanced, CustomSizeAdvanced,
-            CropPreviewAdvanced, EncoderAdvanced, EncoderTuningAdvanced, AudioLanesAdvanced, LibraryOptions, SoundOutputPanel })
+            CropPreviewAdvanced, EncoderAdvanced, EncoderTuningAdvanced, AudioLanesAdvanced, LibraryOptions, SoundOutputPanel,
+            AdvancedNotificationOptions, BitrateText, RamText })
             element.Visibility = advanced;
+        SplitMusicCheck.Visibility = MusicText.Visibility = !basic && AudioRouting.SeparateTracks ? Visibility.Visible : Visibility.Collapsed;
+        GamesPage.UseBasicPresentation(basic);
         CaptureAreaColumn.Width = basic ? new GridLength(0) : new GridLength(1, GridUnitType.Star);
         CaptureAreaGap.Width = new GridLength(basic ? 0 : 12);
         BasicQualityHint.Visibility = BasicAudioHint.Visibility = BasicNotificationPreview.Visibility =
@@ -88,8 +100,10 @@ public partial class SettingsView
         var preferred = settings.RecordEncoder.Length == 0 ? RecordingPresets.DefaultEncoder(_encoders)?.Id : settings.RecordEncoder;
         BasicQualityHint.Text = _loading ? "Checking recording hardware…" :
             preferred != null && _encoders.Contains(preferred)
-                ? "Your selected encoder is available. Detailed encoder tuning is in Advanced."
-                : "Selected recording hardware is unavailable or not checked yet. Review Advanced settings if recording fails.";
+                ? "Recording hardware is ready."
+                : "QuickClip couldn't confirm recording hardware. Check Recording in Advanced settings.";
+        UpdateBasicAudio();
+        UpdateEstimates();
         for (int i = 0; i < HotkeyRows.Children.Count && i < _hotkeyRows.Count; i++)
             HotkeyRows.Children[i].Visibility = !basic || _hotkeyRows[i].Command == RecordingCommand.SaveClip
                 ? Visibility.Visible : Visibility.Collapsed;
@@ -118,6 +132,37 @@ public partial class SettingsView
         }
     }
 
+    private void UpdateBasicAudio()
+    {
+        if (!AppProfile.IsPersonal || BasicAudioHint == null || LegacyAudioPanel == null) return;
+        bool basic = IsBasicExperience;
+        AudioHint.Visibility = basic ? Visibility.Collapsed : Visibility.Visible;
+        EndpointDetailHint.Visibility = EndpointOrderLabel.Visibility = basic ? Visibility.Collapsed : Visibility.Visible;
+        EndpointModeCheck.Content = basic ? "Choose specific audio devices" : "Record selected Windows audio devices";
+        foreach (var item in _advancedEndpointControls)
+            item.Visibility = basic ? Visibility.Collapsed : Visibility.Visible;
+        foreach (var meter in _endpointMeters.Concat(_legacyMeters))
+            meter.Save.Visibility = basic ? Visibility.Collapsed : Visibility.Visible;
+        var settings = AppSettings.Current;
+        if (settings.UseAudioEndpoints)
+        {
+            var plan = EndpointAudio.Plan(settings)!;
+            int playback = plan.Count(track => track.Flow == EndpointFlow.Playback);
+            int missing = _endpointsLoaded && _endpointError == null ? plan.Count(track => EndpointAudio.FindEndpoint(track, _endpoints) == null) : 0;
+            BasicAudioHint.Text = playback == 0 ? "Computer sound is off. Add an output to record what you hear." :
+                $"Computer sound uses {playback} selected output(s). To save voice chat separately, your chat app must send sound to a different output that you add here.";
+            if (missing > 0) BasicAudioHint.Text += $" {missing} selected device(s) could not be found.";
+        }
+        else
+        {
+            BasicAudioHint.Text = "Computer sound includes your game and voice chat together. To choose what to record, turn on specific audio devices.";
+            if (!_loading && settings.RecordMic && settings.MicDeviceIds.Any(id => id.Length == 0
+                    ? !_mics.Any(mic => mic.IsDefault != 0)
+                    : !_mics.Any(mic => string.Equals(mic.Id, id, StringComparison.OrdinalIgnoreCase))))
+                BasicAudioHint.Text += " A selected microphone is missing. Connect it or choose another microphone below.";
+        }
+    }
+
     private void ShowGuideStep()
     {
         if (!_guideActive) return;
@@ -130,6 +175,7 @@ public partial class SettingsView
         ApplySettingsSection(section);
         if (GuideStep == 6) GamePermissionOptions.IsExpanded = true;
         UpdateSettingsExperience();
+        if (IsVisible) (_loading ? GuidePause : GuideNext).Focus();
     }
 
     private void UpdateGuideHeader()
@@ -139,18 +185,20 @@ public partial class SettingsView
         GuideProgress.Value = step + 1;
         GuideTitle.Text = GuideSteps[step].Title;
         GuideHint.Text = GuideSteps[step].Hint;
+        GuideSummaryViewport.Visibility = step == 8 ? Visibility.Visible : Visibility.Collapsed;
         GuideSummary.Text = step == 8 ? SetupSummary() : "";
         GuideBack.IsEnabled = step > 0 && !_loading && !_finishingGuide;
         GuideNext.IsEnabled = !_loading && !_finishingGuide;
-        GuidePause.IsEnabled = GuideSkip.IsEnabled = !_finishingGuide;
+        GuidePause.IsEnabled = true;
+        GuideSkip.IsEnabled = !_finishingGuide;
         GuideNext.Content = step == 8 ? "Finish without changing recording" : step == 0 ? "Get started" : "Continue";
         GuideEnable.Visibility = step == 8 ? Visibility.Visible : Visibility.Collapsed;
-        GuideEnable.IsEnabled = !_loading && !_finishingGuide && HasAuthorizedDisplay();
+        GuideEnable.IsEnabled = !_loading && !_finishingGuide;
         GuideSkip.Visibility = step == 8 ? Visibility.Collapsed : Visibility.Visible;
     }
 
-    private bool HasAuthorizedDisplay() => _monitors.Any(monitor => monitor.CaptureIdentity is { } id &&
-        CaptureSourcePolicy.AllowsGameDisplay(AppSettings.Current, id));
+    internal static bool HasAuthorizedDisplay(AppSettings settings, IEnumerable<MonitorInfo> monitors) =>
+        monitors.Any(monitor => monitor.CaptureIdentity is { } id && CaptureSourcePolicy.AllowsGameDisplay(settings, id));
 
     private string SetupSummary()
     {
@@ -159,17 +207,17 @@ public partial class SettingsView
         var micCount = settings.UseAudioEndpoints
             ? EndpointAudio.Plan(settings)?.Count(track => track.Flow == EndpointFlow.Microphone) ?? 0
             : settings.RecordMic ? settings.MicDeviceIds.Count : 0;
-        string resolution = settings.RecordResolution == 0 ? "Native" : $"{settings.RecordResolution}p short-side limit";
+        string resolution = settings.RecordResolution == 0 ? "Match display" : $"{settings.RecordResolution}p";
         string hotkey = shortcut.IsEmpty ? "Not assigned (save from the app)" :
             $"{shortcut} · {(App.Host?.HotkeyActive == true ? "registered" : "registration not confirmed")}";
-        string display = HasAuthorizedDisplay() ? "At least one connected display permitted" :
+        string display = HasAuthorizedDisplay(settings, _monitors) ? "At least one display allowed at the last check" :
             "No permitted connected display. Go back to display permissions to enable recording.";
         string encoder = (settings.RecordEncoder.Length == 0 ? RecordingPresets.DefaultEncoder(_encoders)?.Id :
-            settings.RecordEncoder) is { } id && _encoders.Contains(id) ? "Encoder available" : "Recording encoder unavailable or not checked";
+            settings.RecordEncoder) is { } id && _encoders.Contains(id) ? "Recording hardware ready" : "Recording hardware needs checking";
         return $"Save location: {settings.ClipsFolder}\nClip length: {RecordingPresets.DurationLabel(settings.BufferSeconds)}\n" +
             $"Quality: {resolution} · {settings.RecordFps} FPS · {RecordingPresets.Label(settings.RecordQuality)}\n" +
-            $"Save shortcut: {hotkey}\nMicrophones selected: {micCount}\n{display}\n{encoder}\n" +
-            $"Recording is currently {(settings.RecordingEnabled ? "enabled" : "off")}. Discovery and actual capture still need verification.";
+            $"Save shortcut: {hotkey}\nMicrophones selected: {micCount}\n{GamesPage.BasicReadiness}\n{display}\n{encoder}\n" +
+            $"Recording is {(settings.RecordingEnabled ? "enabled" : "off")}. While playing a game QuickClip can record, press the shortcut above or use Save Clip in the app.";
     }
 
     private void MoveGuide(int next)
@@ -198,7 +246,6 @@ public partial class SettingsView
 
     private void GuidePause_Click(object sender, RoutedEventArgs e)
     {
-        if (_finishingGuide) return;
         ExitGuide();
     }
 
@@ -209,42 +256,57 @@ public partial class SettingsView
 
     private async void GuideEnable_Click(object sender, RoutedEventArgs e)
     {
-        if (_loading || _finishingGuide || GuideStep != 8 || !HasAuthorizedDisplay()) return;
+        if (!_guideActive || _loading || _finishingGuide || GuideStep != 8) return;
         var settings = AppSettings.Current;
         string folder = settings.ClipsFolder;
         _finishingGuide = true;
+        int attempt = ++_guideAttempt;
         GuideError.Text = "";
         UpdateGuideHeader();
         try
         {
-            string? error = await Task.Run(() => CheckDestination(folder));
+            var (error, connected) = await Task.Run(() => (CheckDestination(folder), Monitors.List()));
+            if (!CanFinishGuide(_guideActive && IsVisible, _guideAttempt, attempt)) return;
             if (error != null || !string.Equals(folder, settings.ClipsFolder, StringComparison.OrdinalIgnoreCase))
             {
                 GuideError.Text = error ?? "The clips folder changed; review setup and try again.";
                 return;
             }
-            if (!HasAuthorizedDisplay()) { GuideError.Text = "No permitted display. Review capture permissions."; return; }
+            if (!HasAuthorizedDisplay(settings, connected)) { GuideError.Text = "No permitted display is connected. Check display permissions."; return; }
             string? encoder = settings.RecordEncoder.Length == 0 ? RecordingPresets.DefaultEncoder(_encoders)?.Id : settings.RecordEncoder;
             if (!CaptureEngine.IsAvailable || encoder == null || !_encoders.Contains(encoder))
             {
                 GuideError.Text = "No available recording encoder was confirmed. Finish without enabling, then check Advanced settings.";
                 return;
             }
-            if (CompleteGuide(true)) await Recorder.Instance.ApplySettingsAsync();
+            bool wasEnabled = settings.RecordingEnabled;
+            if (CompleteGuide(true) && !wasEnabled) await Recorder.Instance.ApplySettingsAsync();
         }
         finally
         {
-            _finishingGuide = false;
-            if (_guideActive) UpdateGuideHeader();
+            if (attempt == _guideAttempt)
+            {
+                _finishingGuide = false;
+                if (_guideActive) UpdateGuideHeader();
+            }
         }
     }
 
-    private static string? CheckDestination(string folder)
+    internal static bool CanFinishGuide(bool activeAndVisible, int currentAttempt, int completedAttempt) =>
+        activeAndVisible && currentAttempt == completedAttempt;
+
+    internal static string? CheckDestination(string folder)
     {
         try
         {
-            if (!Path.IsPathFullyQualified(folder) || ClipLibrary.IsMomentsPath(folder))
+            if (QuickClip.Discovery.CatalogPaths.LocalPath(folder) is not { Length: > 3 } local ||
+                new DriveInfo(Path.GetPathRoot(local)!).DriveType != DriveType.Fixed || ClipLibrary.IsMomentsPath(local))
                 return "Choose a local recordings folder outside the Moments archive.";
+            for (string? parent = local; parent != null; parent = Path.GetDirectoryName(parent))
+            {
+                if (Directory.Exists(parent) && File.GetAttributes(parent).HasFlag(FileAttributes.ReparsePoint))
+                    return "Choose a clips folder that is not redirected to another location.";
+            }
             if (!Directory.Exists(folder) && !string.Equals(folder, AppProfile.ClipsDirectory, StringComparison.OrdinalIgnoreCase))
                 return "The recordings folder is unavailable. Choose another folder.";
             Directory.CreateDirectory(folder);
@@ -262,13 +324,8 @@ public partial class SettingsView
     private bool CompleteGuide(bool enable)
     {
         var settings = AppSettings.Current;
-        var previous = (settings.GuidedSetupStep, settings.ReplayOnboardingCompleted, settings.RecordingEnabled);
-        settings.GuidedSetupStep = null;
-        settings.ReplayOnboardingCompleted = true;
-        if (enable) settings.RecordingEnabled = true;
-        if (!settings.TrySave())
+        if (!SaveGuideCompletion(settings, enable, (current, recording) => current.TrySave(recording)))
         {
-            (settings.GuidedSetupStep, settings.ReplayOnboardingCompleted, settings.RecordingEnabled) = previous;
             GuideError.Text = "Could not save setup. Recording preference was not changed.";
             return false;
         }
@@ -277,8 +334,24 @@ public partial class SettingsView
         return true;
     }
 
+    internal static bool SaveGuideCompletion(AppSettings settings, bool enable, Func<AppSettings, bool?, bool> persist)
+    {
+        var previous = (settings.GuidedSetupStep, settings.ReplayOnboardingCompleted);
+        settings.GuidedSetupStep = null;
+        settings.ReplayOnboardingCompleted = true;
+        if (!persist(settings, enable ? true : null))
+        {
+            (settings.GuidedSetupStep, settings.ReplayOnboardingCompleted) = previous;
+            return false;
+        }
+        if (enable) settings.RecordingEnabled = true;
+        return true;
+    }
+
     private void ExitGuide()
     {
+        ++_guideAttempt;
+        _finishingGuide = false;
         _guideActive = false;
         SettingsSidebar.IsEnabled = true;
         RecordingSection.IsChecked = true;

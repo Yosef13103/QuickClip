@@ -14,9 +14,10 @@ public sealed record SavedClip(string Path, string Folder, int Seconds);
 public sealed record RecorderState(bool Running, string? Error, string Summary, IReadOnlyList<string> ChatApps, IReadOnlyList<string> MusicApps)
 {
     public RecordingMode Mode { get; init; }
-    internal long CaptureEpoch { get; init; }
-    internal string? CaptureDevice { get; init; }
+    internal long? ReadyEpoch { get; init; }
 }
+
+internal sealed record ReadyCapture(long Epoch, RecordingMode Mode, string Device, string Summary, long StartedAt, string[] Microphones);
 
 /// <summary>Instant-replay service: keeps the capture engine running per the settings and saves clips on demand.</summary>
 internal sealed class Recorder
@@ -45,6 +46,9 @@ internal sealed class Recorder
     private string? _sessionDisplay;
     private string? _actualMonitorName;
     private string? _captureDevice;
+    private string? _captureDisplayIdentity;
+    private ReadyCapture? _readyCapture;
+    private string[] _captureMicrophones = [];
     private long _captureStartedAt;
     internal bool ManualDesktopRequested => Volatile.Read(ref _manualDisplay) != null
         && AppSettings.Current.AllowsManualDesktop(Volatile.Read(ref _manualConsentRevision));
@@ -106,9 +110,10 @@ internal sealed class Recorder
             : _summary, _chatApps, _musicApps)
     {
         Mode = AppProfile.IsPersonal ? _lifecycle.Mode : IsRunning ? RecordingMode.ManualDesktop : RecordingMode.Off,
-        CaptureEpoch = Volatile.Read(ref _replayGeneration),
-        CaptureDevice = IsRunning ? _captureDevice : null,
+        ReadyEpoch = Volatile.Read(ref _readyCapture)?.Epoch,
     };
+
+    internal ReadyCapture? Feedback => AppSettings.Current.RecordingEnabled ? Volatile.Read(ref _readyCapture) : null;
 
     private Recorder()
     {
@@ -173,16 +178,41 @@ internal sealed class Recorder
 
     // Permission changes re-evaluate the active source without unconditionally
     // restarting a still-authorized game or a separately confirmed manual capture.
-    internal Task ReconcileDisplayPermissionsAsync() => Task.Run(() =>
+    internal Task<bool> UpdateDisplayPermissionsAsync(Action<AppSettings> update) => Task.Run(() =>
     {
         lock (_gate)
         {
-            if (!AppProfile.IsPersonal) return;
+            if (!AppProfile.IsPersonal || !TryUpdateDisplayPermission(AppSettings.Current, update, settings => settings.TrySave()))
+                return false;
             ReconcilePersonal();
             if (AppSettings.Current.RecordingEnabled && _poll == null) StartPolling();
         }
         StateChanged?.Invoke(State);
+        return true;
     });
+
+    internal static bool TryUpdateDisplayPermission(AppSettings settings, Action<AppSettings> update, Func<AppSettings, bool> save)
+    {
+        var previous = (settings.AllowGameDisplayFollowing, settings.AuthorizedGameDisplay, settings.ExcludedGameDisplays);
+        update(settings);
+        if (save(settings)) return true;
+        (settings.AllowGameDisplayFollowing, settings.AuthorizedGameDisplay, settings.ExcludedGameDisplays) = previous;
+        return false;
+    }
+
+    internal async Task<bool> ChangeRecordingEnabledAsync(bool? enabled = null)
+    {
+        bool saved = await Task.Run(() =>
+        {
+            lock (_gate)
+            {
+                var settings = AppSettings.Current;
+                return settings.TrySave(enabled ?? !settings.RecordingEnabled);
+            }
+        }).ConfigureAwait(false);
+        if (saved) await ApplySettingsAsync().ConfigureAwait(false);
+        return saved;
+    }
 
     public Task StopAsync() => Task.Run(() =>
     {
@@ -288,6 +318,9 @@ internal sealed class Recorder
             s.RecordingEnabled && (_observedGame != null || _manualDisplay != null) ? Displays() : [],
             Monitors.ForWindow, AllowsDisplay);
         Error = _lifecycle.Error;
+        if (IsRunning && _readyCapture == null && _captureDevice is { } device && CaptureEngine.HasVideoOutput())
+            Volatile.Write(ref _readyCapture, new(_replayGeneration, _lifecycle.Mode, device, State.Summary,
+                _captureStartedAt, _captureMicrophones));
 
     }
 
@@ -392,6 +425,8 @@ internal sealed class Recorder
                 _ => null,
             };
             _captureDevice = monitor.DeviceName;
+            _captureDisplayIdentity = displayIdentity;
+            _captureMicrophones = QuickClip.Shell.MicrophoneIndicatorSignal.SelectedMicrophones(s);
             _actualMonitorName = string.IsNullOrWhiteSpace(monitor.FriendlyName) ? monitor.DeviceName : monitor.FriendlyName;
             _monitorTarget = _desktopSource?.Backend switch
             {
@@ -427,15 +462,19 @@ internal sealed class Recorder
 
     private void StopGraph()
     {
+        Volatile.Write(ref _readyCapture, null);
         Interlocked.Increment(ref _replayGeneration);
-        if (IsRunning) CaptureEngine.Stop();
+        bool stopNative = IsRunning;
         IsRunning = false;
+        if (stopNative) CaptureEngine.Stop();
         _runningEndpointPlan = [];
         _replaySession = Guid.Empty;
         _replayMarkers.Clear();
         (_sessionGame, _sessionGameId, _sessionDisplay, _desktopSource) = (null, null, null, null);
         _actualMonitorName = null;
         _captureDevice = null;
+        _captureDisplayIdentity = null;
+        _captureMicrophones = [];
         (_chatApps, _musicApps) = ([], []);
         _summary = "";
     }
@@ -616,7 +655,8 @@ internal sealed class Recorder
             string? gameId;
             lock (_gate)
             {
-                if (!IsRunning || generation != _replayGeneration || (AppProfile.IsPersonal && !s.RecordingEnabled) ||
+                if (!IsRunning || generation != _replayGeneration ||
+                    (AppProfile.IsPersonal && !MaySaveFromDisplay(s, _lifecycle.Mode, _captureDisplayIdentity, ManualDesktopRequested)) ||
                     CaptureEngine.GetReplayPosition() is not { } active)
                     throw new IOException("The recording session has ended.");
                 position = active;
@@ -670,7 +710,8 @@ internal sealed class Recorder
             string path;
             lock (_gate)
             {
-                if (AppProfile.IsPersonal && (!IsRunning || _replaySession != sessionId || CaptureEngine.VideoSourceLost()))
+                if (AppProfile.IsPersonal && (!IsRunning || _replaySession != sessionId ||
+                    !MaySaveFromDisplay(s, _lifecycle.Mode, _captureDisplayIdentity, ManualDesktopRequested) || CaptureEngine.VideoSourceLost()))
                     throw new IOException("The recording source changed before the replay could be saved.");
                 path = ClipNaming.Publish(stagingPath, dir, stem, ".mp4");
             }
@@ -728,4 +769,12 @@ internal sealed class Recorder
             try { if (!complete && staged != null) File.Delete(staged); } catch (IOException) { } catch (UnauthorizedAccessException) { }
         }
     }
+
+    internal static bool MaySaveFromDisplay(AppSettings settings, RecordingMode mode, string? identity, bool manualGranted) =>
+        settings.RecordingEnabled && identity != null && (mode switch
+        {
+            RecordingMode.GameTriggered => CaptureSourcePolicy.AllowsGameDisplay(settings, identity),
+            RecordingMode.ManualDesktop => manualGranted && CaptureSourcePolicy.AllowsManualDisplay(settings, identity),
+            _ => false,
+        });
 }

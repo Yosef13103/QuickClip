@@ -29,7 +29,7 @@ internal sealed class ClipNotificationOverlay : IDisposable
     private bool _disposed;
     private DispatcherTimer? _timer;
     private IntPtr _handle;
-    private (string Device, OverlayAnchor Anchor, Rect Bounds, bool HasMicrophone)? _indicatorPlacement;
+    private (string Device, OverlayAnchor Anchor, Rect Bounds, Rect WorkArea, uint Dpi, bool HasMicrophone)? _indicatorPlacement;
     private System.Windows.Shapes.Path? _indicatorMicrophoneGlyph;
 
     internal bool IsVisible => _window?.IsVisible == true;
@@ -436,7 +436,9 @@ internal sealed class ClipNotificationOverlay : IDisposable
             return;
         }
         bool hasMicrophone = microphone != MicrophoneIndicatorState.Hidden;
-        var placement = (display.Device, anchor, display.Bounds, hasMicrophone);
+        GetDpiForMonitor(display.Handle, 0, out uint monitorDpi, out _);
+        var workArea = display.WorkArea ?? display.Bounds;
+        var placement = (display.Device, anchor, display.Bounds, workArea, monitorDpi, hasMicrophone);
         if (IsVisible && _indicatorPlacement == placement)
         {
             UpdateRecordingIndicatorMicrophone(microphone);
@@ -470,7 +472,7 @@ internal sealed class ClipNotificationOverlay : IDisposable
             GetDpiForMonitor(display.Handle, 0, out uint dpi, out _);
             double scale = dpi == 0 ? 1 : dpi / 96d;
             var size = new Size(Math.Round(_window.Width * scale), Math.Round(_window.Height * scale));
-            var bounds = BannerBounds(display.Bounds, display.WorkArea ?? display.Bounds, anchor, scale, size.Height);
+            var bounds = BannerBounds(display.Bounds, workArea, anchor, scale, size.Height);
             Point p = ClipOverlayOptions.Place(bounds, size, 4, anchor);
             if (!SetWindowPos(_handle, new IntPtr(-1), (int)Math.Round(p.X), (int)Math.Round(p.Y), (int)size.Width, (int)size.Height, 0x0210)) return;
             _window.Show();

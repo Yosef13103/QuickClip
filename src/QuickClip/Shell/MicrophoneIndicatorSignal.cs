@@ -18,7 +18,6 @@ internal sealed class MicrophoneIndicatorSignal
 
     internal static string[] SelectedMicrophones(AppSettings settings)
     {
-        if (!settings.ShowRecordingMicrophoneIndicator) return [];
         return settings.UseAudioEndpoints
             ? [.. EndpointAudio.Normalize(settings.EndpointTracks).Where(track => track.Enabled && track.Flow == EndpointFlow.Microphone).Select(track => track.DeviceId)]
             : settings.RecordMic ? [.. settings.MicDeviceIds.Distinct(StringComparer.OrdinalIgnoreCase)] : [];

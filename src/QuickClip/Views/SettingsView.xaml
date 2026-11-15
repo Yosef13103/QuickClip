@@ -206,7 +206,10 @@
                         <ProgressBar x:Name="GuideProgress" Minimum="0" Maximum="9" Height="5" Margin="0,4,0,8" />
                         <TextBlock x:Name="GuideTitle" FontSize="{DynamicResource QuickClipText24}" FontWeight="SemiBold" TextWrapping="Wrap" />
                         <TextBlock x:Name="GuideHint" TextWrapping="Wrap" Margin="0,6,0,8" AutomationProperties.LiveSetting="Polite" />
-                        <TextBlock x:Name="GuideSummary" TextWrapping="Wrap" Margin="0,0,0,8" />
+                        <ScrollViewer x:Name="GuideSummaryViewport" VerticalScrollBarVisibility="Auto" MaxHeight="145"
+                                      AutomationProperties.Name="Setup summary" Visibility="Collapsed">
+                            <TextBlock x:Name="GuideSummary" TextWrapping="Wrap" Margin="0,0,0,8" AutomationProperties.LiveSetting="Polite" />
+                        </ScrollViewer>
                         <WrapPanel>
                             <Button x:Name="GuideBack" Content="Back" Click="GuideBack_Click" Margin="0,0,8,4" />
                             <Button x:Name="GuideNext" Content="Continue" Click="GuideNext_Click" Margin="0,0,8,4" />
@@ -495,7 +498,7 @@
                     <CheckBox Style="{StaticResource SwitchCheckBox}" x:Name="EndpointModeCheck" Content="Record selected Windows audio devices"
                               Margin="0,8,0,0" Checked="EndpointMode_Changed" Unchecked="EndpointMode_Changed" />
                     <StackPanel x:Name="EndpointPanel" Visibility="Collapsed" Margin="0,8,0,0">
-                        <TextBlock Style="{StaticResource Hint}" TextWrapping="Wrap"
+                        <TextBlock x:Name="EndpointDetailHint" Style="{StaticResource Hint}" TextWrapping="Wrap"
                                    Text="Each enabled device gets its own track. With no devices enabled, the clip is video only. Changing these settings restarts the replay buffer." />
                         <TextBlock Text="Playback (what you hear)" Style="{StaticResource SectionHeader}" />
                         <DockPanel>
@@ -519,7 +522,7 @@
                                            Tag="{Binding SelectedIndex, ElementName=MicrophonePicker}" Text="Choose a microphone" />
                             </Grid>
                         </DockPanel>
-                        <TextBlock Text="Saved track order" Style="{StaticResource SectionHeader}" />
+                        <TextBlock x:Name="EndpointOrderLabel" Text="Saved track order" Style="{StaticResource SectionHeader}" />
                         <StackPanel x:Name="EndpointRows" />
                         <Button x:Name="RefreshDevicesButton" Content="Refresh devices" HorizontalAlignment="Left" Margin="0,10,0,0"
                                 Click="RefreshEndpoints_Click" />
@@ -690,6 +693,7 @@
                         <TextBlock Style="{StaticResource Hint}" TextWrapping="Wrap" Text="A small translucent camera on the actual captured display while replay is recording, independent of clip notifications. Some capture APIs or fullscreen games may hide it or include it in clips; test before relying on it." />
                         <CheckBox Style="{StaticResource SwitchCheckBox}" x:Name="MicrophoneIndicatorCheck" Content="Show microphone signal status" Focusable="True" Margin="0,8,0,0" Click="ClipFeedback_Changed" />
                         <TextBlock Style="{StaticResource Hint}" TextWrapping="Wrap" Text="One microphone icon: checks for sound for 10 seconds at recording start. Red if any selected input has not been verified; white once all have produced sound. White stays for the session, even when you stop talking. Hidden when none is selected." />
+                        <StackPanel x:Name="AdvancedNotificationOptions">
                         <ComboBox x:Name="GameIndicatorAnchorCombo" AutomationProperties.Name="Recording status position" SelectionChanged="ClipFeedback_Changed" Margin="0,4,0,0" />
                         <TextBlock Text="Notification channels" Style="{StaticResource FieldLabel}" />
                         <ComboBox x:Name="ClipNotificationModeCombo" AutomationProperties.Name="Notification channels" SelectionChanged="ClipFeedback_Changed" />
@@ -811,6 +815,7 @@
                             <TextBlock Style="{StaticResource Hint}" TextWrapping="Wrap"
                                        Text="Visible over windowed and borderless games. Exclusive fullscreen and capture exclusion depend on Windows and the capture backend." />
                         </StackPanel>
+                    </StackPanel>
                     </StackPanel>
                     <WrapPanel x:Name="BasicNotificationPreview" Visibility="Collapsed" Margin="0,6,0,0">
                         <Button Content="Preview clip saved" Click="TestClipOverlay_Click" Margin="0,0,8,4" />

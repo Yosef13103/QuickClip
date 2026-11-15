@@ -176,22 +176,18 @@ internal sealed class AppHost : IDisposable
                     new(null, null, null, null, Hotkey: HotkeyActive
                         ? $"Save clip · {new Hotkey(AppSettings.Current.HotkeyModifiers, AppSettings.Current.HotkeyKey)}" : null));
             _replayEnabled = enabled;
-            bool desktopRunning = state.Running && state.Mode == RecordingMode.ManualDesktop;
+            var current = Recorder.Instance.Feedback;
+            bool desktopRunning = current?.Mode == RecordingMode.ManualDesktop;
             if (desktopRunning != _desktopRunning)
             {
                 ShowClipFeedback(desktopRunning ? ClipEvent.DesktopStarted : ClipEvent.DesktopStopped,
-                    desktopRunning ? state.Summary : "Manual desktop capture has ended.");
+                    desktopRunning ? current!.Summary : "Manual desktop capture has ended.");
                 _desktopRunning = desktopRunning;
             }
-            RefreshRecordingIndicator();
-            // Only announce a live, current graph, not a queued observation of an old game.
-            var current = Recorder.Instance.State;
-            if (!enabled || !current.Running || current.Mode != RecordingMode.GameTriggered)
-                _announcedGameEpoch = null;
-            else if (_announcedGameEpoch != current.CaptureEpoch)
+            _recordingIndicator.Refresh(current);
+            if (TryAnnounceGame(current, ref _announcedGameEpoch))
             {
-                _announcedGameEpoch = current.CaptureEpoch;
-                ShowClipFeedback(ClipEvent.GameStarted, current.Summary);
+                ShowClipFeedback(ClipEvent.GameStarted, current!.Summary);
             }
         }
         // Critical recorder failures use independently enabled Windows and overlay channels.
@@ -271,6 +267,13 @@ internal sealed class AppHost : IDisposable
         var kind = AppProfile.IsPersonal && !state.Running && state.Error == null &&
             state.Mode is RecordingMode.Off or RecordingMode.Armed ? ClipEvent.Inactive : ClipEvent.Failed;
         _dispatcher.BeginInvoke(() => ShowClipFeedback(kind, error));
+    }
+
+    internal static bool TryAnnounceGame(ReadyCapture? current, ref long? lastEpoch)
+    {
+        if (current is not { Mode: RecordingMode.GameTriggered } || lastEpoch == current.Epoch) return false;
+        lastEpoch = current.Epoch;
+        return true;
     }
 
     internal void RefreshRecordingIndicator() => _recordingIndicator.Refresh();
@@ -447,6 +450,9 @@ internal sealed class AppHost : IDisposable
             case RecordingCommand.SaveClip:
                 _ = recorder.SaveClipAsync();
                 break;
+            case RecordingCommand.ToggleMaster when AppProfile.IsPersonal:
+                _ = ToggleRecordingMasterAsync(recorder);
+                break;
             case RecordingCommand.ToggleMaster:
                 settings.RecordingEnabled = !settings.RecordingEnabled;
                 settings.Save();
@@ -460,6 +466,12 @@ internal sealed class AppHost : IDisposable
                 _ = SwitchMonitorAsync(recorder);
                 break;
         }
+    }
+
+    private async Task ToggleRecordingMasterAsync(Recorder recorder)
+    {
+        if (!await recorder.ChangeRecordingEnabledAsync())
+            NotifySource("Could not save recording setting", "The recording setting has not changed.");
     }
 
     private async Task SwitchMonitorAsync(Recorder recorder)

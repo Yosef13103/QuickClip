@@ -19,8 +19,8 @@
         <StackPanel DockPanel.Dock="Top">
             <TextBlock Text="Games" FontSize="{DynamicResource QuickClipText24}" FontWeight="SemiBold" />
             <CheckBox Style="{StaticResource SwitchCheckBox}" x:Name="AutoScan" Content="Automatically discover installed games" Click="AutoScan_Click" Margin="0,8,0,0" />
-            <TextBlock Text="Automatic scans refresh enabled sources. You can pause and resume a scan here." TextWrapping="Wrap" Style="{StaticResource Hint}" />
-            <Expander Header="Game libraries and launchers" Margin="0,6,0,6">
+            <TextBlock x:Name="ScanHelp" Text="Automatic scans refresh enabled sources. You can pause and resume a scan here." TextWrapping="Wrap" Style="{StaticResource Hint}" />
+            <Expander x:Name="LibrarySources" Header="Game libraries and launchers" Margin="0,6,0,6">
                 <StackPanel>
                     <ListBox x:Name="Launchers" MaxHeight="180" AutomationProperties.Name="Game launchers">
                         <ListBox.ItemContainerStyle>
@@ -53,7 +53,7 @@
                     <ListBox x:Name="ScanIssues" MaxHeight="80" AutomationProperties.Name="Last scan issues" />
                 </StackPanel>
             </Expander>
-            <Expander Header="Ignored executables" Margin="0,0,0,6">
+            <Expander x:Name="IgnoredExecutables" Header="Ignored executables" Margin="0,0,0,6">
                 <StackPanel>
                     <TextBlock Text="Block an exact executable path from automatic game detection. Restore it here to apply its usual catalog rules." Style="{StaticResource Hint}" />
                     <ListBox x:Name="BlockedFiles" MaxHeight="85" AutomationProperties.Name="Ignored executables" />
@@ -71,7 +71,7 @@
             <TextBlock x:Name="Status" Style="{StaticResource Hint}" Margin="0,6,0,0" TextWrapping="Wrap"
                        AutomationProperties.LiveSetting="Polite" />
             <TextBlock x:Name="LastScan" Style="{StaticResource Hint}" />
-            <TextBlock Text="Targeting rules apply to game detection. Manual entire-display capture includes anything visible on the approved display, including games disabled here." Style="{StaticResource Hint}" />
+            <TextBlock x:Name="TargetingHelp" Text="Targeting rules apply to game detection. Manual entire-display capture includes anything visible on the approved display, including games disabled here." Style="{StaticResource Hint}" />
             <TextBlock x:Name="Count" FontWeight="SemiBold" TextWrapping="Wrap" Margin="0,10,0,0" />
             <TextBlock x:Name="DiscoveryCountDetail" Style="{StaticResource Hint}" TextWrapping="Wrap"
                        ToolTip="A retained game may also be awaiting verification." />
@@ -119,7 +119,8 @@
                                             Visibility="{Binding IsManual, Converter={StaticResource ShowManualActions}}" />
                                 </WrapPanel>
                                 <TextBlock Text="{Binding Inheritance}" Style="{StaticResource Hint}" Margin="0,4" />
-                                <Expander Header="Classification and executables" IsExpanded="{Binding IsAdvancedExpanded}">
+                                <Expander Header="Classification and executables" IsExpanded="{Binding IsAdvancedExpanded}"
+                                          Visibility="{Binding ShowAdvanced, Converter={StaticResource ShowManualActions}}">
                                     <StackPanel Margin="0,4,0,2">
                                         <TextBlock Text="{Binding Diagnostics}" Style="{StaticResource Hint}" />
                                         <TextBlock Text="Choose how this entry participates in game detection. Companion apps such as Discord can take focus while the current game stays active." Style="{StaticResource Hint}" Margin="0,4" />

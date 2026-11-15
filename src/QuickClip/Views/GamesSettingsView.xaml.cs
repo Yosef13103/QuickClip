@@ -26,6 +26,8 @@ public partial class GamesSettingsView : UserControl
     }
     private static GameDiscoveryCoordinator Discovery => GameCatalogRuntime.Discovery;
     private bool _rendering;
+    private bool _basic;
+    private int _eligibleCount;
     private GameCatalogSettings? _renderedState;
     private List<GameRow> _rows = [];
     private LauncherRow[] _launchers = [];
@@ -55,9 +57,34 @@ public partial class GamesSettingsView : UserControl
         ScanButton.IsEnabled = !Discovery.IsRunning;
         ScanButton.Content = Discovery.IsPaused ? "Resume scan" : "Scan Now";
         CancelButton.IsEnabled = Discovery.IsRunning;
-        if (Discovery.Status.Length != 0) Status.Text = Discovery.Status;
+        if (_basic) Status.Text = Discovery.IsPaused ? "Game search paused." : Discovery.IsRunning ? "Looking for games…" : BasicReadiness;
+        else if (Discovery.Status.Length != 0) Status.Text = Discovery.Status;
         else if (State.Snapshot?.InProgress == true)
             Status.Text = "Incomplete · a previous session ended during the scan.";
+    }
+
+    internal void UseBasicPresentation(bool basic)
+    {
+        if (_basic == basic) return;
+        _basic = basic;
+        LibrarySources.Visibility = IgnoredExecutables.Visibility = LastScan.Visibility = basic ? Visibility.Collapsed : Visibility.Visible;
+        ScanHelp.Text = basic ? "Use Add Game if a game is missing. Manage game stores and folders in Advanced settings."
+            : "Automatic scans refresh enabled sources. You can pause and resume a scan here.";
+        TargetingHelp.Text = basic ? "Games marked ready can start recording when recording is on and the display is allowed."
+            : "Targeting rules apply to game detection. Manual entire-display capture includes anything visible on the approved display, including games disabled here.";
+        foreach (var row in _rows) row.UseBasicPresentation(basic);
+        ShowDiscoveryStatus();
+        UpdateCount();
+    }
+
+    internal string BasicReadiness
+    {
+        get
+        {
+            if (!ReferenceEquals(_renderedState, AppSettings.Current.Games)) Render();
+            return _eligibleCount == 0 ? "No games ready yet. Search or add a game."
+                : $"{_eligibleCount:N0} {(_eligibleCount == 1 ? "game" : "games")} ready for automatic detection.";
+        }
     }
 
     private void SetState(GameCatalogSettings state)
@@ -522,6 +549,7 @@ public partial class GamesSettingsView : UserControl
         _retainedCount = entries.Count(entry => entry.Source != CatalogSource.Manual && retained.Contains(entry.Id));
         _offlineCount = entries.Count(entry => entry.Source != CatalogSource.Manual && offline.Contains(entry.Id));
         var existing = _rows.ToDictionary(row => row.Entry.Id, StringComparer.Ordinal);
+        _eligibleCount = 0;
         var rows = new List<GameRow>(entries.Length);
         bool refilter = false;
         _rendering = true;
@@ -532,6 +560,8 @@ public partial class GamesSettingsView : UserControl
                 if (!existing.TryGetValue(entry.Id, out var row)) row = new(entry);
                 else if (_query.Length > 0) refilter |= row.Matches(_query) != GameRow.Matches(entry, _query);
                 row.Update(entry, offline.Contains(entry.Id), state.BlockedExecutables, catalog);
+                row.UseBasicPresentation(_basic);
+                if (row.DetectionReady) _eligibleCount++;
                 rows.Add(row);
             }
             if (_expanded != null && !entries.Any(entry => entry.Id == _expanded.Entry.Id))
@@ -553,10 +583,11 @@ public partial class GamesSettingsView : UserControl
     {
         if (Count != null && _gamesView != null)
         {
-            Count.Text = $"Catalog · {_uniqueCount:N0} unique games and apps · {_manualCount:N0} manual entries"
+            Count.Text = (_basic ? $"{_uniqueCount:N0} games and apps found" :
+                $"Catalog · {_uniqueCount:N0} unique games and apps · {_manualCount:N0} manual entries")
                 + (_query.Length == 0 ? "" : $" · {_gamesView.Count:N0} shown");
             DiscoveryCountDetail.Text = $"{_retainedCount:N0} entries with cached paths · {_offlineCount:N0} awaiting verification";
-            DiscoveryCountDetail.Visibility = _retainedCount + _offlineCount > 0 ? Visibility.Visible : Visibility.Collapsed;
+            DiscoveryCountDetail.Visibility = !_basic && _retainedCount + _offlineCount > 0 ? Visibility.Visible : Visibility.Collapsed;
         }
     }
 

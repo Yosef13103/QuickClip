@@ -13,6 +13,7 @@ public partial class SettingsView
     private string? _endpointError;
     private bool _endpointsLoaded;
     private int _statusRequest;
+    private readonly List<FrameworkElement> _advancedEndpointControls = [];
 
     private void ShowEndpointMode()
     {
@@ -24,10 +25,8 @@ public partial class SettingsView
     private async void EndpointMode_Changed(object sender, RoutedEventArgs e)
     {
         if (_loading || !IsInitialized) return;
-        AppSettings.Current.UseAudioEndpoints = EndpointModeCheck.IsChecked == true;
-        ShowEndpointMode();
-        CommitEndpoints();
-        if (AppSettings.Current.UseAudioEndpoints) await LoadEndpointsAsync();
+        bool selected = EndpointModeCheck.IsChecked == true;
+        if (CommitEndpoints(settings => settings.UseAudioEndpoints = selected) && selected) await LoadEndpointsAsync();
     }
 
     private async void RefreshEndpoints_Click(object sender, RoutedEventArgs e) => await LoadEndpointsAsync();
@@ -75,6 +74,7 @@ public partial class SettingsView
     {
         ClearMicrophoneMeters(_endpointMeters);
         EndpointRows.Children.Clear();
+        _advancedEndpointControls.Clear();
         for (int i = 0; i < tracks.Count; i++)
         {
             var track = tracks[i];
@@ -90,9 +90,9 @@ public partial class SettingsView
             {
                 var remaining = AppSettings.Current.EndpointTracks.ToList();
                 remaining.RemoveAt(index);
-                AppSettings.Current.EndpointTracks = remaining;
-                CommitEndpoints(rebuild: true);
+                CommitEndpoints(settings => settings.EndpointTracks = remaining, rebuild: true);
             }));
+            _advancedEndpointControls.Add(actions);
             row.Children.Add(actions);
 
             var enabled = new CheckBox { IsChecked = track.Enabled, VerticalAlignment = VerticalAlignment.Center, ToolTip = "Record this device" };
@@ -111,6 +111,7 @@ public partial class SettingsView
                 if (e.Key == Key.Enter) label.MoveFocus(new TraversalRequest(FocusNavigationDirection.Next));
             };
             fields.Children.Add(label);
+            _advancedEndpointControls.Add(label);
             string deviceText = $"{i + 1} · {FlowName(track.Flow)} · " +
                 (device != null ? EndpointName(device) : availabilityChecked ? "Missing device (selection kept)" : "Availability not checked");
             fields.Children.Add(new TextBlock
@@ -131,6 +132,7 @@ public partial class SettingsView
         UpdateEndpointNotice();
         UpdateAddEndpointButton();
         UpdateMicrophoneMonitoring();
+        UpdateBasicAudio();
 
         void PopulatePicker(ComboBox picker, TextBlock placeholder, EndpointFlow flow, string prompt)
         {
@@ -173,8 +175,8 @@ public partial class SettingsView
         if (settings.EndpointTracks.Count >= EndpointAudio.MaxTracks ||
             picker.SelectedItem is not Choice { Value: AudioEndpoint endpoint } ||
             settings.EndpointTracks.Any(track => StringComparer.OrdinalIgnoreCase.Equals(track.DeviceId, endpoint.Id))) return;
-        settings.EndpointTracks = [.. settings.EndpointTracks, new EndpointTrack(endpoint.Flow, endpoint.Id, EndpointName(endpoint))];
-        CommitEndpoints(rebuild: true);
+        CommitEndpoints(current => current.EndpointTracks =
+            [.. current.EndpointTracks, new EndpointTrack(endpoint.Flow, endpoint.Id, EndpointName(endpoint))], rebuild: true);
     }
 
     private void MoveEndpoint(int index, int direction)
@@ -182,8 +184,7 @@ public partial class SettingsView
         var tracks = AppSettings.Current.EndpointTracks.ToList();
         int next = index + direction;
         (tracks[index], tracks[next]) = (tracks[next], tracks[index]);
-        AppSettings.Current.EndpointTracks = tracks;
-        CommitEndpoints(rebuild: true);
+        CommitEndpoints(settings => settings.EndpointTracks = tracks, rebuild: true);
     }
 
     private void UpdateEndpoint(EndpointTrack selected, Func<EndpointTrack, EndpointTrack> change)
@@ -194,17 +195,33 @@ public partial class SettingsView
         var updated = change(tracks[index]);
         if (updated == tracks[index]) return;
         tracks[index] = updated;
-        AppSettings.Current.EndpointTracks = tracks;
-        CommitEndpoints();
+        CommitEndpoints(settings => settings.EndpointTracks = tracks);
     }
 
-    private void CommitEndpoints(bool rebuild = false)
+    private bool CommitEndpoints(Action<AppSettings> update, bool rebuild = false)
     {
-        AppSettings.Current.Save();
+        var settings = AppSettings.Current;
+        var previous = (settings.UseAudioEndpoints, settings.EndpointTracks);
+        update(settings);
+        if (!settings.TrySave())
+        {
+            (settings.UseAudioEndpoints, settings.EndpointTracks) = previous;
+            bool wasLoading = _loading;
+            _loading = true;
+            EndpointModeCheck.IsChecked = settings.UseAudioEndpoints;
+            _loading = wasLoading;
+            ShowEndpointMode();
+            ShowEndpointRows();
+            ModalDialog.Show(Window.GetWindow(this), "Could not save the audio change. Your previous audio choices are still active.", "Audio");
+            return false;
+        }
+        ShowEndpointMode();
         if (rebuild) ShowEndpointRows();
         else UpdateEndpointNotice();
+        UpdateBasicAudio();
         UpdateEstimates();
         ScheduleRecorderRestart();
+        return true;
     }
 
     private void UpdateEndpointNotice()

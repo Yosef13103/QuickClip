@@ -11,6 +11,7 @@ public partial class GamesSettingsView
     {
         private const string DisplayIcon = "M1,2 H15 V11 H1 Z M8,11 V14 M5,14 H11";
         private bool _expanded;
+        private bool _basic;
         private ImmutableArray<string> _blocked = [];
         private bool _offline;
         private GameCatalogIndex? _catalog;
@@ -59,7 +60,23 @@ public partial class GamesSettingsView
         private string? Availability => _offline ? "Source unavailable or scan incomplete · games remembered" :
             Entry.Executables.IsEmpty ? "No executable found · check the source and rescan" :
             _unavailable.Length > 0 ? "Executable unavailable · check the drive or edit executables" : null;
-        public string Summary => Availability is { } issue ? $"{Source} · {Eligibility} · {issue}" : $"{Source} · {Eligibility}";
+        public bool ShowAdvanced => !_basic;
+        internal bool DetectionReady => !IsExcluded && Entry.Executables.Any(path =>
+        {
+            var match = Match(path);
+            return match.Entry?.Id == Entry.Id && GameDetector.HasCatalogEligibility(match);
+        });
+        public string Summary => _basic ? IsExcluded ? "Recording for this game is off" : DetectionReady ? "Ready for automatic detection" :
+            _offline ? "Game needs checking" : "Automatic detection needs setup" :
+            Availability is { } issue ? $"{Source} · {Eligibility} · {issue}" : $"{Source} · {Eligibility}";
+
+        internal void UseBasicPresentation(bool basic)
+        {
+            if (_basic == basic) return;
+            _basic = basic;
+            OnChanged(nameof(ShowAdvanced));
+            OnChanged(nameof(Summary));
+        }
 
         public sealed record ClassificationChoice(AppClassification Value, string Label);
         private static readonly ClassificationChoice[] ClassificationOptions =

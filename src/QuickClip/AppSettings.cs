@@ -199,9 +199,13 @@ internal sealed class AppSettings
 
     public void Save() => TrySave();
 
-    internal bool TrySave()
+    internal bool TrySave(bool? recordingEnabled = null)
     {
-        if (SaveDisabled) return true;
+        if (SaveDisabled)
+        {
+            if (recordingEnabled is { } inMemory) RecordingEnabled = inMemory;
+            return true;
+        }
         string? staged = null;
         try
         {
@@ -209,9 +213,12 @@ internal sealed class AppSettings
             lock (JsonOptions)
             {
                 staged = FilePath + "." + Guid.NewGuid().ToString("N") + ".tmp";
-                File.WriteAllText(staged, ToJson());
+                var snapshot = recordingEnabled.HasValue ? (AppSettings)MemberwiseClone() : this;
+                if (recordingEnabled is { } enabled) snapshot.RecordingEnabled = enabled;
+                File.WriteAllText(staged, snapshot.ToJson());
                 File.Move(staged, FilePath, overwrite: true);
                 staged = null;
+                if (recordingEnabled is { } committed) RecordingEnabled = committed;
             }
             return true;
         }

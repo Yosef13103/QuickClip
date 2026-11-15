@@ -1,4 +1,5 @@
 using System.Windows.Threading;
+using Microsoft.Win32;
 using QuickClip.Recording;
 using static QuickClip.Recording.CaptureEngine;
 
@@ -9,30 +10,45 @@ internal sealed class RecordingIndicator : IDisposable
 {
     private readonly ClipNotificationOverlay _overlay = new();
     private readonly MicrophoneIndicatorSignal _signal = new();
+    private readonly Dispatcher _dispatcher = Dispatcher.CurrentDispatcher;
     private DispatcherTimer? _timer;
     private NativeAudioSignal[]? _buffer;
     private long _epoch = -1;
     private bool _disposed;
 
-    private static bool Enabled(AppSettings settings, RecorderState state) =>
-        AppProfile.IsPersonal && settings.RecordingEnabled && settings.ShowGameRecordingIndicator &&
-        state.Running && state.Mode is (RecordingMode.GameTriggered or RecordingMode.ManualDesktop) &&
-        state.CaptureDevice != null;
+    internal RecordingIndicator()
+    {
+        if (!AppProfile.IsPersonal) return;
+        SystemEvents.DisplaySettingsChanged += DisplayChanged;
+        SystemEvents.UserPreferenceChanged += PreferenceChanged;
+    }
 
-    internal void Refresh()
+    private void DisplayChanged(object? sender, EventArgs e) => _dispatcher.BeginInvoke((Action)Refresh);
+    private void PreferenceChanged(object sender, UserPreferenceChangedEventArgs e) => DisplayChanged(sender, e);
+
+    internal void Refresh() => Refresh(Recorder.Instance.Feedback);
+
+    internal void Refresh(ReadyCapture? state)
     {
         if (_disposed) return;
         var settings = AppSettings.Current;
-        var state = Recorder.Instance.State;
-        if (!Enabled(settings, state))
+        if (state == null)
         {
-            Stop();
+            _signal.Reset();
+            _epoch = -1;
+            Hide();
             return;
         }
-        _epoch = state.CaptureEpoch;
-        _signal.Configure(_epoch, MicrophoneIndicatorSignal.SelectedMicrophones(settings), Environment.TickCount64);
-        _overlay.ShowRecordingIndicator(state.CaptureDevice!, settings.GameRecordingIndicatorAnchor, _signal.State);
-        if (!_overlay.IsVisible || _signal.Selected.Count == 0 || _signal.State == MicrophoneIndicatorState.Active)
+        _epoch = state.Epoch;
+        _signal.Configure(_epoch, state.Microphones, state.StartedAt);
+        if (!settings.ShowGameRecordingIndicator)
+        {
+            Hide();
+            return;
+        }
+        var microphone = settings.ShowRecordingMicrophoneIndicator ? _signal.State : MicrophoneIndicatorState.Hidden;
+        _overlay.ShowRecordingIndicator(state.Device, settings.GameRecordingIndicatorAnchor, microphone);
+        if (!_overlay.IsVisible || microphone is MicrophoneIndicatorState.Hidden or MicrophoneIndicatorState.Active)
         {
             _timer?.Stop();
             _buffer = null;
@@ -51,10 +67,10 @@ internal sealed class RecordingIndicator : IDisposable
     private void Sample()
     {
         var settings = AppSettings.Current;
-        var state = Recorder.Instance.State;
-        if (!Enabled(settings, state) || state.CaptureEpoch != _epoch || !settings.ShowRecordingMicrophoneIndicator)
+        var state = Recorder.Instance.Feedback;
+        if (state?.Epoch != _epoch || !settings.ShowGameRecordingIndicator || !settings.ShowRecordingMicrophoneIndicator)
         {
-            Refresh();
+            Refresh(state);
             return;
         }
         if (_buffer == null || !_overlay.IsVisible)
@@ -67,10 +83,10 @@ internal sealed class RecordingIndicator : IDisposable
         {
             int count = ReadAudioSignals(_buffer);
             var current = _signal.Observe(_buffer, count, Environment.TickCount64);
-            if (Recorder.Instance.State.CaptureEpoch != _epoch)
+            if (Recorder.Instance.Feedback?.Epoch != _epoch)
             {
                 // A delayed sample must never update the old capture source.
-                Stop();
+                Refresh();
                 return;
             }
             if (current != previous) _overlay.UpdateRecordingIndicatorMicrophone(current);
@@ -82,25 +98,28 @@ internal sealed class RecordingIndicator : IDisposable
         }
         catch (EntryPointNotFoundException)
         {
-            _signal.Reset();
             _overlay.UpdateRecordingIndicatorMicrophone(MicrophoneIndicatorState.Quiet);
             _timer?.Stop();
+            _buffer = null;
         }
     }
 
-    private void Stop()
+    private void Hide()
     {
         _timer?.Stop();
         _buffer = null;
-        _signal.Reset();
-        _epoch = -1;
         if (_overlay.IsVisible) _overlay.Hide();
     }
 
     public void Dispose()
     {
         _disposed = true;
-        Stop();
+        if (AppProfile.IsPersonal)
+        {
+            SystemEvents.DisplaySettingsChanged -= DisplayChanged;
+            SystemEvents.UserPreferenceChanged -= PreferenceChanged;
+        }
+        Hide();
         _overlay.Dispose();
     }
 }

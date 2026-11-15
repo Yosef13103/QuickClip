@@ -81,6 +81,6 @@ public sealed class MicrophoneIndicatorSignalTests
         settings.EndpointTracks = [new(EndpointFlow.Playback, "speaker", "Game"), new(EndpointFlow.Microphone, "a", "Mic"), new(EndpointFlow.Microphone, "b", "Muted", false)];
         Assert.Equal(new[] { "a" }, MicrophoneIndicatorSignal.SelectedMicrophones(settings));
         settings.ShowRecordingMicrophoneIndicator = false;
-        Assert.Empty(MicrophoneIndicatorSignal.SelectedMicrophones(settings));
+        Assert.Equal(new[] { "a" }, MicrophoneIndicatorSignal.SelectedMicrophones(settings));
     }
 }
