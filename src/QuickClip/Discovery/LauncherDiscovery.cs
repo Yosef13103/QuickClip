@@ -176,8 +176,13 @@ internal static partial class GameCatalogService
                         .Select(element => (string?)element.Attribute("Name")).Distinct().Take(2).ToArray();
                     if (executables is [var single]) exe = single;
                 }
-                return new(id, name?.StartsWith("ms-resource:", StringComparison.OrdinalIgnoreCase) == true
-                    ? Path.GetFileName(directory) : name, directory, exe);
+                string? displayName = name?.StartsWith("ms-resource:", StringComparison.OrdinalIgnoreCase) == true
+                    ? Path.GetFileName(directory) : name;
+                // A manifest may select a launch proxy instead of the process rendering gameplay.
+                // Preserve metadata and launcher evidence, never promote a known proxy to renderer.
+                return exe != null && CatalogPaths.DefaultRole(exe) == CatalogMatchKind.Launcher
+                    ? new(id, displayName, directory, Renderer: null, Launcher: exe)
+                    : new(id, displayName, directory, exe);
             }
             catch (XmlException) { return new(Issue: CatalogIssueKind.InvalidManifest); }
         }

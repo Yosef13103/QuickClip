@@ -103,6 +103,29 @@ public sealed class LauncherDiscoveryTests : IDisposable
     }
 
     [Fact]
+    public async Task Minecraft_placeholder_is_launcher_metadata_not_gameplay()
+    {
+        string install = _root.CreateSubdirectory("Minecraft").FullName;
+        string stub = WriteExecutable(install, "MCPlaceholderStub.exe");
+        var record = Scan.ParseXboxManifest(
+            """<Game><Identity Name="MinecraftFixture"/><ShellVisuals DefaultDisplayName="Minecraft"/><ExecutableList><Executable Name="MCPlaceholderStub.exe" TargetDeviceFamily="PC"/></ExecutableList></Game>"""u8.ToArray(),
+            install);
+        Assert.Null(record.Renderer);
+        Assert.Equal("MCPlaceholderStub.exe", record.Launcher);
+        using var scan = GameCatalogService.CreateScan(new() { Launchers = [CatalogSource.Xbox] },
+            localInstalls: _ => new LauncherInstall?[] { record });
+        CatalogResult result;
+        do { result = await scan.ContinueAsync(100, TimeSpan.FromSeconds(1), default); } while (scan.HasMore);
+        var scope = new CatalogScope(CatalogSource.Xbox);
+        var state = CatalogClaims.Apply(new() { AutoScan = false, EnabledLaunchers = [scope.Kind] }, scope, result, false);
+        var row = Assert.Single(GameCatalogRuntime.Rows(state));
+        Assert.Equal("Minecraft", row.DisplayName);
+        Assert.Equal(CatalogMatchKind.Launcher, Match(state, stub));
+        Assert.Equal(CatalogMatchKind.Launcher, CatalogPaths.DefaultRole(@"C:\Minecraft\MinecraftLauncher.exe"));
+        Assert.Equal(CatalogMatchKind.Unknown, CatalogPaths.DefaultRole(@"C:\Other\javaw.exe"));
+    }
+
+    [Fact]
     public void Launcher_registration_patterns_skip_client_and_unknown_products()
     {
         Assert.Null(LocalLaunchers.ParseRegistration(CatalogSource.Riot, new("Riot Client", "Riot Client", @"C:\Riot", null)));

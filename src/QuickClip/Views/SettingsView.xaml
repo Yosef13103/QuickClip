@@ -207,13 +207,16 @@
                         <TextBlock x:Name="GuideTitle" FontSize="{DynamicResource QuickClipText24}" FontWeight="SemiBold" TextWrapping="Wrap" />
                         <TextBlock x:Name="GuideHint" TextWrapping="Wrap" Margin="0,6,0,8" AutomationProperties.LiveSetting="Polite" />
                         <TextBlock x:Name="GuideSummary" TextWrapping="Wrap" Margin="0,0,0,8" />
-                        <WrapPanel>
-                            <Button x:Name="GuideBack" Content="Back" Click="GuideBack_Click" Margin="0,0,8,4" />
-                            <Button x:Name="GuideNext" Content="Continue" Click="GuideNext_Click" Margin="0,0,8,4" />
-                            <Button x:Name="GuideEnable" Content="Enable recording and finish" Click="GuideEnable_Click" Margin="0,0,8,4" Visibility="Collapsed" />
-                            <Button x:Name="GuidePause" Content="Pause setup" Click="GuidePause_Click" Margin="0,0,8,4" />
-                            <Button x:Name="GuideSkip" Content="Skip remaining setup" Click="GuideSkip_Click" Margin="0,0,8,4" />
-                        </WrapPanel>
+                        <DockPanel LastChildFill="True">
+                            <Button x:Name="GuideBack" DockPanel.Dock="Left" Content="Back" Click="GuideBack_Click" Margin="0,0,8,4" VerticalAlignment="Top" />
+                            <StackPanel HorizontalAlignment="Right">
+                                <WrapPanel HorizontalAlignment="Right" FlowDirection="LeftToRight">
+                                    <Button x:Name="GuideSkip" Content="Skip remaining setup" Click="GuideSkip_Click" Margin="0,0,8,4" />
+                                    <Button x:Name="GuideNext" Content="Continue" Click="GuideNext_Click" Margin="0,0,0,4" />
+                                </WrapPanel>
+                                <Button x:Name="GuideEnable" Content="Enable recording and finish" Click="GuideEnable_Click" Margin="0,0,0,4" HorizontalAlignment="Right" Visibility="Collapsed" />
+                            </StackPanel>
+                        </DockPanel>
                         <TextBlock x:Name="GuideError" TextWrapping="Wrap" Foreground="{DynamicResource DangerBrush}" AutomationProperties.LiveSetting="Assertive" />
                     </StackPanel>
                 </Border>
