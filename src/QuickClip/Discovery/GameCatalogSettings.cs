@@ -11,6 +11,15 @@ internal sealed record GameCatalogSettings
     public ImmutableArray<string> OfflineIds { get; init; } = [];
     public int? DiscoveredCount { get; init; }
     public ImmutableArray<string> RetainedIds { get; init; } = [];
+    public bool DiscoverGog { get; init; }
+    public bool? DiscoverSteam { get; init; }
+    public bool? DiscoverEpic { get; init; }
+    public ImmutableArray<string> DisabledSourceKeys { get; init; } = [];
+    public ImmutableArray<CatalogSourceClaim>? SourceClaims { get; init; }
+    public ImmutableArray<CatalogEntry> LegacyEntries { get; init; } = [];
+    public ImmutableArray<CatalogInstallAlias> InstallAliases { get; init; } = [];
+    [System.Text.Json.Serialization.JsonIgnore]
+    internal CatalogSourceClaim? ScanPreview { get; init; }
 }
 
 internal static class GameCatalogRuntime
@@ -48,19 +57,17 @@ internal static class GameCatalogRuntime
         {
             if (!ReferenceEquals(settings, _settings))
             {
-                var rows = Rows(settings);
+                var rows = CatalogClaims.Rows(CatalogClaims.Start(settings));
                 _index = new(new(rows, [], 0, false, default), settings.BlockedExecutables);
                 _settings = settings;
             }
-            var match = _index!.Match(path, foreground);
-            return match.Entry is { } entry && settings.OfflineIds.Contains(entry.Id)
-                && match.Kind is CatalogMatchKind.Game or CatalogMatchKind.Candidate
-                ? match with { Kind = CatalogMatchKind.Inactive } : match;
+            return _index!.Match(path, foreground);
         }
     }
 
     public static ImmutableArray<CatalogEntry> Rows(GameCatalogSettings settings)
     {
+        if (settings.SourceClaims is not null) return CatalogClaims.Rows(settings);
         var rules = new Dictionary<string, CatalogRules>(StringComparer.Ordinal);
         foreach (var entry in settings.Request.Overrides) rules[entry.Id] = entry.Rules;
         var folderRoots = settings.Request.GameRoots.Select(root => CatalogPaths.LocalPath(root.Path)).OfType<string>().ToArray();

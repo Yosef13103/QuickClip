@@ -19,7 +19,7 @@ public sealed class GamesSettingsViewTests
         var entry = new CatalogEntry("folder:osu", "osu!lazer", CatalogSource.Folder, [@"C:\Collection\osu!lazer"],
             [renderer, helper], new()) { RendererExecutables = [] };
         var row = new GamesSettingsView.GameRow(entry);
-        Assert.Contains("no renderer evidence", row.Executables.First().Label);
+        Assert.Contains("unresolved executable", row.Executables.First().Label);
         Assert.NotNull(row.RulesAfterApproval([renderer]));
         Assert.Null(row.RulesAfterApproval([helper]));
         var approved = entry with { Rules = new() { ApprovedExecutables = [renderer] } };
@@ -136,8 +136,8 @@ public sealed class GamesSettingsViewTests
         var page = new GamesSettingsView();
         page.RenderRows(state);
 
-        Assert.Equal("Catalog · 3 entries · 2 discovered · 1 manual", page.Count.Text);
-        Assert.Equal("Of discovered entries · 1 retained · 1 awaiting verification", page.DiscoveryCountDetail.Text);
+        Assert.Equal("Catalog · 3 unique games and apps · 1 manual entries", page.Count.Text);
+        Assert.Equal("1 entries with cached paths · 1 awaiting verification", page.DiscoveryCountDetail.Text);
         page.Search.Text = "Retained";
         Assert.EndsWith(" · 1 shown", page.Count.Text);
         Assert.Single(page.Games.Items);

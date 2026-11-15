@@ -27,7 +27,7 @@ internal sealed partial class GameDetector
 {
     internal static bool HasCatalogEligibility(CatalogMatch match) =>
         match.Kind == CatalogMatchKind.Game ||
-        match is { Kind: CatalogMatchKind.Candidate, Entry.Source: CatalogSource.Steam };
+        match is { Kind: CatalogMatchKind.Candidate, Entry: { Source: CatalogSource.Steam, RendererExecutables: null } };
 
     // Apps that are never games, even when fullscreen.
     private static readonly HashSet<string> NotGames = new(StringComparer.OrdinalIgnoreCase)

@@ -19,15 +19,21 @@
         <StackPanel DockPanel.Dock="Top">
             <TextBlock Text="Games" FontSize="{DynamicResource QuickClipText24}" FontWeight="SemiBold" />
             <CheckBox Style="{StaticResource SwitchCheckBox}" x:Name="AutoScan" Content="Automatically discover installed games" Click="AutoScan_Click" Margin="0,8,0,0" />
-            <TextBlock Text="Automatic scans read local Steam and Epic manifests and approved folders. You can pause and resume a scan here." TextWrapping="Wrap" Style="{StaticResource Hint}" />
+            <TextBlock Text="Automatic scans refresh enabled sources. You can pause and resume a scan here." TextWrapping="Wrap" Style="{StaticResource Hint}" />
             <Expander Header="Game libraries and launchers" Margin="0,6,0,6">
                 <StackPanel>
-                    <TextBlock Text="Supported sources: Steam libraries, Epic install manifests, game folders and exact executable files." TextWrapping="Wrap" Style="{StaticResource Hint}" />
-                    <TextBlock Text="Automatic discovery for Battle.net, EA, Ubisoft, GOG, Riot and Xbox/Game Pass is unavailable." TextWrapping="Wrap" Style="{StaticResource Hint}" />
+                    <WrapPanel>
+                        <CheckBox x:Name="SteamDiscovery" Content="Steam auto-discovery" Click="Provider_Click" Margin="0,0,10,0" />
+                        <CheckBox x:Name="EpicDiscovery" Content="Epic" Click="Provider_Click" Margin="0,0,10,0" />
+                        <CheckBox x:Name="GogDiscovery" Content="GOG" Click="Provider_Click" />
+                    </WrapPanel>
+                    <TextBlock x:Name="GogStatus" Style="{StaticResource Hint}" />
                     <ListBox x:Name="Roots" MaxHeight="105" AutomationProperties.Name="Approved folders" />
                     <WrapPanel Margin="0,5,0,0">
                         <Button Content="Approve Steam library…" Click="Steam_Click" Margin="0,0,6,0" />
                         <Button Content="Approve game collection…" Click="Collection_Click" Margin="0,0,6,0" />
+                        <Button Content="Enable or disable selected" Click="ToggleSource_Click" Margin="0,0,6,0" />
+                        <Button Content="Refresh selected" Click="RefreshSource_Click" Margin="0,0,6,0" />
                         <Button Content="Remove or restore source" Click="RemoveRoot_Click" />
                     </WrapPanel>
                     <ListBox x:Name="ScanIssues" MaxHeight="80" AutomationProperties.Name="Last scan issues" />

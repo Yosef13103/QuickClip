@@ -3,7 +3,6 @@ using System.Collections.Immutable;
 using System.Diagnostics;
 using System.Globalization;
 using System.IO.Enumeration;
-using System.Security.Cryptography;
 using System.Text;
 using Microsoft.Win32;
 
@@ -26,8 +25,9 @@ internal static class GameCatalogService
     }
 
     internal static Scan CreateScan(CatalogRequest request, Func<IEnumerable<string>>? steamInstallations = null,
-        Func<string?>? epicManifests = null) =>
-        new(request, steamInstallations ?? FindSteamInstallations, epicManifests ?? FindEpicManifests);
+        Func<string?>? epicManifests = null, Func<CancellationToken, IEnumerable<GogRegistryEntry>>? gogProducts = null) =>
+        new(request, steamInstallations ?? FindSteamInstallations, epicManifests ?? FindEpicManifests,
+            gogProducts ?? GogRegistry.Read);
 
     private static string? FindEpicManifests()
     {
@@ -66,6 +66,7 @@ internal static class GameCatalogService
         private IProgress<int>? _progress;
         private readonly Func<IEnumerable<string>> _steamInstallations;
         private readonly Func<string?> _epicManifests;
+        private readonly Func<CancellationToken, IEnumerable<GogRegistryEntry>> _gogProducts;
         private readonly string[] _excluded;
         private readonly Dictionary<string, Candidate> _games = new(StringComparer.Ordinal);
         private readonly Dictionary<string, Candidate> _launcherFolders = new(Paths);
@@ -81,11 +82,13 @@ internal static class GameCatalogService
         private string? _epicManifestDirectory;
         private int _visited, _candidateExecutablesVisited, _manifestBytes, _batch, _reportedGames = -1, _relevantSteps;
         private bool _limitReached, _hasMoreIssues, _hasUnreportedFailures;
+        private bool _sourceUnavailable;
         private CatalogResult? _lastResult;
         private long _lastSnapshotAt;
         public bool HasCatalogChanges { get; private set; }
 
-        public Scan(CatalogRequest request, Func<IEnumerable<string>> steamInstallations, Func<string?> epicManifests)
+        public Scan(CatalogRequest request, Func<IEnumerable<string>> steamInstallations, Func<string?> epicManifests,
+            Func<CancellationToken, IEnumerable<GogRegistryEntry>> gogProducts)
         {
             if (request.MaxEntries is < 1 or > 100_000 || request.MaxDepth is < 0 ||
                 request.GameRoots.Length + request.SteamLibraryRoots.Length > 128)
@@ -93,6 +96,7 @@ internal static class GameCatalogService
             _request = request;
             _steamInstallations = steamInstallations;
             _epicManifests = epicManifests;
+            _gogProducts = gogProducts;
             _excluded = request.ExcludedDirectories.Select(path => CatalogPaths.LocalPath(path)
                 ?? throw new ArgumentException("Excluded directories must be absolute local drive paths.", nameof(request))).ToArray();
         }
@@ -196,6 +200,7 @@ internal static class GameCatalogService
                 InProgress = pending,
                 HasMoreIssues = _hasMoreIssues,
                 HasUnreportedFailures = _hasUnreportedFailures,
+                SourceUnavailable = _sourceUnavailable,
                 CandidateExecutablesVisited = _candidateExecutablesVisited,
             };
             HasCatalogChanges = _lastResult == null || !_lastResult.Entries.SequenceEqual(entries) ||
@@ -214,12 +219,25 @@ internal static class GameCatalogService
                 if (ApprovedRoot(raw) is { } library && _steamRoots.Add(library))
                     _sources.Enqueue(() => ScanSteam(library));
             }
-            if (_request.DiscoverEpic && CatalogPaths.LocalPath(_epicManifests()) is { Length: > 3 } epic &&
-                !IsExcluded(epic) && Directory.Exists(epic))
+            if (_request.DiscoverEpic && CatalogPaths.LocalPath(_epicManifests()) is { Length: > 3 } epic && !IsExcluded(epic))
             {
-                _epicManifestDirectory = epic;
-                _sources.Enqueue(() => ScanEpic(epic));
+                try
+                {
+                    if (!(File.GetAttributes(epic).HasFlag(FileAttributes.Directory))) AddIssue(epic, CatalogIssueKind.Unavailable);
+                    else if (CheckDirectory(epic))
+                    {
+                        _epicManifestDirectory = epic;
+                        _sources.Enqueue(() => ScanEpic(epic));
+                    }
+                    else _sourceUnavailable = true;
+                }
+                catch (Exception ex) when (ex is FileNotFoundException or DirectoryNotFoundException)
+                {
+                    AddIssue(epic, CatalogIssueKind.SourceMissing);
+                }
+                catch (Exception ex) when (IsAccessError(ex)) { AddIssue(epic, CatalogIssueKind.Unavailable); }
             }
+            if (_request.DiscoverGog) _sources.Enqueue(ScanGog);
 
             var gameRoots = new HashSet<string>(Paths);
             foreach (var root in _request.GameRoots)
@@ -236,6 +254,38 @@ internal static class GameCatalogService
             {
                 _cancel.ThrowIfCancellationRequested();
                 AddManual(manual);
+            }
+        }
+
+        private IEnumerable<ScanStep> ScanGog()
+        {
+            // The cursor spans batches; check the current batch token before every registry item.
+            foreach (var product in _gogProducts(CancellationToken.None))
+            {
+                _cancel.ThrowIfCancellationRequested();
+                _relevantSteps++;
+                _visited++;
+                if (product.Issue is { } issue)
+                    AddIssue(GogRegistry.SourceName, issue);
+                else if (!GogRegistry.TryProductId(product.Key, out long id) ||
+                    (!string.IsNullOrWhiteSpace(product.Parent) && product.Parent != "0" &&
+                        !GogRegistry.TryProductId(product.Parent, out _)))
+                    AddIssue(GogRegistry.SourceName, CatalogIssueKind.InvalidManifest);
+                else if (!GogRegistry.TryProductId(product.Parent, out long parent) || parent == id)
+                {
+                    if (string.IsNullOrWhiteSpace(product.Name) || product.Name.Length > 160 ||
+                        product.Name.Any(char.IsControl) || string.IsNullOrWhiteSpace(product.Path))
+                        AddIssue(GogRegistry.SourceName, CatalogIssueKind.InvalidManifest);
+                    else if (ApprovedRoot(product.Path) is { } install)
+                    {
+                        // Some tools introduce additional records for the same product. Keep distinct
+                        // validated directories under the same stable product ID.
+                        var game = GetCandidate("gog:" + id.ToString(CultureInfo.InvariantCulture), product.Name.Trim(), CatalogSource.Gog);
+                        if (game.InstallDirectories.Add(install))
+                            _launcherInstalls.Enqueue(() => ScanInstall(install, 0, game, null, allowFolderFallback: true));
+                    }
+                }
+                yield return default;
             }
         }
 
@@ -262,8 +312,13 @@ internal static class GameCatalogService
                         }
                         var bytes = new byte[(int)stream.Length];
                         stream.ReadExactly(bytes);
-                        if (stream.ReadByte() == -1)
-                            libraries.UnionWith(SteamManifestParser.ParseLibraryFolders(Encoding.UTF8.GetString(bytes)));
+                        if (stream.ReadByte() != -1)
+                        {
+                            AddIssue(file, CatalogIssueKind.Incomplete);
+                            continue;
+                        }
+                        libraries.UnionWith(SteamManifestParser.ParseLibraryFolders(Encoding.UTF8.GetString(bytes), out bool complete));
+                        if (!complete) AddIssue(file, CatalogIssueKind.InvalidManifest);
                     }
                 }
             }
@@ -493,15 +548,21 @@ internal static class GameCatalogService
             string? launchExecutable, bool allowFolderFallback = false)
         {
             string? preferred = null;
+            var exactInstallVariants = new List<string>();
             int best = 0;
             bool unrealBootstrap = false;
             foreach (string executable in executables)
             {
                 _cancel.ThrowIfCancellationRequested();
                 int score = RendererScore(install, executable);
-                if (score == 0 && allowFolderFallback && IsInInstallBinaryLocation(install, executable) &&
-                    !ManualGameInput.IsSupportFile(executable, install))
-                    score = ScopedFolderExecutable;
+                if (allowFolderFallback && IsInInstallBinaryLocation(install, executable) &&
+                    !ManualGameInput.IsSupportFile(executable, install) &&
+                    QuickClip.Recording.GameDetector.ApplyProcessRole(executable, new(CatalogMatchKind.Unknown)).Kind == CatalogMatchKind.Unknown)
+                {
+                    if (Paths.Equals(VariantStem(executable), Path.GetFileName(install)))
+                        exactInstallVariants.Add(executable);
+                    if (score == 0) score = ScopedFolderExecutable;
+                }
                 if (launchExecutable != null && score == EngineRenderer && !Paths.Equals(launchExecutable, executable))
                 {
                     bool bootstrap = SharesRendererName(launchExecutable, executable);
@@ -532,6 +593,9 @@ internal static class GameCatalogService
                 (CatalogPaths.IsWithin(issue.Location, install) || CatalogPaths.IsWithin(install, issue.Location)))))
                 yield break;
 
+            if (exactInstallVariants.Count > 0)
+                game.Renderers.UnionWith(exactInstallVariants);
+
             if (preferred != null)
             {
                 game.Renderers.Add(preferred);
@@ -539,6 +603,15 @@ internal static class GameCatalogService
                 if (launchExecutable == null && best >= EngineRenderer)
                     game.DetectedLaunchers.UnionWith(executables.Where(path => SharesRendererName(path, preferred)));
             }
+        }
+
+        private static string VariantStem(string executable)
+        {
+            string stem = RendererStem(executable);
+            int suffix = stem.LastIndexOfAny(['-', '_']);
+            return suffix > 0 && stem[(suffix + 1)..].ToUpperInvariant() is
+                "X86" or "X64" or "WIN32" or "WIN64" or "DX11" or "DX12" or "VULKAN"
+                ? stem[..suffix] : stem;
         }
 
         private static bool IsInInstallBinaryLocation(string install, string executable)
@@ -651,7 +724,7 @@ internal static class GameCatalogService
 
         private Candidate FolderCandidate(string path)
         {
-            string id = "folder:" + Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(path.ToUpperInvariant())));
+            string id = CatalogPaths.FolderId(path);
             var game = GetCandidate(id, Path.GetFileName(path), CatalogSource.Folder);
             game.InstallDirectories.Add(path);
             return game;
@@ -691,7 +764,9 @@ internal static class GameCatalogService
                 AddIssue(raw, CatalogIssueKind.Unavailable);
                 return null;
             }
-            return CheckDirectory(path) ? path : null;
+            if (CheckDirectory(path)) return path;
+            _sourceUnavailable |= !IsExcluded(path);
+            return null;
         }
 
         private bool CheckDirectory(string path)
@@ -832,13 +907,13 @@ internal static class GameCatalogService
             {
                 if (_cached is { } cached && cached.Executables.Length == Executables.Count &&
                     cached.InstallDirectories.Length == InstallDirectories.Count &&
-                    (cached.RendererExecutables?.Length ?? 0) == (source is CatalogSource.Folder or CatalogSource.Epic ? Renderers.Count : 0) &&
+                    (cached.RendererExecutables?.Length ?? 0) == (source is CatalogSource.Folder or CatalogSource.Epic or CatalogSource.Gog ? Renderers.Count : 0) &&
                     cached.DetectedLaunchers.Length == DetectedLaunchers.Count)
                     return cached.Rules == rules ? cached : cached with { Rules = rules };
                 var ranked = Executables.OrderByDescending(Score).ThenBy(path => path, Paths).ToImmutableArray();
                 return _cached = new(Id, name, source, [.. InstallDirectories.Order(Paths)], ranked, rules)
                 {
-                    RendererExecutables = source is CatalogSource.Folder or CatalogSource.Epic ? [.. Renderers.Order(Paths)] : null,
+                    RendererExecutables = source is CatalogSource.Folder or CatalogSource.Epic or CatalogSource.Gog ? [.. Renderers.Order(Paths)] : null,
                     DetectedLaunchers = [.. DetectedLaunchers.Order(Paths)],
                 };
             }

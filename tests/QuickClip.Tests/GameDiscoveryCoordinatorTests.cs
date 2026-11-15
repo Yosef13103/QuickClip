@@ -14,7 +14,7 @@ public sealed class GameDiscoveryCoordinatorTests : IDisposable
         foreach (string path in expected) File.WriteAllBytes(path, [1]);
         var request = new CatalogRequest { GameRoots = [new(install)], MaxEntries = 3 };
         var lastFinished = DateTimeOffset.UtcNow.AddDays(-1);
-        GameCatalogSettings state = new() { Request = request, Snapshot = new([], [], 0, false, lastFinished) };
+        GameCatalogSettings state = new() { DiscoverSteam = false, DiscoverEpic = false, Request = request, Snapshot = new([], [], 0, false, lastFinished) };
         int scans = 0;
         using var coordinator = new GameDiscoveryCoordinator(() => state, (updated, _) => state = updated,
             request => { scans++; return GameCatalogService.CreateScan(request, () => [], () => null); });
@@ -60,7 +60,7 @@ public sealed class GameDiscoveryCoordinatorTests : IDisposable
     public async Task Startup_without_a_view_coalesces_manual_and_automatic_requests()
     {
         string root = AddInstall("Game");
-        GameCatalogSettings state = new() { Request = new() { GameRoots = [new(root)] } };
+        GameCatalogSettings state = new() { DiscoverSteam = false, DiscoverEpic = false, Request = new() { GameRoots = [new(root)] } };
         var published = new TaskCompletionSource<GameCatalogSettings>(TaskCreationOptions.RunContinuationsAsynchronously);
         int scans = 0;
         using var coordinator = new GameDiscoveryCoordinator(() => state, (updated, persist) =>
@@ -87,7 +87,7 @@ public sealed class GameDiscoveryCoordinatorTests : IDisposable
     {
         string first = AddInstall("First");
         string second = AddInstall("Second");
-        GameCatalogSettings state = new() { Request = new() { GameRoots = [new(first), new(second)] } };
+        GameCatalogSettings state = new() { DiscoverSteam = false, DiscoverEpic = false, Request = new() { GameRoots = [new(first), new(second)] } };
         int scans = 0;
         using var coordinator = new GameDiscoveryCoordinator(() => state, (updated, _) => state = updated, request =>
         {
@@ -109,7 +109,7 @@ public sealed class GameDiscoveryCoordinatorTests : IDisposable
         Assert.Contains("Paused", coordinator.Status);
         Directory.Move(first, first + "-gone");
         await coordinator.RequestAsync(manual: true);
-        Assert.Equal(1, scans);
+        Assert.Equal(2, scans);
         Assert.Equal(new[] { "First", "Second" }, state.Snapshot!.Entries.Select(entry => entry.Name));
         Assert.Equal(2, state.Snapshot.VisitedEntries);
         Assert.False(state.Snapshot.LimitReached);

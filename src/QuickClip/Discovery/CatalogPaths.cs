@@ -2,6 +2,9 @@ namespace QuickClip.Discovery;
 
 internal static class CatalogPaths
 {
+    internal static string FolderId(string path) => "folder:" + Convert.ToHexString(
+        System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(path.ToUpperInvariant())));
+
     // Accept ordinary drive paths only. Device namespaces, UNC and drive-relative paths
     // have different normalization and traversal behavior.
     public static string? LocalPath(string? path)

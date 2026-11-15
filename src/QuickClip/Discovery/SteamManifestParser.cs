@@ -22,13 +22,22 @@ internal static class SteamManifestParser
     }
 
     /// <summary>Reads local library locations declared by Steam.</summary>
-    public static ImmutableArray<string> ParseLibraryFolders(string text)
+    public static ImmutableArray<string> ParseLibraryFolders(string text) => ParseLibraryFolders(text, out _);
+
+    internal static ImmutableArray<string> ParseLibraryFolders(string text, out bool complete)
     {
         var folders = Parse(text)?.GetValueOrDefault("libraryfolders")?.Children;
+        complete = folders != null;
         if (folders == null) return [];
-        return folders.Where(p => uint.TryParse(p.Key, NumberStyles.None, CultureInfo.InvariantCulture, out _))
-            .Select(p => CatalogPaths.LocalPath(p.Value.Text ?? p.Value.Children?.GetValueOrDefault("path")?.Text))
-            .OfType<string>().Distinct(StringComparer.OrdinalIgnoreCase).ToImmutableArray();
+        var paths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var (key, entry) in folders)
+        {
+            if (!uint.TryParse(key, NumberStyles.None, CultureInfo.InvariantCulture, out _)) continue;
+            if (CatalogPaths.LocalPath(entry.Text ?? entry.Children?.GetValueOrDefault("path")?.Text) is { } path)
+                paths.Add(path);
+            else complete = false;
+        }
+        return [.. paths];
     }
 
     internal static bool TryId(string? text, out uint id) =>

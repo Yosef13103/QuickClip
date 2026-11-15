@@ -11,17 +11,19 @@ namespace QuickClip.Views;
 
 public partial class GamesSettingsView : UserControl
 {
-    private sealed record RootRow(string Path, bool Steam, bool Automatic = false, bool Excluded = false, bool Epic = false)
+    private sealed record RootRow(string Path, bool Steam, bool Automatic = false, bool Excluded = false, bool Epic = false,
+        string? Key = null, string? Status = null)
     {
         public override string ToString() => (Excluded ? "Excluded · " : Epic ? "Detected Epic manifests · " :
-            Automatic ? "Detected Steam · " : Steam ? "Steam · " : "Game folder · ") + Path;
+            Automatic ? "Detected Steam · " : Steam ? "Steam · " : "Game folder · ") + Path +
+            (Status == null ? "" : " · " + Status);
     }
     private static GameDiscoveryCoordinator Discovery => GameCatalogRuntime.Discovery;
     private bool _rendering;
     private GameCatalogSettings? _renderedState;
     private List<GameRow> _rows = [];
     private ListCollectionView? _gamesView;
-    private int _manualCount, _retainedCount, _offlineCount;
+    private int _uniqueCount, _manualCount, _retainedCount, _offlineCount;
     private GameRow? _expanded;
     private string _query = "";
     private static GameCatalogSettings State => AppSettings.Current.Games ?? new();
@@ -53,7 +55,7 @@ public partial class GamesSettingsView : UserControl
 
     private void SetState(GameCatalogSettings state)
     {
-        AppSettings.Current.Games = state;
+        AppSettings.Current.Games = CatalogClaims.Reconfigure(state);
         AppSettings.Current.Save();
         Render();
         _ = Discovery.SettingsChangedAsync();
@@ -67,6 +69,30 @@ public partial class GamesSettingsView : UserControl
 
     private async void Scan_Click(object sender, RoutedEventArgs e) => await Discovery.RequestAsync(manual: true);
     private void Cancel_Click(object sender, RoutedEventArgs e) => Discovery.Pause();
+
+    private void Provider_Click(object sender, RoutedEventArgs e)
+    {
+        var state = State;
+        if (sender == SteamDiscovery) state = state with { DiscoverSteam = SteamDiscovery.IsChecked == true };
+        if (sender == EpicDiscovery) state = state with { DiscoverEpic = EpicDiscovery.IsChecked == true };
+        if (sender == GogDiscovery) state = state with { DiscoverGog = GogDiscovery.IsChecked == true };
+        SetState(state);
+    }
+
+    private void ToggleSource_Click(object sender, RoutedEventArgs e)
+    {
+        if (Roots.SelectedItem is not RootRow { Key: { } key }) return;
+        var state = State;
+        var disabled = state.DisabledSourceKeys;
+        SetState(state with { DisabledSourceKeys = disabled.Contains(key) ? disabled.Remove(key) : disabled.Add(key) });
+    }
+
+    private async void RefreshSource_Click(object sender, RoutedEventArgs e)
+    {
+        if (Roots.SelectedItem is RootRow { Key: { } key } &&
+            CatalogScope.Enabled(State).Any(scope => scope.Key == key))
+            await Discovery.RequestAsync(manual: true, sourceKey: key);
+    }
 
     private void Steam_Click(object sender, RoutedEventArgs e) => Approve(true);
     private void Collection_Click(object sender, RoutedEventArgs e) => Approve(false);
@@ -105,8 +131,11 @@ public partial class GamesSettingsView : UserControl
             ? request with { ExcludedDirectories = request.ExcludedDirectories.Remove(root.Path) }
             : root.Automatic
             ? request with { ExcludedDirectories = request.ExcludedDirectories.Add(root.Path) }
-            : root.Steam ? request with { SteamLibraryRoots = request.SteamLibraryRoots.Remove(root.Path) }
-            : request with { GameRoots = request.GameRoots.RemoveAll(row => row.Path == root.Path) } });
+            : root.Steam ? request with { SteamLibraryRoots = request.SteamLibraryRoots.RemoveAll(path =>
+                string.Equals(CatalogPaths.LocalPath(path), root.Path, StringComparison.OrdinalIgnoreCase)) }
+            : request with { GameRoots = request.GameRoots.RemoveAll(row =>
+                string.Equals(CatalogPaths.LocalPath(row.Path), root.Path, StringComparison.OrdinalIgnoreCase)) },
+            DisabledSourceKeys = root.Key is { } key ? State.DisabledSourceKeys.Remove(key) : State.DisabledSourceKeys });
         Status.Text = root.Excluded ? "Exclusion removed. Scan again to find this source."
             : root.Automatic ? "Launcher source excluded." : "Approval removed.";
     }
@@ -372,9 +401,13 @@ public partial class GamesSettingsView : UserControl
     private void SaveRules(CatalogEntry entry, CatalogRules rules)
     {
         var request = State.Request;
+        var overrides = request.Overrides.RemoveAll(item => item.Id == entry.Id).Add(new(entry.Id, rules));
+        if (entry.Rules.Inclusion != rules.Inclusion)
+            overrides = [.. overrides.Select(item => entry.AliasIds.Contains(item.Id) ?
+                item with { Rules = item.Rules with { Inclusion = rules.Inclusion } } : item)];
         SetState(State with { Request = request with
         {
-            Overrides = request.Overrides.RemoveAll(item => item.Id == entry.Id).Add(new(entry.Id, rules)),
+            Overrides = overrides,
         } });
     }
 
@@ -390,16 +423,29 @@ public partial class GamesSettingsView : UserControl
         _renderedState = AppSettings.Current.Games;
         var state = _renderedState ?? new();
         AutoScan.IsChecked = state.AutoScan;
+        SteamDiscovery.IsChecked = state.DiscoverSteam ?? state.AutoScan;
+        EpicDiscovery.IsChecked = state.DiscoverEpic ?? state.AutoScan;
+        GogDiscovery.IsChecked = state.DiscoverGog;
+        var claims = (state.SourceClaims ?? []).ToDictionary(claim => claim.Scope.Key, StringComparer.Ordinal);
+        string DescribeSource(string key)
+        {
+            if (state.DisabledSourceKeys.Contains(key)) return "Disabled";
+            if (!claims.TryGetValue(key, out var claim)) return "Awaiting scan";
+            if (claim.Verified) return $"{claim.Result.Entries.Length:N0} discovered";
+            return claim.Result.Issues.Any(issue => issue.Kind == CatalogIssueKind.SourceMissing)
+                ? "Source missing" : "Incomplete · cached results retained";
+        }
+        GogStatus.Text = state.DiscoverGog ? $"GOG · {DescribeSource(new CatalogScope(CatalogSource.Gog).Key)}" : "GOG · Disabled";
         RootRow[] epic = state.Snapshot?.EpicManifestDirectory is { } manifestDirectory &&
             !state.Request.ExcludedDirectories.Any(root => CatalogPaths.IsWithin(manifestDirectory, root))
             ? [new(manifestDirectory, Steam: false, Automatic: true, Epic: true)] : [];
-        Roots.ItemsSource = state.Request.SteamLibraryRoots.Select(path => new RootRow(path, true))
+        Roots.ItemsSource = CatalogScope.Configured(state).Where(scope => scope.Root != null)
+            .Select(scope => new RootRow(scope.Root!, scope.Kind == CatalogSource.Steam, Key: scope.Key, Status: DescribeSource(scope.Key)))
             .Concat((state.Snapshot?.SteamLibraries ?? []).Where(path =>
                 !state.Request.SteamLibraryRoots.Contains(path, StringComparer.OrdinalIgnoreCase) &&
                 !state.Request.ExcludedDirectories.Contains(path, StringComparer.OrdinalIgnoreCase))
                 .Select(path => new RootRow(path, true, Automatic: true)))
             .Concat(epic)
-            .Concat(state.Request.GameRoots.Select(root => new RootRow(root.Path, false)))
             .Concat(state.Request.ExcludedDirectories.Select(path => new RootRow(path, false, Excluded: true))).ToArray();
         LastScan.Text = state.Snapshot is { CompletedAt: var completed } && completed != default
             ? $"Last finished scan · {completed.ToLocalTime():g}" : "No finished scan.";
@@ -407,17 +453,27 @@ public partial class GamesSettingsView : UserControl
         var issues = state.Snapshot?.Issues.Select(ScanIssueText) ?? [];
         ScanIssues.ItemsSource = state.Snapshot?.HasMoreIssues == true ? issues.Append("Additional scan issues are omitted.").ToArray()
             : issues.ToArray();
-        RenderRows(state);
+        RenderRows(CatalogClaims.Start(state));
     }
 
     internal void RenderRows(GameCatalogSettings state)
     {
         string? selected = (Games.SelectedItem as GameRow)?.Entry.Id;
         var entries = GameCatalogRuntime.Rows(state);
-        var offline = state.OfflineIds.ToHashSet(StringComparer.Ordinal);
+        var offline = entries.Where(entry => entry.IsUnverified).Select(entry => entry.Id)
+            .Concat(state.OfflineIds).ToHashSet(StringComparer.Ordinal);
         var catalog = new GameCatalogIndex(new(entries, [], 0, false, default), state.BlockedExecutables);
-        var retained = state.RetainedIds.ToHashSet(StringComparer.Ordinal);
+        var retained = entries.Where(entry => entry.IsUnverified || !entry.UnverifiedExecutables.IsEmpty)
+            .Select(entry => entry.Id).Concat(state.RetainedIds).ToHashSet(StringComparer.Ordinal);
         _manualCount = entries.Count(entry => entry.Source == CatalogSource.Manual);
+        _uniqueCount = entries.Length - _manualCount;
+        var knownPaths = entries.Where(entry => entry.Source != CatalogSource.Manual).SelectMany(entry => entry.Executables)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        foreach (var entry in entries.Where(entry => entry.Source == CatalogSource.Manual))
+        {
+            if (entry.Executables.IsEmpty || entry.Executables.Any(path => !knownPaths.Contains(path))) _uniqueCount++;
+            knownPaths.UnionWith(entry.Executables);
+        }
         _retainedCount = entries.Count(entry => entry.Source != CatalogSource.Manual && retained.Contains(entry.Id));
         _offlineCount = entries.Count(entry => entry.Source != CatalogSource.Manual && offline.Contains(entry.Id));
         var existing = _rows.ToDictionary(row => row.Entry.Id, StringComparer.Ordinal);
@@ -452,9 +508,9 @@ public partial class GamesSettingsView : UserControl
     {
         if (Count != null && _gamesView != null)
         {
-            Count.Text = $"Catalog · {_rows.Count:N0} entries · {_rows.Count - _manualCount:N0} discovered · {_manualCount:N0} manual"
+            Count.Text = $"Catalog · {_uniqueCount:N0} unique games and apps · {_manualCount:N0} manual entries"
                 + (_query.Length == 0 ? "" : $" · {_gamesView.Count:N0} shown");
-            DiscoveryCountDetail.Text = $"Of discovered entries · {_retainedCount:N0} retained · {_offlineCount:N0} awaiting verification";
+            DiscoveryCountDetail.Text = $"{_retainedCount:N0} entries with cached paths · {_offlineCount:N0} awaiting verification";
             DiscoveryCountDetail.Visibility = _retainedCount + _offlineCount > 0 ? Visibility.Visible : Visibility.Collapsed;
         }
     }
@@ -489,6 +545,7 @@ public partial class GamesSettingsView : UserControl
     internal static string ScanIssueText(CatalogIssue issue) => (issue.Kind switch
     {
         CatalogIssueKind.Unavailable => "Source unavailable · reconnect the drive or check folder access",
+        CatalogIssueKind.SourceMissing => "Source missing",
         CatalogIssueKind.InvalidManifest => "Unreadable launcher manifest · check the installation and rescan",
         CatalogIssueKind.InvalidManualEntry => "Invalid manual entry · edit its executable selection",
         CatalogIssueKind.ReparsePoint => "Linked folder skipped · approve its actual local location",

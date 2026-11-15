@@ -2,7 +2,7 @@ using System.Collections.Immutable;
 
 namespace QuickClip.Discovery;
 
-internal enum CatalogSource { Folder, Steam, Manual, Epic }
+internal enum CatalogSource { Folder, Steam, Manual, Epic, Gog }
 internal enum CatalogConfidence { Low, Medium, High }
 internal enum CatalogInclusion { Default, Include, Exclude }
 internal enum AppClassification { Automatic, Game, Application, Companion, Launcher }
@@ -33,6 +33,7 @@ internal sealed record CatalogRequest
 {
     public bool DiscoverSteam { get; init; }
     public bool DiscoverEpic { get; init; }
+    public bool DiscoverGog { get; init; }
     public ImmutableArray<GameScanRoot> GameRoots { get; init; } = [];
     public ImmutableArray<string> SteamLibraryRoots { get; init; } = [];
     public ImmutableArray<string> ExcludedDirectories { get; init; } = [];
@@ -49,18 +50,24 @@ internal sealed record CatalogEntry(
     // Exact executable paths selected by scan evidence. Includes the scoped folder fallback.
     public ImmutableArray<string>? RendererExecutables { get; init; }
     public ImmutableArray<string> DetectedLaunchers { get; init; } = [];
+    [System.Text.Json.Serialization.JsonIgnore]
+    public ImmutableArray<string> UnverifiedExecutables { get; init; } = [];
+    [System.Text.Json.Serialization.JsonIgnore]
+    public bool IsUnverified { get; init; }
+    [System.Text.Json.Serialization.JsonIgnore]
+    public ImmutableArray<string> AliasIds { get; init; } = [];
     public string DisplayName => string.IsNullOrWhiteSpace(Rules.DisplayName) ? Name : Rules.DisplayName.Trim();
 
     // Confidence in the catalog association, rather than in a particular EXE being the game's renderer.
     public CatalogConfidence Confidence => Source switch
     {
         CatalogSource.Manual => CatalogConfidence.High,
-        CatalogSource.Steam or CatalogSource.Epic => CatalogConfidence.Medium,
+        CatalogSource.Steam or CatalogSource.Epic or CatalogSource.Gog => CatalogConfidence.Medium,
         _ => CatalogConfidence.Low,
     };
 }
 
-internal enum CatalogIssueKind { InvalidPath, Unavailable, ReparsePoint, InvalidManifest, InvalidManualEntry, Incomplete, DepthLimit }
+internal enum CatalogIssueKind { InvalidPath, Unavailable, ReparsePoint, InvalidManifest, InvalidManualEntry, Incomplete, DepthLimit, SourceMissing }
 
 internal sealed record CatalogIssue(string Location, CatalogIssueKind Kind);
 
@@ -73,5 +80,6 @@ internal sealed record CatalogResult(
     public bool InProgress { get; init; }
     public bool HasMoreIssues { get; init; }
     public bool HasUnreportedFailures { get; init; }
+    public bool SourceUnavailable { get; init; }
     public int CandidateExecutablesVisited { get; init; }
 }

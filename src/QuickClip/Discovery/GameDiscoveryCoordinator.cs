@@ -1,8 +1,26 @@
+using System.Collections.Immutable;
+
 namespace QuickClip.Discovery;
 
-/// <summary>Owns one in-process discovery queue. Call from the host's settings/UI context.</summary>
+/// <summary>Serializes discovery work while keeping each enabled source's cursor and publication independent.</summary>
 internal sealed class GameDiscoveryCoordinator : IDisposable
 {
+    private sealed record SourcePlan(CatalogScope Scope, CatalogRequest Request, string Signature);
+
+    private sealed class Work(SourcePlan plan) : IDisposable
+    {
+        public SourcePlan Plan { get; } = plan;
+        public CancellationTokenSource Cancellation { get; } = new();
+        public GameCatalogService.Scan? Scan { get; set; }
+
+        public void Dispose()
+        {
+            Scan?.Dispose();
+            Cancellation.Dispose();
+        }
+    }
+
+    private readonly object _gate = new();
     private readonly Func<GameCatalogSettings> _read;
     private readonly Action<GameCatalogSettings, bool> _publish;
     private readonly Func<CatalogRequest, GameCatalogService.Scan> _create;
@@ -10,12 +28,13 @@ internal sealed class GameDiscoveryCoordinator : IDisposable
     private readonly TimeProvider _clock;
     private readonly int _segmentsPerSlice;
     private static readonly TimeSpan RefreshInterval = TimeSpan.FromMinutes(15);
-    private CancellationTokenSource? _activeCancellation;
-    private GameCatalogService.Scan? _scan;
-    private CatalogRequest? _scanRequest;
+    private Dictionary<string, SourcePlan> _plans = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, Work> _pending = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, long> _completed = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, CatalogResult> _results = new(StringComparer.Ordinal);
+    private Work? _active;
     private Task _running = Task.CompletedTask;
-    private bool _started, _disposed, _paused;
-    private long? _completedAt;
+    private bool _started, _disposed, _paused, _autoScan;
 
     internal GameDiscoveryCoordinator(Func<GameCatalogSettings> read, Action<GameCatalogSettings, bool> publish,
         Func<CatalogRequest, GameCatalogService.Scan>? create = null, TimeProvider? clock = null, int segmentsPerSlice = 12)
@@ -31,14 +50,16 @@ internal sealed class GameDiscoveryCoordinator : IDisposable
     public event Action? Changed;
     public bool IsRunning { get; private set; }
     public string Status { get; private set; } = "";
-    public bool IsPaused => _paused && _scan != null;
+    public bool IsPaused => _paused && _pending.Count > 0;
 
-    /// <summary>Starts background discovery independently of the Games view.</summary>
     public void Start()
     {
-        if (_started || _disposed) return;
-        _started = true;
-        _ = RunTimerAsync(_lifetime.Token);
+        lock (_gate)
+        {
+            if (_started || _disposed) return;
+            _started = true;
+            _ = RunTimerAsync(_lifetime.Token);
+        }
     }
 
     private async Task RunTimerAsync(CancellationToken token)
@@ -54,159 +75,280 @@ internal sealed class GameDiscoveryCoordinator : IDisposable
         catch (OperationCanceledException) when (token.IsCancellationRequested) { }
     }
 
-    public Task RequestAsync(bool manual = false)
+    public Task RequestAsync(bool manual = false, string? sourceKey = null)
     {
-        if (_disposed) return Task.CompletedTask;
-        if (manual) _paused = false;
-        if (IsRunning) return _running;
-        var state = _read();
-        if (!manual && (!state.AutoScan || _paused ||
-            _completedAt is { } last && _clock.GetElapsedTime(last) < RefreshInterval))
-            return Task.CompletedTask;
-
-        var request = ScanRequest(state);
-        if (!request.DiscoverSteam && !request.DiscoverEpic && request.GameRoots.IsEmpty && request.SteamLibraryRoots.IsEmpty)
+        lock (_gate)
         {
-            Status = "Add a game folder or turn on Steam discovery.";
-            Changed?.Invoke();
-            return Task.CompletedTask;
+            if (_disposed) return Task.CompletedTask;
+            var state = _read();
+            SyncPlans(state, scheduleChanges: false);
+            if (!manual && (!state.AutoScan || _paused)) return Task.CompletedTask;
+            if (IsRunning)
+            {
+                if (manual && sourceKey != null && _plans.TryGetValue(sourceKey, out var existing))
+                    Queue(existing);
+                return _running;
+            }
+            bool resume = _paused;
+            _paused = false;
+            if (!resume)
+            {
+                _results.Clear();
+                foreach (var plan in _plans.Values)
+                {
+                    string key = plan.Scope.Key;
+                    if (sourceKey != null && key != sourceKey) continue;
+                    if (manual || !_completed.TryGetValue(key, out long last) || _clock.GetElapsedTime(last) >= RefreshInterval)
+                        Queue(plan);
+                }
+            }
+            if (_pending.Count == 0 && manual)
+            {
+                Status = "Add a game folder or enable a launcher.";
+                Changed?.Invoke();
+            }
+            return StartWork();
         }
-        var cancellation = CancellationTokenSource.CreateLinkedTokenSource(_lifetime.Token);
-        _activeCancellation = cancellation;
+    }
+
+    /// <summary>Pauses at the next slice boundary. Scan Now resumes the current batch.</summary>
+    public void Pause()
+    {
+        lock (_gate)
+        {
+            if (!IsRunning) return;
+            _paused = true;
+            Status = "Pausing after the current scan batch…";
+            Changed?.Invoke();
+        }
+    }
+
+    public Task SettingsChangedAsync()
+    {
+        lock (_gate)
+        {
+            if (_disposed) return Task.CompletedTask;
+            var state = _read();
+            bool changed = SyncPlans(state, scheduleChanges: _started);
+            var pruned = CatalogClaims.Reconfigure(state);
+            if (pruned.SourceClaims != null && (changed || !ReferenceEquals(pruned, state)))
+                Publish(pruned with { ScanPreview = null }, _pending.Count == 0, persist: true);
+            return _paused ? Task.CompletedTask : StartWork();
+        }
+    }
+
+    private static IEnumerable<SourcePlan> Plans(GameCatalogSettings settings) =>
+        CatalogScope.Enabled(settings).Select(scope =>
+        {
+            var request = scope.Request(settings.Request);
+            return new SourcePlan(scope, request, CatalogScope.Signature(request));
+        });
+
+    private bool SyncPlans(GameCatalogSettings state, bool scheduleChanges)
+    {
+        bool stoppedAutomatic = _autoScan && !state.AutoScan;
+        bool startedAutomatic = !_autoScan && state.AutoScan;
+        _autoScan = state.AutoScan;
+        var next = Plans(state).ToDictionary(plan => plan.Scope.Key, StringComparer.Ordinal);
+        bool changed = false;
+        if (!IsRunning && _pending.Count == 0 && next.Any(item =>
+            !_plans.TryGetValue(item.Key, out var prior) || prior.Signature != item.Value.Signature))
+            _results.Clear();
+        foreach (var (key, old) in _plans)
+        {
+            bool invalidated = !next.TryGetValue(key, out var current) || current.Signature != old.Signature;
+            if (invalidated || stoppedAutomatic)
+            {
+                if (_pending.Remove(key, out var work))
+                {
+                    if (ReferenceEquals(_active, work) && IsRunning) work.Cancellation.Cancel();
+                    else
+                    {
+                        work.Dispose();
+                        if (ReferenceEquals(_active, work)) _active = null;
+                    }
+                }
+                if (invalidated)
+                {
+                    _completed.Remove(key);
+                    _results.Remove(key);
+                    changed = true;
+                }
+            }
+        }
+        foreach (var (key, plan) in next)
+        {
+            bool affected = !_plans.TryGetValue(key, out var old) || old.Signature != plan.Signature;
+            if (affected) changed = true;
+            if (scheduleChanges && !stoppedAutomatic && (affected || (startedAutomatic && !_completed.ContainsKey(key))))
+                Queue(plan);
+        }
+        if (_pending.Count == 0) _paused = false;
+        _plans = next;
+        return changed;
+    }
+
+    private void Queue(SourcePlan plan)
+    {
+        if (!_pending.ContainsKey(plan.Scope.Key)) _pending.Add(plan.Scope.Key, new Work(plan));
+    }
+
+    private Task StartWork()
+    {
+        if (IsRunning) return _running;
+        if (_pending.Count == 0 || _paused) return Task.CompletedTask;
         IsRunning = true;
         Status = "Scanning game libraries…";
-        _running = RunAsync(request, cancellation);
+        _running = RunAsync();
         Changed?.Invoke();
         return _running;
     }
 
-    /// <summary>Pauses at the next slice boundary. Scan Now resumes queued work.</summary>
-    public void Pause()
+    private async Task RunAsync()
     {
-        if (!IsRunning) return;
-        _paused = true;
-        Status = "Pausing after the current scan batch…";
-        Changed?.Invoke();
-    }
-
-    public async Task SettingsChangedAsync()
-    {
-        if (_disposed) return;
-        if (_scanRequest != ScanRequest(_read()))
-        {
-            _activeCancellation?.Cancel();
-            var oldScan = _scan;
-            _scan = null;
-            _scanRequest = null;
-            _completedAt = null;
-            _paused = false;
-            await _running;
-            oldScan?.Dispose();
-        }
-        if (_started) await RequestAsync();
-    }
-
-    private async Task RunAsync(CatalogRequest request, CancellationTokenSource cancellation)
-    {
-        // Allow the caller to publish the shared task before any observer is notified.
         await Task.Yield();
-        var token = cancellation.Token;
-        GameCatalogService.Scan? scan = null;
-        bool keepCursor = false;
-        try
+        while (true)
         {
-            token.ThrowIfCancellationRequested();
-            if (_scanRequest != request || _scan == null)
+            Work work;
+            lock (_gate)
             {
-                _scan = _create(request);
-                _scanRequest = request;
-            }
-            scan = _scan;
-            do
-            {
-                var result = await scan.ContinueAsync(_segmentsPerSlice, TimeSpan.FromMilliseconds(250), token, throttleSnapshots: true);
-                token.ThrowIfCancellationRequested();
-                var current = _read();
-                if (ScanRequest(current) != request)
+                if (_disposed || _paused || _pending.Count == 0)
                 {
+                    IsRunning = false;
+                    if (_paused && _read().Snapshot is { } snapshot) Status = Describe(_read(), "Paused", snapshot);
+                    if (!_disposed) Changed?.Invoke();
                     return;
                 }
-                bool finished = !result.InProgress;
-                var updated = current;
-                // Avoid rebuilding the catalog and WPF list for slices that only
-                // advance an existing cursor through non-candidate entries.
-                if (finished || scan.HasCatalogChanges)
-                {
-                    updated = GameCatalogRuntime.WithScan(current, result);
-                    _publish(updated, finished);
-                }
-                Status = Describe(updated, finished ? CompletionLabel(result) : "Scanning", result);
-                Changed?.Invoke();
-                if (scan.HasMore && !_paused)
-                    await Task.Delay(TimeSpan.FromMilliseconds(250), _clock, token);
+                _active = work = _pending.Values.First();
             }
-            while (scan.HasMore && !_paused);
 
-            if (scan.HasMore)
+            var scope = work.Plan.Scope;
+            var token = work.Cancellation.Token;
+            bool keep = false;
+            try
             {
-                var snapshot = await scan.SnapshotAsync(token);
-                token.ThrowIfCancellationRequested();
-                var current = _read();
-                if (ScanRequest(current) != request) return;
-                var paused = GameCatalogRuntime.WithScan(current, snapshot);
-                _publish(paused, false);
-                Status = Describe(paused, "Paused", snapshot);
-                keepCursor = !token.IsCancellationRequested;
+                work.Scan ??= _create(work.Plan.Request);
+                while (true)
+                {
+                    var result = await work.Scan.ContinueAsync(_segmentsPerSlice, TimeSpan.FromMilliseconds(250), token, throttleSnapshots: true);
+                    bool pause;
+                    lock (_gate)
+                    {
+                        if (!IsCurrent(work)) break;
+                        pause = _paused;
+                        if (!result.InProgress)
+                        {
+                            _pending.Remove(scope.Key);
+                            _completed[scope.Key] = _clock.GetTimestamp();
+                            _results[scope.Key] = result;
+                            var updated = CatalogClaims.Apply(_read(), scope, result, preview: false);
+                            Publish(updated, _pending.Count == 0, persist: true);
+                            break;
+                        }
+                        if (!pause && work.Scan.HasCatalogChanges)
+                        {
+                            var updated = CatalogClaims.Apply(_read(), scope, result, preview: true);
+                            Publish(updated, false, persist: false);
+                        }
+                    }
+
+                    lock (_gate) pause |= _paused;
+                    if (pause)
+                    {
+                        var snapshot = await work.Scan.SnapshotAsync(token);
+                        lock (_gate)
+                        {
+                            if (IsCurrent(work) && _paused)
+                            {
+                                var updated = CatalogClaims.Apply(_read(), scope, snapshot, preview: true);
+                                Publish(updated, false, persist: true);
+                                keep = true;
+                                break;
+                            }
+                        }
+                    }
+                    await Task.Delay(TimeSpan.FromMilliseconds(250), _clock, token);
+                }
             }
-            else
+            catch (OperationCanceledException) when (token.IsCancellationRequested) { }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException or System.Security.SecurityException)
             {
-                _completedAt = _clock.GetTimestamp();
+                lock (_gate)
+                {
+                    if (IsCurrent(work))
+                    {
+                        _pending.Remove(scope.Key);
+                        _completed[scope.Key] = _clock.GetTimestamp();
+                        var result = new CatalogResult([], [new(scope.Root ?? scope.Kind.ToString(), CatalogIssueKind.Unavailable)],
+                            0, false, _clock.GetUtcNow());
+                        _results[scope.Key] = result;
+                        Publish(CatalogClaims.Apply(_read(), scope, result, preview: false), _pending.Count == 0, persist: true);
+                        Log.Write("Game scan failed: " + ex.GetType().Name);
+                    }
+                }
             }
-        }
-        catch (OperationCanceledException) when (token.IsCancellationRequested)
-        {
-            Status = "Scan canceled. Published results kept.";
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException)
-        {
-            Status = "Incomplete · scan could not finish. Published results kept.";
-            Log.Write("Game scan failed: " + ex.GetType().Name);
-        }
-        finally
-        {
-            if (!keepCursor)
+            finally
             {
-                scan?.Dispose();
-                if (ReferenceEquals(_scan, scan)) _scan = null;
+                lock (_gate)
+                {
+                    _active = null;
+                    if (!keep)
+                    {
+                        if (_pending.TryGetValue(scope.Key, out var queued) && ReferenceEquals(queued, work))
+                            _pending.Remove(scope.Key);
+                        work.Dispose();
+                    }
+                }
             }
-            _activeCancellation = null;
-            cancellation.Dispose();
-            IsRunning = false;
-            if (!_disposed) Changed?.Invoke();
         }
     }
 
-    private static CatalogRequest ScanRequest(GameCatalogSettings state) =>
-        state.Request with
-        {
-            DiscoverSteam = state.AutoScan, DiscoverEpic = state.AutoScan, Overrides = [], ManualEntries = [],
-            // Previous releases wrote the default depth of eight into settings.
-            MaxDepth = state.Request.MaxDepth == 8 ? null : state.Request.MaxDepth,
-        };
+    private bool IsCurrent(Work work) => !_disposed && !work.Cancellation.IsCancellationRequested &&
+        _pending.TryGetValue(work.Plan.Scope.Key, out var pending) && ReferenceEquals(work, pending) &&
+        Plans(_read()).Any(plan => plan.Scope.Key == work.Plan.Scope.Key && plan.Signature == work.Plan.Signature);
 
-    private static string CompletionLabel(CatalogResult scan) =>
-        scan.LimitReached || scan.HasUnreportedFailures || scan.Issues.Any(issue => issue.Kind != CatalogIssueKind.ReparsePoint)
-            ? "Incomplete" : "Completed";
+    private void Publish(GameCatalogSettings state, bool finished, bool persist)
+    {
+        var preview = state.ScanPreview?.Result;
+        var results = _results.Values.Concat(preview != null ? [preview] : []).ToArray();
+        var issues = results.SelectMany(result => result.Issues).Distinct().Take(129).ToArray();
+        var summary = new CatalogResult([], [.. issues.Take(128)], results.Sum(result => result.VisitedEntries),
+            results.Any(result => result.LimitReached), _clock.GetUtcNow())
+        {
+            HasMoreIssues = issues.Length > 128 || results.Any(result => result.HasMoreIssues),
+            HasUnreportedFailures = results.Any(result => result.HasUnreportedFailures),
+            SourceUnavailable = results.Any(result => result.SourceUnavailable),
+            CandidateExecutablesVisited = results.Sum(result => result.CandidateExecutablesVisited),
+        };
+        var updated = CatalogClaims.Summarize(state, summary, finished, _results.Keys.ToHashSet(StringComparer.Ordinal));
+        _publish(updated, persist);
+        bool missing = issues.Any(issue => issue.Kind == CatalogIssueKind.SourceMissing);
+        bool incomplete = summary.SourceUnavailable || summary.LimitReached || summary.HasUnreportedFailures ||
+            issues.Any(issue => issue.Kind is not (CatalogIssueKind.SourceMissing or CatalogIssueKind.ReparsePoint)) ||
+            (missing && !updated.RetainedIds.IsEmpty);
+        var label = !finished ? (_paused ? "Paused" : "Scanning") : incomplete ? "Incomplete" :
+            missing ? "Completed · source missing" : "Completed";
+        Status = Describe(updated, label, summary);
+        Changed?.Invoke();
+    }
 
     internal static string Describe(GameCatalogSettings state, string label, CatalogResult result) =>
         $"{label} · {result.CandidateExecutablesVisited:N0} candidate executable visits · {state.DiscoveredCount ?? 0:N0} discovered this scan";
 
     public void Dispose()
     {
-        if (_disposed) return;
-        _disposed = true;
-        _lifetime.Cancel();
-        _lifetime.Dispose();
-        if (!IsRunning) _scan?.Dispose();
+        lock (_gate)
+        {
+            if (_disposed) return;
+            _disposed = true;
+            _lifetime.Cancel();
+            _lifetime.Dispose();
+            foreach (var work in _pending.Values)
+            {
+                if (ReferenceEquals(work, _active)) work.Cancellation.Cancel();
+                else work.Dispose();
+            }
+            _pending.Clear();
+        }
     }
 }

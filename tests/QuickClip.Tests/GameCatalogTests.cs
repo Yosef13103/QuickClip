@@ -8,6 +8,30 @@ public sealed class GameCatalogTests : IDisposable
 {
     private readonly DirectoryInfo _fixture = Directory.CreateTempSubdirectory("quickclip-catalog-");
 
+    [Fact]
+    public async Task Scoped_install_activates_corroborated_variants_and_keeps_other_executables_ineligible()
+    {
+        string first = FileAt("Library", "StarfieldFixture", "StarfieldFixture.exe");
+        string alternate = FileAt("Library", "StarfieldFixture", "Bin", "StarfieldFixture-DX12.exe");
+        string fallback = FileAt("Library", "StarfieldFixture", "Bin", "StarfieldFixture-x64.exe");
+        string browser = FileAt("Library", "StarfieldFixture", "Bin", "chrome.exe");
+        string utility = FileAt("Library", "StarfieldFixture", "Bin", "ModTool.exe");
+        string[] knownNonGames = [FileAt("Library", "StarfieldFixture", "Bin", "GameLauncher.exe"),
+            FileAt("Library", "StarfieldFixture", "Bin", "CrashReporter.exe"),
+            FileAt("Library", "StarfieldFixture", "Bin", "Setup.exe"),
+            FileAt("Library", "StarfieldFixture", "Bin", "Unins000.exe"),
+            FileAt("Library", "StarfieldFixture", "Bin", "GenericHelper.exe")];
+        var scan = await GameCatalogService.ScanAsync(new() { GameRoots = [new(At("Library"), true)] });
+        var index = new GameCatalogIndex(scan);
+        var owner = new WindowOwner((IntPtr)1, 2, 3, 4);
+        GameCaptureObservation? Observe(string path) =>
+            GameDetector.ResolveEligibleGame(null, null, _ => true, () => [new(owner, path, 100)], index.Match);
+        foreach (var path in new[] { first, alternate, fallback })
+            Assert.Equal("StarfieldFixture", Observe(path)?.VerifiedTarget?.Game);
+        foreach (var path in knownNonGames.Append(browser).Append(utility))
+            Assert.Null(Observe(path));
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]

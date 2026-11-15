@@ -84,10 +84,11 @@ public partial class GamesSettingsView
                 CatalogMatchKind.Application => " · utility",
                 CatalogMatchKind.Ignored => " · ignored",
                 CatalogMatchKind.Ambiguous => " · claimed by multiple catalog entries",
+                CatalogMatchKind.Inactive => " · awaiting source verification",
                 _ when _offline => " · source offline or scan incomplete",
                 _ when GameDetector.HasCatalogEligibility(match) => Entry.Rules.Activation == CatalogActivation.ForegroundOnly
                     ? " · eligible in foreground" : " · eligible with a verified window and display permission",
-                _ => " · no renderer evidence, approve this executable if it owns the game window",
+                _ => " · unresolved executable, approve it if it owns the game window",
             };
         }
 

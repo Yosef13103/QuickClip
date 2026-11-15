@@ -44,14 +44,18 @@ internal sealed class GameCatalogIndex
         // require user resolution before the path can drive capture.
         CatalogEntry? match = null;
         bool ambiguous = false;
+        int precedence = -1;
         foreach (var candidate in candidates)
         {
-            if (match == null || (candidate.Source == CatalogSource.Manual && match.Source != CatalogSource.Manual))
+            int rank = candidate.Source == CatalogSource.Manual ? 2 :
+                candidate.UnverifiedExecutables.Contains(path, StringComparer.OrdinalIgnoreCase) ? 0 : 1;
+            if (rank > precedence)
             {
                 match = candidate;
+                precedence = rank;
                 ambiguous = false;
             }
-            else if ((candidate.Source == CatalogSource.Manual) == (match.Source == CatalogSource.Manual))
+            else if (rank == precedence)
                 ambiguous = true;
         }
 
@@ -67,6 +71,7 @@ internal sealed class GameCatalogIndex
         if (rules.Classification == AppClassification.Companion) return new(CatalogMatchKind.Companion, entry);
         if (CatalogPaths.DefaultRole(path) is var role && role != CatalogMatchKind.Unknown)
             return new(role, entry);
+        if (precedence == 0) return new(CatalogMatchKind.Inactive, entry);
         if (rules.Activation == CatalogActivation.ForegroundOnly && !isForeground) return new(CatalogMatchKind.Inactive, entry);
         bool game = rules.Classification == AppClassification.Game ||
             entry.Source == CatalogSource.Manual ||
