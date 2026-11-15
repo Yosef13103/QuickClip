@@ -121,15 +121,14 @@ public sealed class PersonalUpdaterTests : IDisposable
     public async Task Worker_wait_requires_the_correct_process_and_actual_exit()
     {
         string fixture = """
-            $release = Join-Path $Scratch 'release'
-            $command = "while (![IO.File]::Exists('" + $release.Replace("'", "''") + "')) { Start-Sleep -Milliseconds 50 }; exit 13"
+            $ready = Join-Path $Scratch 'ready'
+            $command = "while (![IO.File]::Exists('" + $ready.Replace("'", "''") + "')) { Start-Sleep -Milliseconds 50 }; exit 13"
             $psi = [Diagnostics.ProcessStartInfo]::new((Join-Path $PSHOME 'powershell.exe'))
             $psi.UseShellExecute = $false
             $psi.CreateNoWindow = $true
             $psi.Arguments = '-NoProfile -NonInteractive -EncodedCommand ' + [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($command))
             $child = [Diagnostics.Process]::Start($psi)
             try {
-                $ready = Join-Path $Scratch 'ready'
                 $start = $child.StartTime.ToFileTimeUtc()
                 $exe = $child.MainModule.FileName
                 try {
@@ -140,13 +139,13 @@ public sealed class PersonalUpdaterTests : IDisposable
                 }
                 if ([IO.File]::Exists($ready)) { throw 'Invalid parent signaled ready' }
                 try {
-                    $null = Wait-ForQuickClipExit $child.Id $start $exe $ready 10
+                    $null = Wait-ForQuickClipExit $child.Id $start $exe (Join-Path $Scratch 'ready-timeout') 10
                     throw 'Process was treated as exited while running'
                 } catch {
                     if ($_.Exception.Message -notlike '*did not exit*') { throw }
                 }
-                [IO.File]::WriteAllText($release, '')
-                if ((Wait-ForQuickClipExit $child.Id $start $exe $ready 30000) -ne 13) { throw 'Wrong exit code' }
+                $exitCode = Wait-ForQuickClipExit $child.Id $start $exe $ready 30000
+                if ($exitCode -ne 13) { throw "Expected exit code 13, got $exitCode" }
             } finally {
                 if (!$child.HasExited) { $child.Kill() }
                 $child.Dispose()
