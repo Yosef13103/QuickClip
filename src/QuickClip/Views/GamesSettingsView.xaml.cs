@@ -5,6 +5,7 @@ using System.Windows.Controls.Primitives;
 using System.Windows.Data;
 using Microsoft.Win32;
 using QuickClip.Discovery;
+using QuickClip.Recording;
 
 namespace QuickClip.Views;
 
@@ -213,6 +214,12 @@ public partial class GamesSettingsView : UserControl
                 "Confirm shortcut target", "Use executable", "Cancel", destructive: false)) return;
         }
         var paths = selections.Select(item => item.Executable).Distinct(StringComparer.OrdinalIgnoreCase).ToImmutableArray();
+        if (paths.FirstOrDefault(path => GameDetector.ApplyProcessRole(path, new(CatalogPaths.DefaultRole(path))).Kind
+            != CatalogMatchKind.Unknown) is { } nonGame)
+        {
+            Status.Text = $"{Path.GetFileName(nonGame)} is recognized as a non-game executable. Choose the game executable directly.";
+            return;
+        }
         var state = State;
         var request = state.Request;
         var entries = GameCatalogRuntime.Rows(state);
@@ -260,8 +267,7 @@ public partial class GamesSettingsView : UserControl
         Games.SelectedItem = _rows.FirstOrDefault(row => row.Entry.Id == "manual:" + id.ToString("N"));
         Status.Text = paths.Any(path => state.BlockedExecutables.Contains(path, StringComparer.OrdinalIgnoreCase))
             ? "Entry saved. Blocked paths stay ignored until restored under Ignored executables."
-            : paths.Any(path => CatalogPaths.DefaultRole(path) == CatalogMatchKind.Companion)
-                ? "Companion apps do not trigger game recording." : "Entry saved.";
+            : "Entry saved.";
     }
 
     private void Remove_Click(object sender, RoutedEventArgs e)

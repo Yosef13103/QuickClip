@@ -9,6 +9,47 @@ public sealed class GameCatalogTests : IDisposable
     private readonly DirectoryInfo _fixture = Directory.CreateTempSubdirectory("quickclip-catalog-");
 
     [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Approved_install_with_one_scoped_executable_needs_no_engine_metadata(bool collection)
+    {
+        string install = At("Library", "Owner Game");
+        string play = FileAt("Library", "Owner Game", "Bin", "CustomRuntime.exe");
+        string helper = FileAt("Library", "Owner Game", "Bin", "7za.exe");
+        string updater = FileAt("Library", "Owner Game", "Bin", "Update.exe");
+        string utility = FileAt("Library", "Owner Game", "Extras", "Tool.exe");
+        var request = new CatalogRequest { GameRoots = [new(collection ? At("Library") : install, collection)] };
+        var scan = await GameCatalogService.ScanAsync(request);
+        var state = AppSettings.Parse(new AppSettings { Games = new() { Request = request, Snapshot = scan } }.ToJson()).Games;
+        var rows = GameCatalogRuntime.Rows(state);
+        var index = new GameCatalogIndex(scan with { Entries = rows });
+        var owner = new WindowOwner((IntPtr)1, 2, 3, 4);
+        GameCaptureObservation? Observe(string path, bool current = true) => GameDetector.ResolveEligibleGame(
+            null, null, _ => current, () => [new(owner, path, 100)], index.Match);
+
+        Assert.Equal("Owner Game", Observe(play)?.VerifiedTarget?.Game);
+        Assert.Null(Observe(play, current: false));
+        Assert.Null(Observe(helper));
+        Assert.Null(Observe(updater));
+        Assert.Null(Observe(utility));
+        Assert.Null(Observe(At("Elsewhere", "CustomRuntime.exe")));
+        Assert.Empty(GameCatalogRuntime.Rows(state with { Request = request with { GameRoots = [] } }));
+    }
+
+    [Fact]
+    public async Task Collection_loose_executables_and_ambiguous_installs_are_not_approved()
+    {
+        string loose = FileAt("Library", "Loose.exe");
+        string first = FileAt("Library", "Install", "First.exe");
+        string second = FileAt("Library", "Install", "Bin", "Second.exe");
+        var scan = await GameCatalogService.ScanAsync(new() { GameRoots = [new(At("Library"), IsCollection: true)] });
+        var index = new GameCatalogIndex(scan);
+        Assert.Equal(CatalogMatchKind.Candidate, index.Match(loose, true).Kind);
+        Assert.Equal(CatalogMatchKind.Candidate, index.Match(first, true).Kind);
+        Assert.Equal(CatalogMatchKind.Candidate, index.Match(second, true).Kind);
+    }
+
+    [Theory]
     [InlineData("Unreal")]
     [InlineData("Unity")]
     [InlineData("Godot")]

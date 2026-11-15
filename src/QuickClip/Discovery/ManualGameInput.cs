@@ -84,7 +84,7 @@ internal static class ManualGameInput
         return (Rank(candidates, root), limited);
     }
 
-    private static bool IsSupportFile(string path, string root)
+    internal static bool IsSupportFile(string path, string root)
     {
         string name = Path.GetFileNameWithoutExtension(path).ToUpperInvariant();
         return name is "7Z" or "7ZR" or "UNRAR" or "DXSETUP" or "PREREQUISITES" or "WERFAULT" ||

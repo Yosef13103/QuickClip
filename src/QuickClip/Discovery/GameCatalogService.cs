@@ -444,7 +444,8 @@ internal static class GameCatalogService
             yield return new(() => ScanExecutables(install, depth, game, executables,
                 catalogAll: launchExecutable == null, onIncomplete: () => incomplete = true));
             if (!incomplete)
-                yield return new(() => IdentifyRenderer(game, install, executables, launchExecutable));
+                yield return new(() => IdentifyRenderer(game, install, executables, launchExecutable,
+                    allowFolderFallback: launchExecutable == null));
         }
 
         private IEnumerable<ScanStep> ScanExecutables(string path, int depth, Candidate game,
@@ -488,7 +489,8 @@ internal static class GameCatalogService
             game.Executables.Add(path);
         }
 
-        private IEnumerable<ScanStep> IdentifyRenderer(Candidate game, string install, IEnumerable<string> executables, string? launchExecutable)
+        private IEnumerable<ScanStep> IdentifyRenderer(Candidate game, string install, IEnumerable<string> executables,
+            string? launchExecutable, bool allowFolderFallback = false)
         {
             string? preferred = null;
             int best = 0;
@@ -497,6 +499,9 @@ internal static class GameCatalogService
             {
                 _cancel.ThrowIfCancellationRequested();
                 int score = RendererScore(install, executable);
+                if (score == 0 && allowFolderFallback && IsInInstallBinaryLocation(install, executable) &&
+                    !ManualGameInput.IsSupportFile(executable, install))
+                    score = ScopedFolderExecutable;
                 if (launchExecutable != null && score == EngineRenderer && !Paths.Equals(launchExecutable, executable))
                 {
                     bool bootstrap = SharesRendererName(launchExecutable, executable);
@@ -522,6 +527,11 @@ internal static class GameCatalogService
                 if (best < EngineRenderer) yield break;
             }
 
+            if (best == ScopedFolderExecutable && (_hasUnreportedFailures || _issues.Any(issue =>
+                issue.Kind != CatalogIssueKind.ReparsePoint &&
+                (CatalogPaths.IsWithin(issue.Location, install) || CatalogPaths.IsWithin(install, issue.Location)))))
+                yield break;
+
             if (preferred != null)
             {
                 game.Renderers.Add(preferred);
@@ -529,6 +539,18 @@ internal static class GameCatalogService
                 if (launchExecutable == null && best >= EngineRenderer)
                     game.DetectedLaunchers.UnionWith(executables.Where(path => SharesRendererName(path, preferred)));
             }
+        }
+
+        private static bool IsInInstallBinaryLocation(string install, string executable)
+        {
+            string directory = Path.GetDirectoryName(executable)!;
+            while (CatalogPaths.IsWithin(directory, install))
+            {
+                if (Paths.Equals(directory, install)) return true;
+                if (!IsBinaryDirectory(directory)) break;
+                directory = Path.GetDirectoryName(directory)!;
+            }
+            return false;
         }
 
         private static bool SharesRendererName(string path, string renderer)
@@ -546,6 +568,7 @@ internal static class GameCatalogService
                     ? stem[..^"-Win64-Shipping".Length] : stem;
         }
 
+        private const int ScopedFolderExecutable = 1;
         private const int EngineRenderer = 4;
 
         private int RendererScore(string install, string executable)
@@ -799,7 +822,6 @@ internal static class GameCatalogService
         private sealed class Candidate(string id, string name, CatalogSource source)
         {
             private CatalogEntry? _cached;
-            private readonly Dictionary<string, string?> _productNames = new(Paths);
             public string Id { get; } = id;
             public HashSet<string> InstallDirectories { get; } = new(Paths);
             public HashSet<string> Executables { get; } = new(Paths);
@@ -814,21 +836,11 @@ internal static class GameCatalogService
                     cached.DetectedLaunchers.Length == DetectedLaunchers.Count)
                     return cached.Rules == rules ? cached : cached with { Rules = rules };
                 var ranked = Executables.OrderByDescending(Score).ThenBy(path => path, Paths).ToImmutableArray();
-                string displayName = source == CatalogSource.Folder
-                    ? ranked.Take(6).Select(ProductName).FirstOrDefault(value => value != null) ?? name
-                    : name;
-                return _cached = new(Id, displayName, source, [.. InstallDirectories.Order(Paths)], ranked, rules)
+                return _cached = new(Id, name, source, [.. InstallDirectories.Order(Paths)], ranked, rules)
                 {
                     RendererExecutables = source is CatalogSource.Folder or CatalogSource.Epic ? [.. Renderers.Order(Paths)] : null,
                     DetectedLaunchers = [.. DetectedLaunchers.Order(Paths)],
                 };
-            }
-
-            private string? ProductName(string path)
-            {
-                if (!_productNames.TryGetValue(path, out string? product))
-                    _productNames[path] = product = ReadProductName(path);
-                return product;
             }
 
             private int Score(string path)
@@ -839,20 +851,6 @@ internal static class GameCatalogService
                 if (stem.Equals(name, StringComparison.OrdinalIgnoreCase)) return 3;
                 if (stem.EndsWith("-Win64-Shipping", StringComparison.OrdinalIgnoreCase)) return 2;
                 return stem.EndsWith("Helper", StringComparison.OrdinalIgnoreCase) ? 0 : 1;
-            }
-
-            private static string? ReadProductName(string path)
-            {
-                try
-                {
-                    var version = FileVersionInfo.GetVersionInfo(path);
-                    return new[] { version.ProductName, version.FileDescription }.Select(value => value?.Trim())
-                        .FirstOrDefault(value => value is { Length: >= 2 and <= 100 } && value.Any(char.IsLetter) &&
-                            !value.Any(char.IsControl) && !value.EndsWith(".exe", StringComparison.OrdinalIgnoreCase) &&
-                            !new[] { "Unreal Engine", "Unity", "BootstrapPackagedGame", "Microsoft® Windows® Operating System" }
-                                .Contains(value, Paths));
-                }
-                catch (Exception ex) when (IsAccessError(ex)) { return null; }
             }
         }
     }

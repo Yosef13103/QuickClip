@@ -58,7 +58,8 @@ internal sealed class GameCatalogIndex
         if (ambiguous) return new(CatalogMatchKind.Ambiguous);
         var entry = match!;
         var rules = entry.Rules;
-        if (rules.Inclusion == CatalogInclusion.Exclude) return new(CatalogMatchKind.Ignored, entry);
+        if (candidates.FirstOrDefault(candidate => candidate.Rules.Inclusion == CatalogInclusion.Exclude) is { } excluded)
+            return new(CatalogMatchKind.Ignored, excluded);
         if (CatalogPaths.IsDiscordProcess(path)) return new(CatalogPaths.DefaultRole(path), entry);
         if (rules.Classification == AppClassification.Launcher || candidates.Any(candidate => _launchers[candidate.Id].Contains(path)))
             return new(CatalogMatchKind.Launcher, entry);
