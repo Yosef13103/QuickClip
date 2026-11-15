@@ -47,6 +47,15 @@ namespace
     {
         std::vector<int16_t> pcm = std::vector<int16_t>(MicSampleCount);
         size_t used = 0;
+        std::mutex lock;
+        bool discarded = false;
+        void Discard()
+        {
+            std::lock_guard guard(lock);
+            discarded = true;
+            std::fill(pcm.begin(), pcm.end(), 0);
+            used = 0;
+        }
     };
     std::shared_ptr<MicSample> g_micSample;
 
@@ -57,6 +66,8 @@ namespace
         void Push(const float* data, uint32_t frames, int64_t, bool) override
         {
             auto& sample = *sample_;
+            std::lock_guard guard(sample.lock);
+            if (sample.discarded) return;
             size_t count = std::min(static_cast<size_t>(frames) * qc::Channels, sample.pcm.size() - sample.used);
             for (size_t i = 0; i < count; ++i)
             {
@@ -76,6 +87,7 @@ namespace
         {
             std::lock_guard guard(g_micTestLock);
             test = std::move(g_micTest);
+            if (g_micSample) g_micSample->Discard();
             g_micSample.reset();
         }
     }
@@ -252,6 +264,7 @@ extern "C"
         if (!g_micTest || !g_micSample || token != g_micTestToken) return -1;
         if (!g_micTest->TestFinished()) return 0;
         const auto status = g_micTest->SignalStatus();
+        std::lock_guard sampleGuard(g_micSample->lock);
         if (FAILED(status.error) || status.stage != static_cast<int>(qc::AudioStage::Complete) ||
             status.actualFlow != 1 /* eCapture */ || !g_micSample->used) return -1;
         std::copy_n(g_micSample->pcm.data(), g_micSample->used, pcm);
@@ -273,6 +286,7 @@ extern "C"
         if (g_micTest && g_micTestToken == token)
         {
             g_micTest->RequestStop();
+            if (g_micSample) g_micSample->Discard();
             g_micSample.reset();
             ++g_micTestToken;
         }

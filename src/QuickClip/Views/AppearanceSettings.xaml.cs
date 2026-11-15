@@ -17,12 +17,14 @@ public partial class AppearanceSettings : UserControl
             Visibility = Visibility.Collapsed;
             return;
         }
-        CustomEditor.Saved += RefreshSelection;
+        CustomEditor.Saved += ApplySavedTheme;
         Loaded += (_, _) => RefreshSelection();
+        ThemePicker.DropDownOpened += (_, _) => RefreshSelection();
     }
 
     private void RefreshSelection()
     {
+        bool previousLoading = _loading;
         _loading = true;
         try
         {
@@ -44,7 +46,27 @@ public partial class AppearanceSettings : UserControl
                 : options.FirstOrDefault(option => option.Choice == selected) ?? options[0];
             RemoveThemeButton.IsEnabled = ThemePicker.SelectedItem is Option { Choice: ThemeChoice.Custom };
         }
-        finally { _loading = false; }
+        finally { _loading = previousLoading; }
+    }
+
+    private void ApplySavedTheme()
+    {
+        if (Application.Current is not App app) return;
+        ApplyAndRefresh(app, AppSettings.Current);
+    }
+
+    // ThemeMode can invalidate Fluent control templates and raise selection events.
+    // Treat the whole apply/refresh as one guarded transition, including import/removal.
+    private void ApplyAndRefresh(App app, AppSettings settings)
+    {
+        bool previousLoading = _loading;
+        _loading = true;
+        try
+        {
+            app.Themes.Apply(app, settings);
+            RefreshSelection();
+        }
+        finally { _loading = previousLoading; }
     }
 
     private void ThemePicker_Changed(object sender, SelectionChangedEventArgs e)
@@ -60,11 +82,18 @@ public partial class AppearanceSettings : UserControl
             return;
         }
         string? previous = settings.Theme, previousJson = settings.CustomThemeJson;
+        var previousLibrary = settings.SavedCustomThemes;
+        // The saved collection is independent of the selected presentation.
+        settings.SavedCustomThemes = SavedThemes.Normalize(previousLibrary, previousJson);
         settings.Theme = option.Choice.ToString();
-        if (option.Choice == ThemeChoice.Custom) settings.CustomThemeJson = option.Json;
+        if (option.Choice == ThemeChoice.Custom)
+        {
+            settings.CustomThemeJson = option.Json;
+            settings.SavedCustomThemes = SavedThemes.Normalize(settings.SavedCustomThemes, option.Json);
+        }
         if (settings.TrySave())
         {
-            app.Themes.Apply(app, settings);
+            ApplyAndRefresh(app, settings);
             if (option.Choice == ThemeChoice.Custom && ThemeResources.ReadSaved(option.Json) is { } theme)
                 CustomEditor.LoadDraft(theme);
             RemoveThemeButton.IsEnabled = option.Choice == ThemeChoice.Custom;
@@ -73,6 +102,7 @@ public partial class AppearanceSettings : UserControl
         {
             settings.Theme = previous;
             settings.CustomThemeJson = previousJson;
+            settings.SavedCustomThemes = previousLibrary;
             RefreshSelection();
             ModalDialog.Show(Window.GetWindow(this), "QuickClip could not save the selected theme.",
                 "Settings could not be saved", image: MessageBoxImage.Error);
@@ -98,7 +128,6 @@ public partial class AppearanceSettings : UserControl
             ModalDialog.Show(Window.GetWindow(this), "Could not remove the saved theme.", "Settings");
             return;
         }
-        app.Themes.Apply(app, settings);
-        RefreshSelection();
+        ApplyAndRefresh(app, settings);
     }
 }

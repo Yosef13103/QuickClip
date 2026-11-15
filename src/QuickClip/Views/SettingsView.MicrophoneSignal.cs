@@ -161,6 +161,7 @@ public partial class SettingsView
         CaptureEngine.StopMicrophoneTest(_microphoneToken);
         _testingMeter = null;
         _microphoneToken = 0;
+        if (_microphoneSample != null) Array.Clear(_microphoneSample);
         _microphoneSample = null;
         row.TestMessage = message;
     }
@@ -194,12 +195,12 @@ public partial class SettingsView
                     else
                     {
                         int samples = ReadMicrophoneSample(_microphoneToken, _microphoneSample);
-                        if (samples > 0)
+                        if (samples > 0 && samples <= _microphoneSample.Length && samples % 2 == 0)
                         {
                             testing.Wave = MicrophoneSampleWave.Encode(_microphoneSample.AsSpan(0, samples));
                             StopMicrophoneTest($"Recorded {samples / 96000d:0.0} seconds. Play it to hear your microphone.");
                         }
-                        else if (samples < 0) StopMicrophoneTest("No playable audio received. Check your microphone.");
+                        else if (samples != 0) StopMicrophoneTest("No playable audio received. Check your microphone.");
                         else if (Environment.TickCount64 - _microphoneTestStarted > 12000)
                             StopMicrophoneTest("Microphone sample timed out.");
                     }

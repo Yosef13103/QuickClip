@@ -235,4 +235,23 @@ public sealed class ThemeTests
         Assert.Single(restored.SavedCustomThemes.Where(json => ThemeResources.ReadSaved(json)?.Name == "purple"));
         Assert.Equal(3, SavedThemes.Normalize(restored.SavedCustomThemes.Append("invalid"), restored.CustomThemeJson).Length);
     }
+    [Fact]
+    public void Library_survives_builtin_selection_and_no_active_custom_palette()
+    {
+        if (!AppProfile.IsPersonal) return;
+        var first = new ThemeDocument("First", ThemePalette.Get(ThemeChoice.Slate));
+        var second = new ThemeDocument("Second", ThemePalette.Get(ThemeChoice.Amoled));
+        var settings = new AppSettings
+        {
+            Theme = "Custom",
+            CustomThemeJson = SavedThemes.Encode(first),
+            SavedCustomThemes = SavedThemes.Put(SavedThemes.Put([], first), second),
+        };
+        settings.Theme = "Dark";
+        settings.CustomThemeJson = null;
+        var restored = AppSettings.Parse(settings.ToJson());
+        Assert.Equal(2, restored.SavedCustomThemes.Length);
+        Assert.Contains(restored.SavedCustomThemes, j => ThemeResources.ReadSaved(j)?.Name == "First");
+        Assert.Contains(restored.SavedCustomThemes, j => ThemeResources.ReadSaved(j)?.Name == "Second");
+    }
 }
