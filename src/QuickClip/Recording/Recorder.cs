@@ -40,6 +40,7 @@ internal sealed class Recorder
     private string? _sessionGameId;
     private string? _sessionGame;
     private string? _sessionDisplay;
+    private string? _actualMonitorName;
     private long _captureStartedAt;
     internal bool ManualDesktopRequested => Volatile.Read(ref _manualDisplay) != null
         && AppSettings.Current.AllowsManualDesktop(Volatile.Read(ref _manualConsentRevision));
@@ -87,8 +88,9 @@ internal sealed class Recorder
     private static string DisplayLabel(string? display)
     {
         if (string.IsNullOrWhiteSpace(display)) return "(unknown display)";
-        int pos = display.LastIndexOf("DISPLAY", StringComparison.OrdinalIgnoreCase);
-        return pos >= 0 ? "Display " + display[(pos + "DISPLAY".Length)..] : display;
+        const string prefix = @"\\.\DISPLAY";
+        return display.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)
+            ? "Display " + display[prefix.Length..] : display;
     }
 
     public RecorderState State => new(IsRunning, Error,
@@ -159,6 +161,19 @@ internal sealed class Recorder
                 _manualAuthorized.Clear();
                 _observedGame = null;
             }
+        }
+        StateChanged?.Invoke(State);
+    });
+
+    // Permission changes re-evaluate the active source without unconditionally
+    // restarting a still-authorized game or a separately confirmed manual capture.
+    internal Task ReconcileDisplayPermissionsAsync() => Task.Run(() =>
+    {
+        lock (_gate)
+        {
+            if (!AppProfile.IsPersonal) return;
+            ReconcilePersonal();
+            if (AppSettings.Current.RecordingEnabled && _poll == null) StartPolling();
         }
         StateChanged?.Invoke(State);
     });
@@ -285,7 +300,7 @@ internal sealed class Recorder
         }
         _sessionGame = game?.VerifiedTarget?.Game;
         _sessionGameId = activation.GameId;
-        _sessionDisplay = activation.Display.Device;
+        _sessionDisplay = _actualMonitorName ?? activation.Display.Device;
         _captureStartedAt = Environment.TickCount64;
         return null;
     }
@@ -358,6 +373,7 @@ internal sealed class Recorder
                 CaptureEngine.MonitorBackend.MonitorOnlyGraphics => new(monitor.DeviceName, ReplayCaptureBackend.WindowsGraphicsCapture),
                 _ => null,
             };
+            _actualMonitorName = string.IsNullOrWhiteSpace(monitor.FriendlyName) ? monitor.DeviceName : monitor.FriendlyName;
             _monitorTarget = _desktopSource?.Backend switch
             {
                 ReplayCaptureBackend.DesktopDuplication => $"Desktop · {monitor.Label} · Desktop Duplication",
@@ -399,6 +415,7 @@ internal sealed class Recorder
         _replaySession = Guid.Empty;
         _replayMarkers.Clear();
         (_sessionGame, _sessionGameId, _sessionDisplay, _desktopSource) = (null, null, null, null);
+        _actualMonitorName = null;
         (_chatApps, _musicApps) = ([], []);
         _summary = "";
     }

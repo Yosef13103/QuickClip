@@ -3,7 +3,7 @@ using QuickClip.Views;
 
 namespace QuickClip.Library;
 
-/// <summary>Opt-in connection between the configured clips folder and the profile-local index.</summary>
+/// <summary>Connection between the configured clips folders and the profile-local index.</summary>
 internal sealed class PersonalLibrary : IClipAnnotationActions, ILibraryInventorySource
 {
     public static PersonalLibrary Current { get; } = new();
@@ -118,6 +118,28 @@ internal sealed class PersonalLibrary : IClipAnnotationActions, ILibraryInventor
             results.Add(await SaveDraftAsync(target, details with { IsFavorite = favorite ?? details.IsFavorite }, token));
         }
         return results;
+    }
+
+    // This is a catalog estimate, not allocated disk usage. Only configured roots
+    // on the destination volume count; do not scan the drive to answer a UI query.
+    internal async Task<long?> DestinationTrackedBytesAsync(string destination, string[] sources)
+    {
+        if (!Enabled) return null;
+        var index = _index.Value;
+        var roots = await index.GetRootsAsync();
+        var inventory = await index.GetStorageInventoryAsync();
+        return await Task.Run<long?>(() =>
+        {
+            string? volume = LibraryFiles.RootVolume(destination);
+            if (volume == null) return null;
+            var configured = sources.Prepend(destination).ToHashSet(SavedRecordingFolders.Paths);
+            var measured = roots.Where(root => configured.Contains(root.Directory) &&
+                root.Availability == ClipAvailability.Available && root.LastScanAt != null &&
+                string.Equals(LibraryFiles.RootVolume(root.Directory), volume, StringComparison.OrdinalIgnoreCase)).ToArray();
+            if (!measured.Any(root => SavedRecordingFolders.Paths.Equals(root.Directory, destination))) return null;
+            var ids = measured.Select(root => root.Id).ToHashSet();
+            return inventory.AvailableGroups.Where(group => ids.Contains(group.RootId)).Sum(group => group.LogicalBytes);
+        });
     }
 
     public async Task<LibraryInventorySnapshot> ReadAsync(CancellationToken token)

@@ -82,7 +82,7 @@ public partial class SettingsView : UserControl
         DiagnosticsCard.Visibility = SectionVisibility(DiagnosticsSection);
         GeneralPage.ScrollToTop();
         if (section == DiagnosticsSection) CaptureAdvanced.IsExpanded = true;
-        if (section == LibrarySection) _ = RefreshRecordingFoldersAsync();
+        if (IsLoaded && (section == LibrarySection || section == RecordingSection)) _ = RefreshRecordingFoldersAsync();
         Visibility SectionVisibility(RadioButton item) => section == item ? Visibility.Visible : Visibility.Collapsed;
     }
 
@@ -185,9 +185,11 @@ public partial class SettingsView : UserControl
             _monitors = await Task.Run(Monitors.List);
             MonitorCombo.ItemsSource = _monitors.Select(m => new Choice(m.Label, m.DeviceName)).ToList();
             var savedDisplay = _monitors.FirstOrDefault(m => string.Equals(m.DeviceName, s.RecordMonitor, StringComparison.OrdinalIgnoreCase));
-            var initialDisplay = savedDisplay ?? (AppProfile.IsPersonal
-                ? null : _monitors.FirstOrDefault(m => m.IsPrimary));
-            Select(MonitorCombo, initialDisplay?.DeviceName);
+            // A remembered but disconnected device must never silently select a different display.
+            var initialDisplay = savedDisplay ?? (string.IsNullOrWhiteSpace(s.RecordMonitor) || !AppProfile.IsPersonal
+                ? _monitors.FirstOrDefault(m => m.IsPrimary) ?? _monitors.FirstOrDefault() : null);
+            if (initialDisplay != null) Select(MonitorCombo, initialDisplay.DeviceName);
+            else MonitorCombo.SelectedIndex = -1;
             RefreshAreas(s.RecordAspect);
 
             int stepIndex = Array.FindIndex(RecordingPresets.BufferSteps, v => v >= s.BufferSeconds);
@@ -289,7 +291,7 @@ public partial class SettingsView : UserControl
     }
 
     private MonitorInfo? SelectedMonitor =>
-        _monitors.FirstOrDefault(m => Equals(m.DeviceName, (MonitorCombo.SelectedItem as Choice)?.Value)) ?? _monitors.FirstOrDefault();
+        _monitors.FirstOrDefault(m => Equals(m.DeviceName, (MonitorCombo.SelectedItem as Choice)?.Value));
 
     private string SelectedAspect => (AreaCombo.SelectedItem as Choice)?.Value as string ?? "";
 
@@ -317,9 +319,17 @@ public partial class SettingsView : UserControl
         if (AppProfile.IsPersonal)
         {
             var settings = AppSettings.Current;
-            GameDisplayConsent.Visibility = ManualDesktopButton.Visibility = Visibility.Visible;
+            GamePermissionOptions.Visibility = ManualDesktopButton.Visibility =
+                DisplayPermissionCheck.Visibility = DisplayPermissionHint.Visibility = Visibility.Visible;
             GameDisplayConsent.Content = settings.AllowGameDisplayFollowing
-                ? "Revoke game display permission" : "Allow game display following…";
+                ? "Disable game display following" : "Allow game display following…";
+            var identity = SelectedMonitor?.CaptureIdentity;
+            DisplayPermissionCheck.IsEnabled = identity != null && settings.AllowGameDisplayFollowing;
+            DisplayPermissionCheck.IsChecked = identity != null && CaptureSourcePolicy.AllowsGameDisplay(settings, identity);
+            DisplayPermissionHint.Text = identity == null ? "Choose a connected, identifiable display."
+                : !settings.AllowGameDisplayFollowing ? "Manage game display permissions below to enable display following."
+                : DisplayPermissionCheck.IsChecked == true ? "Automatic game recording allowed on this display."
+                : "Automatic game recording blocked on this display.";
             RevokeLegacyDisplayConsent.Visibility = !settings.AllowGameDisplayFollowing && settings.AuthorizedGameDisplay != null
                 ? Visibility.Visible : Visibility.Collapsed;
             BackendCombo.IsEnabled = false;
@@ -331,6 +341,7 @@ public partial class SettingsView : UserControl
             ManualDesktopButton.IsChecked = Recorder.Instance.ManualDesktopRequested;
             return;
         }
+        ManualDisplayHint.Visibility = Visibility.Collapsed;
         CaptureTargetHint.Text = gameWindow
             ? "Automatic captures a detected game window even when another window covers it. It records the selected monitor when game capture is unavailable. On Windows 10, WGC can display a yellow border. Strict game-only capture requires a future no-monitor fallback policy."
             : "Records everything visible on the selected display, including windows covering a game. The advanced monitor backend applies to this source.";
@@ -458,17 +469,45 @@ public partial class SettingsView : UserControl
         ApplyDisplayPermission();
     }
 
+    private void DisplayPermission_Click(object sender, RoutedEventArgs e)
+    {
+        var settings = AppSettings.Current;
+        if (settings.AllowGameDisplayFollowing && SelectedMonitor?.CaptureIdentity is { } identity)
+        {
+            var blocked = new HashSet<string>(settings.ExcludedGameDisplays ?? [], StringComparer.OrdinalIgnoreCase);
+            if (DisplayPermissionCheck.IsChecked == true) blocked.Remove(identity);
+            else blocked.Add(identity);
+            settings.ExcludedGameDisplays = blocked.ToArray();
+            ApplyDisplayPermission();
+        }
+        else ShowGameWindowState();
+    }
+
     private void ApplyDisplayPermission()
     {
         AppSettings.Current.Save();
         ShowGameWindowState();
-        _ = Recorder.Instance.ApplySettingsAsync();
+        _ = Recorder.Instance.ReconcileDisplayPermissionsAsync();
     }
 
     private void ManualDesktop_Click(object sender, RoutedEventArgs e)
     {
         // The existing consent flow and recorder state, not the clicked visual, are authoritative.
         ManualDesktopButton.IsChecked = Recorder.Instance.ManualDesktopRequested;
+        // Refresh can show the primary monitor without editing settings. Commit the
+        // displayed target here, before invoking the original explicit consent flow.
+        if (!Recorder.Instance.ManualDesktopRequested && SelectedMonitor is { CaptureIdentity: not null } selected)
+        {
+            var settings = AppSettings.Current;
+            string old = settings.RecordMonitor;
+            settings.RecordMonitor = selected.DeviceName;
+            if (!settings.TrySave())
+            {
+                settings.RecordMonitor = old;
+                ModalDialog.Show(Window.GetWindow(this), "Couldn’t save the selected display.", "Settings", MessageBoxButton.OK);
+                return;
+            }
+        }
         App.Host?.ToggleManualDesktop(Recorder.Instance);
         ShowGameWindowState();
     }
@@ -514,6 +553,9 @@ public partial class SettingsView : UserControl
         UpdateEstimates();
         bool recordingSetting = sender != StartTrayCheck && sender != CloseTrayCheck && sender != SoundCheck
                                 && sender != MotionBlurCheck && sender != ConfirmDeleteCheck;
+        // In Personal, selecting a manual destination is not a command to restart
+        // the active game's graph or switch a previously authorized manual target.
+        if (sender == MonitorCombo && AppProfile.IsPersonal) return;
         if (sender == RecordingCheck || sender == SourceCombo)
         {
             _restartTimer.Stop();
@@ -571,6 +613,7 @@ public partial class SettingsView : UserControl
         if (!AppProfile.IsPersonal) return;
         AppSettings.Current.EnableLibraryIndex = IndexLibraryCheck.IsChecked == true;
         AppSettings.Current.Save();
+        _ = RefreshRecordingFoldersAsync();
     }
 
     private void Exclusions_Commit(object sender, KeyboardFocusChangedEventArgs e)
@@ -617,6 +660,8 @@ public partial class SettingsView : UserControl
         RamText.Visibility = AppProfile.IsPersonal ? Visibility.Collapsed : Visibility.Visible;
         ResourceVideo.Text = $"{BufferText.Text} · {s.RecordFps} FPS target · {RecordingPresets.Label(s.RecordQuality)}";
         ResourceSize.Text = "Size estimates require a display or capture area.";
+        _estimatedClipBytes = 0;
+        UpdateStorageCards();
         if (SelectedArea is not { } area)
         {
             RamText.Text = BitrateText.Text = "";
@@ -629,6 +674,8 @@ public partial class SettingsView : UserControl
         int tracks = RecordingPresets.AudioTrackCount(s);
         long ram = RecordingPresets.EstimateRamBytes(kbps, tracks, s.BufferSeconds);
         long clip = Library.StorageInventory.EstimateBytes(kbps, tracks * RecordingPresets.AudioKbps, TimeSpan.FromSeconds(s.BufferSeconds));
+        _estimatedClipBytes = clip;
+        UpdateStorageCards();
         BitrateText.Text = $"≈ {kbps / 1000.0:0.#} Mbps";
         var encoder = VideoEncoders.Find(encoderId);
         string encoderLabel = s.RecordEncoder.Length > 0 ? encoder?.Label ?? encoderId :

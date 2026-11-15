@@ -13,6 +13,40 @@ public partial class SettingsView
         public override string ToString() => Available ? Path : $"{Path} · unavailable";
     }
     private int _folderRefresh;
+    private long _estimatedClipBytes;
+    private (long Total, long Free, long? Tracked)? _destinationUsage;
+
+    private sealed record DriveUsage(string Header, GridLength TrackedWidth, GridLength OtherWidth, GridLength FreeWidth,
+        string Tracked, string Other, string Free, string Capacity, string Note);
+
+    private void UpdateStorageCards()
+    {
+        if (RecordingDriveUsage == null || LibraryDriveUsage == null) return;
+        DriveUsage model;
+        if (_destinationUsage is not { Total: > 0 } usage)
+        {
+            model = new("Destination drive capacity", new(0, GridUnitType.Star), new(1, GridUnitType.Star),
+                new(0, GridUnitType.Star), "", "Capacity unavailable", "", "", "Select an available recordings folder.");
+        }
+        else
+        {
+            long free = Math.Clamp(usage.Free, 0, usage.Total);
+            long occupied = usage.Total - free;
+            long tracked = Math.Clamp(usage.Tracked.GetValueOrDefault(), 0, occupied);
+            GridLength Fraction(long bytes) => new((double)bytes / usage.Total, GridUnitType.Star);
+            bool known = usage.Tracked.HasValue;
+            string clips = _estimatedClipBytes > 0
+                ? $"About {free / _estimatedClipBytes:N0} more clips at the current length and quality"
+                : "Choose recording dimensions to estimate how many clips fit";
+            model = new($"{Fmt.Size(usage.Total)} destination drive", Fraction(tracked), Fraction(occupied - tracked), Fraction(free),
+                known ? $"Tracked clips ≈ {Fmt.Size(tracked)}" : "Clip usage not yet available",
+                known ? $"Other / untracked ≈ {Fmt.Size(occupied - tracked)}" : $"Used / unavailable {Fmt.Size(occupied)}",
+                $"{Fmt.Size(free)} available", clips,
+                known ? "Estimated from the local clip catalog; logical file sizes may differ from allocated space. Other includes files not indexed. Actual clip sizes vary."
+                      : "Enable the smart library catalog and open Gallery to index clips. Free space is measured by Windows.");
+        }
+        RecordingDriveUsage.Content = LibraryDriveUsage.Content = model;
+    }
 
 #if DEBUG
     internal async Task ShowLibraryForRenderAsync()
@@ -29,25 +63,49 @@ public partial class SettingsView
         string destination = settings.ClipsFolder;
         string[] sources = SavedRecordingFolders.Additional(settings);
         string? selected = (AdditionalSourcesList.SelectedItem as ClipSourceRow)?.Path;
+        if (!SavedRecordingFolders.Paths.Equals(FolderBox.Text, destination))
+        {
+            _destinationUsage = null;
+            UpdateStorageCards();
+        }
         FolderBox.Text = destination;
         RecordingFreeSpace.Text = "Checking free space…";
         var result = await Task.Run(() =>
         {
             var rows = sources.Select(path => new ClipSourceRow(path,
                 LibraryFiles.InspectPath(path, directory: true) == ClipAvailability.Available)).ToArray();
+            long total = 0, free = 0;
             string space = "Free space unavailable.";
             try
             {
                 if (Path.GetPathRoot(destination) is { } drive && new DriveInfo(drive) is { IsReady: true } volume)
-                    space = $"{Fmt.Size(volume.AvailableFreeSpace)} free on the destination drive";
+                {
+                    total = volume.TotalSize;
+                    free = volume.AvailableFreeSpace;
+                    space = $"{Fmt.Size(free)} free on the destination drive";
+                }
             }
             catch (Exception ex) when (ex is ArgumentException or IOException or UnauthorizedAccessException) { }
-            return (rows, space);
+            return (rows, space, total, free);
         });
         if (refresh != _folderRefresh) return;
         RecordingFreeSpace.Text = result.space;
         AdditionalSourcesList.ItemsSource = result.rows;
         AdditionalSourcesList.SelectedItem = result.rows.FirstOrDefault(row => SavedRecordingFolders.Paths.Equals(row.Path, selected));
+        _destinationUsage = result.total > 0 ? (result.total, result.free, null) : null;
+        UpdateStorageCards();
+        if (result.total <= 0 || !PersonalLibrary.Enabled) return;
+        try
+        {
+            long? tracked = await PersonalLibrary.Current.DestinationTrackedBytesAsync(destination, sources);
+            if (refresh != _folderRefresh) return;
+            _destinationUsage = (result.total, result.free, tracked);
+            UpdateStorageCards();
+        }
+        catch (Exception ex)
+        {
+            Log.Write("Could not read storage estimate: " + ex.GetType().Name);
+        }
     }
 
     private async void ChangeFolder_Click(object sender, RoutedEventArgs e)

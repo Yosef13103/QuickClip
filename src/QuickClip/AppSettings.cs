@@ -53,6 +53,7 @@ internal sealed class AppSettings
     // Preserve the original physical-display grant without broadening it on upgrade.
     public string? AuthorizedGameDisplay { get; set; }
     public bool AllowGameDisplayFollowing { get; set; }
+    public string[] ExcludedGameDisplays { get; set; } = [];
     public bool SplitChatAudio { get; set; } = true;
     public bool SplitMusicAudio { get; set; } = true;
     public bool RecordMic { get; set; } = !AppProfile.IsPersonal;
@@ -82,7 +83,7 @@ internal sealed class AppSettings
     // First-run prompt is explicit: a new Personal profile never silently starts screen capture.
     public bool ReplayOnboardingCompleted { get; set; }
     public Shell.ClipOverlayOptions ClipOverlay { get; set; } = new();
-    public bool EnableLibraryIndex { get; set; }
+    public bool EnableLibraryIndex { get; set; } = AppProfile.IsPersonal;
     public double ShareSizeMB { get; set; } = 30;                // shared copies are made to fit under this
     public bool ShareMotionBlur { get; set; } = true;             // sharing a 120 fps clip blends it into 60 fps motion blur
     public string ClipsFolder { get; set; } = AppProfile.ClipsDirectory;

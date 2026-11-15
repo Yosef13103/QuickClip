@@ -28,3 +28,23 @@ Normal minimize keeps the frontend alive; the existing native preview repaint pa
 6. Observe memory during repeated minimize/restore, close/reopen and Editor navigation.
 
 CI must build both profiles. Native viewport, real recording, responsiveness and screenshot appearance require owner hardware acceptance. Never auto-merge.
+
+
+## Owner review follow-up (2026-11-15)
+
+The first Windows quality run passed both profiles, but owner screenshots showed maximized client-edge clipping, a poor elliptical switch silhouette, an overlapping monitor label at increased UI scaling, and generic status labels.
+
+- Custom chrome: use the actual Win32 client rectangle, monitor work area and current DPI to calculate overhang compensation; do not override WPF's NCCALCSIZE. Test maximized on both displays, minimize/restore, monitor move, taskbar position and real video fullscreen. Primary rail is 104 DIP at 100%; restore its dynamic resource on fullscreen exit.
+- Vector pill switch: normal and master switches use the same drawing control and 180 ms eased thumb transition, respecting Windows reduced motion and high contrast. The native ToggleButton still owns state, keyboard and automation. Other page-wide animations remain a future design pass.
+- Manual capture: the displayed primary monitor selection on a fresh profile is committed before requesting existing consent. A remembered disconnected device must not silently turn into another monitor. Automatic display-following requires the existing master consent and honors a new persisted exclusion list keyed by verified physical display identity. The selected display switch blocks automatic game recording there, not an independently approved manual session. Global consent remains accessible in a collapsed permissions section. Changing a prospective manual target does not itself start or switch capture.
+- Recording status uses the friendly name obtained from the actual started monitor, with GDI fallback; no new per-status enumeration is required.
+- Recording dimensions are side by side, and fixed-label rows wrap. Test 90–125% controls/text, long display names and the minimum window size. The entire application has not been visually audited.
+- Recording and Library show the same destination folder and capacity model, use the existing safe folder-change path, and estimate the number of full clips that fit. Tracked clip space is a logical estimate from configured indexed roots on the destination volume, not an exact allocated-byte scan; untracked files stay in the other bucket. An unindexed destination reports the breakdown as unavailable rather than zero. No recursive disk crawl was added.
+- Smart library catalog is the new label; defaults on for Personal settings without an explicit value, preserves saved opt-outs. Catalog and annotations are local. Exclusion help explains relative paths applied to every configured source.
+- Additional tests: physical-display exclusion requires underlying consent and survives round-trip; friendly status label; switch template; catalog default.
+
+### Deferred recording-engine task (Wave 2/3)
+
+Do not implement duration changes by suppressing the restart alone: native ring capacity would remain unchanged. Add a supported native runtime replay-duration update that safely resizes/evicts the encoded packet history under its existing synchronization, retains frames/audio/keyframes and session identity when increasing, and restricts save to the requested shorter lookback immediately when decreasing. Keep marker timestamps, native generation, buffer duration/byte metrics, manual/game graph, and hybrid audio alignment correct. Test repeated grow/shrink under simultaneous saves, keyframe boundaries, duration caps, memory/CPU, and failed requests; unrelated encoding/source changes may still legitimately restart. No change to replay length behavior in this frontend follow-up.
+
+Owner retest and fresh Windows CI required before merge.

@@ -1,5 +1,5 @@
 <ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
-                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" xmlns:controls="clr-namespace:QuickClip.Controls">
     <!-- Shared by every page. Merged per view (not in App.xaml) so the Fluent theme's styles exist for BasedOn. -->
     <FontFamily x:Key="IconFont">Segoe Fluent Icons, Segoe MDL2 Assets</FontFamily>
 
@@ -195,15 +195,10 @@
                                 <ColumnDefinition Width="Auto" />
                                 <ColumnDefinition Width="*" />
                             </Grid.ColumnDefinitions>
-                            <Border x:Name="SwitchTrack" Width="{DynamicResource QuickClipVisual36}"
-                                    Height="{DynamicResource QuickClipVisual20}" CornerRadius="99"
-                                    VerticalAlignment="Center" Background="{DynamicResource SwitchOffBrush}"
-                                    BorderBrush="{DynamicResource SwitchOutlineBrush}" BorderThickness="1">
-                                <Ellipse x:Name="SwitchThumb" Width="{DynamicResource QuickClipVisual12}"
-                                         Height="{DynamicResource QuickClipVisual12}" HorizontalAlignment="Left"
-                                         VerticalAlignment="Center" Margin="3,0,3,0"
-                                         Fill="{DynamicResource SwitchOffThumbBrush}" />
-                            </Border>
+                            <controls:SwitchVisual x:Name="SwitchTrack" Width="{DynamicResource QuickClipVisual40}"
+                                    Height="{DynamicResource QuickClipVisual24}" VerticalAlignment="Center"
+                                    IsOn="{TemplateBinding IsChecked}" TrackBrush="{DynamicResource SwitchOffBrush}"
+                                    OutlineBrush="{DynamicResource SwitchOutlineBrush}" ThumbBrush="{DynamicResource SwitchOffThumbBrush}" />
                             <ContentPresenter x:Name="SwitchLabel" Grid.Column="1" Margin="8,0,0,0"
                                               ContentSource="Content" RecognizesAccessKey="True"
                                               HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
@@ -215,22 +210,21 @@
                             <Setter TargetName="SwitchLabel" Property="Margin" Value="0" />
                         </Trigger>
                         <Trigger Property="IsMouseOver" Value="True">
-                            <Setter TargetName="SwitchTrack" Property="Background" Value="{DynamicResource SelectionBrush}" />
+                            <Setter TargetName="SwitchTrack" Property="TrackBrush" Value="{DynamicResource SelectionBrush}" />
                         </Trigger>
                         <Trigger Property="IsChecked" Value="True">
-                            <Setter TargetName="SwitchTrack" Property="Background" Value="{DynamicResource AccentBrush}" />
-                            <Setter TargetName="SwitchTrack" Property="BorderBrush" Value="{DynamicResource AccentBrush}" />
-                            <Setter TargetName="SwitchThumb" Property="HorizontalAlignment" Value="Right" />
-                            <Setter TargetName="SwitchThumb" Property="Fill" Value="{DynamicResource SwitchThumbBrush}" />
+                            <Setter TargetName="SwitchTrack" Property="TrackBrush" Value="{DynamicResource AccentBrush}" />
+                            <Setter TargetName="SwitchTrack" Property="OutlineBrush" Value="{DynamicResource AccentBrush}" />
+                            <Setter TargetName="SwitchTrack" Property="ThumbBrush" Value="{DynamicResource SwitchThumbBrush}" />
                         </Trigger>
                         <MultiTrigger>
                             <MultiTrigger.Conditions>
                                 <Condition Property="IsChecked" Value="True" />
                                 <Condition Property="IsMouseOver" Value="True" />
                             </MultiTrigger.Conditions>
-                            <Setter TargetName="SwitchTrack" Property="Background" Value="{DynamicResource AccentHoverBrush}" />
-                            <Setter TargetName="SwitchTrack" Property="BorderBrush" Value="{DynamicResource AccentHoverBrush}" />
-                            <Setter TargetName="SwitchThumb" Property="Fill" Value="{DynamicResource SwitchHoverThumbBrush}" />
+                            <Setter TargetName="SwitchTrack" Property="TrackBrush" Value="{DynamicResource AccentHoverBrush}" />
+                            <Setter TargetName="SwitchTrack" Property="OutlineBrush" Value="{DynamicResource AccentHoverBrush}" />
+                            <Setter TargetName="SwitchTrack" Property="ThumbBrush" Value="{DynamicResource SwitchHoverThumbBrush}" />
                         </MultiTrigger>
                         <Trigger Property="IsKeyboardFocused" Value="True">
                             <Setter TargetName="SwitchRoot" Property="BorderBrush" Value="{DynamicResource AccentBrush}" />

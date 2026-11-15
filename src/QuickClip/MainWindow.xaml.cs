@@ -234,7 +234,9 @@ public partial class MainWindow : Window
     private void SetFullScreenChrome(bool on)
     {
         TitleBar.Visibility = _personalChrome != null && !on ? Visibility.Visible : Visibility.Collapsed;
-        RailColumn.Width = new GridLength(on ? 0 : 80);
+        if (on) RailColumn.Width = new GridLength(0);
+        else if (AppProfile.IsPersonal) RailColumn.SetResourceReference(ColumnDefinition.WidthProperty, "PrimaryRailWidth");
+        else RailColumn.Width = new GridLength(80);
         Rail.Visibility = StatusBar.Visibility = on ? Visibility.Collapsed : Visibility.Visible;
     }
 

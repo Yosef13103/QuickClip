@@ -28,7 +28,11 @@ public partial class MainWindow
         {
             if (PresentationSource.FromVisual(this) is HwndSource source) source.AddHook(CaptionWindowProc);
         };
-        StateChanged += (_, _) => UpdateMaximizeButton();
+        StateChanged += (_, _) => { UpdateMaximizeButton(); QueueClientInsets(); };
+        SizeChanged += (_, _) => QueueClientInsets();
+        LocationChanged += (_, _) => QueueClientInsets();
+        DpiChanged += (_, _) => QueueClientInsets();
+        Loaded += (_, _) => QueueClientInsets();
         RailIcon.Visibility = Visibility.Collapsed;
         UpdateTitleBar(fullscreen: false);
     }
@@ -38,6 +42,7 @@ public partial class MainWindow
         if (_personalChrome == null) return;
         WindowChrome.SetWindowChrome(this, fullscreen ? null : _personalChrome);
         TitleBar.Visibility = fullscreen ? Visibility.Collapsed : Visibility.Visible;
+        QueueClientInsets();
     }
 
     private void UpdateMaximizeButton()
@@ -82,25 +87,6 @@ public partial class MainWindow
     {
         if (_windowFullScreen || WindowChrome.GetWindowChrome(this) == null) return IntPtr.Zero;
 
-        const int nonClientCalculateSize = 0x0083;
-        if (message == nonClientCalculateSize && (IsZoomed(hwnd) || WindowState == WindowState.Maximized))
-        {
-            // A maximized thick-frame HWND extends past the visible monitor work area.
-            // Fit the client rectangle itself so content is laid out inside that area.
-            var proposed = Marshal.PtrToStructure<NativeRect>(lParam);
-            var info = new MonitorInfo { Size = Marshal.SizeOf<MonitorInfo>() };
-            if (GetMonitorInfo(MonitorFromRect(ref proposed, 2), ref info))
-            {
-                proposed.Left = Math.Max(proposed.Left, info.Work.Left);
-                proposed.Top = Math.Max(proposed.Top, info.Work.Top);
-                proposed.Right = Math.Min(proposed.Right, info.Work.Right);
-                proposed.Bottom = Math.Min(proposed.Bottom, info.Work.Bottom);
-                Marshal.StructureToPtr(proposed, lParam, false);
-                handled = true;
-                return IntPtr.Zero;
-            }
-        }
-
         const int nonClientHitTest = 0x0084;
         if (message != nonClientHitTest || !TitleBar.IsVisible) return IntPtr.Zero;
         var screen = DecodeScreenPoint(lParam);
@@ -127,6 +113,40 @@ public partial class MainWindow
         return IntPtr.Zero;
     }
 
+    private bool _insetsQueued;
+
+    // Let WindowChrome handle NCCALCSIZE. Compensate only for the real client
+    // overhang on a maximized window, measured in current-monitor physical pixels.
+    private void QueueClientInsets()
+    {
+        if (_insetsQueued) return;
+        _insetsQueued = true;
+        Dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.Loaded, new Action(() =>
+        {
+            _insetsQueued = false;
+            if (_windowFullScreen || WindowChrome.GetWindowChrome(this) == null ||
+                WindowState != WindowState.Maximized)
+            {
+                WindowLayout.Margin = new Thickness(0);
+                return;
+            }
+            if (PresentationSource.FromVisual(this) is not HwndSource source ||
+                source.CompositionTarget is not { } target || !GetClientRect(source.Handle, out var client)) return;
+            var origin = new NativePoint();
+            if (!ClientToScreen(source.Handle, ref origin)) return;
+            var bounds = new NativeRect { Left = origin.X, Top = origin.Y,
+                Right = origin.X + client.Right, Bottom = origin.Y + client.Bottom };
+            var info = new MonitorInfo { Size = Marshal.SizeOf<MonitorInfo>() };
+            if (!GetMonitorInfo(MonitorFromRect(ref bounds, 2), ref info)) return;
+            var transform = target.TransformFromDevice;
+            var inset = new Thickness(Math.Max(0, info.Work.Left - bounds.Left) * transform.M11,
+                Math.Max(0, info.Work.Top - bounds.Top) * transform.M22,
+                Math.Max(0, bounds.Right - info.Work.Right) * transform.M11,
+                Math.Max(0, bounds.Bottom - info.Work.Bottom) * transform.M22);
+            if (WindowLayout.Margin != inset) WindowLayout.Margin = inset;
+        }));
+    }
+
     private static bool ContainsPoint(FrameworkElement element, Point point) =>
         new Rect(new Point(), element.RenderSize).Contains(point);
 
@@ -139,7 +159,10 @@ public partial class MainWindow
     [StructLayout(LayoutKind.Sequential)]
     private struct MonitorInfo { public int Size; public NativeRect Monitor, Work; public int Flags; }
 
-    [DllImport("user32.dll")] private static extern bool IsZoomed(IntPtr hwnd);
+    [StructLayout(LayoutKind.Sequential)]
+    private struct NativePoint { public int X, Y; }
+    [DllImport("user32.dll")] private static extern bool GetClientRect(IntPtr hwnd, out NativeRect rect);
+    [DllImport("user32.dll")] private static extern bool ClientToScreen(IntPtr hwnd, ref NativePoint point);
     [DllImport("user32.dll")] private static extern IntPtr MonitorFromRect(ref NativeRect rect, uint flags);
     [DllImport("user32.dll", EntryPoint = "GetMonitorInfoW")] private static extern bool GetMonitorInfo(IntPtr monitor, ref MonitorInfo info);
 }

@@ -52,7 +52,7 @@
         </ResourceDictionary>
     </Window.Resources>
 
-    <Grid Background="{DynamicResource BackgroundBrush}">
+    <Grid x:Name="WindowLayout" Background="{DynamicResource BackgroundBrush}">
         <Grid.ColumnDefinitions>
             <ColumnDefinition x:Name="RailColumn" Width="80" />
             <ColumnDefinition Width="*" />
