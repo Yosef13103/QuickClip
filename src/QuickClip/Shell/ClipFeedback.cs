@@ -7,13 +7,13 @@ internal enum OverlayAnchor { TopLeft, TopCenter, TopRight, MiddleLeft, Center, 
 internal enum OverlayAnimation { Ripple, Fade, Slide, None, Grow, SoftPop, Lift }
 internal enum OverlayStyle { Compact, Badge, Detailed, ImageOnly }
 internal enum OverlayImageFit { Contain, Cover }
-internal enum ClipEvent { ReplayEnabled, Saved, DesktopStarted, DesktopStopped, Failed, Inactive }
+internal enum ClipEvent { ReplayEnabled, Saved, DesktopStarted, DesktopStopped, Failed, Inactive, GameStarted }
 internal sealed record ClipEventOptions(bool ReplayEnabled = true, bool Saved = true, bool DesktopStarted = true,
-    bool DesktopStopped = true, bool Failed = true)
+    bool DesktopStopped = true, bool Failed = true, bool GameStarted = true)
 {
     internal bool Allows(ClipEvent kind, bool inactive) => kind switch
     {
-        ClipEvent.ReplayEnabled => ReplayEnabled, ClipEvent.Saved => Saved, ClipEvent.DesktopStarted => DesktopStarted,
+        ClipEvent.ReplayEnabled => ReplayEnabled, ClipEvent.GameStarted => GameStarted, ClipEvent.Saved => Saved, ClipEvent.DesktopStarted => DesktopStarted,
         ClipEvent.DesktopStopped => DesktopStopped, ClipEvent.Failed => Failed, ClipEvent.Inactive => inactive, _ => false,
     };
 }
@@ -172,6 +172,7 @@ internal sealed record ClipFeedback(bool Success, bool Sound, bool Windows, bool
             kind switch
             {
                 ClipEvent.ReplayEnabled => "Instant replay enabled",
+                ClipEvent.GameStarted => "Game recording started",
                 ClipEvent.DesktopStarted => "Desktop recording started",
                 ClipEvent.DesktopStopped => "Desktop recording stopped",
                 ClipEvent.Saved => "Clip saved",

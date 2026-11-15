@@ -14,6 +14,8 @@ public sealed record SavedClip(string Path, string Folder, int Seconds);
 public sealed record RecorderState(bool Running, string? Error, string Summary, IReadOnlyList<string> ChatApps, IReadOnlyList<string> MusicApps)
 {
     public RecordingMode Mode { get; init; }
+    internal long CaptureEpoch { get; init; }
+    internal string? CaptureDevice { get; init; }
 }
 
 /// <summary>Instant-replay service: keeps the capture engine running per the settings and saves clips on demand.</summary>
@@ -42,6 +44,7 @@ internal sealed class Recorder
     private string? _sessionGame;
     private string? _sessionDisplay;
     private string? _actualMonitorName;
+    private string? _captureDevice;
     private long _captureStartedAt;
     internal bool ManualDesktopRequested => Volatile.Read(ref _manualDisplay) != null
         && AppSettings.Current.AllowsManualDesktop(Volatile.Read(ref _manualConsentRevision));
@@ -103,6 +106,8 @@ internal sealed class Recorder
             : _summary, _chatApps, _musicApps)
     {
         Mode = AppProfile.IsPersonal ? _lifecycle.Mode : IsRunning ? RecordingMode.ManualDesktop : RecordingMode.Off,
+        CaptureEpoch = Volatile.Read(ref _replayGeneration),
+        CaptureDevice = IsRunning ? _captureDevice : null,
     };
 
     private Recorder()
@@ -386,6 +391,7 @@ internal sealed class Recorder
                 CaptureEngine.MonitorBackend.MonitorOnlyGraphics => new(monitor.DeviceName, ReplayCaptureBackend.WindowsGraphicsCapture),
                 _ => null,
             };
+            _captureDevice = monitor.DeviceName;
             _actualMonitorName = string.IsNullOrWhiteSpace(monitor.FriendlyName) ? monitor.DeviceName : monitor.FriendlyName;
             _monitorTarget = _desktopSource?.Backend switch
             {
@@ -429,6 +435,7 @@ internal sealed class Recorder
         _replayMarkers.Clear();
         (_sessionGame, _sessionGameId, _sessionDisplay, _desktopSource) = (null, null, null, null);
         _actualMonitorName = null;
+        _captureDevice = null;
         (_chatApps, _musicApps) = ([], []);
         _summary = "";
     }

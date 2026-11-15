@@ -76,6 +76,8 @@ internal sealed class AppSettings
     public string? ClipSoundOutputId { get; set; }
     public string? ClipSoundFilePath { get; set; } // Optional user-selected local chime; null uses bundled shutter.
     public Shell.ClipEventOptions ClipEvents { get; set; } = new();
+    public bool ShowGameRecordingIndicator { get; set; }
+    public Shell.OverlayAnchor GameRecordingIndicatorAnchor { get; set; } = Shell.OverlayAnchor.BottomRight;
     public bool ClipNotificationsEnabled { get; set; } = true;
     public bool ClipWindowsNotification { get; set; } = true;
     // Suppress expected no-game/off hotkey warnings by default in Personal, not actual capture errors.

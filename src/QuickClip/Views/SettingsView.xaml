@@ -648,6 +648,9 @@
 
                     <StackPanel x:Name="ClipOverlayPanel" Margin="0,12,0,0">
                         <CheckBox Style="{StaticResource SwitchCheckBox}" x:Name="ClipNotificationsCheck" Content="Show clip notifications" Focusable="True" Click="ClipFeedback_Changed" />
+                        <CheckBox Style="{StaticResource SwitchCheckBox}" x:Name="GameIndicatorCheck" Content="Persistent game recording dot (experimental)" Focusable="True" Margin="0,8,0,0" Click="ClipFeedback_Changed" />
+                        <TextBlock Style="{StaticResource Hint}" TextWrapping="Wrap" Text="A small red dot on the captured display while a game is being recorded. Some capture APIs or fullscreen games may hide it or include it in clips; test before relying on it." />
+                        <ComboBox x:Name="GameIndicatorAnchorCombo" AutomationProperties.Name="Recording dot position" SelectionChanged="ClipFeedback_Changed" Margin="0,4,0,0" />
                         <TextBlock Text="Notification channels" Style="{StaticResource FieldLabel}" />
                         <ComboBox x:Name="ClipNotificationModeCombo" AutomationProperties.Name="Notification channels" SelectionChanged="ClipFeedback_Changed" />
                         <TextBlock Text="Choose where status messages appear. The clip-saved image can also be enabled with Windows notifications only." Style="{StaticResource Hint}" Margin="0,4,0,0" />
@@ -656,6 +659,7 @@
                             <UniformGrid Columns="2">
                                 <CheckBox Style="{StaticResource SwitchCheckBox}" x:Name="ReplayEnabledNotice" Content="Instant replay is enabled" Focusable="True" Margin="0,0,12,4" Click="ClipFeedback_Changed" />
                                 <CheckBox Style="{StaticResource SwitchCheckBox}" x:Name="ClipSavedNotice" Content="A clip is saved" Focusable="True" Margin="0,0,12,4" Click="ClipFeedback_Changed" />
+                                <CheckBox Style="{StaticResource SwitchCheckBox}" x:Name="GameStartedNotice" Content="Game recording starts" Focusable="True" Margin="0,0,12,4" Click="ClipFeedback_Changed" />
                                 <CheckBox Style="{StaticResource SwitchCheckBox}" x:Name="DesktopStartedNotice" Content="Desktop recording starts" Focusable="True" Margin="0,0,12,4" Click="ClipFeedback_Changed" />
                                 <CheckBox Style="{StaticResource SwitchCheckBox}" x:Name="DesktopStoppedNotice" Content="Desktop recording stops" Focusable="True" Margin="0,0,12,4" Click="ClipFeedback_Changed" />
                                 <CheckBox Style="{StaticResource SwitchCheckBox}" x:Name="SaveFailedNotice" Content="Saving fails" Focusable="True" Margin="0,0,12,4" Click="ClipFeedback_Changed" />

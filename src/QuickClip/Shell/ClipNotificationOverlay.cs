@@ -29,6 +29,7 @@ internal sealed class ClipNotificationOverlay : IDisposable
     private bool _disposed;
     private DispatcherTimer? _timer;
     private IntPtr _handle;
+    private (string Device, OverlayAnchor Anchor, Rect Bounds)? _indicatorPlacement;
 
     internal bool IsVisible => _window?.IsVisible == true;
     internal bool IsAnimatingImage => _frameTimer?.IsEnabled == true;
@@ -211,7 +212,8 @@ internal sealed class ClipNotificationOverlay : IDisposable
             var pixels = new Size(Math.Round(width * scale), Math.Round(height * scale));
             // Images sit four physical pixels from the edge; banners sit two. The
             // ripple reserve stays inside the window so the wave cannot be cut off.
-            Point position = ClipOverlayOptions.Place(display.Bounds, pixels, imageOnly ? 4 : 2, options.Anchor);
+            Rect bounds = imageOnly ? display.Bounds : BannerBounds(display.Bounds, display.WorkArea ?? display.Bounds, options.Anchor, scale, pixels.Height);
+            Point position = ClipOverlayOptions.Place(bounds, pixels, imageOnly ? 4 : 2, options.Anchor);
             SetWindowPos(_handle, new IntPtr(-1), (int)Math.Round(position.X), (int)Math.Round(position.Y),
                 (int)pixels.Width, (int)pixels.Height, 0x0210);
         }
@@ -385,6 +387,7 @@ internal sealed class ClipNotificationOverlay : IDisposable
 
     internal void Hide()
     {
+        _indicatorPlacement = null;
         _showRevision++;
         _timer?.Stop();
         _frameTimer?.Stop();
@@ -420,7 +423,64 @@ internal sealed class ClipNotificationOverlay : IDisposable
             ?? available.FirstOrDefault(d => d.Primary) ?? available.FirstOrDefault();
     }
 
-    internal sealed record Display(IntPtr Handle, string Device, Rect Bounds, bool Primary)
+    // Separate, static status surface. No persistent timer and no fallback to another monitor.
+    internal void ShowRecordingIndicator(string device, OverlayAnchor anchor)
+    {
+        if (_disposed) return;
+        var display = Displays().FirstOrDefault(d => string.Equals(d.Device, device, StringComparison.OrdinalIgnoreCase));
+        if (display == null || !Enum.IsDefined(anchor) || anchor == OverlayAnchor.Center)
+        {
+            Hide();
+            return;
+        }
+        var placement = (display.Device, anchor, display.Bounds);
+        if (IsVisible && _indicatorPlacement == placement) return;
+        Hide();
+        EnsureWindow();
+        // Capture exclusion is a prerequisite, but must still be verified with the actual DDA backend.
+        if (!OperatingSystem.IsWindowsVersionAtLeast(10, 0, 19041) || !SetWindowDisplayAffinity(_handle, 0x11)) return;
+        _surface!.LayoutTransform = Transform.Identity;
+        _surface.Opacity = 1;
+        _card!.Background = Brushes.Transparent;
+        _card.Child = new Ellipse
+        {
+            Width = 12, Height = 12, Fill = new SolidColorBrush(Color.FromRgb(239, 72, 85)),
+            Stroke = Brushes.White, StrokeThickness = 1.2,
+            HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center,
+        };
+        _window!.Width = _window.Height = 20;
+        var prior = SetThreadDpiAwarenessContext(new IntPtr(-4));
+        try
+        {
+            GetDpiForMonitor(display.Handle, 0, out uint dpi, out _);
+            double scale = dpi == 0 ? 1 : dpi / 96d;
+            double size = Math.Round(20 * scale);
+            var bounds = BannerBounds(display.Bounds, display.WorkArea ?? display.Bounds, anchor, scale, size);
+            Point p = ClipOverlayOptions.Place(bounds, size, 4, anchor);
+            // Place before showing to avoid a transient on the wrong monitor.
+            if (!SetWindowPos(_handle, new IntPtr(-1), (int)Math.Round(p.X), (int)Math.Round(p.Y), (int)size, (int)size, 0x0210)) return;
+            _window.Show();
+            if (!SetWindowDisplayAffinity(_handle, 0x11) ||
+                !SetWindowPos(_handle, new IntPtr(-1), (int)Math.Round(p.X), (int)Math.Round(p.Y), (int)size, (int)size, 0x0210))
+            {
+                Hide();
+                return;
+            }
+            _indicatorPlacement = placement;
+        }
+        finally { if (prior != IntPtr.Zero) SetThreadDpiAwarenessContext(prior); }
+    }
+
+    internal static Rect BannerBounds(Rect display, Rect work, OverlayAnchor anchor, double scale, double height)
+    {
+        if ((int)anchor / 3 != 2) return display;
+        // Reserve at least a normal taskbar height, including on auto-hide/secondary screens.
+        double inset = Math.Max(40 * scale, display.Bottom - work.Bottom);
+        inset = Math.Clamp(inset, 0, Math.Max(0, display.Height - height - 4));
+        return new Rect(display.X, display.Y, display.Width, display.Height - inset);
+    }
+
+    internal sealed record Display(IntPtr Handle, string Device, Rect Bounds, bool Primary, Rect? WorkArea = null)
     {
         public string Label => $"{Device.Replace(@"\\.\", "")} · {Bounds.Width:0} × {Bounds.Height:0}";
     }
@@ -436,7 +496,8 @@ internal sealed class ClipNotificationOverlay : IDisposable
                 var info = new MonitorInfo { Size = Marshal.SizeOf<MonitorInfo>(), Device = "" };
                 if (GetMonitorInfo(monitor, ref info))
                     result.Add(new(monitor, info.Device, new Rect(info.Monitor.Left, info.Monitor.Top,
-                        info.Monitor.Right - info.Monitor.Left, info.Monitor.Bottom - info.Monitor.Top), (info.Flags & 1) != 0));
+                        info.Monitor.Right - info.Monitor.Left, info.Monitor.Bottom - info.Monitor.Top), (info.Flags & 1) != 0,
+                        new Rect(info.Work.Left, info.Work.Top, info.Work.Right - info.Work.Left, info.Work.Bottom - info.Work.Top)));
                 return true;
             }, IntPtr.Zero);
         }

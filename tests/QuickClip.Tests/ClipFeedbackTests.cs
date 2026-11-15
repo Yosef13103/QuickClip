@@ -523,4 +523,27 @@ public sealed class ClipFeedbackTests
     [InlineData("NaN", false)]
     public void Custom_overlay_size_has_bounded_validation(string text, bool valid) =>
         Assert.Equal(valid, ClipOverlayOptions.TryParseSize(text, out _));
+
+    [Fact]
+    public void Bottom_banners_reserve_taskbar_height_on_mixed_dpi_displays()
+    {
+        var bounds = new Rect(-1920, 0, 1920, 1080);
+        var work = new Rect(-1920, 0, 1920, 1020);
+        Assert.Equal(1020, ClipNotificationOverlay.BannerBounds(bounds, work, OverlayAnchor.BottomRight, 1.25, 80).Bottom);
+        Assert.Equal(1030, ClipNotificationOverlay.BannerBounds(bounds, bounds, OverlayAnchor.BottomLeft, 1.25, 80).Bottom);
+        Assert.Equal(bounds, ClipNotificationOverlay.BannerBounds(bounds, work, OverlayAnchor.TopRight, 1.25, 80));
+    }
+
+    [Fact]
+    public void Game_start_banner_is_independent_of_clip_saved_and_dot_is_opt_in()
+    {
+        var s = new AppSettings { ClipEvents = new(Saved: false, GameStarted: true),
+            ClipOverlay = new() { Enabled = true, ImageOnly = true }, ClipNotificationsEnabled = true };
+        Assert.False(s.ShowGameRecordingIndicator);
+        Assert.True(s.ClipEvents.Allows(ClipEvent.GameStarted, false));
+        Assert.Equal("Game recording started", ClipFeedback.From(s, ClipEvent.GameStarted, "Fixture").Title);
+        Assert.False(ClipFeedback.From(s, ClipEvent.GameStarted, "Fixture").Sound);
+        Assert.Equal(OverlayStyle.Compact, s.ClipOverlay.ForEvent(ClipEvent.GameStarted)!.Style);
+        Assert.False((s.ClipEvents with { GameStarted = false }).Allows(ClipEvent.GameStarted, false));
+    }
 }

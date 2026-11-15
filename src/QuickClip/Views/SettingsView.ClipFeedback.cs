@@ -122,6 +122,9 @@ public partial class SettingsView
             options.Enabled ? settings.ClipWindowsNotification ? ClipNotificationMode.Both : ClipNotificationMode.Overlay : ClipNotificationMode.Windows);
         var events = settings.ClipEvents ?? new();
         ReplayEnabledNotice.IsChecked = events.ReplayEnabled;
+        GameStartedNotice.IsChecked = events.GameStarted;
+        GameIndicatorCheck.IsChecked = settings.ShowGameRecordingIndicator;
+        SetChoices(GameIndicatorAnchorCombo, Enum.GetValues<OverlayAnchor>().Where(a => a != OverlayAnchor.Center).Select(a => new Choice(AnchorLabels[(int)a], a)), settings.GameRecordingIndicatorAnchor);
         ClipSavedNotice.IsChecked = events.Saved;
         DesktopStartedNotice.IsChecked = events.DesktopStarted;
         DesktopStoppedNotice.IsChecked = events.DesktopStopped;
@@ -217,7 +220,10 @@ public partial class SettingsView
         if (ClipNotificationModeCombo.SelectedItem is not Choice { Value: ClipNotificationMode mode }) return;
         settings.ClipNotificationsEnabled = ClipNotificationsCheck.IsChecked == true;
         settings.ClipEvents = new(ReplayEnabledNotice.IsChecked == true, ClipSavedNotice.IsChecked == true,
-            DesktopStartedNotice.IsChecked == true, DesktopStoppedNotice.IsChecked == true, SaveFailedNotice.IsChecked == true);
+            DesktopStartedNotice.IsChecked == true, DesktopStoppedNotice.IsChecked == true, SaveFailedNotice.IsChecked == true,
+            GameStartedNotice.IsChecked == true);
+        settings.ShowGameRecordingIndicator = GameIndicatorCheck.IsChecked == true;
+        settings.GameRecordingIndicatorAnchor = Value(GameIndicatorAnchorCombo, settings.GameRecordingIndicatorAnchor);
         settings.ShowInactiveSaveNotifications = IdleSaveNotificationCheck.IsChecked == true;
         settings.ClipWindowsNotification = mode is ClipNotificationMode.Windows or ClipNotificationMode.Both;
         var old = (settings.ClipOverlay ?? new()).Migrate();
@@ -273,10 +279,12 @@ public partial class SettingsView
         };
         UpdateFeedbackVisibility();
         settings.Save();
+        App.Host?.RefreshRecordingIndicator();
     }
 
     private void UpdateFeedbackVisibility()
     {
+        GameIndicatorAnchorCombo.IsEnabled = GameIndicatorCheck.IsChecked == true;
         bool enabled = ClipNotificationsCheck.IsChecked == true;
         ClipNotificationModeCombo.IsEnabled = ClipEventsPanel.IsEnabled = enabled;
         bool banners = enabled && ClipNotificationModeCombo.SelectedItem is Choice
