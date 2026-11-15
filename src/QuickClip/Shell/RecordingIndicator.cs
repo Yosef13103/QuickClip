@@ -46,7 +46,6 @@ internal sealed class RecordingIndicator : IDisposable
             _timer.Tick += (_, _) => Sample();
         }
         _timer.Start();
-        Sample();
     }
 
     private void Sample()
