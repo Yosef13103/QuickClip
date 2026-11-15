@@ -67,6 +67,9 @@ internal sealed class ClipNotificationOverlay : IDisposable
         var display = SelectDisplay(displays, options.Display);
         if (display == null) return;
         EnsureWindow();
+        GetDpiForMonitor(display.Handle, 0, out uint monitorDpi, out _);
+        double monitorScale = monitorDpi == 0 ? 1 : monitorDpi / 96d;
+        _surface!.LayoutTransform = Transform.Identity;
         _timer!.Stop();
         _surface!.BeginAnimation(UIElement.OpacityProperty, null);
         _surface.Opacity = 0;
@@ -99,7 +102,8 @@ internal sealed class ClipNotificationOverlay : IDisposable
         }
         else
         {
-            width = Math.Clamp((detailed ? 386 : 310) * factor, detailed ? 330 : 255, detailed ? 560 : 480);
+            width = Math.Min((detailed ? 386 : 310) * factor, Math.Max(120, (display.Bounds.Width - 8) / monitorScale));
+            width = Math.Max(120, width);
             _card.SetResourceReference(Border.BackgroundProperty, "OverlayBackgroundBrush");
             _card.SetResourceReference(Border.BorderBrushProperty, "DividerBrush");
             _card.BorderThickness = new Thickness(1);
@@ -169,6 +173,7 @@ internal sealed class ClipNotificationOverlay : IDisposable
                     }
                 }
             }
+            root.LayoutTransform = new ScaleTransform(factor, factor);
             _card.Child = root;
             _card.Margin = new Thickness(0);
             _card.Measure(new Size(width, double.PositiveInfinity));
@@ -184,6 +189,15 @@ internal sealed class ClipNotificationOverlay : IDisposable
         double contentWidth = width, contentHeight = height;
         width += 2 * waveSpace;
         height += 2 * waveSpace;
+        // Fit even oversized custom notification sizes on a small or high-DPI monitor.
+        double fit = Math.Min(1, Math.Min((display.Bounds.Width - 8) / monitorScale / width,
+            (display.Bounds.Height - 8) / monitorScale / height));
+        if (fit > 0 && fit < 1)
+        {
+            _surface.LayoutTransform = new ScaleTransform(fit, fit);
+            width *= fit;
+            height *= fit;
+        }
         _surface.RenderTransformOrigin = new Point(.5, .5);
         _surface.RenderTransform = new TranslateTransform();
         _window!.Width = width;
@@ -195,9 +209,9 @@ internal sealed class ClipNotificationOverlay : IDisposable
             GetDpiForMonitor(display.Handle, 0, out uint dpi, out _);
             double scale = dpi == 0 ? 1 : dpi / 96d;
             var pixels = new Size(Math.Round(width * scale), Math.Round(height * scale));
-            // Image-only overlays sit four physical pixels from the edge. The
+            // Images sit four physical pixels from the edge; banners sit two. The
             // ripple reserve stays inside the window so the wave cannot be cut off.
-            Point position = ClipOverlayOptions.Place(display.Bounds, pixels, imageOnly ? 4 : 18 * scale, options.Anchor);
+            Point position = ClipOverlayOptions.Place(display.Bounds, pixels, imageOnly ? 4 : 2, options.Anchor);
             SetWindowPos(_handle, new IntPtr(-1), (int)Math.Round(position.X), (int)Math.Round(position.Y),
                 (int)pixels.Width, (int)pixels.Height, 0x0210);
         }

@@ -27,7 +27,8 @@ internal sealed record ClipImageAppearance
     public OverlayAnchor Anchor { get; init; } = OverlayAnchor.TopRight;
     public double Size { get; init; } = 72;
     public double Opacity { get; init; } = 1;
-    public double Seconds { get; init; } = 3;
+    public double Seconds { get; init; } = DefaultSeconds;
+    internal const double DefaultSeconds = 2.59;
     public OverlayAnimation Animation { get; init; } = OverlayAnimation.Fade;
 }
 
@@ -55,6 +56,14 @@ internal sealed record ClipOverlayOptions
     internal const double MinSeconds = .6;
     internal const double MaxSeconds = 60;
 
+    internal static bool TryParseSize(string? text, out double size) =>
+        (double.TryParse(text, NumberStyles.Float, CultureInfo.CurrentCulture, out size) ||
+         double.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out size)) &&
+        double.IsFinite(size) && size >= 24 && size <= 240;
+
+    internal ClipOverlayOptions RestoreDefaultImage() =>
+        Migrate() with { ImagePath = null, ImageAppearance = (Migrate().ImageAppearance ?? new()) with { Seconds = ClipImageAppearance.DefaultSeconds } };
+
     internal static bool TryParseSeconds(string? text, out double seconds) =>
         (double.TryParse(text, NumberStyles.Float, CultureInfo.CurrentCulture, out seconds) ||
          double.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out seconds)) &&
@@ -67,7 +76,7 @@ internal sealed record ClipOverlayOptions
         Style = Style == OverlayStyle.Badge ? OverlayStyle.Compact
             : Enum.IsDefined(Style) ? Style : OverlayStyle.Compact,
         Anchor = Enum.IsDefined(Anchor) ? Anchor : OverlayAnchor.BottomRight,
-        Size = double.IsFinite(Size) ? Math.Clamp(Size, 40, 120) : 72,
+        Size = double.IsFinite(Size) ? Math.Clamp(Size, 24, 240) : 72,
         Opacity = double.IsFinite(Opacity) ? Math.Clamp(Opacity, .2, 1) : .9,
         ImageFit = Enum.IsDefined(ImageFit) ? ImageFit : OverlayImageFit.Contain,
         Seconds = double.IsFinite(Seconds) ? Math.Clamp(Seconds, MinSeconds, MaxSeconds) : 1.5,

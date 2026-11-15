@@ -148,4 +148,29 @@ public sealed class UpdaterTests
             try { Directory.Delete(root, true); } catch { }
         }
     }
+
+    [Fact]
+    public void Personal_feed_accepts_only_stable_exact_profile_assets_with_sha256()
+    {
+        string digest = new string('a', 64);
+        string json = $$"""
+        [
+          {"tag_name":"personal-v9.0.0-nightly.1","draft":false,"prerelease":true,"assets":[]},
+          {"tag_name":"v9.0.0","draft":false,"prerelease":false,"assets":[]},
+          {"tag_name":"personal-v9.0.0","draft":true,"assets":[]},
+          {"tag_name":"personal-v1.2.0","draft":false,"prerelease":false,"assets":[
+            {"name":"QuickClip-Personal-1.2.0-setup.exe","browser_download_url":"https://github.com/Yosef13103/QuickClip/releases/download/personal-v1.2.0/QuickClip-Personal-1.2.0-setup.exe","size":123,"digest":"sha256:{{digest}}"},
+            {"name":"QuickClip-Personal-1.2.0-win-x64.zip","browser_download_url":"https://github.com/other/QuickClip/releases/download/personal-v1.2.0/QuickClip-Personal-1.2.0-win-x64.zip","size":123,"digest":"sha256:{{digest}}"},
+            {"name":"QuickClip-Personal-1.2.0-win-x64.zip","browser_download_url":"https://github.com/Yosef13103/QuickClip/releases/download/personal-v1.2.0/QuickClip-Personal-1.2.0-win-x64.zip","size":123}
+          ]}
+        ]
+        """;
+        var update = Updater.PickPersonalUpdate(json, V("1.1.0"));
+        Assert.NotNull(update);
+        Assert.Equal(V("1.2.0"), update.Version);
+        Assert.Equal(digest, update.Setup!.Sha256);
+        Assert.Null(update.Portable);
+        Assert.Equal("https://github.com/Yosef13103/QuickClip/releases/tag/personal-v1.2.0", update.PageUrl);
+        Assert.Null(Updater.PickPersonalUpdate(json, V("1.2.0")));
+    }
 }

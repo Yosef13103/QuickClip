@@ -38,9 +38,10 @@ public partial class SettingsView : UserControl
         if (AppProfile.IsPersonal)
         {
             SettingsContent.MaxWidth = 920;
-            PersonalProfileHint.Text = $"{AppProfile.Name} {AppVersion.Current.Display} · Updates and Explorer integration are disabled.";
+            PersonalProfileHint.Text = $"{AppProfile.Name} {AppVersion.Current.Display} · Stable releases only; Explorer integration is disabled.";
             PersonalProfileHint.Visibility = Visibility.Visible;
-            UpdatesCard.Visibility = ShellCheck.Visibility = Visibility.Collapsed;
+            ShellCheck.Visibility = Visibility.Collapsed;
+            InstallUpdateLabel.Text = "Download verified update";
             StartupHint.Visibility = ReplayAtStartupCheck.Visibility = ReplayAtStartupHint.Visibility = Visibility.Visible;
             ApplySettingsSection(RecordingSection);
         }
@@ -84,6 +85,7 @@ public partial class SettingsView : UserControl
         SharingCard.Visibility = SectionVisibility(SharingSection);
         LibraryCard.Visibility = SectionVisibility(LibrarySection);
         GeneralCard.Visibility = SectionVisibility(GeneralSection);
+        UpdatesCard.Visibility = Updater.IsEnabled ? SectionVisibility(GeneralSection) : Visibility.Collapsed;
         DiagnosticsCard.Visibility = SectionVisibility(DiagnosticsSection);
         GeneralPage.ScrollToTop();
         if (section == DiagnosticsSection) CaptureAdvanced.IsExpanded = true;
@@ -100,7 +102,7 @@ public partial class SettingsView : UserControl
     private void ShowUpdateState()
     {
         if (!Updater.IsEnabled) return;
-        VersionText.Text = $"You have QuickClip {AppVersion.Current.Display}" + (AppVersion.Current.IsPrerelease ? " (a nightly build)" : "") +
+        VersionText.Text = $"You have {AppProfile.Name} {AppVersion.Current.Display}" + (AppVersion.Current.IsPrerelease ? " (a nightly build)" : "") +
                            (Updater.LastChecked is DateTime t ? $" · last checked {t:t}" : "");
         CheckUpdatesButton.IsEnabled = !Updater.IsChecking && !_installing;
         var release = Updater.Available;
@@ -109,11 +111,11 @@ public partial class SettingsView : UserControl
         UpdateStatusText.Text =
             Updater.IsChecking ? "Checking for updates…"
             : release != null ? $"QuickClip {release.Version.Display} is available." +
-                                (Updater.CanInstall(release) ? "" : " Download it from the release page to install it.")
+                                ((AppProfile.IsPersonal ? Updater.CanDownloadPersonal(release) : Updater.CanInstall(release)) ? "" : " Download it from the release page to install it.")
             : Updater.LastError != null ? $"Couldn't check for updates: {Updater.LastError}."
             : Updater.LastChecked != null ? "You're on the latest version."
             : "";
-        InstallUpdateButton.IsEnabled = release != null && Updater.CanInstall(release);
+        InstallUpdateButton.IsEnabled = release != null && (AppProfile.IsPersonal ? Updater.CanDownloadPersonal(release) : Updater.CanInstall(release));
     }
 
     private async void CheckUpdates_Click(object sender, RoutedEventArgs e) => await Updater.CheckAsync();
@@ -131,7 +133,7 @@ public partial class SettingsView : UserControl
         await Updater.CheckAsync(); // what's on offer depends on the channel
     }
 
-    private void ShowChannelHint() => ChannelHint.Text = Updater.Channel == Updater.Nightly
+    private void ShowChannelHint() => ChannelHint.Text = AppProfile.IsPersonal ? "Only approved Personal releases. Nightly is not published. Downloads require manual installation." : Updater.Channel == Updater.Nightly
         ? "New features as they're made, before they're released. They may have bugs."
         : "Tested releases. A nightly build you're on now stays until a newer stable release comes out.";
 
@@ -160,6 +162,18 @@ public partial class SettingsView : UserControl
                 UpdateProgress.Value = p;
                 UpdateStatusText.Text = $"Downloading QuickClip {release.Version.Display}… {p:P0}";
             });
+            if (AppProfile.IsPersonal)
+            {
+                string package = await Updater.DownloadPersonalAsync(release, progress, CancellationToken.None);
+                _installing = false;
+                UpdateProgress.Visibility = Visibility.Collapsed;
+                ShowUpdateState();
+                UpdateStatusText.Text = "Verified download ready. Quit QuickClip before running the installer or extracting the portable ZIP.";
+                var explorer = new System.Diagnostics.ProcessStartInfo("explorer.exe") { UseShellExecute = true };
+                explorer.ArgumentList.Add("/select," + package);
+                System.Diagnostics.Process.Start(explorer);
+                return;
+            }
             bool windowHidden = !(Window.GetWindow(this)?.IsVisible ?? false);
             var startSwap = await Updater.PrepareInstallAsync(release, restartInTray: windowHidden, progress, CancellationToken.None);
             UpdateStatusText.Text = "Restarting to finish the update…";
@@ -270,7 +284,7 @@ public partial class SettingsView : UserControl
             FilenameTemplate.Text = s.ClipFilenameTemplate;
             ExclusionsBox.Text = string.Join(Environment.NewLine, s.LibraryExclusions ?? []);
             AutoUpdateCheck.IsChecked = s.CheckForUpdates;
-            ChannelCombo.ItemsSource = new[]
+            ChannelCombo.ItemsSource = AppProfile.IsPersonal ? new[] { new Choice("Stable", Updater.Stable) } : new[]
             {
                 new Choice("Stable", Updater.Stable),
                 new Choice("Nightly (development builds)", Updater.Nightly),

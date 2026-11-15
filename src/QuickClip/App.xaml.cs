@@ -220,8 +220,8 @@ public partial class App : Application
     {
         try
         {
-            if (!AppProfile.IsPersonal || Updates.Updater.IsEnabled)
-                throw new InvalidOperationException("Expected QuickClip Personal with upstream updates disabled.");
+            if (!AppProfile.IsPersonal || Updates.Updater.Repository != Updates.Updater.PersonalRepository)
+                throw new InvalidOperationException("Expected QuickClip Personal with its own release repository.");
             if (!CaptureEngine.IsAvailable || !Deps.HasLibMpv)
                 throw new InvalidOperationException("QuickClipCapture.dll and libmpv-2.dll must be bundled.");
             CaptureEngine.Initialize();

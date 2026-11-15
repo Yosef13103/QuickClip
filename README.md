@@ -8,7 +8,7 @@ QuickClip Personal is a Windows instant-replay recorder, clip library and video 
 
 > **This is the Personal fork, not the upstream application.** Release development lives on [`custom/main`](https://github.com/Yosef13103/QuickClip/tree/custom/main); `main` preserves the separate upstream-compatible line. Original project: [swiiftex/QuickClip](https://github.com/swiiftex/QuickClip). Features below describe the **Personal v1.1.0** release unless noted otherwise.
 
-**New in v1.1.0:** refreshed themes and animated settings, normal minimize and Editor lifecycle fixes, live manual-display switching, per-display game exclusions, storage visualization, tray/taskbar status badges, independent clip-saved image notifications and compact/detailed banners. Includes the built-in camera GIF. See the release notes for details.
+**New in v1.1.0:** refreshed interface, improved Editor lifecycle, live manual-display switching, status badges, independent clip-save animations and stable GitHub update checks. [Full release notes](docs/releases/personal-v1.1.0.md).
 
 ## The workflow
 
@@ -84,7 +84,7 @@ The installer uses `%LOCALAPPDATA%\Programs\QuickClip Personal`. The release bun
 - **Local data/cache:** `%LOCALAPPDATA%\QuickClip Personal`
 - **Default clips:** your Windows Videos directory under `QuickClip Personal` (configurable in Settings).
 - **Optional isolated portable data root:** set `QUICKCLIP_PERSONAL_DATA_DIR` to an absolute directory before starting a Personal build. This is useful for testing; don't put persistent data inside a folder you routinely delete.
-- **Updates:** automatic upstream updating is **disabled** for Personal builds. Install newer Personal releases explicitly from this repository.
+- **Updates:** Personal checks this repository's approved stable GitHub releases. Download verified packages from General settings and install them manually. No upstream updates or nightly releases.
 - **Explorer context menu:** stock QuickClip's Explorer registration is separate; Personal does not automatically install the upstream shell extension.
 
 **First launch:** Recording/automatic hotkeys are opt-in for a fresh Personal profile. Enable Instant Replay after checking your audio endpoints, game permissions and display selection.

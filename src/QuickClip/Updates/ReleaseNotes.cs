@@ -34,7 +34,7 @@ public static partial class ReleaseNotes
     /// The releases after <paramref name="after"/> up to and including <paramref name="current"/>, newest first
     /// (just <paramref name="current"/>'s when <paramref name="after"/> is null). Nightly builds only if this is one.
     /// </summary>
-    public static List<ReleaseNote> Select(string json, AppVersion? after, AppVersion current)
+    public static List<ReleaseNote> Select(string json, AppVersion? after, AppVersion current, bool personal = false)
     {
         var notes = new List<ReleaseNote>();
         using var doc = JsonDocument.Parse(json);
@@ -42,22 +42,22 @@ public static partial class ReleaseNotes
         {
             if (release.TryGetProperty("draft", out var draft) && draft.GetBoolean()) continue;
             string tag = release.GetProperty("tag_name").GetString() ?? "";
-            if (!AppVersion.TryParse(tag, out var version)) continue;
+            if (!(personal ? Updater.TryPersonalVersion(tag, out var version) : AppVersion.TryParse(tag, out version))) continue;
             bool prerelease = version.IsPrerelease || (release.TryGetProperty("prerelease", out var pre) && pre.GetBoolean());
-            if (prerelease && !current.IsPrerelease) continue;
+            if (prerelease && (personal || !current.IsPrerelease)) continue;
             bool wanted = after == null ? version.CompareTo(current) == 0 : version > after && !(version > current);
             if (!wanted) continue;
             notes.Add(new ReleaseNote(version,
                 release.TryGetProperty("name", out var n) && n.GetString() is { Length: > 0 } title ? title : $"QuickClip {version.Display}",
                 release.TryGetProperty("body", out var b) ? b.GetString() ?? "" : "",
-                release.TryGetProperty("html_url", out var u) ? u.GetString() ?? Updater.ReleasesPage : Updater.ReleasesPage));
+                personal ? Updater.PersonalReleasePage(tag) : release.TryGetProperty("html_url", out var u) ? u.GetString() ?? Updater.ReleasesPage : Updater.ReleasesPage));
         }
         notes.Sort((a, b) => b.Version.CompareTo(a.Version));
         return notes;
     }
 
     public static async Task<List<ReleaseNote>> FetchAsync(AppVersion? after, AppVersion current, CancellationToken ct) =>
-        Select(await Updater.GetReleasesJsonAsync(ct), after, current);
+        Select(await Updater.GetReleasesJsonAsync(ct), after, current, AppProfile.IsPersonal);
 
     /// <summary>The Markdown GitHub release notes use: headings, bullets (nested by indenting), paragraphs, bold, code and links.</summary>
     public static List<NoteBlock> Parse(string markdown)

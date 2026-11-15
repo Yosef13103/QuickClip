@@ -148,10 +148,11 @@ public partial class SettingsView
         SetChoices(OverlayDisplayCombo, displays, options.Display ?? "");
         SetChoices(OverlayAnchorCombo, Enum.GetValues<OverlayAnchor>().Where(a => a != OverlayAnchor.Center).Select(a => new Choice(AnchorLabels[(int)a], a)), options.Banner().Anchor);
         SetChoices(OverlayAnimationCombo, OverlayAnimationChoices(options.Anchor), options.Animation);
-        SetNumbers(OverlaySizeCombo, [48, 60, 72, 88, 104], options.Size, value => $"{value:0} DIP");
+        OverlaySizeBox.Text = options.Size.ToString("0.##", CultureInfo.CurrentCulture);
         SetNumbers(OverlayOpacityCombo, [.3, .5, .7, .9, 1], options.Opacity, value => $"{value:P0}");
         OverlayDurationBox.Text = options.Seconds.ToString("0.##", CultureInfo.CurrentCulture);
         OverlayDurationError.Text = "";
+        OverlaySizeError.Text = "";
         var image = options.Image();
         var imageDisplays = displays.ToList();
         if (!string.IsNullOrWhiteSpace(image.Display) && !imageDisplays.Any(d => Equals(d.Value, image.Display)))
@@ -159,10 +160,11 @@ public partial class SettingsView
         SetChoices(ImageOverlayDisplayCombo, imageDisplays, image.Display ?? "");
         SetChoices(ImageOverlayAnchorCombo, Enum.GetValues<OverlayAnchor>().Select(a => new Choice(AnchorLabels[(int)a], a)), image.Anchor);
         SetChoices(ImageOverlayAnimationCombo, OverlayAnimationChoices(image.Anchor), image.Animation);
-        SetNumbers(ImageOverlaySizeCombo, [40, 48, 60, 72, 88, 104, 120], image.Size, value => $"{value:0} DIP");
+        ImageOverlaySizeBox.Text = image.Size.ToString("0.##", CultureInfo.CurrentCulture);
         SetNumbers(ImageOverlayOpacityCombo, [.3, .5, .7, .9, 1], image.Opacity, value => $"{value:P0}");
         ImageOverlayDurationBox.Text = image.Seconds.ToString("0.##", CultureInfo.CurrentCulture);
         ImageOverlayDurationError.Text = "";
+        ImageOverlaySizeError.Text = "";
         OverlayImageError.Text = "";
         OverlayImageError.Visibility = Visibility.Collapsed;
     }
@@ -236,6 +238,10 @@ public partial class SettingsView
         ImageOverlayDurationError.Text = validImageDuration ? "" : "Enter a duration from 0.6 to 60 seconds.";
         T Value<T>(ComboBox combo, T fallback) => combo.SelectedItem is Choice { Value: T value } ? value : fallback;
         var image = old.ImageAppearance ?? new();
+        bool validSize = QuickClip.Shell.ClipOverlayOptions.TryParseSize(OverlaySizeBox.Text, out double size);
+        bool validImageSize = QuickClip.Shell.ClipOverlayOptions.TryParseSize(ImageOverlaySizeBox.Text, out double imageSize);
+        OverlaySizeError.Text = validSize ? "" : "Enter 24–240 DIP.";
+        ImageOverlaySizeError.Text = validImageSize ? "" : "Enter 24–240 DIP.";
         settings.ClipOverlay = old with
         {
             Enabled = mode is ClipNotificationMode.Overlay or ClipNotificationMode.Both,
@@ -251,7 +257,7 @@ public partial class SettingsView
             ShowDuration = OverlayShowDuration.IsChecked == true,
             Display = Value(OverlayDisplayCombo, old.Display ?? ""),
             Anchor = Value(OverlayAnchorCombo, old.Banner().Anchor),
-            Size = Value(OverlaySizeCombo, old.Size),
+            Size = validSize ? size : old.Size,
             Opacity = Value(OverlayOpacityCombo, old.Opacity),
             Seconds = validDuration ? seconds : old.Seconds,
             Animation = Value(OverlayAnimationCombo, old.Animation),
@@ -259,7 +265,7 @@ public partial class SettingsView
             {
                 Display = Value(ImageOverlayDisplayCombo, image.Display ?? ""),
                 Anchor = Value(ImageOverlayAnchorCombo, image.Anchor),
-                Size = Value(ImageOverlaySizeCombo, image.Size),
+                Size = validImageSize ? imageSize : image.Size,
                 Opacity = Value(ImageOverlayOpacityCombo, image.Opacity),
                 Seconds = validImageDuration ? imageSeconds : image.Seconds,
                 Animation = Value(ImageOverlayAnimationCombo, image.Animation),
@@ -314,7 +320,17 @@ public partial class SettingsView
         finally { button.IsEnabled = true; }
     }
 
-    private void ClearOverlayImage_Click(object sender, RoutedEventArgs e) => SaveOverlayImage(null);
+    private void ClearOverlayImage_Click(object sender, RoutedEventArgs e)
+    {
+        var settings = AppSettings.Current;
+        settings.ClipOverlay = (settings.ClipOverlay ?? new()).RestoreDefaultImage();
+        bool wasLoading = _loading;
+        _loading = true;
+        try { LoadClipFeedback(settings); }
+        finally { _loading = wasLoading; }
+        settings.Save();
+        App.Host?.TestClipOverlay();
+    }
 
     private void SaveOverlayImage(string? path)
     {
@@ -328,7 +344,7 @@ public partial class SettingsView
 
     private void ShowOverlayImage(string? path)
     {
-        ClearOverlayImage.IsEnabled = !string.IsNullOrWhiteSpace(path);
+        ClearOverlayImage.IsEnabled = ClipOverlayImage.HasDefault || !string.IsNullOrWhiteSpace(path);
         OverlayImageStatus.Text = string.IsNullOrWhiteSpace(path)
             ? ClipOverlayImage.HasDefault ? "Default camera animation (included with QuickClip)" : "Default animation unavailable in this build"
             : Path.GetFileName(path);

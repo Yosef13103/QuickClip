@@ -500,4 +500,27 @@ public sealed class ClipFeedbackTests
         Assert.All(tight.Frames, f => { Assert.Equal(4, f.Bitmap.PixelWidth); Assert.Equal(6, f.Bitmap.PixelHeight); Assert.True(f.Bitmap.IsFrozen); });
         Assert.Equal(original.Frames.Select(f => f.Delay), tight.Frames.Select(f => f.Delay));
     }
+
+    [Fact]
+    public void Restoring_default_image_resets_only_image_duration_and_path()
+    {
+        var options = new ClipOverlayOptions { ImagePath = "custom.gif", Seconds = 1.5,
+            ImageAppearance = new() { Seconds = 9, Size = 83, Anchor = OverlayAnchor.BottomLeft } };
+        var restored = options.RestoreDefaultImage();
+        Assert.Null(restored.ImagePath);
+        Assert.Equal(2.59, restored.Image().Seconds);
+        Assert.Equal(83, restored.Image().Size);
+        Assert.Equal(OverlayAnchor.BottomLeft, restored.Image().Anchor);
+        Assert.Equal(1.5, restored.Banner().Seconds);
+        Assert.Equal(2.59, new ClipImageAppearance().Seconds);
+    }
+
+    [Theory]
+    [InlineData("24", true)]
+    [InlineData("83.5", true)]
+    [InlineData("240", true)]
+    [InlineData("241", false)]
+    [InlineData("NaN", false)]
+    public void Custom_overlay_size_has_bounded_validation(string text, bool valid) =>
+        Assert.Equal(valid, ClipOverlayOptions.TryParseSize(text, out _));
 }

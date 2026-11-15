@@ -228,7 +228,7 @@
                         <Button x:Name="InstallUpdateButton" Style="{DynamicResource AccentButtonStyle}" Padding="12,5" Focusable="False" Click="InstallUpdate_Click">
                             <StackPanel Orientation="Horizontal">
                                 <TextBlock FontFamily="{StaticResource IconFont}" Text="&#xE896;" VerticalAlignment="Center" Margin="0,0,7,0"  TextWrapping="Wrap" />
-                                <TextBlock Text="Install and restart" />
+                                <TextBlock x:Name="InstallUpdateLabel" Text="Install and restart" />
                             </StackPanel>
                         </Button>
                         <Button Style="{StaticResource TextButton}" Content="What's new" Margin="8,0,0,0" Click="WhatsNew_Click" />
@@ -693,8 +693,9 @@
                                     <ComboBox x:Name="ImageOverlayAnimationCombo" SelectionChanged="ClipFeedback_Changed" AutomationProperties.Name="Image animation" />
                                 </StackPanel>
                                 <StackPanel Grid.Column="1" Margin="6,0,0,0">
-                                    <TextBlock Text="Size" />
-                                    <ComboBox x:Name="ImageOverlaySizeCombo" SelectionChanged="ClipFeedback_Changed" AutomationProperties.Name="Image size" />
+                                    <TextBlock Text="Size (DIP, 24–240)" TextWrapping="Wrap" />
+                                    <TextBox x:Name="ImageOverlaySizeBox" TextChanged="ClipFeedback_Changed" AutomationProperties.Name="Image size in device-independent pixels" />
+                                    <TextBlock x:Name="ImageOverlaySizeError" Foreground="{DynamicResource DangerBrush}" TextWrapping="Wrap" />
                                     <TextBlock Text="Opacity" Margin="0,8,0,0" />
                                     <ComboBox x:Name="ImageOverlayOpacityCombo" SelectionChanged="ClipFeedback_Changed" AutomationProperties.Name="Image opacity" />
                                     <TextBlock Text="Image duration in seconds (0.6–60)" Margin="0,8,0,0" />
@@ -744,8 +745,9 @@
                                     <ComboBox x:Name="OverlayAnimationCombo" SelectionChanged="ClipFeedback_Changed" AutomationProperties.Name="Indicator animation" />
                                 </StackPanel>
                                 <StackPanel Grid.Column="1" Margin="6,0,0,0">
-                                    <TextBlock Text="Size" />
-                                    <ComboBox x:Name="OverlaySizeCombo" SelectionChanged="ClipFeedback_Changed" AutomationProperties.Name="Indicator size" />
+                                    <TextBlock Text="Size (DIP, 24–240)" TextWrapping="Wrap" />
+                                    <TextBox x:Name="OverlaySizeBox" TextChanged="ClipFeedback_Changed" AutomationProperties.Name="Banner size in device-independent pixels" />
+                                    <TextBlock x:Name="OverlaySizeError" Foreground="{DynamicResource DangerBrush}" TextWrapping="Wrap" />
                                     <TextBlock Text="Opacity" Margin="0,8,0,0" />
                                     <ComboBox x:Name="OverlayOpacityCombo" SelectionChanged="ClipFeedback_Changed" AutomationProperties.Name="Indicator opacity" />
                                     <TextBlock Text="Duration in seconds (0.6–60)" Margin="0,8,0,0" />

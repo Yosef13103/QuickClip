@@ -40,3 +40,6 @@ Owner: Yosef. Updated 2026-11-15. This is the durable implementation backlog, no
 
 
 Wave 1 final candidate: v1.1.0 (minor release for backward-compatible new frontend/notification functions), owner accepted earlier implementation; final image edge placement and fresh CI/package acceptance remain. Release workflow publishes only after an approved merge to custom/main and successful quality/package jobs. No automatic remote branch cleanup in v1.1.0.
+
+### Final owner acceptance of Wave 1
+Owner explicitly accepted v1.1.0 subject to final requested refinements: built-in GIF duration 2.59 seconds on restore, custom notification DIP sizes, two-pixel banner edge margin, stable-only Personal update discovery and verified downloads. In-place automatic updates/rollback remain Wave 2 work; Personal does not publish nightlies (owner prefers only completed releases). Existing saved automatic-check opt-outs remain respected. Release CI and physical placement checks remain distinct. Do not treat updater download as an automatic installer.
