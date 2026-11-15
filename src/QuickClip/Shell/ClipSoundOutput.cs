@@ -63,8 +63,9 @@ internal static class ClipSoundOutput
         finally { Marshal.Release(rawStore); }
     }
 
-    internal static bool Play(string? endpointId, int volume = 100, byte[]? customWav = null)
+    internal static bool Play(string? endpointId, int volume = 100, byte[]? customWav = null, CancellationToken cancellation = default)
     {
+        if (cancellation.IsCancellationRequested) return false;
         try
         {
             var enumerator = (IMMDeviceEnumerator)new MMDeviceEnumerator();
@@ -79,7 +80,7 @@ internal static class ClipSoundOutput
                 {
                     if (device is not IClipSoundEndpoint endpoint) return false;
                     endpoint.GetDataFlow(out int flow);
-                    return flow == CoreAudio.DataFlowRender && Render(device, ScalePcm(customWav ?? Wav.Value, volume));
+                    return flow == CoreAudio.DataFlowRender && Render(device, ScalePcm(customWav ?? Wav.Value, volume), cancellation);
                 }
                 finally { Marshal.ReleaseComObject(device); }
             }
@@ -105,7 +106,7 @@ internal static class ClipSoundOutput
         return scaled;
     }
 
-    private static bool Render(IMMDevice device, byte[] wav)
+    private static bool Render(IMMDevice device, byte[] wav, CancellationToken cancellation)
     {
         if (wav.Length < 46 || (wav.Length - 44) % 2 != 0) return false;
         var clientId = typeof(IClipSoundAudioClient).GUID;
@@ -116,7 +117,9 @@ internal static class ClipSoundOutput
             // The embedded asset is a canonical PCM RIFF with a 16-byte format chunk and a data chunk.
             var format = new byte[18];
             wav.AsSpan(20, 16).CopyTo(format);
-            uint frames = (uint)((wav.Length - 44) / 2); // 16-bit mono
+            int blockAlign = System.Buffers.Binary.BinaryPrimitives.ReadUInt16LittleEndian(format.AsSpan(12, 2));
+            if (blockAlign is not (2 or 4) || (wav.Length - 44) % blockAlign != 0) return false;
+            uint frames = (uint)((wav.Length - 44) / blockAlign);
             client.Initialize(0, AutoConvertPcm | NoPersist, 6_000_000, 0, format, IntPtr.Zero);
             client.GetBufferSize(out uint capacity);
             if (capacity == 0) return false;
@@ -130,7 +133,7 @@ internal static class ClipSoundOutput
                 try
                 {
                     var deadline = Stopwatch.StartNew();
-                    while (deadline.Elapsed < TimeSpan.FromSeconds(ClipSoundCustom.MaxSeconds + 3))
+                    while (!cancellation.IsCancellationRequested && deadline.Elapsed < TimeSpan.FromSeconds(Math.Max(5, ClipSoundCustom.MaxSeconds) + 3))
                     {
                         client.GetCurrentPadding(out uint pending);
                         if (written == frames && pending == 0)
@@ -144,7 +147,7 @@ internal static class ClipSoundOutput
                         {
                             uint chunk = Math.Min(free, frames - written);
                             render.GetBuffer(chunk, out var buffer);
-                            Marshal.Copy(wav, 44 + (int)(written * 2), buffer, checked((int)chunk * 2));
+                            Marshal.Copy(wav, 44 + checked((int)written * blockAlign), buffer, checked((int)chunk * blockAlign));
                             render.ReleaseBuffer(chunk, 0);
                             written += chunk;
                         }

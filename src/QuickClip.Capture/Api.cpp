@@ -1,6 +1,7 @@
 // C API used by the QuickClip app (see QuickClip/Recording/CaptureEngine.cs).
 #include "Engine.h"
 #include <algorithm>
+#include <cmath>
 
 #include <condition_variable>
 #include <cstdarg>
@@ -38,6 +39,35 @@ namespace
     std::mutex g_micTestLock;
     std::unique_ptr<qc::AudioSource> g_micTest;
     int64_t g_micTestToken = 0;
+    constexpr int MicSampleMilliseconds = 5000;
+    constexpr int MicSampleCount = qc::SampleRate * qc::Channels * MicSampleMilliseconds / 1000;
+    // Allocated only by an explicit sample request. One worker writes; the consumer
+    // copies only after TestFinished publishes completion. No audio is written to disk.
+    struct MicSample
+    {
+        std::vector<int16_t> pcm = std::vector<int16_t>(MicSampleCount);
+        size_t used = 0;
+    };
+    std::shared_ptr<MicSample> g_micSample;
+
+    class MicSampleSink final : public qc::AudioSink
+    {
+    public:
+        explicit MicSampleSink(std::shared_ptr<MicSample> sample) : sample_(std::move(sample)) {}
+        void Push(const float* data, uint32_t frames, int64_t, bool) override
+        {
+            auto& sample = *sample_;
+            size_t count = std::min(static_cast<size_t>(frames) * qc::Channels, sample.pcm.size() - sample.used);
+            for (size_t i = 0; i < count; ++i)
+            {
+                float value = data && std::isfinite(data[i]) ? std::clamp(data[i], -1.f, 1.f) : 0.f;
+                sample.pcm[sample.used + i] = static_cast<int16_t>(std::lround(value * (value < 0 ? 32768.f : 32767.f)));
+            }
+            sample.used += count;
+        }
+    private:
+        std::shared_ptr<MicSample> sample_;
+    };
 
     // Called with the engine lock held. Release the test lock before joining its worker.
     void DrainMicrophoneTest()
@@ -46,6 +76,7 @@ namespace
         {
             std::lock_guard guard(g_micTestLock);
             test = std::move(g_micTest);
+            g_micSample.reset();
         }
     }
 
@@ -180,7 +211,7 @@ extern "C"
         return guard.owns_lock() && g_engine ? g_engine->GetAudioSignals(signals, capacity) : 0;
     }
 
-    __declspec(dllexport) HRESULT qc_start_mic_test(const wchar_t* id, int milliseconds, int64_t* token)
+    static HRESULT StartMicTest(const wchar_t* id, int milliseconds, int64_t* token, bool recordSample)
     {
         if (!id || wcsnlen_s(id, 512) >= 512 || milliseconds <= 0 || milliseconds > 10000 || !token)
             return E_INVALIDARG;
@@ -190,13 +221,41 @@ extern "C"
         if (g_micTest && !g_micTest->TestFinished()) return HRESULT_FROM_WIN32(ERROR_BUSY);
         try
         {
-            g_micTest = std::make_unique<qc::AudioSource>(qc::SourceKind::Microphone, 0, id, qc::SampleRate, nullptr,
+            auto sample = recordSample ? std::make_shared<MicSample>() : nullptr;
+            std::unique_ptr<qc::AudioSink> sink;
+            if (sample) sink = std::make_unique<MicSampleSink>(sample);
+            g_micTest = std::make_unique<qc::AudioSource>(qc::SourceKind::Microphone, 0, id, qc::SampleRate, std::move(sink),
                 -1, false, static_cast<DWORD>(milliseconds));
+            g_micSample = std::move(sample);
             *token = ++g_micTestToken;
             return S_OK;
         }
         catch (const std::bad_alloc&) { return E_OUTOFMEMORY; }
         catch (...) { return E_FAIL; }
+    }
+
+    __declspec(dllexport) HRESULT qc_start_mic_test(const wchar_t* id, int milliseconds, int64_t* token)
+    {
+        return StartMicTest(id, milliseconds, token, false);
+    }
+
+    __declspec(dllexport) HRESULT qc_start_mic_sample(const wchar_t* id, int64_t* token)
+    {
+        return StartMicTest(id, MicSampleMilliseconds, token, true);
+    }
+
+    // Positive = actual interleaved sample count; zero = still finishing; negative = unavailable.
+    __declspec(dllexport) int qc_read_mic_sample(int64_t token, int16_t* pcm, int capacity)
+    {
+        if (!pcm || capacity < MicSampleCount) return -1;
+        std::lock_guard guard(g_micTestLock);
+        if (!g_micTest || !g_micSample || token != g_micTestToken) return -1;
+        if (!g_micTest->TestFinished()) return 0;
+        const auto status = g_micTest->SignalStatus();
+        if (FAILED(status.error) || status.stage != static_cast<int>(qc::AudioStage::Complete) ||
+            status.actualFlow != 1 /* eCapture */ || !g_micSample->used) return -1;
+        std::copy_n(g_micSample->pcm.data(), g_micSample->used, pcm);
+        return static_cast<int>(g_micSample->used);
     }
 
     __declspec(dllexport) int qc_read_mic_test(int64_t token, QcAudioSignal* signal, int size)
@@ -214,6 +273,7 @@ extern "C"
         if (g_micTest && g_micTestToken == token)
         {
             g_micTest->RequestStop();
+            g_micSample.reset();
             ++g_micTestToken;
         }
     }

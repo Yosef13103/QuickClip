@@ -5,6 +5,8 @@ namespace QuickClip.Recording;
 internal static partial class CaptureEngine
 {
     internal const int MicrophoneTestDurationMs = 8000;
+    internal const int MicrophoneSampleDurationMs = 5000;
+    internal const int MicrophoneSampleCapacity = 48000 * 2 * 5;
 
     [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
     internal struct NativeAudioSignal
@@ -76,6 +78,15 @@ internal static partial class CaptureEngine
     internal static NativeAudioSignal? ReadMicrophoneTest(long token) =>
         qc_read_mic_test(token, out var signal, AudioSignalSize) == 1 ? signal : null;
 
+    internal static int StartMicrophoneSample(string endpointId, out long token)
+    {
+        Initialize();
+        return qc_start_mic_sample(endpointId, out token);
+    }
+
+    internal static int ReadMicrophoneSample(long token, short[] buffer) =>
+        qc_read_mic_sample(token, buffer, buffer.Length);
+
     internal static void StopMicrophoneTest(long token) => qc_stop_mic_test(token);
 
     internal static void DrainAudioOnShutdown()
@@ -87,5 +98,8 @@ internal static partial class CaptureEngine
     [DllImport(Dll, CharSet = CharSet.Unicode, ExactSpelling = true)]
     private static extern int qc_start_mic_test(string id, int milliseconds, out long token);
     [DllImport(Dll)] private static extern int qc_read_mic_test(long token, out NativeAudioSignal signal, int size);
+    [DllImport(Dll, CharSet = CharSet.Unicode, ExactSpelling = true)]
+    private static extern int qc_start_mic_sample(string id, out long token);
+    [DllImport(Dll)] private static extern int qc_read_mic_sample(long token, [Out] short[] pcm, int capacity);
     [DllImport(Dll)] private static extern void qc_stop_mic_test(long token);
 }
