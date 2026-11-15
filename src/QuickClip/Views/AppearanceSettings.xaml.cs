@@ -6,7 +6,7 @@ namespace QuickClip.Views;
 
 public partial class AppearanceSettings : UserControl
 {
-    private sealed record Option(ThemeChoice Choice, string Label);
+    private sealed record Option(ThemeChoice Choice, string Label, string? Json = null);
     private bool _loading;
 
     public AppearanceSettings()
@@ -17,14 +17,6 @@ public partial class AppearanceSettings : UserControl
             Visibility = Visibility.Collapsed;
             return;
         }
-        ThemePicker.ItemsSource = new Option[]
-        {
-            new(ThemeChoice.Dark, "QuickClip Dark"),
-            new(ThemeChoice.Amoled, "AMOLED"),
-            new(ThemeChoice.Slate, "Slate"),
-            new(ThemeChoice.Light, "Light"),
-            new(ThemeChoice.Custom, "Custom"),
-        };
         CustomEditor.Saved += RefreshSelection;
         Loaded += (_, _) => RefreshSelection();
     }
@@ -34,13 +26,23 @@ public partial class AppearanceSettings : UserControl
         _loading = true;
         try
         {
-            var options = ThemePicker.Items.OfType<Option>();
             var settings = AppSettings.Current;
+            var options = new List<Option>
+            {
+                new(ThemeChoice.Dark, "QuickClip Dark"), new(ThemeChoice.Amoled, "AMOLED"),
+                new(ThemeChoice.Slate, "Slate"), new(ThemeChoice.Light, "Light"),
+            };
+            foreach (var json in SavedThemes.Normalize(settings.SavedCustomThemes, settings.CustomThemeJson))
+                if (ThemeResources.ReadSaved(json) is { } theme)
+                    options.Add(new(ThemeChoice.Custom, theme.Name + " (custom)", json));
+            ThemePicker.ItemsSource = options;
             var selected = ThemeResources.ThemeChoiceFrom(settings.Theme);
-            if (selected == ThemeChoice.Custom && (ThemeResources.ReadSaved(settings.CustomThemeJson) is not { } custom ||
-                ThemePalette.ReadabilityWarnings(custom.Palette).Any()))
-                selected = ThemeChoice.Dark;
-            ThemePicker.SelectedItem = options.FirstOrDefault(option => option.Choice == selected) ?? options.First();
+            var active = ThemeResources.ReadSaved(settings.CustomThemeJson);
+            ThemePicker.SelectedItem = selected == ThemeChoice.Custom
+                ? options.FirstOrDefault(option => option.Choice == selected &&
+                    string.Equals(ThemeResources.ReadSaved(option.Json)?.Name, active?.Name, StringComparison.OrdinalIgnoreCase)) ?? options[0]
+                : options.FirstOrDefault(option => option.Choice == selected) ?? options[0];
+            RemoveThemeButton.IsEnabled = ThemePicker.SelectedItem is Option { Choice: ThemeChoice.Custom };
         }
         finally { _loading = false; }
     }
@@ -50,22 +52,53 @@ public partial class AppearanceSettings : UserControl
         if (_loading || !IsLoaded || Application.Current is not App app || ThemePicker.SelectedItem is not Option option)
             return;
         var settings = AppSettings.Current;
-        if (option.Choice == ThemeChoice.Custom && (ThemeResources.ReadSaved(settings.CustomThemeJson) is not { } custom ||
+        if (option.Choice == ThemeChoice.Custom && (ThemeResources.ReadSaved(option.Json) is not { } custom ||
             ThemePalette.ReadabilityWarnings(custom.Palette).Any()))
         {
             RefreshSelection();
             ModalDialog.Show(Window.GetWindow(this), "Save a readable palette under Custom palette first.", "Custom theme");
             return;
         }
-        string? previous = settings.Theme;
+        string? previous = settings.Theme, previousJson = settings.CustomThemeJson;
         settings.Theme = option.Choice.ToString();
-        if (settings.TrySave()) app.Themes.Apply(app, settings);
+        if (option.Choice == ThemeChoice.Custom) settings.CustomThemeJson = option.Json;
+        if (settings.TrySave())
+        {
+            app.Themes.Apply(app, settings);
+            if (option.Choice == ThemeChoice.Custom && ThemeResources.ReadSaved(option.Json) is { } theme)
+                CustomEditor.LoadDraft(theme);
+            RemoveThemeButton.IsEnabled = option.Choice == ThemeChoice.Custom;
+        }
         else
         {
             settings.Theme = previous;
+            settings.CustomThemeJson = previousJson;
             RefreshSelection();
             ModalDialog.Show(Window.GetWindow(this), "QuickClip could not save the selected theme.",
                 "Settings could not be saved", image: MessageBoxImage.Error);
         }
+    }
+    private void RemoveTheme_Click(object sender, RoutedEventArgs e)
+    {
+        if (Application.Current is not App app || ThemePicker.SelectedItem is not Option { Choice: ThemeChoice.Custom } option ||
+            !ModalDialog.AskConfirmation(Window.GetWindow(this), $"Remove {option.Label} from your saved themes?", "Remove theme", "Remove")) return;
+        var settings = AppSettings.Current;
+        var old = settings.SavedCustomThemes;
+        string? json = settings.CustomThemeJson, choice = settings.Theme;
+        var name = ThemeResources.ReadSaved(option.Json)?.Name;
+        settings.SavedCustomThemes = SavedThemes.Normalize(old, json).Where(item =>
+            !string.Equals(ThemeResources.ReadSaved(item)?.Name, name, StringComparison.OrdinalIgnoreCase)).ToArray();
+        settings.CustomThemeJson = null;
+        settings.Theme = nameof(ThemeChoice.Dark);
+        if (!settings.TrySave())
+        {
+            settings.SavedCustomThemes = old;
+            settings.CustomThemeJson = json;
+            settings.Theme = choice;
+            ModalDialog.Show(Window.GetWindow(this), "Could not remove the saved theme.", "Settings");
+            return;
+        }
+        app.Themes.Apply(app, settings);
+        RefreshSelection();
     }
 }

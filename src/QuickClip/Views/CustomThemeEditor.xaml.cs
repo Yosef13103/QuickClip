@@ -33,8 +33,9 @@ public partial class CustomThemeEditor : UserControl
     private static ThemeDocument DefaultTheme() => new("Custom", ThemePalette.Get(ThemeChoice.Dark));
     private ThemeDocument Draft => new(NameBox.Text, _draft);
 
-    private void LoadDraft(ThemeDocument theme)
+    internal void LoadDraft(ThemeDocument theme)
     {
+        if (!_initialized) return;
         _updating = true;
         try
         {
@@ -116,14 +117,35 @@ public partial class CustomThemeEditor : UserControl
     private void Save_Click(object sender, RoutedEventArgs e)
     {
         if (!SaveButton.IsEnabled || Application.Current is not App app) return;
-        using var data = new MemoryStream();
-        Draft.Write(data);
+        SaveTheme(Draft, app);
+    }
+
+    private void SaveTheme(ThemeDocument theme, App app)
+    {
+        if (ThemePalette.ReadabilityWarnings(theme.Palette).Any())
+        {
+            Feedback.Text = "Improve the palette contrast before saving it.";
+            return;
+        }
         var settings = AppSettings.Current;
+        var library = SavedThemes.Normalize(settings.SavedCustomThemes, settings.CustomThemeJson);
+        string json = SavedThemes.Encode(theme);
+        var existing = library.FirstOrDefault(item => string.Equals(ThemeResources.ReadSaved(item)?.Name,
+            theme.Name.Trim(), StringComparison.OrdinalIgnoreCase));
+        if (existing != null && existing != json &&
+            !ModalDialog.AskConfirmation(Window.GetWindow(this), $"Replace the existing saved theme named {theme.Name.Trim()}?",
+                "Replace saved theme", "Replace")) return;
+        string[] updated;
+        try { updated = SavedThemes.Put(library, theme with { Name = theme.Name.Trim() }); }
+        catch (InvalidDataException ex) { Feedback.Text = ex.Message; return; }
         string? previous = settings.CustomThemeJson, previousChoice = settings.Theme;
-        settings.CustomThemeJson = Encoding.UTF8.GetString(data.ToArray());
+        var previousLibrary = settings.SavedCustomThemes;
+        settings.SavedCustomThemes = updated;
+        settings.CustomThemeJson = json;
         settings.Theme = nameof(ThemeChoice.Custom);
         if (!settings.TrySave())
         {
+            settings.SavedCustomThemes = previousLibrary;
             settings.CustomThemeJson = previous;
             settings.Theme = previousChoice;
             Feedback.Text = "QuickClip could not save the palette.";
@@ -131,7 +153,7 @@ public partial class CustomThemeEditor : UserControl
         }
         app.Themes.Apply(app, settings);
         Saved?.Invoke();
-        Feedback.Text = "Custom theme saved.";
+        Feedback.Text = "Theme stored in your QuickClip library.";
     }
 
     private void Import_Click(object sender, RoutedEventArgs e)
@@ -141,7 +163,9 @@ public partial class CustomThemeEditor : UserControl
         try
         {
             using var stream = File.OpenRead(dialog.FileName);
-            LoadDraft(ThemeDocument.Read(stream));
+            var theme = ThemeDocument.Read(stream);
+            LoadDraft(theme);
+            if (Application.Current is App app) SaveTheme(theme, app);
         }
         catch (Exception ex) when (ex is IOException or InvalidDataException or UnauthorizedAccessException)
         {

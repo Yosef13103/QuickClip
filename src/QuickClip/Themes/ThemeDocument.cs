@@ -70,3 +70,46 @@ internal sealed record ThemeDocument(string Name, IReadOnlyDictionary<ThemeColor
         return result;
     }
 }
+
+
+/// <summary>Validated, profile-local theme collection; never depends on imported file paths.</summary>
+internal static class SavedThemes
+{
+    internal const int MaxThemes = 128;
+
+    internal static string Encode(ThemeDocument theme)
+    {
+        using var stream = new MemoryStream();
+        theme.Write(stream);
+        return System.Text.Encoding.UTF8.GetString(stream.ToArray());
+    }
+
+    internal static string[] Normalize(IEnumerable<string>? themes, string? active)
+    {
+        var result = new List<string>();
+        var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        // Preserve the most recently active legacy palette even at the capacity limit.
+        foreach (var json in new[] { active }.Concat(themes ?? []))
+        {
+            if (ThemeResources.ReadSaved(json) is not { } theme ||
+                ThemePalette.ReadabilityWarnings(theme.Palette).Any() || !names.Add(theme.Name)) continue;
+            if (result.Count >= MaxThemes) break;
+            result.Add(Encode(theme));
+        }
+        return [.. result];
+    }
+
+    internal static string[] Put(IEnumerable<string>? themes, ThemeDocument theme)
+    {
+        var result = Normalize(themes, null).ToList();
+        int index = result.FindIndex(json => string.Equals(ThemeResources.ReadSaved(json)?.Name, theme.Name,
+            StringComparison.OrdinalIgnoreCase));
+        if (index >= 0) result[index] = Encode(theme);
+        else
+        {
+            if (result.Count >= MaxThemes) throw new InvalidDataException("The saved theme library is full (128 themes). Remove a theme first.");
+            result.Add(Encode(theme));
+        }
+        return [.. result];
+    }
+}

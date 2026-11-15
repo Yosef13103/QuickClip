@@ -79,4 +79,18 @@ public sealed class CaptureSourcePolicyTests
         Assert.Equal(AppProfile.IsPersonal, new AppSettings().EnableLibraryIndex);
         Assert.False(AppSettings.Parse("{\"EnableLibraryIndex\":false}").EnableLibraryIndex);
     }
+
+    [Fact]
+    public void Excluded_displays_veto_manual_and_automatic_capture_without_granting_game_permission()
+    {
+        var s = new AppSettings { AllowGameDisplayFollowing = false, ExcludedGameDisplays = ["blocked"] };
+        Assert.False(CaptureSourcePolicy.AllowsManualDisplay(s, "BLOCKED"));
+        Assert.False(CaptureSourcePolicy.AllowsGameDisplay(s, "BLOCKED"));
+        Assert.True(CaptureSourcePolicy.AllowsManualDisplay(s, "other"));
+        Assert.False(CaptureSourcePolicy.AllowsGameDisplay(s, "other"));
+        s.AllowGameDisplayFollowing = true;
+        Assert.True(CaptureSourcePolicy.AllowsGameDisplay(s, "other"));
+        Assert.False(CaptureSourcePolicy.AllowsManualDisplay(s, "blocked"));
+        Assert.False(CaptureSourcePolicy.AllowsGameDisplay(s, "blocked"));
+    }
 }

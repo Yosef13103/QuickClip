@@ -6,6 +6,8 @@
         <Label Content="_Theme" Target="{Binding ElementName=ThemePicker}" Padding="0,0,0,4" />
         <ComboBox x:Name="ThemePicker" HorizontalAlignment="Left" MinWidth="180" DisplayMemberPath="Label"
                   AutomationProperties.Name="Theme" SelectionChanged="ThemePicker_Changed" />
+        <Button x:Name="RemoveThemeButton" Content="Remove selected saved theme" HorizontalAlignment="Left" Margin="0,6,0,0" IsEnabled="False" Click="RemoveTheme_Click" />
+        <TextBlock Text="Imported themes are saved in QuickClip. Select any saved theme above, even after deleting or moving the original JSON file." TextWrapping="Wrap" Foreground="{DynamicResource SecondaryTextBrush}" Margin="0,6,0,0" />
         <Expander Header="Custom palette" Margin="0,10,0,0">
             <views:CustomThemeEditor x:Name="CustomEditor" Margin="0,8,0,0" />
         </Expander>

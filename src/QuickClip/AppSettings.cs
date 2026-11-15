@@ -97,6 +97,7 @@ internal sealed class AppSettings
     public bool? EnableReplayOnStartup { get; set; }
     public string? Theme { get; set; }
     public string? CustomThemeJson { get; set; }
+    public string[] SavedCustomThemes { get; set; } = [];
     public bool StartInTray { get; set; } = true;
     public bool CloseToTray { get; set; } = true;
 
@@ -150,6 +151,7 @@ internal sealed class AppSettings
     {
         var settings = JsonSerializer.Deserialize<AppSettings>(json, JsonOptions) ?? new AppSettings();
         settings.ClipOverlay = (settings.ClipOverlay ?? new()).Migrate();
+        if (AppProfile.IsPersonal) settings.SavedCustomThemes = Themes.SavedThemes.Normalize(settings.SavedCustomThemes, settings.CustomThemeJson);
         // V1 shared a preference between minimizing and Windows startup. Only
         // the startup behavior survives; the newer key takes precedence.
         using (var legacy = JsonDocument.Parse(json))

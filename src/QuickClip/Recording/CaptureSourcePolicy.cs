@@ -80,8 +80,16 @@ internal static class CaptureSourcePolicy
             string.Equals(m.DeviceName, device, StringComparison.OrdinalIgnoreCase));
     }
 
+    // Retain the serialized name for backwards compatibility; exclusions now
+    // veto either Personal capture mode, without granting any source permission.
+    internal static bool IsDisplayExcluded(AppSettings settings, string identity) =>
+        (settings.ExcludedGameDisplays ?? []).Contains(identity, StringComparer.OrdinalIgnoreCase);
+
+    internal static bool AllowsManualDisplay(AppSettings settings, string identity) =>
+        !string.IsNullOrWhiteSpace(identity) && !IsDisplayExcluded(settings, identity);
+
     internal static bool AllowsGameDisplay(AppSettings settings, string identity) =>
-        !(settings.ExcludedGameDisplays ?? []).Contains(identity, StringComparer.OrdinalIgnoreCase) &&
+        AllowsManualDisplay(settings, identity) &&
         (settings.AllowGameDisplayFollowing || (settings.PreferGameWindow &&
             string.Equals(settings.AuthorizedGameDisplay, identity, StringComparison.OrdinalIgnoreCase)));
 

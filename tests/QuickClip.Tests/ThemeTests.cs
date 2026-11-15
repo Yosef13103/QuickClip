@@ -214,4 +214,25 @@ public sealed class ThemeTests
         new ThemeDocument("Custom sample", ThemePalette.Get(ThemeChoice.Slate)).Write(stream);
         return Encoding.UTF8.GetString(stream.ToArray());
     }
+
+    [Fact]
+    public void Saved_custom_theme_library_migrates_legacy_and_round_trips_multiple_themes()
+    {
+        if (!AppProfile.IsPersonal) return;
+        var legacy = AppSettings.Parse(new AppSettings { Theme = "Custom", CustomThemeJson = ExportedPalette() }.ToJson());
+        Assert.Single(legacy.SavedCustomThemes);
+        var pink = new ThemeDocument("Pink", ThemePalette.Get(ThemeChoice.Light));
+        var purple = new ThemeDocument("Purple", ThemePalette.Get(ThemeChoice.Amoled));
+        legacy.SavedCustomThemes = SavedThemes.Put(SavedThemes.Put(legacy.SavedCustomThemes, pink), purple);
+        legacy.CustomThemeJson = SavedThemes.Encode(pink);
+        var restored = AppSettings.Parse(legacy.ToJson());
+        Assert.Equal(3, restored.SavedCustomThemes.Length);
+        Assert.Contains(restored.SavedCustomThemes, json => ThemeResources.ReadSaved(json)?.Name == "Purple");
+        Assert.Equal("Pink", ThemeResources.ReadSaved(restored.CustomThemeJson)!.Name);
+        restored.SavedCustomThemes = SavedThemes.Put(restored.SavedCustomThemes,
+            new ThemeDocument("purple", ThemePalette.Get(ThemeChoice.Slate)));
+        Assert.Equal(3, restored.SavedCustomThemes.Length);
+        Assert.Single(restored.SavedCustomThemes.Where(json => ThemeResources.ReadSaved(json)?.Name == "purple"));
+        Assert.Equal(3, SavedThemes.Normalize(restored.SavedCustomThemes.Append("invalid"), restored.CustomThemeJson).Length);
+    }
 }
