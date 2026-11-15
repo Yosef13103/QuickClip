@@ -13,11 +13,15 @@ public partial class EditorView
     private bool _sourceSuspended, _recheckingSource, _replacingSource;
     private bool _previewReady;
     private bool _restoreRepaintQueued;
+    private bool _sourceEventsAttached;
     private Window? _sourceWindow;
     private bool SourceReady => _sourceState == EditorSourceState.Ready && !_sourceSuspended;
 
     private void AttachSourceEvents()
     {
+        // Subscribe exactly once even if the host's visual tree is reattached.
+        if (_sourceEventsAttached) return;
+        _sourceEventsAttached = true;
         ClipDeletion.Current.Releasing += OnSourceReleasing;
         ClipDeletion.Current.Changed += OnSourceDeletionChanged;
         _sourceWindow = Window.GetWindow(this);
@@ -31,6 +35,8 @@ public partial class EditorView
 
     private void DetachSourceEvents()
     {
+        if (!_sourceEventsAttached) return;
+        _sourceEventsAttached = false;
         ClipDeletion.Current.Releasing -= OnSourceReleasing;
         ClipDeletion.Current.Changed -= OnSourceDeletionChanged;
         if (_sourceWindow != null)
@@ -39,6 +45,7 @@ public partial class EditorView
             _sourceWindow.StateChanged -= OnSourceWindowStateChanged;
             _sourceWindow.IsVisibleChanged -= OnSourceWindowVisibilityChanged;
         }
+        _sourceWindow = null;
     }
 
     private void OnSourceReleasing(IReadOnlyList<string> paths)
@@ -75,7 +82,7 @@ public partial class EditorView
     /// </summary>
     private void QueueNativePreviewRepaint()
     {
-        if (_restoreRepaintQueued || _closed || _sourceWindow is not { IsVisible: true } window ||
+        if (_restoreRepaintQueued || _closed || !IsVisible || _sourceWindow is not { IsVisible: true } window ||
             window.WindowState == WindowState.Minimized) return;
         _restoreRepaintQueued = true;
         Dispatcher.BeginInvoke(new Action(() =>
@@ -86,8 +93,13 @@ public partial class EditorView
                     _sourceWindow?.IsVisible == true,
                     _sourceWindow?.WindowState == WindowState.Minimized,
                     IsVisible, SourceReady, _previewReady, _media != null))
+                {
+                    // Only update mpv's letterbox after its HWND has been laid out.
                     Video.RefreshAfterRestore();
-            }), DispatcherPriority.Background)), DispatcherPriority.Loaded);
+                    _player?.RefreshTheme();
+                    Video.RefreshAfterRestore();
+                }
+            }), DispatcherPriority.ContextIdle)), DispatcherPriority.Loaded);
     }
 
     private void StopSourcePreview()
@@ -99,6 +111,7 @@ public partial class EditorView
         _audioSyncTimer.Stop();
         _paused = true;
         _previewReady = false;
+        PlayButton.IsEnabled = false;
         // libmpv can retain the last rendered frame while idle. Hide its HWND until
         // a FileLoaded event verifies that the requested current clip is playing.
         Video.Visibility = Visibility.Hidden;

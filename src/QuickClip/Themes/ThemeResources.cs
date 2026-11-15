@@ -22,10 +22,11 @@ internal sealed class ThemeResources
         ThemeDocument? custom = choice == ThemeChoice.Custom ? ReadSaved(settings.CustomThemeJson) : null;
         if (choice == ThemeChoice.Custom && (custom == null || ThemePalette.ReadabilityWarnings(custom.Palette).Any()))
             choice = ThemeChoice.Dark;
-        application.ThemeMode = SystemParameters.HighContrast ? ThemeMode.System :
+        var mode = SystemParameters.HighContrast ? ThemeMode.System :
             choice == ThemeChoice.Light || choice == ThemeChoice.Custom &&
             ThemePalette.Contrast(custom!.Palette[ThemeColor.Background], Colors.Black) > 5
                 ? ThemeMode.Light : ThemeMode.Dark;
+        if (!Equals(application.ThemeMode, mode)) application.ThemeMode = mode;
         if (SystemParameters.HighContrast)
         {
             Apply(_resources, ThemeChoice.Custom, HighContrastPalette(), overrideFluent: false);

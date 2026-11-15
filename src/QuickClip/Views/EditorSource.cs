@@ -30,6 +30,9 @@ internal static class EditorSource
         }
     }
 
+    internal static bool CanInitializePreview(bool closed, bool initializing, bool playerExists) =>
+        !closed && !initializing && !playerExists;
+
     /// <summary>Only an exposed, active mpv preview can receive a native repaint on restore.</summary>
     internal static bool ShouldRepaintNativePreview(
         bool windowVisible, bool windowMinimized, bool editorVisible,

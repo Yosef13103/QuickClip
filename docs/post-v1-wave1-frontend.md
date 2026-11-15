@@ -48,3 +48,17 @@ The first Windows quality run passed both profiles, but owner screenshots showed
 Do not implement duration changes by suppressing the restart alone: native ring capacity would remain unchanged. Add a supported native runtime replay-duration update that safely resizes/evicts the encoded packet history under its existing synchronization, retains frames/audio/keyframes and session identity when increasing, and restricts save to the requested shorter lookback immediately when decreasing. Keep marker timestamps, native generation, buffer duration/byte metrics, manual/game graph, and hybrid audio alignment correct. Test repeated grow/shrink under simultaneous saves, keyframe boundaries, duration caps, memory/CPU, and failed requests; unrelated encoding/source changes may still legitimately restart. No change to replay length behavior in this frontend follow-up.
 
 Owner retest and fresh Windows CI required before merge.
+
+
+## Editor lifecycle regression: theme switch with an open clip
+
+Owner reproduced audio-only/blank native viewport after minimizing and a permanently loading preview after switching theme in Settings and returning to Editor. Recreating the window or selecting a new clip restores playback.
+
+The Editor's Loaded handler previously created a new mpv instance on every WPF Loaded event, unlike the guarded player/project handlers. WPF explicitly permits Loaded/Unloaded during theme/template invalidation (https://learn.microsoft.com/en-us/dotnet/api/system.windows.frameworkelement.loaded). This is a concrete lifetime defect and a strong explanation of the symptoms, not yet a hardware-confirmed root cause.
+
+- Guard initialization before and after awaiting the native window; subscribe source events once; detach callbacks on close. Repeated Loaded schedules refresh, not player allocation, placeholder reset or loop reset.
+- Coalesce visible-preview refresh after layout, update native host visibility/position, request asynchronous redraw, avoid forcing non-client frame changes or synchronous child rendering. Reapply the mpv letterbox only if the effective color changes. Skip redundant WPF ThemeMode assignments.
+- Never show a stale/unverified preview or accept play before the current file is ready. No changes to capture, recorded files, edit draft, trim, audio routing or playback duration.
+- Added single-owner guard tests and a Debug-only scratch-video integration smoke (`--render=<scratch output dir> --editor-lifecycle-smoke-only <scratch video path>`). Use a video longer than four seconds, with a distinct test profile. It cycles themes, explicitly repeats Loaded, checks player/HWND identity, trim, position, decoded-frame screenshots and advancing playback. Success writes editor-lifecycle.txt; exceptions are logged. Offscreen smoke does not prove real on-screen Win10 DWM composition.
+
+Owner acceptance: fully quit the old dev process before rebuilding (old orphan players cannot be repaired in place). Open a disposable clip, set a trim and pause at a recognizable frame. Repeatedly minimize/restore while paused and playing. Navigate to Settings and change Dark/Light/Slate/AMOLED/Custom, return to Editor, verify current frame, time, trim, audio lanes, loop, play/pause; no selecting another clip. Also verify standard close-to-tray/reopen and explicit quit. If blank, distinguish advancing timeline/audio from frozen timeline and capture the existing app log. CI plus actual local visual acceptance remain required.
