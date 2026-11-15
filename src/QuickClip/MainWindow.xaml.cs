@@ -62,8 +62,8 @@ public partial class MainWindow : Window
             UpdateStatus();
             _statusTimer.Start();
             _ = ShowWhatsNewAfterUpdateAsync();
-            if (AppProfile.IsPersonal && !AppSettings.SaveDisabled && !AppSettings.Current.LoadedFromFile
-                && !AppSettings.Current.ReplayOnboardingCompleted)
+            if (AppProfile.IsPersonal && !AppSettings.SaveDisabled && !AppSettings.Current.ReplayOnboardingCompleted
+                && (!AppSettings.Current.LoadedFromFile || AppSettings.Current.GuidedSetupStep.HasValue))
                 Dispatcher.BeginInvoke(ShowFirstRunReplayChoice, DispatcherPriority.ApplicationIdle);
         };
         WhatsNew.Closed += () =>
@@ -253,27 +253,13 @@ public partial class MainWindow : Window
 
     private void UpdateButton_Click(object sender, RoutedEventArgs e) => ShowSettings();
 
-    private async void ShowFirstRunReplayChoice()
+    private void ShowFirstRunReplayChoice()
     {
         var settings = AppSettings.Current;
-        if (!IsVisible || settings.LoadedFromFile || settings.ReplayOnboardingCompleted || AppSettings.SaveDisabled) return;
-        bool enable = ModalDialog.ConfirmAction(this,
-            "QuickClip can save the last minute of gameplay when you press the hotkey. " +
-            "While waiting for a recognized game, it does not start the video or audio capture engine.\n\n" +
-            "QuickClip records the entire display containing an eligible game and follows it to any connected display, including displays connected later. " +
-            "Other apps, messages and notifications visible on that display can appear in clips.\n\n" +
-            "Enable instant replay and allow game display following?",
-            "Welcome to QuickClip Personal", "Enable instant replay", "Not now", destructive: false);
-        settings.ReplayOnboardingCompleted = true;
-        if (enable)
-        {
-            settings.AllowGameDisplayFollowing = true;
-            settings.RecordingEnabled = true;
-        }
-        settings.Save();
-        await Recorder.Instance.ApplySettingsAsync();
-        UpdateStatus();
-        if (enable) ShowSettings();
+        if (!IsVisible || settings.ReplayOnboardingCompleted || AppSettings.SaveDisabled ||
+            (settings.LoadedFromFile && !settings.GuidedSetupStep.HasValue)) return;
+        ShowSettings();
+        SettingsPage.BeginGuidedSetup();
     }
 
     private void UpdateStatus()

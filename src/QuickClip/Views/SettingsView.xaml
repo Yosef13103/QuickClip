@@ -191,6 +191,34 @@
             </ScrollViewer>
         </Border>
         <Grid Grid.Column="1">
+            <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="*" /></Grid.RowDefinitions>
+            <StackPanel x:Name="ExperienceHeader" Grid.Row="0" Margin="20,10,20,0" Visibility="Collapsed">
+                <DockPanel>
+                    <WrapPanel DockPanel.Dock="Right" HorizontalAlignment="Right">
+                        <Button x:Name="ModeButton" Content="Advanced settings" Click="SettingsMode_Click" Margin="4,0,0,4" />
+                        <Button x:Name="SetupGuideButton" Content="Guided setup" Click="SetupGuide_Click" Margin="4,0,0,4" />
+                    </WrapPanel>
+                    <TextBlock x:Name="ModeLabel" Text="Basic settings" FontWeight="SemiBold" VerticalAlignment="Center" />
+                </DockPanel>
+                <Border x:Name="GuideBanner" Visibility="Collapsed" Background="{DynamicResource ElevatedSurfaceBrush}" CornerRadius="9" Padding="14" Margin="0,8,0,8">
+                    <StackPanel>
+                        <TextBlock x:Name="GuideProgressLabel" Style="{StaticResource Hint}" />
+                        <ProgressBar x:Name="GuideProgress" Minimum="0" Maximum="9" Height="5" Margin="0,4,0,8" />
+                        <TextBlock x:Name="GuideTitle" FontSize="{DynamicResource QuickClipText24}" FontWeight="SemiBold" TextWrapping="Wrap" />
+                        <TextBlock x:Name="GuideHint" TextWrapping="Wrap" Margin="0,6,0,8" AutomationProperties.LiveSetting="Polite" />
+                        <TextBlock x:Name="GuideSummary" TextWrapping="Wrap" Margin="0,0,0,8" />
+                        <WrapPanel>
+                            <Button x:Name="GuideBack" Content="Back" Click="GuideBack_Click" Margin="0,0,8,4" />
+                            <Button x:Name="GuideNext" Content="Continue" Click="GuideNext_Click" Margin="0,0,8,4" />
+                            <Button x:Name="GuideEnable" Content="Enable recording and finish" Click="GuideEnable_Click" Margin="0,0,8,4" Visibility="Collapsed" />
+                            <Button x:Name="GuidePause" Content="Pause setup" Click="GuidePause_Click" Margin="0,0,8,4" />
+                            <Button x:Name="GuideSkip" Content="Skip remaining setup" Click="GuideSkip_Click" Margin="0,0,8,4" />
+                        </WrapPanel>
+                        <TextBlock x:Name="GuideError" TextWrapping="Wrap" Foreground="{DynamicResource DangerBrush}" AutomationProperties.LiveSetting="Assertive" />
+                    </StackPanel>
+                </Border>
+            </StackPanel>
+            <Grid Grid.Row="1">
         <views:GamesSettingsView x:Name="GamesPage" Visibility="Collapsed" />
         <ScrollViewer x:Name="GeneralPage" VerticalScrollBarVisibility="Visible" HorizontalScrollBarVisibility="Disabled">
         <StackPanel x:Name="SettingsContent" MaxWidth="1340" Margin="28,22,14,28" HorizontalAlignment="Center">
@@ -262,7 +290,7 @@
                         <ComboBoxItem x:Name="DisplaySourceItem" Content="Selected monitor" />
                     </ComboBox>
                     <TextBlock x:Name="CaptureTargetHint" Style="{StaticResource Hint}" Margin="0,6,0,4" TextWrapping="Wrap" />
-                    <Border Background="{DynamicResource CardBrush}" CornerRadius="9" Padding="14" Margin="0,12,0,0">
+                    <Border x:Name="CapturePermissionCard" Background="{DynamicResource CardBrush}" CornerRadius="9" Padding="14" Margin="0,12,0,0">
                         <StackPanel>
                             <CheckBox Style="{StaticResource SwitchCheckBox}" x:Name="ManualDesktopButton" Visibility="Collapsed"
                                       Content="Manual desktop capture" FontWeight="SemiBold"
@@ -294,9 +322,10 @@
                         </StackPanel>
                     </Border>
 
+                    <StackPanel x:Name="RecordingQualityControls">
                     <Grid Margin="0,12,0,0">
-                        <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="12" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
-                        <StackPanel Grid.Column="0">
+                        <Grid.ColumnDefinitions><ColumnDefinition x:Name="CaptureAreaColumn" Width="*" /><ColumnDefinition x:Name="CaptureAreaGap" Width="12" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                        <StackPanel x:Name="CaptureAreaAdvanced" Grid.Column="0">
                     <StackPanel Margin="0,0,0,4">
                             <TextBlock Text="Capture area" TextWrapping="Wrap" Margin="0,0,0,4" />
                             <ComboBox x:Name="AreaCombo" MinWidth="0" SelectionChanged="Changed" AutomationProperties.Name="Capture area" />
@@ -318,7 +347,7 @@
                             <TextBlock Text="Output resolution" TextWrapping="Wrap" Margin="0,0,0,4" />
                             <ComboBox x:Name="ResolutionCombo" MinWidth="0" SelectionChanged="Changed" AutomationProperties.Name="Output resolution" />
                         </StackPanel>
-                    <Expander Header="Custom output size" Margin="0,4,0,0">
+                    <Expander x:Name="CustomSizeAdvanced" Header="Custom output size" Margin="0,4,0,0">
                         <StackPanel Margin="0,4,0,6">
                             <TextBlock Text="Width × height in pixels" Margin="0,0,0,4" />
                             <Grid>
@@ -346,7 +375,7 @@
                     </Expander>
                         </StackPanel>
                     </Grid>
-                    <Border Background="{DynamicResource BackgroundBrush}" CornerRadius="6" Padding="10" Margin="0,10,0,0">
+                    <Border x:Name="CropPreviewAdvanced" Background="{DynamicResource BackgroundBrush}" CornerRadius="6" Padding="10" Margin="0,10,0,0">
                         <StackPanel>
                             <TextBlock x:Name="PreviewHeading" Text="Selected monitor preview" FontWeight="SemiBold" />
                             <controls:RecordingAreaPreview x:Name="CropPreview" Height="100" Margin="4,8" Focusable="False" />
@@ -406,7 +435,7 @@
                         <ComboBox x:Name="FpsCombo" Grid.Column="1" SelectionChanged="Changed" />
                     </Grid>
 
-                    <Grid Style="{StaticResource Row}">
+                    <Grid x:Name="EncoderAdvanced" Style="{StaticResource Row}">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="160" />
                             <ColumnDefinition Width="*" />
@@ -430,6 +459,8 @@
 
                     <CheckBox Style="{StaticResource SwitchCheckBox}" x:Name="CursorCheck" Content="Show the mouse pointer" Margin="160,12,0,0" Checked="Changed" Unchecked="Changed" />
                     <TextBlock x:Name="RecorderStatus" Margin="0,12,0,0" Style="{StaticResource Hint}" />
+                    <TextBlock x:Name="BasicQualityHint" Style="{StaticResource Hint}" TextWrapping="Wrap" Visibility="Collapsed" />
+                    <StackPanel x:Name="EncoderTuningAdvanced">
                     <TextBlock Text="NVENC performance preset" Margin="0,12,0,4" />
                     <ComboBox x:Name="NvencPresetCombo" SelectionChanged="Changed" AutomationProperties.Name="NVENC performance preset" />
                     <TextBlock Style="{StaticResource Hint}" TextWrapping="Wrap"
@@ -441,6 +472,8 @@
                                        Text="Desktop Duplication records everything visible on the selected display, including windows covering the game, and avoids the Windows capture indicator. Windows Graphics Capture may show an indicator. This preference applies to monitor capture. Game-window capture always uses Windows Graphics Capture." />
                         </StackPanel>
                     </Expander>
+                    </StackPanel>
+                    </StackPanel>
                 </StackPanel>
             </Border>
             <Border x:Name="DiagnosticsCard" Style="{StaticResource Card}">
@@ -457,6 +490,8 @@
             <Border x:Name="AudioCard" Style="{StaticResource Card}">
                 <StackPanel>
                     <TextBlock Text="Audio" Style="{StaticResource CardTitle}" />
+                    <TextBlock x:Name="BasicAudioHint" Style="{StaticResource Hint}" TextWrapping="Wrap" Visibility="Collapsed"
+                        Text="Computer audio includes what you hear, including voice chat. To record separate playback devices or disable computer audio, choose specific Windows audio devices below. Separate game/chat audio requires separately routed devices." />
                     <CheckBox Style="{StaticResource SwitchCheckBox}" x:Name="EndpointModeCheck" Content="Record selected Windows audio devices"
                               Margin="0,8,0,0" Checked="EndpointMode_Changed" Unchecked="EndpointMode_Changed" />
                     <StackPanel x:Name="EndpointPanel" Visibility="Collapsed" Margin="0,8,0,0">
@@ -490,7 +525,7 @@
                                 Click="RefreshEndpoints_Click" />
                         <TextBlock x:Name="EndpointNotice" Style="{StaticResource Hint}" Margin="0,8,0,0"
                                    AutomationProperties.LiveSetting="Polite" />
-                        <Expander Header="Running audio lanes" Margin="0,10,0,0" Collapsed="EndpointStatus_Collapsed">
+                        <Expander x:Name="AudioLanesAdvanced" Header="Running audio lanes" Margin="0,10,0,0" Collapsed="EndpointStatus_Collapsed">
                             <StackPanel Margin="0,6,0,0">
                                 <TextBlock Text="Reads stream formats, packet counts, and signal levels from the current session without opening a device."
                                            Style="{StaticResource Hint}" Margin="0,0,0,6" />
@@ -581,6 +616,7 @@
             <Border x:Name="GeneralCard" Style="{StaticResource Card}">
                 <StackPanel>
                     <TextBlock Text="General" Style="{StaticResource CardTitle}" />
+                    <StackPanel x:Name="GeneralPreferences">
                       <views:AppearanceSettings x:Name="Appearance" Margin="0,10,0,0" />
                     <StackPanel x:Name="InterfaceSettings" Margin="0,6,0,10">
                         <TextBlock Text="Interface scale" Style="{StaticResource FieldLabel}" />
@@ -613,6 +649,8 @@
                         <TextBlock Text="Closing the window keeps QuickClip running in the tray" TextWrapping="Wrap" />
                     </CheckBox>
                     <CheckBox Style="{StaticResource SwitchCheckBox}" x:Name="ConfirmDeleteCheck" Content="Confirm before sending clips to the Recycle Bin" Margin="0,8,0,0" Checked="Changed" Unchecked="Changed" />
+                    </StackPanel>
+                    <TextBlock Text="Notifications" Style="{StaticResource CardTitle}" />
                     <WrapPanel Margin="0,8,0,0">
                         <CheckBox Style="{StaticResource SwitchCheckBox}" x:Name="SoundCheck" Focusable="True" Content="Play a sound when a clip is saved" VerticalAlignment="Center" Checked="Changed" Unchecked="Changed" />
                         <Button Style="{StaticResource TextButton}" Content="Test sound" ToolTip="Hear the sound" Margin="10,0,0,0" VerticalAlignment="Center"
@@ -774,6 +812,10 @@
                                        Text="Visible over windowed and borderless games. Exclusive fullscreen and capture exclusion depend on Windows and the capture backend." />
                         </StackPanel>
                     </StackPanel>
+                    <WrapPanel x:Name="BasicNotificationPreview" Visibility="Collapsed" Margin="0,6,0,0">
+                        <Button Content="Preview clip saved" Click="TestClipOverlay_Click" Margin="0,0,8,4" />
+                        <Button Content="Preview status banner" Click="TestCompactBanner_Click" Margin="0,0,8,4" />
+                    </WrapPanel>
                     <CheckBox Style="{StaticResource SwitchCheckBox}" x:Name="ShellCheck" Margin="0,8,0,0" Checked="ShellCheck_Changed" Unchecked="ShellCheck_Changed">
                         <TextBlock Text="Add &quot;Edit with QuickClip&quot; to the right-click menu of video and audio files" TextWrapping="Wrap" />
                     </CheckBox>
@@ -824,6 +866,7 @@
             </controls:ResponsiveCards>
         </StackPanel>
         </ScrollViewer>
+            </Grid>
         </Grid>
     </Grid>
 </UserControl>

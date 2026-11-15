@@ -294,10 +294,10 @@ public partial class SettingsView
         bool image = enabled && ImageOnlyCheck.IsChecked == true;
         if (!banners && !image) App.Host?.HideClipOverlay();
         ClipOverlayOptions.Visibility = enabled ? Visibility.Visible : Visibility.Collapsed;
-        BannerAppearancePanel.Visibility = banners ? Visibility.Visible : Visibility.Collapsed;
-        ImageAppearancePanel.Visibility = image ? Visibility.Visible : Visibility.Collapsed;
+        BannerAppearancePanel.Visibility = banners && !IsBasicExperience ? Visibility.Visible : Visibility.Collapsed;
+        ImageAppearancePanel.Visibility = image && !IsBasicExperience ? Visibility.Visible : Visibility.Collapsed;
         SavedBannerPanel.Visibility = banners && !image ? Visibility.Visible : Visibility.Collapsed;
-        OverlayDetailsPanel.Visibility = banners && !image ? Visibility.Visible : Visibility.Collapsed;
+        OverlayDetailsPanel.Visibility = banners && !image && !IsBasicExperience ? Visibility.Visible : Visibility.Collapsed;
     }
 
     private async void ChooseOverlayImage_Click(object sender, RoutedEventArgs e)

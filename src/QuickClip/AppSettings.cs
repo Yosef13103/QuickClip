@@ -85,6 +85,9 @@ internal sealed class AppSettings
     public bool ShowInactiveSaveNotifications { get; set; } = !AppProfile.IsPersonal;
     // First-run prompt is explicit: a new Personal profile never silently starts screen capture.
     public bool ReplayOnboardingCompleted { get; set; }
+    // Presentation only. Existing profiles retain Advanced; fresh Personal profiles start in Basic.
+    public bool BasicSettings { get; set; } = AppProfile.IsPersonal;
+    public int? GuidedSetupStep { get; set; } = AppProfile.IsPersonal ? 0 : null;
     public Shell.ClipOverlayOptions ClipOverlay { get; set; } = new();
     public bool EnableLibraryIndex { get; set; } = AppProfile.IsPersonal;
     public double ShareSizeMB { get; set; } = 30;                // shared copies are made to fit under this
@@ -160,6 +163,12 @@ internal sealed class AppSettings
         using (var legacy = JsonDocument.Parse(json))
         {
             var root = legacy.RootElement;
+            if (root.ValueKind == JsonValueKind.Object)
+            {
+                if (!root.TryGetProperty(nameof(BasicSettings), out _)) settings.BasicSettings = false;
+                if (!root.TryGetProperty(nameof(GuidedSetupStep), out _)) settings.GuidedSetupStep = null;
+                if (settings.GuidedSetupStep is < 0 or > 8) settings.GuidedSetupStep = 0;
+            }
             if (root.ValueKind == JsonValueKind.Object &&
                 !root.TryGetProperty(nameof(StartInTray), out _) &&
                 root.TryGetProperty("MinimizeToTray", out var oldTray) &&

@@ -44,6 +44,7 @@ public partial class SettingsView : UserControl
             InstallUpdateLabel.Text = "Download verified update";
             StartupHint.Visibility = ReplayAtStartupCheck.Visibility = ReplayAtStartupHint.Visibility = Visibility.Visible;
             ApplySettingsSection(RecordingSection);
+            UpdateSettingsExperience();
         }
         // Recording settings restart the recorder; wait until the user stops fiddling.
         _restartTimer = new DispatcherTimer(TimeSpan.FromMilliseconds(700), DispatcherPriority.Background, (_, _) =>
@@ -87,6 +88,7 @@ public partial class SettingsView : UserControl
         GeneralCard.Visibility = SectionVisibility(GeneralSection);
         UpdatesCard.Visibility = Updater.IsEnabled ? SectionVisibility(GeneralSection) : Visibility.Collapsed;
         DiagnosticsCard.Visibility = SectionVisibility(DiagnosticsSection);
+        if (AppProfile.IsPersonal) ApplyExperienceContent();
         GeneralPage.ScrollToTop();
         if (section == DiagnosticsSection) CaptureAdvanced.IsExpanded = true;
         if (IsLoaded && (section == LibrarySection || section == RecordingSection)) _ = RefreshRecordingFoldersAsync();
@@ -303,6 +305,7 @@ public partial class SettingsView : UserControl
         UpdateEstimates();
         UpdateDiagnosticsTimer();
         OnRecorderState(Recorder.Instance.State);
+        if (AppProfile.IsPersonal) UpdateSettingsExperience();
     }
 
     private static void Select(ComboBox combo, object? value)
@@ -341,8 +344,8 @@ public partial class SettingsView : UserControl
         if (AppProfile.IsPersonal)
         {
             var settings = AppSettings.Current;
-            GamePermissionOptions.Visibility = ManualDesktopButton.Visibility =
-                DisplayPermissionCheck.Visibility = DisplayPermissionHint.Visibility = Visibility.Visible;
+            GamePermissionOptions.Visibility = DisplayPermissionCheck.Visibility = DisplayPermissionHint.Visibility = Visibility.Visible;
+            ManualDesktopButton.Visibility = _guideActive ? Visibility.Collapsed : Visibility.Visible;
             GameDisplayConsent.Content = settings.AllowGameDisplayFollowing
                 ? "Disable game display following" : "Allow game display following…";
             var identity = SelectedMonitor?.CaptureIdentity;
@@ -464,7 +467,7 @@ public partial class SettingsView : UserControl
         }
         AddMicButton.Visibility = NextMic(SelectedMics) != null ? Visibility.Visible : Visibility.Collapsed;
         AddMicButton.IsEnabled = on;
-        MicTracksRow.Visibility = several ? Visibility.Visible : Visibility.Collapsed;
+        MicTracksRow.Visibility = several && !IsBasicExperience ? Visibility.Visible : Visibility.Collapsed;
         MicTracksCombo.IsEnabled = on;
     }
 
@@ -569,32 +572,33 @@ public partial class SettingsView : UserControl
         if (sender == MonitorCombo) RefreshAreas(s.RecordAspect);
         if (sender == MonitorCombo || sender == AreaCombo)
             RefreshResolutions(s.RecordResolution);
-        s.BufferSeconds = RecordingPresets.BufferSteps[(int)Math.Round(BufferSlider.Value)];
-        if (QualityCombo.SelectedItem is Choice { Value: RecordingQuality q }) s.RecordQuality = q;
-        if (FpsCombo.SelectedItem is Choice { Value: int fps }) s.RecordFps = fps;
+        if (!AppProfile.IsPersonal || sender == BufferSlider) s.BufferSeconds = RecordingPresets.BufferSteps[(int)Math.Round(BufferSlider.Value)];
+        if ((!AppProfile.IsPersonal || sender == QualityCombo) && QualityCombo.SelectedItem is Choice { Value: RecordingQuality q }) s.RecordQuality = q;
+        if ((!AppProfile.IsPersonal || sender == FpsCombo) && FpsCombo.SelectedItem is Choice { Value: int fps }) s.RecordFps = fps;
         if (sender == ResolutionCombo && ResolutionCombo.SelectedItem is Choice { Value: int res }) s.RecordResolution = res;
         if (sender == MonitorCombo || sender == AreaCombo || sender == ResolutionCombo)
             ResetDimensionFields();
         if (sender == EncoderCombo && EncoderCombo.SelectedItem is Choice { Enabled: true, Value: string encoder }) s.RecordEncoder = encoder;
-        if (BackendCombo.SelectedItem is Choice { Value: CaptureEngine.MonitorBackend backend }) s.CaptureBackend = backend;
-        if (NvencPresetCombo.SelectedItem is Choice { Value: CaptureEngine.NvencSpeed preset }) s.NvencPreset = preset;
-        s.RecordingDiagnostics = DiagnosticsCheck.IsChecked == true;
+        if ((!AppProfile.IsPersonal || sender == BackendCombo) && BackendCombo.SelectedItem is Choice { Value: CaptureEngine.MonitorBackend backend }) s.CaptureBackend = backend;
+        if ((!AppProfile.IsPersonal || sender == NvencPresetCombo) && NvencPresetCombo.SelectedItem is Choice { Value: CaptureEngine.NvencSpeed preset }) s.NvencPreset = preset;
+        if (!AppProfile.IsPersonal || sender == DiagnosticsCheck) s.RecordingDiagnostics = DiagnosticsCheck.IsChecked == true;
         if (sender == DiagnosticsCheck) UpdateDiagnosticsTimer();
-        s.CaptureCursor = CursorCheck.IsChecked == true;
+        if (!AppProfile.IsPersonal || sender == CursorCheck) s.CaptureCursor = CursorCheck.IsChecked == true;
         if (!AppProfile.IsPersonal) s.PreferGameWindow = SourceCombo.SelectedIndex == 0;
         ShowGameWindowState();
         UpdateCropPreview();
-        s.SplitChatAudio = SplitChatCheck.IsChecked == true;
-        s.SplitMusicAudio = SplitMusicCheck.IsChecked == true;
-        s.RecordMic = MicCheck.IsChecked == true;
-        s.MicDeviceIds = SelectedMics;
-        s.SeparateMicTracks = MicTracksCombo.SelectedItem is Choice { Value: true };
+        if (!AppProfile.IsPersonal || sender == SplitChatCheck) s.SplitChatAudio = SplitChatCheck.IsChecked == true;
+        if (!AppProfile.IsPersonal || sender == SplitMusicCheck) s.SplitMusicAudio = SplitMusicCheck.IsChecked == true;
+        if (!AppProfile.IsPersonal || sender == MicCheck) s.RecordMic = MicCheck.IsChecked == true;
+        if (!AppProfile.IsPersonal || sender == AddMicButton || sender is Button || _micRows.Any(row => row.Combo == sender))
+            s.MicDeviceIds = SelectedMics;
+        if (!AppProfile.IsPersonal || sender == MicTracksCombo) s.SeparateMicTracks = MicTracksCombo.SelectedItem is Choice { Value: true };
         UpdateMicControls();
-        s.StartInTray = StartTrayCheck.IsChecked == true;
-        s.CloseToTray = CloseTrayCheck.IsChecked == true;
-        s.ClipSound = SoundCheck.IsChecked == true;
-        s.ConfirmClipDeletion = ConfirmDeleteCheck.IsChecked == true;
-        s.ShareMotionBlur = MotionBlurCheck.IsChecked == true;
+        if (!AppProfile.IsPersonal || sender == StartTrayCheck) s.StartInTray = StartTrayCheck.IsChecked == true;
+        if (!AppProfile.IsPersonal || sender == CloseTrayCheck) s.CloseToTray = CloseTrayCheck.IsChecked == true;
+        if (!AppProfile.IsPersonal || sender == SoundCheck) s.ClipSound = SoundCheck.IsChecked == true;
+        if (!AppProfile.IsPersonal || sender == ConfirmDeleteCheck) s.ConfirmClipDeletion = ConfirmDeleteCheck.IsChecked == true;
+        if (!AppProfile.IsPersonal || sender == MotionBlurCheck) s.ShareMotionBlur = MotionBlurCheck.IsChecked == true;
         s.Save();
 
         UpdateEstimates();
