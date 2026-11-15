@@ -284,7 +284,7 @@
       ],
       "effort": "high",
       "status": "in_progress",
-      "candidate": "working_tree_uncommitted",
+      "candidate": "8ff42c0609bd6bb1337df5fc0f9f3a2c414ca401",
       "gates": {
         "local": "pending",
         "ci": "not_applicable",
@@ -354,14 +354,14 @@
       ],
       "effort": "high",
       "status": "implemented",
-      "candidate": "working_tree_uncommitted",
+      "candidate": "8ff42c0609bd6bb1337df5fc0f9f3a2c414ca401",
       "gates": {
-        "local": "pending",
+        "local": "pass",
         "ci": "pending",
         "review": "pending",
         "hardware": "pending"
       },
-      "evidence": ["Combined PR #78/#79 adds serialized capture grants and publication, video-ready HUD notifications, abandoned setup verification protection, and corrected WPF theme transitions. New fixtures cover policy, save failure, cancellation, microphone sample and desktop preview."],
+      "evidence": ["Combined PR #78/#79 adds serialized capture grants and publication, video-ready HUD notifications, abandoned setup verification protection, and corrected WPF theme transitions. Native and strict Release builds passed. Personal 821 passed/21 skipped, Upstream workflow filter 33 passed/14 skipped. Focused retry 215 passed/3 skipped, opt-in WPF probe 2 passed. See private W2-FRONTEND."],
       "blocker": "Supervised real capture, HUD exclusion in a DDA replay, physical microphone playback and full theme restart remain pending.",
       "next_action": "Verify the final strict Windows candidate and complete the supervised checklist in docs/owner-field-polish.md."
     },
