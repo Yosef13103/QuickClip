@@ -282,6 +282,7 @@ public partial class SettingsView
         UpdateFeedbackVisibility();
         settings.Save();
         App.Host?.RefreshRecordingIndicator();
+        GameIndicatorStatus.Text = App.Host?.RecordingIndicatorStatus ?? "Recording icons are unavailable.";
     }
 
     private void UpdateFeedbackVisibility()
@@ -374,5 +375,8 @@ public partial class SettingsView
     }
 
     private void TestClipOverlay_Click(object sender, RoutedEventArgs e) => App.Host?.TestClipOverlay();
+    private void PreviewRecordingIndicator_Click(object sender, RoutedEventArgs e) =>
+        GameIndicatorStatus.Text = App.Host?.PreviewRecordingIndicator() ?? "Recording icons are unavailable.";
+
     private void TestCompactBanner_Click(object sender, RoutedEventArgs e) => App.Host?.TestClipOverlay(banner: true);
 }

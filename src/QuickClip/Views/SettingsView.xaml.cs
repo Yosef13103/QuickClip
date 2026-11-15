@@ -768,6 +768,8 @@ public partial class SettingsView : UserControl
         MusicText.Text = (state.MusicApps.Count > 0
             ? $"Detected now: {string.Join(", ", state.MusicApps)}."
             : "No music app is running right now.") + " Music played in a web browser stays on the Desktop track.";
+        if (AppProfile.IsPersonal && state.Running && GameIndicatorStatus != null)
+            GameIndicatorStatus.Text = App.Host?.RecordingIndicatorStatus ?? "Recording icons are unavailable.";
         RecorderStatus.Text = state.Running ? $"Recording · {state.Summary}"
             : state.Mode == RecordingMode.Recovering ? "Recovering display capture. " + state.Error
             : state.Error != null ? "Not recording: " + state.Error

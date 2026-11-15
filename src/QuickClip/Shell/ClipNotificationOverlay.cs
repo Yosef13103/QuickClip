@@ -32,6 +32,9 @@ internal sealed class ClipNotificationOverlay : IDisposable
     private (string Device, OverlayAnchor Anchor, Rect Bounds, bool HasMicrophone)? _indicatorPlacement;
     private System.Windows.Shapes.Path? _indicatorMicrophoneGlyph;
 
+    private bool _indicatorOpaque;
+    internal string? IndicatorFailure { get; private set; }
+    internal bool IndicatorOpaque => _indicatorOpaque;
     internal bool IsVisible => _window?.IsVisible == true;
     internal bool IsAnimatingImage => _frameTimer?.IsEnabled == true;
 
@@ -293,7 +296,7 @@ internal sealed class ClipNotificationOverlay : IDisposable
         return text;
     }
 
-    private void EnsureWindow()
+    private void EnsureWindow(bool allowTransparency = true)
     {
         if (_window != null) return;
         _surface = new Grid { IsHitTestVisible = false };
@@ -304,8 +307,8 @@ internal sealed class ClipNotificationOverlay : IDisposable
         _window = new Window
         {
             WindowStyle = WindowStyle.None, ResizeMode = ResizeMode.NoResize, ShowInTaskbar = false,
-            ShowActivated = false, Topmost = true, Focusable = false, AllowsTransparency = true,
-            Background = Brushes.Transparent, Content = _surface, Width = 72, Height = 72,
+            ShowActivated = false, Topmost = true, Focusable = false, AllowsTransparency = allowTransparency,
+            Background = allowTransparency ? Brushes.Transparent : new SolidColorBrush(Color.FromRgb(28, 30, 35)), Content = _surface, Width = 72, Height = 72,
         };
         _handle = new WindowInteropHelper(_window).EnsureHandle();
         if (OperatingSystem.IsWindowsVersionAtLeast(10, 0, 19041))
@@ -433,6 +436,7 @@ internal sealed class ClipNotificationOverlay : IDisposable
         if (display == null || !Enum.IsDefined(anchor) || anchor == OverlayAnchor.Center)
         {
             Hide();
+            IndicatorFailure = "The capture display or icon position is unavailable.";
             return;
         }
         bool hasMicrophone = microphone != MicrophoneIndicatorState.Hidden;
@@ -443,16 +447,38 @@ internal sealed class ClipNotificationOverlay : IDisposable
             return;
         }
         Hide();
-        EnsureWindow();
-        // Capture exclusion is a prerequisite, not proof of exclusion in the actual capture backend.
-        if (!OperatingSystem.IsWindowsVersionAtLeast(10, 0, 19041) || !SetWindowDisplayAffinity(_handle, 0x11)) return;
+        IndicatorFailure = null;
+        if (!OperatingSystem.IsWindowsVersionAtLeast(10, 0, 19041))
+        {
+            IndicatorFailure = "Recording icons require Windows 10 version 2004 or later.";
+            return;
+        }
+        EnsureWindow(!_indicatorOpaque);
+        // Layered WPF windows may reject display affinity. Try a non-layered
+        // compact window, but never show an unexcluded HUD as a fallback.
+        if (!SetWindowDisplayAffinity(_handle, 0x11))
+        {
+            int layeredError = Marshal.GetLastWin32Error();
+            if (!_indicatorOpaque)
+            {
+                _window!.Close();
+                _window = null;
+                _indicatorOpaque = true;
+                EnsureWindow(false);
+            }
+            if (!SetWindowDisplayAffinity(_handle, 0x11))
+            {
+                IndicatorFailure = $"Windows could not exclude the recording icons (Win32 {Marshal.GetLastWin32Error()}, first attempt {layeredError}).";
+                return;
+            }
+        }
         _surface!.LayoutTransform = Transform.Identity;
         _surface.Opacity = 1;
         _card!.Background = Brushes.Transparent;
         _card.Padding = new Thickness(0);
         _card.BorderThickness = new Thickness(0);
         var icons = new StackPanel { Orientation = Orientation.Horizontal };
-        var camera = StatusGlyph("M2,5 H5 L6.5,3 H9.5 L11,5 H14 V13 H2 Z M10.5,9 A2.5,2.5 0 1 1 5.5,9 A2.5,2.5 0 1 1 10.5,9", out _);
+        var camera = StatusGlyph("M3,7 A5.5,5.5 0 0 1 12,4 M10,1.5 L13,4 L10,5.5 M13,9 A5.5,5.5 0 0 1 4,12 M6,14.5 L3,12 L6,10.5", out _);
         if ((int)anchor % 3 == 0 || !hasMicrophone) icons.Children.Add(camera);
         if (hasMicrophone)
         {
@@ -462,8 +488,8 @@ internal sealed class ClipNotificationOverlay : IDisposable
         }
         _card.Child = icons;
         UpdateRecordingIndicatorMicrophone(microphone);
-        _window!.Width = hasMicrophone ? 40 : 20;
-        _window.Height = 20;
+        _window!.Width = hasMicrophone ? 56 : 28;
+        _window.Height = 28;
         var prior = SetThreadDpiAwarenessContext(new IntPtr(-4));
         try
         {
@@ -472,14 +498,20 @@ internal sealed class ClipNotificationOverlay : IDisposable
             var size = new Size(Math.Round(_window.Width * scale), Math.Round(_window.Height * scale));
             var bounds = BannerBounds(display.Bounds, display.WorkArea ?? display.Bounds, anchor, scale, size.Height);
             Point p = ClipOverlayOptions.Place(bounds, size, 4, anchor);
-            if (!SetWindowPos(_handle, new IntPtr(-1), (int)Math.Round(p.X), (int)Math.Round(p.Y), (int)size.Width, (int)size.Height, 0x0210)) return;
+            if (!SetWindowPos(_handle, new IntPtr(-1), (int)Math.Round(p.X), (int)Math.Round(p.Y), (int)size.Width, (int)size.Height, 0x0210))
+            {
+                IndicatorFailure = $"Could not position the recording icons (Win32 {Marshal.GetLastWin32Error()}).";
+                return;
+            }
             _window.Show();
             if (!SetWindowDisplayAffinity(_handle, 0x11) ||
                 !SetWindowPos(_handle, new IntPtr(-1), (int)Math.Round(p.X), (int)Math.Round(p.Y), (int)size.Width, (int)size.Height, 0x0210))
             {
+                IndicatorFailure = $"Windows could not keep the recording icons visible and excluded (Win32 {Marshal.GetLastWin32Error()}).";
                 Hide();
                 return;
             }
+            IndicatorFailure = null;
             _indicatorPlacement = placement;
         }
         finally { if (prior != IntPtr.Zero) SetThreadDpiAwarenessContext(prior); }
@@ -489,8 +521,14 @@ internal sealed class ClipNotificationOverlay : IDisposable
     {
         var data = Geometry.Parse(geometry);
         data.Freeze();
-        var cell = new Grid { Width = 20, Height = 20, Opacity = .72 };
-        var canvas = new Grid { Width = 16, Height = 16 };
+        var cell = new Grid { Width = 28, Height = 28 };
+        cell.Children.Add(new Border
+        {
+            Margin = new Thickness(1), CornerRadius = new CornerRadius(5),
+            Background = new SolidColorBrush(Color.FromArgb(150, 24, 26, 32)),
+            BorderBrush = new SolidColorBrush(Color.FromArgb(95, 210, 210, 220)), BorderThickness = new Thickness(1),
+        });
+        var canvas = new Grid { Width = 16, Height = 16, Opacity = .85 };
         cell.Children.Add(canvas);
         canvas.Children.Add(new System.Windows.Shapes.Path
         {
@@ -567,6 +605,6 @@ internal sealed class ClipNotificationOverlay : IDisposable
     [DllImport("user32.dll")] private static extern IntPtr SetThreadDpiAwarenessContext(IntPtr context);
     [DllImport("user32.dll", EntryPoint = "GetWindowLongW")] private static extern int GetWindowLong(IntPtr window, int index);
     [DllImport("user32.dll", EntryPoint = "SetWindowLongW")] private static extern int SetWindowLong(IntPtr window, int index, int value);
-    [DllImport("user32.dll")] private static extern bool SetWindowPos(IntPtr window, IntPtr order, int x, int y, int width, int height, uint flags);
-    [DllImport("user32.dll")] private static extern bool SetWindowDisplayAffinity(IntPtr window, uint affinity);
+    [DllImport("user32.dll", SetLastError = true)] private static extern bool SetWindowPos(IntPtr window, IntPtr order, int x, int y, int width, int height, uint flags);
+    [DllImport("user32.dll", SetLastError = true)] private static extern bool SetWindowDisplayAffinity(IntPtr window, uint affinity);
 }

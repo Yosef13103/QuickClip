@@ -13,6 +13,12 @@ internal sealed class RecordingIndicator : IDisposable
     private NativeAudioSignal[]? _buffer;
     private long _epoch = -1;
     private bool _disposed;
+    private string? _failureReported;
+    private readonly ClipNotificationOverlay _preview = new();
+    private DispatcherTimer? _previewTimer;
+    internal string Status => _overlay.IndicatorFailure ?? (_overlay.IsVisible
+        ? (_overlay.IndicatorOpaque ? "Visible using compact opaque fallback; test saved clips." : "Visible; verify exclusion in a saved clip.")
+        : "Icons appear during actual replay recording.");
 
     private static bool Enabled(AppSettings settings, RecorderState state) =>
         AppProfile.IsPersonal && settings.RecordingEnabled && settings.ShowGameRecordingIndicator &&
@@ -22,6 +28,8 @@ internal sealed class RecordingIndicator : IDisposable
     internal void Refresh()
     {
         if (_disposed) return;
+        _previewTimer?.Stop();
+        if (_preview.IsVisible) _preview.Hide();
         var settings = AppSettings.Current;
         var state = Recorder.Instance.State;
         if (!Enabled(settings, state))
@@ -32,6 +40,12 @@ internal sealed class RecordingIndicator : IDisposable
         _epoch = state.CaptureEpoch;
         _signal.Configure(_epoch, MicrophoneIndicatorSignal.SelectedMicrophones(settings), Environment.TickCount64);
         _overlay.ShowRecordingIndicator(state.CaptureDevice!, settings.GameRecordingIndicatorAnchor, _signal.State);
+        if (_overlay.IndicatorFailure is { } failure && failure != _failureReported)
+        {
+            _failureReported = failure;
+            Log.Write("Recording HUD unavailable: " + failure);
+        }
+        else if (_overlay.IsVisible) _failureReported = null;
         if (!_overlay.IsVisible || _signal.Selected.Count == 0 || _signal.State == MicrophoneIndicatorState.Active)
         {
             _timer?.Stop();
@@ -46,6 +60,25 @@ internal sealed class RecordingIndicator : IDisposable
             _timer.Tick += (_, _) => Sample();
         }
         _timer.Start();
+    }
+
+    internal string Preview()
+    {
+        if (_disposed) return "Recording icons are unavailable.";
+        if (Recorder.Instance.State.Running) { Refresh(); return Status; }
+        var display = ClipNotificationOverlay.Displays().FirstOrDefault(d => d.Primary);
+        if (display == null) return "No connected primary display.";
+        _preview.ShowRecordingIndicator(display.Device, AppSettings.Current.GameRecordingIndicatorAnchor,
+            AppSettings.Current.ShowRecordingMicrophoneIndicator ? MicrophoneIndicatorState.Active : MicrophoneIndicatorState.Hidden);
+        if (!_preview.IsVisible) return _preview.IndicatorFailure ?? "Could not show preview.";
+        if (_previewTimer == null)
+        {
+            _previewTimer = new DispatcherTimer(DispatcherPriority.Background) { Interval = TimeSpan.FromSeconds(4) };
+            _previewTimer.Tick += (_, _) => { _previewTimer.Stop(); _preview.Hide(); };
+        }
+        _previewTimer.Stop();
+        _previewTimer.Start();
+        return _preview.IndicatorOpaque ? "Preview: compact opaque fallback. Test actual capture exclusion." : "Preview on primary display for four seconds.";
     }
 
     private void Sample()
@@ -102,5 +135,7 @@ internal sealed class RecordingIndicator : IDisposable
         _disposed = true;
         Stop();
         _overlay.Dispose();
+        _previewTimer?.Stop();
+        _preview.Dispose();
     }
 }

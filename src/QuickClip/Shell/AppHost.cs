@@ -274,6 +274,8 @@ internal sealed class AppHost : IDisposable
     }
 
     internal void RefreshRecordingIndicator() => _recordingIndicator.Refresh();
+    internal string RecordingIndicatorStatus => _recordingIndicator.Status;
+    internal string PreviewRecordingIndicator() => _recordingIndicator.Preview();
 
     private void ShowClipFeedback(ClipEvent kind, string message, ClipNotificationDetails? details = null)
     {
