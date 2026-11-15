@@ -220,7 +220,7 @@ public partial class SettingsView
         settings.ClipWindowsNotification = mode is ClipNotificationMode.Windows or ClipNotificationMode.Both;
         var old = (settings.ClipOverlay ?? new()).Migrate();
         bool imageOnly = ImageOnlyCheck.IsChecked == true;
-        if (imageOnly && string.IsNullOrWhiteSpace(old.ImagePath))
+        if (imageOnly && string.IsNullOrWhiteSpace(old.ImagePath) && !ClipOverlayImage.HasDefault)
         {
             OverlayImageError.Text = "Choose a local image or animation. Until then, an enabled banner or Windows notification is used.";
             OverlayImageError.Visibility = Visibility.Visible;
@@ -328,8 +328,10 @@ public partial class SettingsView
 
     private void ShowOverlayImage(string? path)
     {
-        ClearOverlayImage.IsEnabled = path != null;
-        OverlayImageStatus.Text = path == null ? "No image selected" : Path.GetFileName(path);
+        ClearOverlayImage.IsEnabled = !string.IsNullOrWhiteSpace(path);
+        OverlayImageStatus.Text = string.IsNullOrWhiteSpace(path)
+            ? ClipOverlayImage.HasDefault ? "Default camera animation (included with QuickClip)" : "Default animation unavailable in this build"
+            : Path.GetFileName(path);
     }
 
     private void ResetClipOverlay_Click(object sender, RoutedEventArgs e)

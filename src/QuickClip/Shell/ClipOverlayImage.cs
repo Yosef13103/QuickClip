@@ -21,6 +21,30 @@ internal static class ClipOverlayImage
         internal BitmapSource First => Frames[0].Bitmap;
     }
 
+    internal const string DefaultResource = "QuickClip.clip-saved.gif";
+    internal static bool HasDefault => AppProfile.IsPersonal &&
+        typeof(ClipOverlayImage).Assembly.GetManifestResourceInfo(DefaultResource) != null;
+
+    // Decode only on first use, with the same bounded GIF decoder as custom media.
+    internal static Asset? LoadDefaultAsset()
+    {
+        if (!AppProfile.IsPersonal) return null;
+        try
+        {
+            using var resource = typeof(ClipOverlayImage).Assembly.GetManifestResourceStream(DefaultResource);
+            if (resource == null || resource.Length is < 1 or > MaxBytes) return null;
+            var bytes = new byte[(int)resource.Length];
+            resource.ReadExactly(bytes);
+            using var stream = new MemoryStream(bytes, writable: false);
+            return DecodeGif(new GifBitmapDecoder(stream, BitmapCreateOptions.DelayCreation, BitmapCacheOption.None), bytes);
+        }
+        catch (Exception ex) when (ex is IOException or ArgumentException or NotSupportedException or
+            FormatException or InvalidOperationException or OverflowException or System.Runtime.InteropServices.COMException)
+        {
+            return null;
+        }
+    }
+
     internal static BitmapSource? Load(string? path) => LoadAsset(path)?.First;
 
     internal static Task<Asset?> LoadAssetAsync(string? path, CancellationToken cancellationToken = default) =>

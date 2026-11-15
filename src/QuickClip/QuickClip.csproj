@@ -29,8 +29,14 @@
     <Resource Include="Assets\QuickClip.ico" />
     <PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.14" />
     <EmbeddedResource Include="Assets\clip-saved.wav" LogicalName="QuickClip.clip-saved.wav" />
+    <EmbeddedResource Include="Assets\clip-saved.gif" LogicalName="QuickClip.clip-saved.gif" Condition="'$(QuickClipProfile)' == 'Personal' And Exists('Assets\clip-saved.gif')" />
     <InternalsVisibleTo Include="QuickClip.Tests" />
   </ItemGroup>
+
+  <!-- The owner-provided GIF must be in every published Personal package. -->
+  <Target Name="RequireBundledClipImage" BeforeTargets="PrepareForPublish" Condition="'$(QuickClipProfile)' == 'Personal'">
+    <Error Condition="!Exists('Assets\clip-saved.gif')" Text="Missing bundled clip-saved.gif. Add the owner-provided asset before publishing Personal." />
+  </Target>
 
   <!-- Native recording engine (C++), rebuilt when its sources change. Needs Visual Studio's C++ tools;
        without them the app still builds, just without recording. -->

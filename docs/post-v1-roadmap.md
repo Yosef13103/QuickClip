@@ -17,6 +17,7 @@ Owner: Yosef. Updated 2026-11-15. This is the durable implementation backlog, no
 - [ ] Owner follow-up: center each newly created main window in work area, keep maximize/fullscreen/restore correct; recording summary/storage design + shared folder control; disabled Save Clip neutral visible dot, active pulse, reduced motion; tray and taskbar status badges off/default, standby amber, game red, desktop blue. Validate all themes, 100/125/150% DPI, both monitors.
 - [ ] Existing diagnostics sample UI auto-refresh only when opted in/visible; timing warning; broader diagnostic system deferred to Wave 2.
 - [ ] Notification redesign: saved-only custom image, independent banner/image controls, compact other events, detailed saved-only, new animations and ripple, no banner-center position; see [overlay redesign and acceptance](notification-overlay-redesign.md).
+- [ ] Bundle owner-provided camera GIF (exact file), verify redistribution permission, embedded resource/decoder and actual preview. Retain custom override and independent image mode. Do not release without the asset.
 - [ ] After owner accepts exact head and CI succeeds: merge with approval. Prepare V1.0.1 separately (version + changelog + package workflow currently pins 1.0.0; update safely, do not overwrite old release). Verify installer/portable packages, hashes, upgrade/settings isolation; release tags personal-v1.0.1. No automatic publication here.
 
 ## Wave 2 — Discovery, operational reliability, diagnostics and updater (Codex High)

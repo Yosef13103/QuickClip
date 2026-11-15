@@ -113,7 +113,7 @@ internal sealed record ClipOverlayOptions
     internal ClipOverlayOptions? ForEvent(ClipEvent kind)
     {
         var options = Migrate();
-        if (kind == ClipEvent.Saved && options.WantsImage && !string.IsNullOrWhiteSpace(options.ImagePath))
+        if (kind == ClipEvent.Saved && options.WantsImage && (!string.IsNullOrWhiteSpace(options.ImagePath) || ClipOverlayImage.HasDefault))
             return options.Image();
         if (!options.Enabled) return null;
         return options.Banner(kind == ClipEvent.Saved && !options.WantsImage && options.Style == OverlayStyle.Detailed);

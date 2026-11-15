@@ -42,12 +42,12 @@ internal sealed class ClipNotificationOverlay : IDisposable
         bool imageOnly = options.Style == OverlayStyle.ImageOnly || options.ImageOnly;
         // The renderer never loads custom media for a banner.
         if (!imageOnly) options = options with { ImagePath = null, ImageOnly = false, Style = options.Style == OverlayStyle.Detailed ? OverlayStyle.Detailed : OverlayStyle.Compact, Anchor = options.Anchor == OverlayAnchor.Center ? OverlayAnchor.BottomRight : options.Anchor };
-        if (imageOnly && !string.Equals(_imagePath, options.ImagePath, StringComparison.OrdinalIgnoreCase))
+        if (imageOnly && (!string.Equals(_imagePath, options.ImagePath, StringComparison.OrdinalIgnoreCase) || (_image == null && _imageLoad == null)))
         {
             _imagePath = options.ImagePath;
             _image = null;
             string? path = options.ImagePath;
-            _imageLoad = path == null ? null : ClipOverlayImage.LoadAssetAsync(path);
+            _imageLoad = string.IsNullOrWhiteSpace(path) ? Task.Run(ClipOverlayImage.LoadDefaultAsset) : ClipOverlayImage.LoadAssetAsync(path);
         }
         if (imageOnly && _imageLoad != null)
         {

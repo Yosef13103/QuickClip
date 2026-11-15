@@ -666,11 +666,11 @@
                                 <StackPanel>
                                     <TextBlock Text="Clip saved" FontWeight="SemiBold" FontSize="{DynamicResource QuickClipText16}" />
                                     <TextBlock Style="{StaticResource Hint}" Text="Choose a celebration for successful saves only. Other events always use compact text banners when on-screen banners are enabled." Margin="0,4,0,8" />
-                                    <CheckBox x:Name="ImageOnlyCheck" Style="{StaticResource SwitchCheckBox}" Content="Show a custom image or animation when a clip is saved" Click="ClipFeedback_Changed" />
+                                    <CheckBox x:Name="ImageOnlyCheck" Style="{StaticResource SwitchCheckBox}" Content="Show an image or animation when a clip is saved" Click="ClipFeedback_Changed" />
                                     <StackPanel x:Name="ImageAppearancePanel" Visibility="Collapsed">
                             <WrapPanel Margin="0,8,0,0">
                                 <Button Content="Choose image / WebM animation…" Margin="0,0,8,0" Click="ChooseOverlayImage_Click" />
-                                <Button x:Name="ClearOverlayImage" Content="Remove image" Click="ClearOverlayImage_Click" />
+                                <Button x:Name="ClearOverlayImage" Content="Use default animation" Click="ClearOverlayImage_Click" />
                             </WrapPanel>
                             <TextBlock x:Name="OverlayImageStatus" Style="{StaticResource Hint}" AutomationProperties.LiveSetting="Polite" />
                             <TextBlock Text="Image fit" Margin="0,8,0,0" />

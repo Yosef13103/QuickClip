@@ -411,10 +411,41 @@ public sealed class ClipFeedbackTests
     }
 
     [Fact]
-    public void Saved_image_without_a_path_uses_only_an_enabled_banner()
+    public void Empty_custom_path_selects_bundled_animation_when_available()
     {
         var options = new ClipOverlayOptions { Enabled = false, ImageOnly = true, ImageAppearance = new() };
-        Assert.Null(options.ForEvent(ClipEvent.Saved));
-        Assert.Equal(OverlayStyle.Compact, (options with { Enabled = true }).ForEvent(ClipEvent.Saved)!.Style);
+        if (ClipOverlayImage.HasDefault)
+        {
+            Assert.Equal(OverlayStyle.ImageOnly, options.ForEvent(ClipEvent.Saved)!.Style);
+            Assert.Null(options.ForEvent(ClipEvent.Saved)!.ImagePath);
+            Assert.Equal(OverlayStyle.ImageOnly, (options with { Enabled = true }).ForEvent(ClipEvent.Saved)!.Style);
+        }
+        else
+        {
+            Assert.Null(options.ForEvent(ClipEvent.Saved));
+            Assert.Equal(OverlayStyle.Compact, (options with { Enabled = true }).ForEvent(ClipEvent.Saved)!.Style);
+        }
+        Assert.Null(options.ForEvent(ClipEvent.DesktopStarted));
+        Assert.Null((options with { ImageOnly = false }).ForEvent(ClipEvent.Saved));
+    }
+
+    [Fact]
+    public void Bundled_camera_animation_has_exact_owner_bytes_and_decodes_within_budget()
+    {
+        var dir = new DirectoryInfo(AppContext.BaseDirectory);
+        while (dir != null && !File.Exists(Path.Combine(dir.FullName, "src", "QuickClip", "QuickClip.csproj"))) dir = dir.Parent;
+        bool expected = AppProfile.IsPersonal && dir != null &&
+            File.Exists(Path.Combine(dir.FullName, "src", "QuickClip", "Assets", "clip-saved.gif"));
+        if (!expected && !ClipOverlayImage.HasDefault) return;
+        Assert.True(ClipOverlayImage.HasDefault);
+        using var resource = typeof(ClipOverlayImage).Assembly.GetManifestResourceStream(ClipOverlayImage.DefaultResource);
+        Assert.NotNull(resource);
+        Assert.Equal("9A447241222C1412A058495AC183B662314A6E313B504B6F63C7A362CCCC9FAD",
+            Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(resource!)));
+        var animation = Assert.IsType<ClipOverlayImage.Asset>(ClipOverlayImage.LoadDefaultAsset());
+        Assert.Equal(85, animation.Frames.Length);
+        Assert.Equal(2590d, animation.Frames.Sum(frame => frame.Delay.TotalMilliseconds));
+        Assert.All(animation.Frames, frame => Assert.True(frame.Bitmap.IsFrozen));
+        Assert.True(ClipOverlayImage.WithinGifBudget(512, 512, 85));
     }
 }
