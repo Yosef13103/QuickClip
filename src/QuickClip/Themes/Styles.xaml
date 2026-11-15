@@ -261,9 +261,9 @@
                             <Setter TargetName="Bg" Property="Background" Value="{DynamicResource ElevatedSurfaceBrush}" />
                         </Trigger>
                         <Trigger Property="IsChecked" Value="True">
-                            <Setter TargetName="Bg" Property="Background" Value="{DynamicResource SelectionBrush}" />
-                            <Setter TargetName="Glyph" Property="Foreground" Value="{DynamicResource AccentBrush}" />
-                            <Setter TargetName="RailLabel" Property="TextElement.Foreground" Value="{DynamicResource PrimaryTextBrush}" />
+                            <Setter TargetName="Bg" Property="Background" Value="{DynamicResource RailSelectedBrush}" />
+                            <Setter TargetName="Glyph" Property="Foreground" Value="{DynamicResource RailSelectedTextBrush}" />
+                            <Setter TargetName="RailLabel" Property="TextElement.Foreground" Value="{DynamicResource RailSelectedTextBrush}" />
                         </Trigger>
                         <Trigger Property="IsKeyboardFocused" Value="True">
                             <Setter TargetName="Bg" Property="BorderBrush" Value="{DynamicResource AccentBrush}" />

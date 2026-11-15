@@ -36,6 +36,7 @@ internal sealed class Recorder
     private GameCaptureObservation? _observedGame;
     private string? _manualDisplay;
     private int _manualConsentRevision;
+    private long _manualRequestSequence;
     private readonly HashSet<string> _manualAuthorized = new(StringComparer.OrdinalIgnoreCase);
     private string? _sessionGameId;
     private string? _sessionGame;
@@ -192,11 +193,15 @@ internal sealed class Recorder
         StateChanged?.Invoke(State);
     });
 
-    internal Task SetManualDesktopAsync(string? confirmedDisplay, int consentRevision = -1) => Task.Run(() =>
+    internal Task SetManualDesktopAsync(string? confirmedDisplay, int consentRevision = -1, bool onlyIfActive = false)
     {
+        long sequence = Interlocked.Increment(ref _manualRequestSequence);
+        return Task.Run(() =>
+        {
         lock (_gate)
         {
-            if (!AppProfile.IsPersonal) return;
+            if (!AppProfile.IsPersonal || sequence != Volatile.Read(ref _manualRequestSequence) ||
+                (onlyIfActive && !ManualDesktopRequested)) return;
             var requested = string.IsNullOrWhiteSpace(confirmedDisplay) ? null : confirmedDisplay;
             if (requested == null)
             {
@@ -217,6 +222,8 @@ internal sealed class Recorder
         }
         StateChanged?.Invoke(State);
     });
+
+    }
 
     internal Task<bool> CycleManualDisplayAsync() => Task.Run(() =>
     {

@@ -14,7 +14,8 @@ namespace QuickClip;
 /// <summary>App window: navigation between the gallery (and its player), the editor and settings, plus the recording status bar.</summary>
 public partial class MainWindow : Window
 {
-    private bool _recordingDot;
+    private RecordingBadge? _recordingBadge;
+    private bool _savingClip;
 
     private readonly DispatcherTimer _statusTimer;
     private readonly DispatcherTimer _shareHideTimer;
@@ -280,17 +281,32 @@ public partial class MainWindow : Window
         var s = AppSettings.Current;
         var hotkey = new Hotkey(s.HotkeyModifiers, s.HotkeyKey);
         bool running = recorder.IsRunning;
-        if (running != _recordingDot)
+        var badge = RecordingStatusIcon.From(s.RecordingEnabled, recorder.State);
+        if (badge != _recordingBadge)
         {
-            _recordingDot = running;
-            RecDot.SetResourceReference(System.Windows.Shapes.Shape.FillProperty, running ? "RecordingRed" : "DisabledBrush");
-            SaveActionDot.SetResourceReference(System.Windows.Shapes.Shape.FillProperty, running ? "RecordingRed" : "DisabledBrush");
+            _recordingBadge = badge;
+            string brush = RecordingStatusIcon.BrushKey(badge);
+            RecDot.SetResourceReference(System.Windows.Shapes.Shape.FillProperty, brush);
+            SaveActionDot.SetResourceReference(System.Windows.Shapes.Shape.FillProperty,
+                running ? brush : "SecondaryTextBrush");
             SaveActionDot.BeginAnimation(UIElement.OpacityProperty, null);
             SaveActionDot.Opacity = 1;
-            if (running)
+            if (running && SystemParameters.ClientAreaAnimation && !SystemParameters.HighContrast)
                 SaveActionDot.BeginAnimation(UIElement.OpacityProperty,
                     new DoubleAnimation(1, 0.35, TimeSpan.FromSeconds(0.75))
                     { AutoReverse = true, RepeatBehavior = RepeatBehavior.Forever });
+            if (AppProfile.IsPersonal)
+            {
+                TaskbarItemInfo ??= new System.Windows.Shell.TaskbarItemInfo();
+                TaskbarItemInfo.Overlay = RecordingStatusIcon.Overlay(badge);
+                TaskbarItemInfo.Description = badge switch
+                {
+                    RecordingBadge.Game => "Recording a game",
+                    RecordingBadge.Desktop => "Recording the desktop",
+                    RecordingBadge.Standby => "Instant replay on standby",
+                    _ => "Recording off"
+                };
+            }
         }
         if (running)
         {
@@ -307,7 +323,7 @@ public partial class MainWindow : Window
                 : recorder.State.Mode == RecordingMode.Armed ? "Waiting for a game · not capturing"
                 : s.RecordingEnabled ? "Starting…" : "Recording is off — turn on instant replay in Settings";
         }
-        SaveClipButton.IsEnabled = recorder.IsRunning;
+        SaveClipButton.IsEnabled = recorder.IsRunning && !_savingClip;
     }
 
     // ---- what's new after an update ----------------------------------------------------------
@@ -394,6 +410,8 @@ public partial class MainWindow : Window
 
     private async void SaveClip_Click(object sender, RoutedEventArgs e)
     {
+        if (_savingClip) return;
+        _savingClip = true;
         SaveClipButton.IsEnabled = false;
         SaveClipText.Text = "Saving…";
         try
@@ -402,6 +420,7 @@ public partial class MainWindow : Window
         }
         finally
         {
+            _savingClip = false;
             SaveClipText.Text = "Save clip";
             UpdateStatus();
         }

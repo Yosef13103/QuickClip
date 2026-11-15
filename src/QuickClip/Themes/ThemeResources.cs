@@ -97,6 +97,9 @@ internal sealed class ThemeResources
         Map(ThemeColor.SecondaryText, "SwitchOffThumbBrush", "SwitchOutlineBrush");
         Map(ThemeColor.ElevatedSurface, "SwitchOffBrush");
         Map(ThemeColor.Surface, "InternalSidebarBrush");
+        // Main rail selection should be distinct even when rail and page are light.
+        Map(ThemeColor.Accent, "RailSelectedBrush");
+        brushes["RailSelectedTextBrush"] = OnColor(colors[ThemeColor.Accent]);
         brushes["DividerBrush"] = Frozen(Blend(colors[ThemeColor.Surface], colors[ThemeColor.Border], .38));
         // Semantic foregrounds are available to all palettes, including the legacy Dark and high-contrast paths.
         brushes["OnAccentBrush"] = OnColor(colors[ThemeColor.Accent]);

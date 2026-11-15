@@ -19,6 +19,7 @@ public partial class SettingsView : UserControl
     }
 
     private readonly DispatcherTimer _restartTimer;
+    private DispatcherTimer? _diagnosticsTimer;
     private IReadOnlyList<MonitorInfo> _monitors = [];
     private IReadOnlyList<CaptureEngine.AudioDevice> _mics = [];
     private readonly List<(ComboBox Combo, Button Remove)> _micRows = [];
@@ -49,8 +50,12 @@ public partial class SettingsView : UserControl
             _restartTimer!.Stop();
             _ = Recorder.Instance.ApplySettingsAsync();
         }, Dispatcher) { IsEnabled = false };
+        CaptureAdvanced.IsVisibleChanged += (_, _) => UpdateDiagnosticsTimer();
+        CaptureAdvanced.Collapsed += (_, _) => UpdateDiagnosticsTimer();
+        IsVisibleChanged += (_, _) => UpdateDiagnosticsTimer();
         Unloaded += (_, _) =>
         {
+            _diagnosticsTimer?.Stop();
             Recorder.Instance.StateChanged -= OnRecorderState;
             Updater.Changed -= OnUpdaterChanged;
         };
@@ -280,6 +285,7 @@ public partial class SettingsView : UserControl
         ShowUpdateState();
         UpdateCropPreview();
         UpdateEstimates();
+        UpdateDiagnosticsTimer();
         OnRecorderState(Recorder.Instance.State);
     }
 
@@ -492,23 +498,12 @@ public partial class SettingsView : UserControl
 
     private void ManualDesktop_Click(object sender, RoutedEventArgs e)
     {
-        // The existing consent flow and recorder state, not the clicked visual, are authoritative.
-        ManualDesktopButton.IsChecked = Recorder.Instance.ManualDesktopRequested;
-        // Refresh can show the primary monitor without editing settings. Commit the
-        // displayed target here, before invoking the original explicit consent flow.
-        if (!Recorder.Instance.ManualDesktopRequested && SelectedMonitor is { CaptureIdentity: not null } selected)
-        {
-            var settings = AppSettings.Current;
-            string old = settings.RecordMonitor;
-            settings.RecordMonitor = selected.DeviceName;
-            if (!settings.TrySave())
-            {
-                settings.RecordMonitor = old;
-                ModalDialog.Show(Window.GetWindow(this), "Couldn’t save the selected display.", "Settings", MessageBoxButton.OK);
-                return;
-            }
-        }
-        App.Host?.ToggleManualDesktop(Recorder.Instance);
+        var recorder = Recorder.Instance;
+        ManualDesktopButton.IsChecked = recorder.ManualDesktopRequested;
+        if (recorder.ManualDesktopRequested) App.Host?.ToggleManualDesktop(recorder);
+        else if (SelectedMonitor is { CaptureIdentity: not null } selected)
+            App.Host?.SelectManualDisplay(recorder, selected);
+        else App.Host?.ToggleManualDesktop(recorder);
         ShowGameWindowState();
     }
 
@@ -533,6 +528,7 @@ public partial class SettingsView : UserControl
         if (BackendCombo.SelectedItem is Choice { Value: CaptureEngine.MonitorBackend backend }) s.CaptureBackend = backend;
         if (NvencPresetCombo.SelectedItem is Choice { Value: CaptureEngine.NvencSpeed preset }) s.NvencPreset = preset;
         s.RecordingDiagnostics = DiagnosticsCheck.IsChecked == true;
+        if (sender == DiagnosticsCheck) UpdateDiagnosticsTimer();
         s.CaptureCursor = CursorCheck.IsChecked == true;
         if (!AppProfile.IsPersonal) s.PreferGameWindow = SourceCombo.SelectedIndex == 0;
         ShowGameWindowState();
@@ -553,9 +549,14 @@ public partial class SettingsView : UserControl
         UpdateEstimates();
         bool recordingSetting = sender != StartTrayCheck && sender != CloseTrayCheck && sender != SoundCheck
                                 && sender != MotionBlurCheck && sender != ConfirmDeleteCheck;
-        // In Personal, selecting a manual destination is not a command to restart
-        // the active game's graph or switch a previously authorized manual target.
-        if (sender == MonitorCombo && AppProfile.IsPersonal) return;
+        if (sender == MonitorCombo && AppProfile.IsPersonal)
+        {
+            // A picker change switches only an active manual session. While
+            // inactive it sets the next target; automatic game capture is untouched.
+            if (Recorder.Instance.ManualDesktopRequested && SelectedMonitor is { CaptureIdentity: not null } selected)
+                App.Host?.SelectManualDisplay(Recorder.Instance, selected, onlyIfActive: true);
+            return;
+        }
         if (sender == RecordingCheck || sender == SourceCombo)
         {
             _restartTimer.Stop();
@@ -570,11 +571,28 @@ public partial class SettingsView : UserControl
         _restartTimer.Start();
     }
 
-    private void Diagnostics_Expanded(object sender, RoutedEventArgs e) => RefreshDiagnostics();
-    private void Diagnostics_Refresh(object sender, RoutedEventArgs e) => RefreshDiagnostics();
+    private void Diagnostics_Expanded(object sender, RoutedEventArgs e) => UpdateDiagnosticsTimer();
+
+    private void UpdateDiagnosticsTimer()
+    {
+        if (CaptureAdvanced == null || CaptureDiagnostics == null) return;
+        bool enabled = AppSettings.Current.RecordingDiagnostics;
+        if (!enabled || !IsLoaded || !IsVisible || !CaptureAdvanced.IsVisible || !CaptureAdvanced.IsExpanded)
+        {
+            _diagnosticsTimer?.Stop();
+            if (!enabled) CaptureDiagnostics.Text = "Timing sampling is off.";
+            return;
+        }
+        if (_diagnosticsTimer?.IsEnabled == true) return;
+        _diagnosticsTimer ??= new DispatcherTimer(TimeSpan.FromSeconds(5), DispatcherPriority.Background,
+            (_, _) => RefreshDiagnostics(), Dispatcher);
+        _diagnosticsTimer.Start();
+        RefreshDiagnostics();
+    }
     private void RefreshDiagnostics()
     {
-        if (!CaptureEngine.IsAvailable || CaptureDiagnostics == null) return;
+        if (!AppSettings.Current.RecordingDiagnostics || !IsVisible || !CaptureAdvanced.IsVisible ||
+            !CaptureAdvanced.IsExpanded || !CaptureEngine.IsAvailable || CaptureDiagnostics == null) return;
         try
         {
             CaptureEngine.Initialize();
