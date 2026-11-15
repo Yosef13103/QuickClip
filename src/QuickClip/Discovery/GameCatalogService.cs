@@ -430,13 +430,14 @@ internal static class GameCatalogService
         private IEnumerable<ScanStep> ScanFolder(string path, int depth = 0)
         {
             var game = FolderCandidate(path);
-            yield return new(() => ScanInstall(path, depth, game, null));
+            yield return new(() => ScanInstall(path, depth, game, null, allowFolderFallback: true));
             RemoveEmptyFolder(game);
         }
 
         // Capture the complete executable set across resumable directory cursors BEFORE
         // applying exact Unity, Unreal, or Godot renderer eligibility evidence.
-        private IEnumerable<ScanStep> ScanInstall(string install, int depth, Candidate game, string? launchExecutable)
+        private IEnumerable<ScanStep> ScanInstall(string install, int depth, Candidate game, string? launchExecutable,
+            bool allowFolderFallback = false)
         {
             var executables = new List<string>();
             bool incomplete = false;
@@ -444,8 +445,7 @@ internal static class GameCatalogService
             yield return new(() => ScanExecutables(install, depth, game, executables,
                 catalogAll: launchExecutable == null, onIncomplete: () => incomplete = true));
             if (!incomplete)
-                yield return new(() => IdentifyRenderer(game, install, executables, launchExecutable,
-                    allowFolderFallback: launchExecutable == null));
+                yield return new(() => IdentifyRenderer(game, install, executables, launchExecutable, allowFolderFallback));
         }
 
         private IEnumerable<ScanStep> ScanExecutables(string path, int depth, Candidate game,
