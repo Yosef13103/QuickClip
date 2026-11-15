@@ -3,7 +3,7 @@
   "active_wave": 2,
   "baseline_snapshot": "6de4ad684f4268b685c630d639977c439bf557ed",
   "selected_milestone": "discovery",
-  "note": "Discovery milestone 1 is active. See .ai/README.md and QUALITY Q4 for gate semantics. Local dependencies can run on candidate code. N/A satisfies a dependency only with a recorded reason and owner approval where scope is deferred. W2-Z requires all relevant CI, review and hardware gates for closure.",
+  "note": "Discovery milestone 2 is at the draft review boundary. See .ai/README.md and QUALITY Q4 for gate semantics. Local dependencies can run on candidate code. W2-Z requires all relevant CI, review and hardware gates for closure.",
   "tasks": [
     {
       "id": "W2-A",
@@ -57,14 +57,14 @@
       ],
       "effort": "high",
       "status": "implemented",
-      "candidate": "47c11039c937cebf624ba2c24f1c1249a7dc745b",
+      "candidate": "1493d7431d07e96f2594a07d0eaf83e6080b9faa",
       "gates": {
         "local": "pass",
         "ci": "pending",
         "review": "pending",
         "hardware": "pending"
       },
-      "evidence": ["2026-11-15: two new positive fixtures failed on release source. After repair, 169 focused passed and 1 symlink test skipped. Scoped folder eligibility, exact approvals, helper, ambiguity, and denied source paths covered. See private W2-G1. Final candidate limits the fallback to folder installs, preserving launcher ranking."],
+      "evidence": ["Milestone 2 fixtures verify multiple install-named x64/DX12 variants, Unreal Shipping, exact EXE approvals, helper and launcher vetoes, ambiguous alternates and denied capture paths. See private W2-milestone2."],
       "blocker": null,
       "next_action": "Carry forward to independent review and supervised D5 activation checks."
     },
@@ -90,14 +90,14 @@
       ],
       "effort": "high",
       "status": "reviewed",
-      "candidate": "47c11039c937cebf624ba2c24f1c1249a7dc745b",
+      "candidate": "1493d7431d07e96f2594a07d0eaf83e6080b9faa",
       "gates": {
         "local": "pass",
         "ci": "pending",
         "review": "pending",
         "hardware": "pending"
       },
-      "evidence": ["2026-11-15: 113 focused fixtures passed. Existing capture selector handled foreground switching and Discord focus. New fixture covers same-display replay epoch, stale process and relaunch. See private W2-G2.", "Strict Release at 47c1103: Personal 768 passed, 19 skipped; Upstream 33 passed, 14 skipped. Native build passed. Earlier Personal audio decode timeout passed on isolated and full reruns. See private W2-candidate-47c1103."],
+      "evidence": ["Milestone 2 re-ran the game handoff, Discord focus, replay epoch, relaunch, unplug, excluded display and catalog revocation fixtures. A source-removal fixture drives a running lifecycle to standby. See private W2-milestone2."],
       "blocker": null,
       "next_action": "Verify actual games, source loss and monitor transitions in a supervised scratch-profile session."
     },
@@ -121,17 +121,17 @@
         "Two-root instrumented fixtures prove one-root mutation avoids global rescan; malformed/offline/partial results preserve valid cache; stale generations cannot resurrect removed grant; truthful counts and progress; large collections complete over slices."
       ],
       "effort": "high",
-      "status": "in_progress",
-      "candidate": "4c73b55cc92c9d0dee52309cfd19f2b019dad5cb",
+      "status": "implemented",
+      "candidate": "1493d7431d07e96f2594a07d0eaf83e6080b9faa",
       "gates": {
-        "local": "fail",
+        "local": "pass",
         "ci": "pending",
         "review": "pending",
         "hardware": "pending"
       },
-      "evidence": ["2026-11-15: instrumented two-root probe expected only the newly added root and observed both roots. Private W2-G3/before.trx and reproducer."],
-      "blocker": "Current saved snapshot combines source claims. A selective scan must preserve verified surviving claims without granting capture from an unverified, removed or stale source.",
-      "next_action": "Use the two-root probe as the first regression fixture. Add a source-keyed snapshot that boots from legacy cache, then scope coordinator refresh and generation checks. Verify overlap, offline retention, denied paths and counts before publishing the new projection."
+      "evidence": ["Two-root probe passes. Scope mutation, stale publication rejection, unaffected cursor continuation, overlapping folder/provider claims, legacy migration and failed-source retention covered. Existing profile JSON stores the claims. See private W2-milestone2."],
+      "blocker": null,
+      "next_action": "Review claim projection, migration and denial precedence; validate on a scratch profile with an offline library. Automatic Steam refresh still processes its resolved library set as one provider."
     },
     {
       "id": "W2-G4",
@@ -155,16 +155,16 @@
       ],
       "effort": "medium",
       "status": "reviewed",
-      "candidate": "4c73b55cc92c9d0dee52309cfd19f2b019dad5cb",
+      "candidate": "1493d7431d07e96f2594a07d0eaf83e6080b9faa",
       "gates": {
         "local": "pass",
         "ci": "not_applicable",
         "review": "pending",
         "hardware": "not_applicable"
       },
-      "evidence": ["2026-11-15: recommendation and pinned source in .ai/RESEARCH.md, W2-G4 recommendation. Retain Steam/Epic direct readers; evaluate a direct GOG reader first. No provider adoption."],
+      "evidence": ["Decision matrix and sources in .ai/RESEARCH.md. Owner approved GOG only. Retain Steam/Epic direct readers; other providers remain research. No packages adopted."],
       "blocker": null,
-      "next_action": "Review the proposed GOG-only subset before any future G5 implementation."
+      "next_action": "Use the matrix for future separately approved provider proposals."
     },
     {
       "id": "W2-G5",
@@ -199,17 +199,17 @@
         "Per-provider parser and lookup fixtures, missing/malformed/offline/access errors, no automatic consent, correct stable IDs and UI coverage; pin/audit licenses/dependencies. Actual launcher checks when available."
       ],
       "effort": "high",
-      "status": "not_started",
-      "candidate": null,
+      "status": "implemented",
+      "candidate": "1493d7431d07e96f2594a07d0eaf83e6080b9faa",
       "gates": {
-        "local": "pending",
+        "local": "pass",
         "ci": "pending",
         "review": "pending",
         "hardware": "pending"
       },
-      "evidence": [],
+      "evidence": ["Opt-in read-only GOG Registry32 reader. Injected fixtures cover product ID, duplicate/dependent records, invalid and unavailable sources, persisted overrides, and overlapping folder permission. No external dependency."],
       "blocker": null,
-      "next_action": null
+      "next_action": "Validate against actual GOG registrations and an offline GOG install in a supervised scratch profile."
     },
     {
       "id": "W2-G6",
@@ -248,17 +248,17 @@
         "No unresolved discovery safety failures; full Personal/Upstream CI exact candidate, independent review, actual owner game/monitor and helper results or explicit pending."
       ],
       "effort": "high",
-      "status": "not_started",
-      "candidate": null,
+      "status": "in_progress",
+      "candidate": "1493d7431d07e96f2594a07d0eaf83e6080b9faa",
       "gates": {
-        "local": "pending",
+        "local": "pass",
         "ci": "pending",
         "review": "pending",
         "hardware": "pending"
       },
-      "evidence": [],
+      "evidence": ["2026-11-15: native compile and both strict Release builds passed. Personal 780 passed, 19 skipped; Upstream 33 passed, 14 skipped; zero failures. The earlier notification-audio timeout did not recur. See private W2-milestone2."],
       "blocker": null,
-      "next_action": null
+      "next_action": "Track Windows quality on the draft PR, complete independent review and run the supervised D5 hardware checklist."
     },
     {
       "id": "W2-R1",
