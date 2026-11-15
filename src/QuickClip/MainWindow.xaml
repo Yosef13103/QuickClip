@@ -148,7 +148,22 @@
                             Click="ShareClose_Click" />
                 </StackPanel>
                 <Ellipse x:Name="RecDot" DockPanel.Dock="Left" Width="9" Height="9" Margin="0,0,9,0" VerticalAlignment="Center" Fill="{DynamicResource DisabledBrush}" />
-                <TextBlock x:Name="RecStatus" VerticalAlignment="Center" ToolTip="{Binding Text, RelativeSource={RelativeSource Self}}" FontSize="{DynamicResource QuickClipText12.5}" TextTrimming="CharacterEllipsis" Text="Starting…" />
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <TextBlock x:Name="RecStatus" VerticalAlignment="Center" ToolTip="{Binding Text, RelativeSource={RelativeSource Self}}" FontSize="{DynamicResource QuickClipText12.5}" TextTrimming="CharacterEllipsis" Text="Starting…" />
+                    <Button x:Name="ActivityButton" Grid.Column="1" Visibility="Collapsed" Style="{StaticResource TextButton}"
+                            Margin="8,0,0,0" Padding="8,3" MaxWidth="310" Click="ActivityButton_Click"
+                            AutomationProperties.Name="Background activity">
+                        <StackPanel>
+                            <TextBlock x:Name="ActivityText" FontSize="{DynamicResource QuickClipText12.5}" TextTrimming="CharacterEllipsis" />
+                            <ProgressBar x:Name="ActivityProgress" Height="3" Margin="0,4,0,0" Minimum="0" Maximum="1"
+                                         Foreground="{DynamicResource AccentBrush}" />
+                        </StackPanel>
+                    </Button>
+                </Grid>
             </DockPanel>
         </Border>
 

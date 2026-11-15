@@ -1967,9 +1967,11 @@ public partial class EditorView : UserControl
         StatusText.Text = "Exporting…";
         UpdateUiState();
 
+        using var activity = QuickClip.Shell.BackgroundActivity.Begin("Exporting clip");
         var sw = Stopwatch.StartNew();
         var progress = new Progress<double>(p =>
         {
+            activity.Report("Exporting clip", p);
             ExportProgress.Value = p * 100;
             StatusText.Text = $"Exporting… {p:P0}";
         });
@@ -1988,6 +1990,7 @@ public partial class EditorView : UserControl
             string final = outputPath;
             if (overwrite)
             {
+                activity.Report("Finishing export");
                 StatusText.Text = "Replacing the original…";
                 DateTime? recycled;
                 _replacingSource = true;

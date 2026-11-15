@@ -206,6 +206,7 @@ internal sealed class GameDiscoveryCoordinator : IDisposable
 
     private async Task RunAsync()
     {
+        using var activity = QuickClip.Shell.BackgroundActivity.Begin("Discovering games");
         await Task.Yield();
         while (true)
         {
@@ -231,6 +232,7 @@ internal sealed class GameDiscoveryCoordinator : IDisposable
                 while (true)
                 {
                     var result = await work.Scan.ContinueAsync(_segmentsPerSlice, TimeSpan.FromMilliseconds(250), token, throttleSnapshots: true);
+                    activity.Report($"Discovering games · {scope.Kind} · {result.CandidateExecutablesVisited:N0} executable visits");
                     bool pause;
                     lock (_gate)
                     {

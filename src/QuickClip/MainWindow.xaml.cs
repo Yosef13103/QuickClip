@@ -143,6 +143,7 @@ public partial class MainWindow : Window
         {
             if (_settings != null) return _settings;
             _settings = new SettingsView { Visibility = Visibility.Collapsed };
+            _settings.RecordingFoldersChanged += Gallery.RefreshConfiguredSources;
             Pages.Children.Add(_settings);
             return _settings;
         }
@@ -277,6 +278,7 @@ public partial class MainWindow : Window
 
     private void UpdateStatus()
     {
+        RefreshBackgroundActivity();
         var recorder = Recorder.Instance;
         var s = AppSettings.Current;
         var hotkey = new Hotkey(s.HotkeyModifiers, s.HotkeyKey);
@@ -465,6 +467,7 @@ public partial class MainWindow : Window
     {
         _closeResult?.TrySetResult(true);
         _statusTimer.Stop();
+        ActivityProgress.IsIndeterminate = false;
         Recorder.Instance.StateChanged -= OnRecorderState;
         Updater.Changed -= OnUpdaterChanged;
         ClipSharing.Changed -= ShowShareStatus;

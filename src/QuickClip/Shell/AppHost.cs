@@ -32,6 +32,7 @@ internal sealed class AppHost : IDisposable
     private bool _updateBalloonShown;   // the last notification was about an update
     private AppVersion? _notifiedVersion;
     private readonly ClipNotificationOverlay _clipOverlay = new();
+    private readonly ClipNotificationOverlay _recordingIndicator = new();
     private readonly CaptureAlertPolicy _captureAlerts = new();
     private DispatcherTimer? _captureAlertTimer;
     private RecorderState? _recentRecorderState;
@@ -40,6 +41,7 @@ internal sealed class AppHost : IDisposable
     private Action<Hotkey>? _captureHotkey;
     private bool _replayEnabled;
     private bool _desktopRunning;
+    private long? _announcedGameEpoch;
 
     public event Action? OpenRequested;
     /// <summary>The user clicked the "update available" notification.</summary>
@@ -181,6 +183,16 @@ internal sealed class AppHost : IDisposable
                     desktopRunning ? state.Summary : "Manual desktop capture has ended.");
                 _desktopRunning = desktopRunning;
             }
+            RefreshRecordingIndicator();
+            // Only announce a live, current graph, not a queued observation of an old game.
+            var current = Recorder.Instance.State;
+            if (!enabled || !current.Running || current.Mode != RecordingMode.GameTriggered)
+                _announcedGameEpoch = null;
+            else if (_announcedGameEpoch != current.CaptureEpoch)
+            {
+                _announcedGameEpoch = current.CaptureEpoch;
+                ShowClipFeedback(ClipEvent.GameStarted, current.Summary);
+            }
         }
         // Critical recorder failures use independently enabled Windows and overlay channels.
         // The old source guidance path is Windows-only, so exclude these modes to avoid
@@ -259,6 +271,17 @@ internal sealed class AppHost : IDisposable
         var kind = AppProfile.IsPersonal && !state.Running && state.Error == null &&
             state.Mode is RecordingMode.Off or RecordingMode.Armed ? ClipEvent.Inactive : ClipEvent.Failed;
         _dispatcher.BeginInvoke(() => ShowClipFeedback(kind, error));
+    }
+
+    internal void RefreshRecordingIndicator()
+    {
+        var settings = AppSettings.Current;
+        var state = Recorder.Instance.State;
+        if (AppProfile.IsPersonal && settings.RecordingEnabled && settings.ShowGameRecordingIndicator &&
+            state.Running && state.Mode == RecordingMode.GameTriggered && state.CaptureDevice is { } display)
+            _recordingIndicator.ShowRecordingIndicator(display, settings.GameRecordingIndicatorAnchor);
+        else
+            _recordingIndicator.Hide();
     }
 
     private void ShowClipFeedback(ClipEvent kind, string message, ClipNotificationDetails? details = null)
@@ -411,7 +434,8 @@ internal sealed class AppHost : IDisposable
             {
                 menu.Items.Add(Item("Switch to next authorized display", () => RunRecordingCommand(RecordingCommand.SwitchMonitor)));
                 var authorize = new MenuItem { Header = "Switch desktop display…" };
-                foreach (var monitor in Monitors.List().Where(m => m.CaptureIdentity != null))
+                foreach (var monitor in Monitors.List().Where(m => m.CaptureIdentity is { } identity &&
+                    CaptureSourcePolicy.AllowsManualDisplay(AppSettings.Current, identity)))
                     authorize.Items.Add(Item(monitor.Label, () => SelectManualDisplay(recorder, monitor, onlyIfActive: true)));
                 authorize.IsEnabled = authorize.Items.Count > 0;
                 menu.Items.Add(authorize);
@@ -476,6 +500,11 @@ internal sealed class AppHost : IDisposable
     {
         if (selected.CaptureIdentity == null || !AppSettings.Current.RecordingEnabled) return;
         var settings = AppSettings.Current;
+        if (!CaptureSourcePolicy.AllowsManualDisplay(settings, selected.CaptureIdentity))
+        {
+            NotifySource("Display excluded", "Enable capture for this display in Recording settings first.");
+            return;
+        }
         string previous = settings.RecordMonitor;
         settings.RecordMonitor = selected.DeviceName;
         if (!settings.TrySave())
@@ -505,6 +534,7 @@ internal sealed class AppHost : IDisposable
         Recorder.Instance.ReplaySaved -= OnReplaySaved;
         Recorder.Instance.SaveFailed -= OnSaveFailed;
         Recorder.Instance.StateChanged -= OnRecorderState;
+        _recordingIndicator.Dispose();
         _clipOverlay.Dispose();
         if (_window == null) return;
         _captureHotkey = null;

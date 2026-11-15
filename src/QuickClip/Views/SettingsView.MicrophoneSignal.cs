@@ -34,6 +34,7 @@ public partial class SettingsView
     private DispatcherTimer? _microphoneTimer;
     private MicrophoneMeter? _testingMeter;
     private long _microphoneToken;
+    private long _microphoneTestStarted;
 
     private void InitializeMicrophoneMeters()
     {
@@ -88,6 +89,7 @@ public partial class SettingsView
         panel.Children.Add(status);
         panel.Children.Add(actions);
         meters.Add(row);
+        panel.IsVisibleChanged += (_, _) => UpdateMicrophoneMonitoring();
         return row;
     }
 
@@ -115,6 +117,10 @@ public partial class SettingsView
             {
                 _testingMeter = row;
                 _microphoneToken = token;
+                _microphoneTestStarted = Environment.TickCount64;
+                // Legacy rows are created dynamically; ensure a test owns a running refresh timer.
+                UpdateMicrophoneMonitoring();
+                if (_testingMeter == row) _microphoneTimer?.Start();
             }
             else
                 row.TestMessage = result == unchecked((int)0x800700AA)
@@ -154,6 +160,8 @@ public partial class SettingsView
                 testing.TestResult = result;
                 testing.SnapshotUtc = DateTimeOffset.UtcNow;
                 if (result.Stage == EndpointStage.Complete || result.HResult < 0) StopMicrophoneTest();
+                else if (Environment.TickCount64 - _microphoneTestStarted > MicrophoneTestDurationMs + 3000)
+                    StopMicrophoneTest("Microphone test timed out. Check the device and try again.");
             }
             else
                 StopMicrophoneTest("Microphone test ended when recording started.");

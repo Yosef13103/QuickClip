@@ -150,6 +150,7 @@ public partial class SettingsView : UserControl
     private async void InstallUpdate_Click(object sender, RoutedEventArgs e)
     {
         if (Updater.Available is not { } release || _installing) return;
+        using var activity = QuickClip.Shell.BackgroundActivity.Begin("Downloading update");
         _installing = true;
         UpdateActions.Visibility = Visibility.Collapsed;
         UpdateProgress.Visibility = Visibility.Visible;
@@ -159,6 +160,7 @@ public partial class SettingsView : UserControl
         {
             var progress = new Progress<double>(p =>
             {
+                activity.Report("Downloading update", p);
                 UpdateProgress.Value = p;
                 UpdateStatusText.Text = $"Downloading QuickClip {release.Version.Display}… {p:P0}";
             });
@@ -344,12 +346,12 @@ public partial class SettingsView : UserControl
             GameDisplayConsent.Content = settings.AllowGameDisplayFollowing
                 ? "Disable game display following" : "Allow game display following…";
             var identity = SelectedMonitor?.CaptureIdentity;
-            DisplayPermissionCheck.IsEnabled = identity != null && settings.AllowGameDisplayFollowing;
-            DisplayPermissionCheck.IsChecked = identity != null && CaptureSourcePolicy.AllowsGameDisplay(settings, identity);
+            DisplayPermissionCheck.IsEnabled = identity != null;
+            DisplayPermissionCheck.IsChecked = identity != null && CaptureSourcePolicy.AllowsManualDisplay(settings, identity);
             DisplayPermissionHint.Text = identity == null ? "Choose a connected, identifiable display."
-                : !settings.AllowGameDisplayFollowing ? "Manage game display permissions below to enable display following."
-                : DisplayPermissionCheck.IsChecked == true ? "Automatic game recording allowed on this display."
-                : "Automatic game recording blocked on this display.";
+                : DisplayPermissionCheck.IsChecked == true
+                    ? "Display included. Manual capture can use it; automatic games also need game display permission."
+                    : "Display excluded from manual and automatic game capture. Recording stays enabled elsewhere.";
             RevokeLegacyDisplayConsent.Visibility = !settings.AllowGameDisplayFollowing && settings.AuthorizedGameDisplay != null
                 ? Visibility.Visible : Visibility.Collapsed;
             BackendCombo.IsEnabled = false;
@@ -357,7 +359,8 @@ public partial class SettingsView : UserControl
                 + (settings.AllowGameDisplayFollowing ? "" : settings.AuthorizedGameDisplay != null
                     ? settings.PreferGameWindow ? " Your existing permission covers one display." : " Your previous settings disabled automatic capture. Allow game display following to start it."
                     : " Game display permission is required.");
-            ManualDesktopButton.IsEnabled = settings.RecordingEnabled;
+            ManualDesktopButton.IsEnabled = settings.RecordingEnabled && (Recorder.Instance.ManualDesktopRequested ||
+                identity != null && CaptureSourcePolicy.AllowsManualDisplay(settings, identity));
             ManualDesktopButton.IsChecked = Recorder.Instance.ManualDesktopRequested;
             return;
         }
@@ -492,13 +495,22 @@ public partial class SettingsView : UserControl
     private void DisplayPermission_Click(object sender, RoutedEventArgs e)
     {
         var settings = AppSettings.Current;
-        if (settings.AllowGameDisplayFollowing && SelectedMonitor?.CaptureIdentity is { } identity)
+        if (SelectedMonitor?.CaptureIdentity is { } identity)
         {
             var blocked = new HashSet<string>(settings.ExcludedGameDisplays ?? [], StringComparer.OrdinalIgnoreCase);
             if (DisplayPermissionCheck.IsChecked == true) blocked.Remove(identity);
             else blocked.Add(identity);
+            var previous = settings.ExcludedGameDisplays;
             settings.ExcludedGameDisplays = blocked.ToArray();
-            ApplyDisplayPermission();
+            if (!settings.TrySave())
+            {
+                settings.ExcludedGameDisplays = previous;
+                ShowGameWindowState();
+                ModalDialog.Show(Window.GetWindow(this), "Could not save the display exclusion. No permission has changed.", "Settings");
+                return;
+            }
+            ShowGameWindowState();
+            _ = Recorder.Instance.ReconcileDisplayPermissionsAsync();
         }
         else ShowGameWindowState();
     }
