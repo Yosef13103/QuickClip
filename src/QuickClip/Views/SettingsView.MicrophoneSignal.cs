@@ -236,9 +236,9 @@ public partial class SettingsView
             row.Save.Visibility = IsBasicExperience ? Visibility.Collapsed : Visibility.Visible;
             row.Save.IsEnabled = snapshot.HasValue;
             bool recordingSample = testingNow && _microphoneSample != null;
-            bool idle = _testingMeter == null && _playingMeter == null && running == null && !Recorder.Instance.State.Running;
-            row.Test.IsEnabled = (testingNow && !recordingSample) || idle;
-            row.Record.IsEnabled = recordingSample || idle;
+            bool canTest = _testingMeter == null && _playingMeter == null && running == null && !Recorder.Instance.State.Running;
+            row.Test.IsEnabled = (testingNow && !recordingSample) || canTest;
+            row.Record.IsEnabled = recordingSample || canTest;
             row.Record.Content = recordingSample ? "Cancel recording" : "Record 5 seconds";
             row.Play.IsEnabled = row.Wave != null && _testingMeter == null && _playingMeter == null && !Recorder.Instance.State.Running;
             string testCaption = testingNow && !recordingSample ? "Stop test" : "Test microphone";

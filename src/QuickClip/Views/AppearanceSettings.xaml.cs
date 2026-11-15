@@ -37,7 +37,9 @@ public partial class AppearanceSettings : UserControl
             foreach (var json in SavedThemes.Normalize(settings.SavedCustomThemes, settings.CustomThemeJson))
                 if (ThemeResources.ReadSaved(json) is { } theme)
                     options.Add(new(ThemeChoice.Custom, theme.Name + " (custom)", json));
-            ThemePicker.ItemsSource = options;
+            if (ThemePicker.ItemsSource is not IEnumerable<Option> current || !current.SequenceEqual(options))
+                ThemePicker.ItemsSource = options;
+            else options = current.ToList();
             var selected = ThemeResources.ThemeChoiceFrom(settings.Theme);
             var active = ThemeResources.ReadSaved(settings.CustomThemeJson);
             ThemePicker.SelectedItem = selected == ThemeChoice.Custom
