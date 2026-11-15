@@ -24,8 +24,8 @@
                 <Setter Property="Template">
                     <Setter.Value>
                         <ControlTemplate TargetType="Button">
-                            <Border x:Name="Surface" Background="{TemplateBinding Background}" CornerRadius="6"
-                                    BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" Padding="{TemplateBinding Padding}">
+                            <Border x:Name="Surface" Background="{TemplateBinding Background}" CornerRadius="9"
+                                    BorderBrush="Transparent" BorderThickness="1" Padding="{TemplateBinding Padding}">
                                 <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
                             </Border>
                             <ControlTemplate.Triggers>
@@ -40,8 +40,8 @@
                                     <Setter TargetName="Surface" Property="BorderBrush" Value="{DynamicResource PrimaryTextBrush}" />
                                 </Trigger>
                                 <Trigger Property="IsEnabled" Value="False">
-                                    <Setter TargetName="Surface" Property="Background" Value="{DynamicResource DisabledBrush}" />
-                                    <Setter TargetName="Surface" Property="BorderBrush" Value="{DynamicResource BorderBrush}" />
+                                    <Setter TargetName="Surface" Property="Background" Value="{DynamicResource ElevatedSurfaceBrush}" />
+                                    <Setter TargetName="Surface" Property="BorderBrush" Value="{DynamicResource DividerBrush}" />
                                     <Setter Property="Foreground" Value="{DynamicResource SecondaryTextBrush}" />
                                 </Trigger>
                             </ControlTemplate.Triggers>
@@ -52,7 +52,7 @@
         </ResourceDictionary>
     </Window.Resources>
 
-    <Grid Background="{DynamicResource BackgroundBrush}">
+    <Grid x:Name="WindowLayout" Background="{DynamicResource BackgroundBrush}">
         <Grid.ColumnDefinitions>
             <ColumnDefinition x:Name="RailColumn" Width="80" />
             <ColumnDefinition Width="*" />
@@ -116,12 +116,12 @@
         </Grid>
 
         <!-- Recording status -->
-        <Border x:Name="StatusBar" Grid.Row="2" Grid.Column="1" Background="{DynamicResource PanelBrush}" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,1,0,0" Padding="16,7,10,7">
+        <Border x:Name="StatusBar" Grid.Row="2" Grid.Column="1" Background="{DynamicResource PanelBrush}" BorderBrush="{DynamicResource DividerBrush}" BorderThickness="1" CornerRadius="10" Margin="8,3,8,8" Padding="12,7,8,7">
             <DockPanel>
                 <Button x:Name="SaveClipButton" DockPanel.Dock="Right" Style="{StaticResource SaveClipAction}" Margin="12,0,0,0"
                         AutomationProperties.Name="Save clip" Click="SaveClip_Click" VerticalAlignment="Center">
                     <StackPanel Orientation="Horizontal">
-                        <Ellipse x:Name="SaveActionDot" Width="10" Height="10" Fill="{DynamicResource DisabledBrush}" VerticalAlignment="Center" Margin="0,0,9,0" />
+                        <Ellipse x:Name="SaveActionDot" Width="10" Height="10" Fill="{DynamicResource SecondaryTextBrush}" VerticalAlignment="Center" Margin="0,0,9,0" />
                         <TextBlock x:Name="SaveClipText" Text="Save clip" />
                     </StackPanel>
                 </Button>

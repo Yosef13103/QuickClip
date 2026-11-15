@@ -40,7 +40,7 @@ The Personal release is **now published**: [QuickClip Personal v1.0.0](https://g
 - **Startup registration:** the installed Personal executable can opt in/out of the `QuickClip Personal` per-user Run entry, with an installation-path ownership check. Development and portable profiles don't register themselves for startup.
 - **Explorer integration:** stock QuickClip's Explorer verb and optional Windows 11 package remain separate. The Personal build intentionally does **not** install or mutate the stock Explorer shell extension.
 - **Settings, clips, IPC:** `AppProfile` isolates Personal settings, caches, clips, mutex and named pipes from upstream. `QUICKCLIP_PERSONAL_DATA_DIR` provides additional isolation for test profiles.
-- **Updates:** Personal does **not** auto-install upstream updates. Download a newer Personal release deliberately.
+- **Updates:** from Personal v1.1.0, production builds can check this repository's stable releases and download SHA-256-verified packages. Installation is manual; upstream updating, nightly publication and automatic in-place replacement remain disabled. Debug and isolated profiles do not check the feed.
 - **Production build:** `powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\package.ps1 -Personal`. The normal `dev.ps1` launcher is still for development and should not be used as the installed app.
 - **Validation:** strict Windows Personal and Upstream Release tests run in GitHub Actions. Startup registration, device capture and installer upgrade/uninstall behavior additionally require supervised real Windows tests.
 

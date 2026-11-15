@@ -24,6 +24,7 @@ internal sealed class AppHost : IDisposable
     private readonly Dispatcher _dispatcher = Dispatcher.CurrentDispatcher;
     private HwndSource? _window;
     private IntPtr _icon;
+    private readonly Dictionary<RecordingBadge, IntPtr> _statusIcons = [];
     private bool _iconAdded;
     private DispatcherTimer? _updateTimer;
     private bool _sourceBalloonShown;
@@ -37,7 +38,6 @@ internal sealed class AppHost : IDisposable
     private Dictionary<RecordingCommand, HotkeyRegistration> _hotkeys = [];
     private readonly Dictionary<RecordingCommand, int> _hotkeyIds = [];
     private Action<Hotkey>? _captureHotkey;
-    private bool _confirmingDesktop;
     private bool _replayEnabled;
     private bool _desktopRunning;
 
@@ -233,7 +233,7 @@ internal sealed class AppHost : IDisposable
         (settings.ClipWindowsNotification, settings.ClipOverlay?.Enabled == true);
 
     internal static ClipOverlayOptions CriticalCaptureOverlayOptions(ClipOverlayOptions? configured) =>
-        (configured ?? new()) with
+        (configured ?? new()).Banner() with
         {
             Style = OverlayStyle.Compact,
             ImageOnly = false,
@@ -270,19 +270,28 @@ internal sealed class AppHost : IDisposable
         if (feedback.Windows) Notify(feedback.Title, feedback.Message);
         if (feedback.Overlay)
         {
-            _ = ShowOverlayAsync(settings.ClipOverlay, feedback.Title, feedback.Success, details, details == null ? feedback.Message : null);
+            var options = settings.ClipOverlay.ForEvent(kind);
+            if (options != null) _ = ShowOverlayAsync(options, feedback.Title, feedback.Success, details,
+                details == null ? feedback.Message : null,
+                settings.ClipOverlay.Enabled ? settings.ClipOverlay.Banner() : null);
         }
     }
 
     internal void HideClipOverlay() => _clipOverlay.Hide();
 
-    internal void TestClipOverlay() => _ = ShowOverlayAsync(AppSettings.Current.ClipOverlay ?? new(), "Clip saved", true,
-        new("Example game", "Example clip", "Game · Entire display", "30 s", "1920 × 1080", "60 FPS", "Save clip · Alt+F10"));
+    internal void TestClipOverlay(bool banner = false)
+    {
+        var options = AppSettings.Current.ClipOverlay ?? new();
+        var appearance = banner ? options.Banner() : (options with { Enabled = true }).ForEvent(ClipEvent.Saved);
+        if (appearance != null) _ = ShowOverlayAsync(appearance, banner ? "Instant replay enabled" : "Clip saved", true,
+            banner ? null : new("Terraria", "Example clip", "Game · Entire display", "30 s", "1920 × 1080", "60 FPS", "Alt+F10"),
+            banner ? "Waiting for an eligible game." : null, options.Banner());
+    }
 
     private async Task ShowOverlayAsync(ClipOverlayOptions options, string title, bool success,
-        ClipNotificationDetails? details, string? message = null)
+        ClipNotificationDetails? details, string? message = null, ClipOverlayOptions? missingImageFallback = null)
     {
-        try { await _clipOverlay.ShowAsync(options, title, success, details, message); }
+        try { await _clipOverlay.ShowAsync(options, title, success, details, message, missingImageFallback); }
         catch (Exception ex) { Log.Write("Clip overlay unavailable: " + ex.GetType().Name); }
     }
 
@@ -297,6 +306,15 @@ internal sealed class AppHost : IDisposable
             : r.State.Mode == RecordingMode.Armed ? "Waiting for a game · not capturing" : "Recording is off";
         var data = NewIconData();
         data.uFlags = NIF_TIP | NIF_SHOWTIP;
+        if (AppProfile.IsPersonal)
+        {
+            var badge = RecordingStatusIcon.From(AppSettings.Current.RecordingEnabled, r.State);
+            if (badge != RecordingBadge.Off && !_statusIcons.ContainsKey(badge))
+                _statusIcons[badge] = RecordingStatusIcon.MakeTrayIcon(_icon, badge);
+            var icon = _statusIcons.GetValueOrDefault(badge);
+            data.hIcon = icon != IntPtr.Zero ? icon : _icon;
+            data.uFlags |= NIF_ICON;
+        }
         data.szTip = Truncate(AppProfile.Name + " — " + state, 127);
         Shell_NotifyIcon(NIM_MODIFY, ref data);
     }
@@ -392,9 +410,9 @@ internal sealed class AppHost : IDisposable
             if (recorder.ManualDesktopRequested)
             {
                 menu.Items.Add(Item("Switch to next authorized display", () => RunRecordingCommand(RecordingCommand.SwitchMonitor)));
-                var authorize = new MenuItem { Header = "Authorize and switch display…" };
+                var authorize = new MenuItem { Header = "Switch desktop display…" };
                 foreach (var monitor in Monitors.List().Where(m => m.CaptureIdentity != null))
-                    authorize.Items.Add(Item(monitor.Label, () => ConfirmManualDisplay(recorder, monitor)));
+                    authorize.Items.Add(Item(monitor.Label, () => SelectManualDisplay(recorder, monitor, onlyIfActive: true)));
                 authorize.IsEnabled = authorize.Items.Count > 0;
                 menu.Items.Add(authorize);
             }
@@ -432,7 +450,7 @@ internal sealed class AppHost : IDisposable
     private async Task SwitchMonitorAsync(Recorder recorder)
     {
         if (!await recorder.CycleManualDisplayAsync())
-            NotifySource("No other authorized display", "To switch, authorize another connected display in the manual desktop capture tray menu.");
+            NotifySource("No other authorized display", "Choose another connected display in the manual desktop capture tray menu.");
     }
 
     internal void ToggleManualDesktop(Recorder recorder)
@@ -449,22 +467,24 @@ internal sealed class AppHost : IDisposable
             RecordingSettingsRequested?.Invoke();
             return;
         }
-        ConfirmManualDisplay(recorder, selected);
+        SelectManualDisplay(recorder, selected);
     }
 
-    private void ConfirmManualDisplay(Recorder recorder, MonitorInfo selected)
+    // The deliberate switch or display selection grants only this physical target
+    // for the current manual session. No recurring confirmation dialog is needed.
+    internal void SelectManualDisplay(Recorder recorder, MonitorInfo selected, bool onlyIfActive = false)
     {
-        if (selected.CaptureIdentity == null || !AppSettings.Current.RecordingEnabled || _confirmingDesktop) return;
-        int consentRevision = AppSettings.Current.RecordingDisableRevision;
-        _confirmingDesktop = true;
-        try
+        if (selected.CaptureIdentity == null || !AppSettings.Current.RecordingEnabled) return;
+        var settings = AppSettings.Current;
+        string previous = settings.RecordMonitor;
+        settings.RecordMonitor = selected.DeviceName;
+        if (!settings.TrySave())
         {
-            if (ModalDialog.Show(Application.Current.MainWindow,
-                $"Record everything visible on {selected.Label} until you stop manual capture? Other apps, messages and notifications on that display can appear in clips.",
-                "Allow manual desktop capture?", MessageBoxButton.YesNo, MessageBoxImage.Warning, MessageBoxResult.No) == MessageBoxResult.Yes)
-                _ = recorder.SetManualDesktopAsync(selected.CaptureIdentity, consentRevision);
+            settings.RecordMonitor = previous;
+            NotifySource("Could not save display", "The active capture target has not changed.");
+            return;
         }
-        finally { _confirmingDesktop = false; }
+        _ = recorder.SetManualDesktopAsync(selected.CaptureIdentity, settings.RecordingDisableRevision, onlyIfActive);
     }
 
     private static MenuItem Item(string text, Action action, bool bold = false, bool enabled = true)
@@ -493,6 +513,8 @@ internal sealed class AppHost : IDisposable
                 UnregisterShortcut(_hotkeyIds.GetValueOrDefault(command, (int)command));
         var data = NewIconData();
         Shell_NotifyIcon(NIM_DELETE, ref data);
+        foreach (var icon in _statusIcons.Values) if (icon != IntPtr.Zero) DestroyIcon(icon);
+        _statusIcons.Clear();
         if (_icon != IntPtr.Zero) DestroyIcon(_icon);
         _window.Dispose();
         _window = null;

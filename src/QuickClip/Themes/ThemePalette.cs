@@ -16,13 +16,13 @@ internal static class ThemePalette
     internal static readonly ThemeColor[] Colors = Enum.GetValues<ThemeColor>();
 
     private static readonly IReadOnlyDictionary<ThemeColor, Color> Dark = Make(
-        "#202020 #1C1C1C #232323 #171717 #525252 #FFFFFF #A8A8A8 #80CCFF #A7DDFF #31373B #5CEDAC #FFB900 #FF626D #777777 #181818");
+        "#181A1F #202329 #282C34 #14161A #545C69 #F3F5F8 #B0B8C5 #83B9FF #A8CDFF #303D50 #62D9A0 #F6C76E #FF828B #777F8D #22262D");
     private static readonly IReadOnlyDictionary<ThemeColor, Color> Amoled = Make(
-        "#000000 #101010 #1A1A1A #000000 #656565 #FFFFFF #B5B5B5 #74D6D0 #9CE9E4 #163534 #65E2AE #FFD072 #FF7982 #828282 #080808");
+        "#000000 #101214 #1C2023 #000000 #50585D #F4F7F8 #AFBCC2 #74D6D0 #9CE9E4 #183739 #65E2AE #FFD072 #FF7982 #758087 #101416");
     private static readonly IReadOnlyDictionary<ThemeColor, Color> Slate = Make(
-        "#202936 #283342 #344152 #18212D #687D97 #F2F6FB #BDCBDA #9DCFFF #B8DCFF #3A5068 #71E1B1 #FFD084 #FF8890 #8494AA #1B2431");
+        "#1D2532 #253041 #303D50 #161E2A #65768D #F2F5FA #BAC8D9 #91C5FF #B6D9FF #34475D #72DDB0 #F4CB80 #FF8993 #8495AB #253041");
     private static readonly IReadOnlyDictionary<ThemeColor, Color> Light = Make(
-        "#F4F6F8 #FFFFFF #E8EDF2 #E3E9EF #63758A #172332 #41546B #155589 #174974 #C7DEF1 #087247 #815000 #AD2534 #647181 #F8FAFC");
+        "#F4F6FA #FFFFFF #E8EDF4 #E4E9F0 #77869A #182332 #46566A #225DA1 #194C8A #DCE8F8 #087247 #815000 #AD2534 #687688 #FFFFFF");
 
     internal static IReadOnlyDictionary<ThemeColor, Color> Get(ThemeChoice choice) => choice switch
     {

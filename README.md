@@ -4,9 +4,11 @@
 
 QuickClip Personal is a Windows instant-replay recorder, clip library and video editor. It waits for an **approved game**, keeps a rolling video buffer in memory, and saves the last moments of gameplay when you press a hotkey. The result is ready to watch, trim, remix or share.
 
-**[Download QuickClip Personal v1.0.0](https://github.com/Yosef13103/QuickClip/releases/tag/personal-v1.0.0)** · [Release notes](docs/releases/personal-v1.0.0.md) · [Building from source](docs/development.md) · [GPL-3.0 license](LICENSE)
+**[Download QuickClip Personal v1.1.0](https://github.com/Yosef13103/QuickClip/releases/tag/personal-v1.1.0)** · [Release notes](docs/releases/personal-v1.1.0.md) · [Building from source](docs/development.md) · [GPL-3.0 license](LICENSE)
 
-> **This is the Personal fork, not the upstream application.** Release development lives on [`custom/main`](https://github.com/Yosef13103/QuickClip/tree/custom/main); `main` preserves the separate upstream-compatible line. Original project: [swiiftex/QuickClip](https://github.com/swiiftex/QuickClip). Features below describe the **Personal v1.0.0** release unless noted otherwise.
+> **This is the Personal fork, not the upstream application.** Release development lives on [`custom/main`](https://github.com/Yosef13103/QuickClip/tree/custom/main); `main` preserves the separate upstream-compatible line. Original project: [swiiftex/QuickClip](https://github.com/swiiftex/QuickClip). Features below describe the **Personal v1.1.0** release unless noted otherwise.
+
+**New in v1.1.0:** refreshed interface, improved Editor lifecycle, live manual-display switching, status badges, independent clip-save animations and stable GitHub update checks. [Full release notes](docs/releases/personal-v1.1.0.md).
 
 ## The workflow
 
@@ -19,7 +21,7 @@ QuickClip Personal is a Windows instant-replay recorder, clip library and video 
 
 ## Highlights
 
-| Area | QuickClip Personal v1.0.0 |
+| Area | QuickClip Personal v1.1.0 |
 | --- | --- |
 | **Game-aware capture** | Approved game libraries, Steam/Epic discovery, manually approved executables, safe game/launcher classification, game switching and approved-display following |
 | **Instant replay** | Configurable rolling RAM buffer, hotkey saves, hardware-accelerated encoding, capture recovery and clear recording status |
@@ -56,7 +58,7 @@ This avoids saving two copies of the video just to get separate editing tracks. 
 - **Recovery:** Temporary capture failures and certain device/display changes trigger controlled recreation rather than blindly continuing with invalid frames.
 - **Manual desktop:** Available as a distinct, explicit capture decision rather than an automatic fallback to unrelated desktop content.
 
-> **Capture scope matters:** Personal v1.0.0 is primarily **approved-display capture driven by the game detector**, not invisible game-only graphics hooking. One display is captured at a time. Simultaneous displays and independent Discord companion capture are planned experiments, not shipping features.
+> **Capture scope matters:** Personal v1.1.0 is primarily **approved-display capture driven by the game detector**, not invisible game-only graphics hooking. One display is captured at a time. Simultaneous displays and independent Discord companion capture are planned experiments, not shipping features.
 
 ### Video and performance controls
 
@@ -72,9 +74,9 @@ See [recording diagnostics and benchmarks](docs/recording-diagnostics.md) for re
 
 | Download | Best for |
 | --- | --- |
-| **[QuickClip-Personal-1.0.0-setup.exe](https://github.com/Yosef13103/QuickClip/releases/download/personal-v1.0.0/QuickClip-Personal-1.0.0-setup.exe)** | Normal per-user install; Start menu/uninstall registration; recommended |
-| [QuickClip-Personal-1.0.0-win-x64.zip](https://github.com/Yosef13103/QuickClip/releases/download/personal-v1.0.0/QuickClip-Personal-1.0.0-win-x64.zip) | Self-contained portable app; extract the entire folder before launching |
-| [SHA256 checksums](https://github.com/Yosef13103/QuickClip/releases/download/personal-v1.0.0/SHA256SUMS.txt) | Verify release downloads |
+| **[QuickClip-Personal-1.1.0-setup.exe](https://github.com/Yosef13103/QuickClip/releases/download/personal-v1.1.0/QuickClip-Personal-1.1.0-setup.exe)** | Normal per-user install; Start menu/uninstall registration; recommended |
+| [QuickClip-Personal-1.1.0-win-x64.zip](https://github.com/Yosef13103/QuickClip/releases/download/personal-v1.1.0/QuickClip-Personal-1.1.0-win-x64.zip) | Self-contained portable app; extract the entire folder before launching |
+| [SHA256 checksums](https://github.com/Yosef13103/QuickClip/releases/download/personal-v1.1.0/SHA256SUMS.txt) | Verify release downloads |
 
 The installer uses `%LOCALAPPDATA%\Programs\QuickClip Personal`. The release bundles the .NET runtime and required media components; you don't need the SDK to run it.
 
@@ -82,7 +84,7 @@ The installer uses `%LOCALAPPDATA%\Programs\QuickClip Personal`. The release bun
 - **Local data/cache:** `%LOCALAPPDATA%\QuickClip Personal`
 - **Default clips:** your Windows Videos directory under `QuickClip Personal` (configurable in Settings).
 - **Optional isolated portable data root:** set `QUICKCLIP_PERSONAL_DATA_DIR` to an absolute directory before starting a Personal build. This is useful for testing; don't put persistent data inside a folder you routinely delete.
-- **Updates:** automatic upstream updating is **disabled** for Personal builds. Install newer Personal releases explicitly from this repository.
+- **Updates:** Personal checks this repository's approved stable GitHub releases. Download verified packages from General settings and install them manually. No upstream updates or nightly releases.
 - **Explorer context menu:** stock QuickClip's Explorer registration is separate; Personal does not automatically install the upstream shell extension.
 
 **First launch:** Recording/automatic hotkeys are opt-in for a fresh Personal profile. Enable Instant Replay after checking your audio endpoints, game permissions and display selection.
@@ -122,7 +124,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\package.ps1 -Perso
 - [Game catalog architecture](docs/game-catalog-integration.md)
 - [Notification WebM transparency](docs/transparent-notification-webm.md)
 - [Custom notification sounds](docs/custom-notification-sound.md)
-- [Release notes and known limitations](docs/releases/personal-v1.0.0.md)
+- [Release notes and known limitations](docs/releases/personal-v1.1.0.md)
 
 The Windows CI validates strict **Personal** and **Upstream** Release builds and headless tests. Real GPU, microphone, monitor hotplug and game performance tests still require physical Windows hardware. Local `.quickclip-local` development worktrees, NuGet downloads and SDKs are scratch—not application data—but run `git worktree list` and preserve unsaved changes before deleting them.
 

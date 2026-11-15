@@ -106,7 +106,7 @@ public partial class App : Application
             return;
         }
         if (AppProfile.IsPersonal && args.Contains("--reset-theme", StringComparer.OrdinalIgnoreCase)) ResetTheme();
-        bool tray = args.Contains("--tray") || (windowsStartup && AppSettings.Current.MinimizeToTray);
+        bool tray = args.Contains("--tray") || (windowsStartup && AppSettings.Current.StartInTray);
         string? file = args.FirstOrDefault(a => !a.StartsWith("--", StringComparison.Ordinal));
 #if DEBUG
         // Test runs: point clips at a scratch folder without touching the saved settings.
@@ -220,8 +220,8 @@ public partial class App : Application
     {
         try
         {
-            if (!AppProfile.IsPersonal || Updates.Updater.IsEnabled)
-                throw new InvalidOperationException("Expected QuickClip Personal with upstream updates disabled.");
+            if (!AppProfile.IsPersonal || Updates.Updater.Repository != Updates.Updater.PersonalRepository)
+                throw new InvalidOperationException("Expected QuickClip Personal with its own release repository.");
             if (!CaptureEngine.IsAvailable || !Deps.HasLibMpv)
                 throw new InvalidOperationException("QuickClipCapture.dll and libmpv-2.dll must be bundled.");
             CaptureEngine.Initialize();
@@ -247,6 +247,17 @@ public partial class App : Application
         {
             window = _main = new QuickClip.MainWindow();
             MainWindow = window;
+            // Use the primary monitor's work area in DIPs, not saved window coordinates
+            // or the custom chrome's outer rectangle. Debug offscreen renders override this.
+            if (AppProfile.IsPersonal)
+            {
+                var work = SystemParameters.WorkArea;
+                window.WindowStartupLocation = WindowStartupLocation.Manual;
+                window.Width = Math.Min(window.Width, work.Width);
+                window.Height = Math.Min(window.Height, work.Height);
+                window.Left = work.Left + Math.Max(0, (work.Width - window.Width) / 2);
+                window.Top = work.Top + Math.Max(0, (work.Height - window.Height) / 2);
+            }
             if (_renderOffscreen)
             {
                 // Page renders don't need to be seen: off the screen, without taking focus from whatever's in front.

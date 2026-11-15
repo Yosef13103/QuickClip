@@ -42,7 +42,13 @@ public sealed class VideoHost : HwndHost
         return new HandleRef(this, Hwnd);
     }
 
-    protected override void DestroyWindowCore(HandleRef hwnd) => DestroyWindow(hwnd.Handle);
+    protected override void DestroyWindowCore(HandleRef hwnd)
+    {
+        DestroyWindow(hwnd.Handle);
+        if (Hwnd == hwnd.Handle) Hwnd = IntPtr.Zero;
+    }
+
+    internal bool NativeVisible => Hwnd != IntPtr.Zero && IsWindow(Hwnd) && IsWindowVisible(Hwnd);
 
     /// <summary>
     /// Re-syncs the native child with WPF after the main window returns from minimized/hidden.
@@ -52,18 +58,18 @@ public sealed class VideoHost : HwndHost
     /// </summary>
     public void RefreshAfterRestore()
     {
-        if (Hwnd == IntPtr.Zero || !IsVisible || !IsWindow(Hwnd)) return;
+        if (Hwnd == IntPtr.Zero || !IsVisible || ActualWidth <= 1 || ActualHeight <= 1 || !IsWindow(Hwnd)) return;
 
         // HwndHost knows the current WPF coordinates, clipping and DPI mapping.
         // This forces a native layout sync even if the WPF element did not resize.
         UpdateWindowPos();
 
-        // Re-issue a non-size-changing window-position notification to the host;
-        // mpv has its own HWND below it, which needs fresh DWM composition.
-        SetWindowPos(Hwnd, IntPtr.Zero, 0, 0, 0, 0,
-            SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED);
-        RedrawWindow(Hwnd, IntPtr.Zero, IntPtr.Zero,
-            RDW_INVALIDATE | RDW_ALLCHILDREN | RDW_UPDATENOW);
+        // Do not force a non-client frame change or synchronous redraw of an
+        // embedded render thread. Re-expose only the currently visible host.
+        if (!IsWindowVisible(Hwnd))
+            SetWindowPos(Hwnd, IntPtr.Zero, 0, 0, 0, 0,
+                SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_SHOWWINDOW);
+        RedrawWindow(Hwnd, IntPtr.Zero, IntPtr.Zero, RDW_INVALIDATE | RDW_ALLCHILDREN);
         DisableChildWindows();
     }
 
@@ -150,8 +156,8 @@ public sealed class VideoHost : HwndHost
         IDC_SIZEWE = 32644, IDC_SIZENS = 32645, IDC_SIZEALL = 32646, IDC_HAND = 32649;
 
     private const uint SWP_NOSIZE = 0x0001, SWP_NOMOVE = 0x0002, SWP_NOZORDER = 0x0004,
-        SWP_NOACTIVATE = 0x0010, SWP_FRAMECHANGED = 0x0020;
-    private const uint RDW_INVALIDATE = 0x0001, RDW_UPDATENOW = 0x0100, RDW_ALLCHILDREN = 0x0080;
+        SWP_NOACTIVATE = 0x0010, SWP_SHOWWINDOW = 0x0040;
+    private const uint RDW_INVALIDATE = 0x0001, RDW_ALLCHILDREN = 0x0080;
     private const int WS_CHILD = 0x40000000, WS_VISIBLE = 0x10000000, WS_CLIPCHILDREN = 0x02000000, WS_CLIPSIBLINGS = 0x04000000;
     private const int BLACK_BRUSH = 4;
     private const int WM_SETCURSOR = 0x0020, WM_ERASEBKGND = 0x0014, WM_MOUSEMOVE = 0x0200, WM_LBUTTONDOWN = 0x0201,
@@ -191,6 +197,7 @@ public sealed class VideoHost : HwndHost
     private static extern IntPtr DefWindowProc(IntPtr hwnd, uint msg, IntPtr wParam, IntPtr lParam);
 
     [DllImport("user32.dll")] private static extern bool IsWindow(IntPtr hwnd);
+    [DllImport("user32.dll")] private static extern bool IsWindowVisible(IntPtr hwnd);
     [DllImport("user32.dll", SetLastError = true)]
     private static extern bool SetWindowPos(IntPtr hwnd, IntPtr insertAfter, int x, int y, int width, int height, uint flags);
     [DllImport("user32.dll", SetLastError = true)]

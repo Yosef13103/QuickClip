@@ -68,6 +68,7 @@ public partial class EditorView : UserControl
     private bool _scrubbing;
     private bool _loading;
     private bool _uiReady;
+    private bool _initializingPreview;
     private bool _refreshingEncoders;
     private string? _pickedEncoder;                  // the encoder chosen in the list, or null to keep the original's codec
     private bool _closed;
@@ -82,7 +83,7 @@ public partial class EditorView : UserControl
     public event Action? TitleChanged;
     public event Action? BackRequested;
     // Called when returning from Appearance settings; libmpv's native letterbox is outside WPF resources.
-    internal void RefreshTheme() => _player?.RefreshTheme();
+    internal void RefreshTheme() => QueueNativePreviewRepaint();
     internal event Action<string, ClipDetails>? ClipDetailsSaved;
     internal Func<IReadOnlyList<string>>? KnownTags { get; set; }
     internal IClipAnnotationActions AnnotationActions
@@ -412,9 +413,19 @@ public partial class EditorView : UserControl
 
     private async void OnLoaded(object? sender, RoutedEventArgs e)
     {
-        await Video.Created;
+        // Loaded is also raised when WPF invalidates a theme/template. It is
+        // not a lifetime boundary for the decoder or the editing session.
+        if (_player != null)
+        {
+            QueueNativePreviewRepaint();
+            return;
+        }
+        if (!EditorSource.CanInitializePreview(_closed, _initializingPreview, _player != null)) return;
+        _initializingPreview = true;
         try
         {
+            await Video.Created;
+            if (_closed || _player != null) return;
             _player = new MpvPlayer(Video.Hwnd);
             _previewAudio = new PreviewAudio(_player);
             _player.PropertyChanged += OnMpvProperty;
@@ -423,8 +434,11 @@ public partial class EditorView : UserControl
         catch (Exception ex)
         {
             Log.Write("mpv init failed: " + ex);
-            ModalDialog.Show(OwnerWindow, "The video preview could not be started:\n\n" + ex.Message, "QuickClip", MessageBoxButton.OK, MessageBoxImage.Warning);
+            if (!_closed)
+                ModalDialog.Show(OwnerWindow, "The video preview could not be started:\n\n" + ex.Message, "QuickClip", MessageBoxButton.OK, MessageBoxImage.Warning);
+            return;
         }
+        finally { _initializingPreview = false; }
         _childWindowTimer.Start();
         AttachSourceEvents();
         // VideoHost.Created only completes when the host is first presented.
@@ -464,6 +478,7 @@ public partial class EditorView : UserControl
 
         if (_exportCts == null && !ConfirmDiscardDraft()) return false;
         _closed = true;
+        Loaded -= OnLoaded;
         DetachSourceEvents();
         SaveSettings();
         _waveCts?.Cancel();
@@ -476,7 +491,12 @@ public partial class EditorView : UserControl
         var player = _player;
         _player = null;
         _previewAudio = null;
-        if (player != null) await Task.Run(player.Dispose);
+        if (player != null)
+        {
+            player.PropertyChanged -= OnMpvProperty;
+            player.EventReceived -= OnMpvEvent;
+            await Task.Run(player.Dispose);
+        }
         if (_exportPath != null) TryDelete(_exportPath);
         foreach (var file in _stalePreviews.Concat(_tracks.Select(t => t.PreviewFile).OfType<string>())) TryDelete(file);
         return true;
@@ -614,6 +634,7 @@ public partial class EditorView : UserControl
             StopSourcePreview();
             bool differentClip = !string.Equals(_media?.Path, path, StringComparison.OrdinalIgnoreCase);
             _previewReady = false;
+            PlayButton.IsEnabled = false;
             EmptySourceHint.Text = "Loading preview…";
             EmptySourceHint.Visibility = Visibility.Visible;
             _media = info;
@@ -909,6 +930,7 @@ public partial class EditorView : UserControl
     {
         if (_player == null || _media == null || !SourceReady) return;
         _previewReady = false;
+        PlayButton.IsEnabled = false;
         Video.Visibility = Visibility.Hidden;
         EmptySourceHint.Text = "Loading preview…";
         EmptySourceHint.Visibility = Visibility.Visible;
@@ -1032,7 +1054,7 @@ public partial class EditorView : UserControl
     private void FlushTimePos()
     {
         _timePosQueued = 0;
-        if (_media == null || _scrubbing || !SourceReady) return;
+        if (_closed || _media == null || _scrubbing || !SourceReady || !_previewReady) return;
         double t = _mpvTimePos;
         _timeline.SetPosition(t);
         ApplyLoop();
@@ -1042,6 +1064,7 @@ public partial class EditorView : UserControl
 
     private void HandleMpvProperty(string name, object? value)
     {
+        if (_closed) return;
         switch (name)
         {
             case "pause":
@@ -1079,6 +1102,7 @@ public partial class EditorView : UserControl
     {
         Dispatcher.BeginInvoke(() =>
         {
+            if (_closed) return;
             switch (id)
             {
                 case MpvEventId.FileLoaded:
@@ -1088,13 +1112,16 @@ public partial class EditorView : UserControl
                         !EditorSource.MatchesLoadedPreview(_player?.GetString("path"), _media.Path))
                         break;
                     _previewReady = true;
+                    _idle = false;
                     Video.Visibility = Visibility.Visible;
+                    PlayButton.IsEnabled = true;
                     EmptySourceHint.Visibility = Visibility.Collapsed;
                     Video.DisableChildWindows();
                     DeleteStalePreviews();
                     ApplyPreviewVolumes();
                     ApplyLoop();
                     UpdateOsdGeometry();
+                    QueueNativePreviewRepaint();
                     break;
                 case MpvEventId.VideoReconfig:
                     Video.DisableChildWindows();
@@ -1196,7 +1223,7 @@ public partial class EditorView : UserControl
 
     private void TogglePlay()
     {
-        if (_player == null || _media == null || !SourceReady) return;
+        if (_player == null || _media == null || !SourceReady || !_previewReady) return;
         if (_paused)
         {
             double pos = _timeline.Position;
@@ -1639,6 +1666,7 @@ public partial class EditorView : UserControl
         bool hasVideo = _media?.Video != null;
         bool busy = _exportCts != null || _favoriteSaving || !SourceReady;
         Transport.IsEnabled = TracksArea.IsEnabled = Inspector.IsEnabled = SourceReady;
+        PlayButton.IsEnabled = SourceReady && _previewReady;
         bool videoOut = (container.HasVideo || container.IsGif) && (hasVideo || _media == null);
 
         static Visibility Show(bool show) => show ? Visibility.Visible : Visibility.Collapsed;
@@ -2160,6 +2188,12 @@ public partial class EditorView : UserControl
     internal void ToggleModeForRender() => ToggleMode_Click(this, new RoutedEventArgs());
     internal void ToggleFullscreenForRender() => ToggleFullscreen_Click(this, new RoutedEventArgs());
     internal double PositionForRender => _timeline.Position;
+    internal bool PreviewReadyForRender => _previewReady && _player != null && !_idle;
+    internal object? PreviewPlayerForRender => _player;
+    internal IntPtr PreviewHwndForRender => Video.Hwnd;
+    internal bool PreviewVisibleForRender => Video.NativeVisible;
+    internal double PreviewDurationForRender => _timeline.Duration;
+    internal bool SavePreviewForRender(string path) => _player?.Command("screenshot-to-file", path, "window") == true;
     internal double TrimEndForRender => _timeline.Out;
     internal void SetTrimForRender(double end) => _timeline.SetOut(end);
     internal bool ViewingForRender => _viewMode;

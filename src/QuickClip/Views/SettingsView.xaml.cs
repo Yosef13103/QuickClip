@@ -19,6 +19,7 @@ public partial class SettingsView : UserControl
     }
 
     private readonly DispatcherTimer _restartTimer;
+    private DispatcherTimer? _diagnosticsTimer;
     private IReadOnlyList<MonitorInfo> _monitors = [];
     private IReadOnlyList<CaptureEngine.AudioDevice> _mics = [];
     private readonly List<(ComboBox Combo, Button Remove)> _micRows = [];
@@ -37,9 +38,10 @@ public partial class SettingsView : UserControl
         if (AppProfile.IsPersonal)
         {
             SettingsContent.MaxWidth = 920;
-            PersonalProfileHint.Text = $"{AppProfile.Name} {AppVersion.Current.Display} · Updates and Explorer integration are disabled.";
+            PersonalProfileHint.Text = $"{AppProfile.Name} {AppVersion.Current.Display} · Stable releases only; Explorer integration is disabled.";
             PersonalProfileHint.Visibility = Visibility.Visible;
-            UpdatesCard.Visibility = ShellCheck.Visibility = Visibility.Collapsed;
+            ShellCheck.Visibility = Visibility.Collapsed;
+            InstallUpdateLabel.Text = "Download verified update";
             StartupHint.Visibility = ReplayAtStartupCheck.Visibility = ReplayAtStartupHint.Visibility = Visibility.Visible;
             ApplySettingsSection(RecordingSection);
         }
@@ -49,8 +51,12 @@ public partial class SettingsView : UserControl
             _restartTimer!.Stop();
             _ = Recorder.Instance.ApplySettingsAsync();
         }, Dispatcher) { IsEnabled = false };
+        CaptureAdvanced.IsVisibleChanged += (_, _) => UpdateDiagnosticsTimer();
+        CaptureAdvanced.Collapsed += (_, _) => UpdateDiagnosticsTimer();
+        IsVisibleChanged += (_, _) => UpdateDiagnosticsTimer();
         Unloaded += (_, _) =>
         {
+            _diagnosticsTimer?.Stop();
             Recorder.Instance.StateChanged -= OnRecorderState;
             Updater.Changed -= OnUpdaterChanged;
         };
@@ -79,10 +85,11 @@ public partial class SettingsView : UserControl
         SharingCard.Visibility = SectionVisibility(SharingSection);
         LibraryCard.Visibility = SectionVisibility(LibrarySection);
         GeneralCard.Visibility = SectionVisibility(GeneralSection);
+        UpdatesCard.Visibility = Updater.IsEnabled ? SectionVisibility(GeneralSection) : Visibility.Collapsed;
         DiagnosticsCard.Visibility = SectionVisibility(DiagnosticsSection);
         GeneralPage.ScrollToTop();
         if (section == DiagnosticsSection) CaptureAdvanced.IsExpanded = true;
-        if (section == LibrarySection) _ = RefreshRecordingFoldersAsync();
+        if (IsLoaded && (section == LibrarySection || section == RecordingSection)) _ = RefreshRecordingFoldersAsync();
         Visibility SectionVisibility(RadioButton item) => section == item ? Visibility.Visible : Visibility.Collapsed;
     }
 
@@ -95,7 +102,7 @@ public partial class SettingsView : UserControl
     private void ShowUpdateState()
     {
         if (!Updater.IsEnabled) return;
-        VersionText.Text = $"You have QuickClip {AppVersion.Current.Display}" + (AppVersion.Current.IsPrerelease ? " (a nightly build)" : "") +
+        VersionText.Text = $"You have {AppProfile.Name} {AppVersion.Current.Display}" + (AppVersion.Current.IsPrerelease ? " (a nightly build)" : "") +
                            (Updater.LastChecked is DateTime t ? $" · last checked {t:t}" : "");
         CheckUpdatesButton.IsEnabled = !Updater.IsChecking && !_installing;
         var release = Updater.Available;
@@ -104,11 +111,11 @@ public partial class SettingsView : UserControl
         UpdateStatusText.Text =
             Updater.IsChecking ? "Checking for updates…"
             : release != null ? $"QuickClip {release.Version.Display} is available." +
-                                (Updater.CanInstall(release) ? "" : " Download it from the release page to install it.")
+                                ((AppProfile.IsPersonal ? Updater.CanDownloadPersonal(release) : Updater.CanInstall(release)) ? "" : " Download it from the release page to install it.")
             : Updater.LastError != null ? $"Couldn't check for updates: {Updater.LastError}."
             : Updater.LastChecked != null ? "You're on the latest version."
             : "";
-        InstallUpdateButton.IsEnabled = release != null && Updater.CanInstall(release);
+        InstallUpdateButton.IsEnabled = release != null && (AppProfile.IsPersonal ? Updater.CanDownloadPersonal(release) : Updater.CanInstall(release));
     }
 
     private async void CheckUpdates_Click(object sender, RoutedEventArgs e) => await Updater.CheckAsync();
@@ -126,7 +133,7 @@ public partial class SettingsView : UserControl
         await Updater.CheckAsync(); // what's on offer depends on the channel
     }
 
-    private void ShowChannelHint() => ChannelHint.Text = Updater.Channel == Updater.Nightly
+    private void ShowChannelHint() => ChannelHint.Text = AppProfile.IsPersonal ? "Only approved Personal releases. Nightly is not published. Downloads require manual installation." : Updater.Channel == Updater.Nightly
         ? "New features as they're made, before they're released. They may have bugs."
         : "Tested releases. A nightly build you're on now stays until a newer stable release comes out.";
 
@@ -155,6 +162,18 @@ public partial class SettingsView : UserControl
                 UpdateProgress.Value = p;
                 UpdateStatusText.Text = $"Downloading QuickClip {release.Version.Display}… {p:P0}";
             });
+            if (AppProfile.IsPersonal)
+            {
+                string package = await Updater.DownloadPersonalAsync(release, progress, CancellationToken.None);
+                _installing = false;
+                UpdateProgress.Visibility = Visibility.Collapsed;
+                ShowUpdateState();
+                UpdateStatusText.Text = "Verified download ready. Quit QuickClip before running the installer or extracting the portable ZIP.";
+                var explorer = new System.Diagnostics.ProcessStartInfo("explorer.exe") { UseShellExecute = true };
+                explorer.ArgumentList.Add("/select," + package);
+                System.Diagnostics.Process.Start(explorer);
+                return;
+            }
             bool windowHidden = !(Window.GetWindow(this)?.IsVisible ?? false);
             var startSwap = await Updater.PrepareInstallAsync(release, restartInTray: windowHidden, progress, CancellationToken.None);
             UpdateStatusText.Text = "Restarting to finish the update…";
@@ -185,9 +204,11 @@ public partial class SettingsView : UserControl
             _monitors = await Task.Run(Monitors.List);
             MonitorCombo.ItemsSource = _monitors.Select(m => new Choice(m.Label, m.DeviceName)).ToList();
             var savedDisplay = _monitors.FirstOrDefault(m => string.Equals(m.DeviceName, s.RecordMonitor, StringComparison.OrdinalIgnoreCase));
-            var initialDisplay = savedDisplay ?? (AppProfile.IsPersonal
-                ? null : _monitors.FirstOrDefault(m => m.IsPrimary));
-            Select(MonitorCombo, initialDisplay?.DeviceName);
+            // A remembered but disconnected device must never silently select a different display.
+            var initialDisplay = savedDisplay ?? (string.IsNullOrWhiteSpace(s.RecordMonitor) || !AppProfile.IsPersonal
+                ? _monitors.FirstOrDefault(m => m.IsPrimary) ?? _monitors.FirstOrDefault() : null);
+            if (initialDisplay != null) Select(MonitorCombo, initialDisplay.DeviceName);
+            else MonitorCombo.SelectedIndex = -1;
             RefreshAreas(s.RecordAspect);
 
             int stepIndex = Array.FindIndex(RecordingPresets.BufferSteps, v => v >= s.BufferSeconds);
@@ -245,7 +266,7 @@ public partial class SettingsView : UserControl
 
             ShowHotkeys();
             RefreshStartupSettings(s);
-            MinTrayCheck.IsChecked = s.MinimizeToTray;
+            StartTrayCheck.IsChecked = s.StartInTray;
             CloseTrayCheck.IsChecked = s.CloseToTray;
             SoundCheck.IsChecked = s.ClipSound;
             ConfirmDeleteCheck.IsChecked = s.ConfirmClipDeletion;
@@ -263,7 +284,7 @@ public partial class SettingsView : UserControl
             FilenameTemplate.Text = s.ClipFilenameTemplate;
             ExclusionsBox.Text = string.Join(Environment.NewLine, s.LibraryExclusions ?? []);
             AutoUpdateCheck.IsChecked = s.CheckForUpdates;
-            ChannelCombo.ItemsSource = new[]
+            ChannelCombo.ItemsSource = AppProfile.IsPersonal ? new[] { new Choice("Stable", Updater.Stable) } : new[]
             {
                 new Choice("Stable", Updater.Stable),
                 new Choice("Nightly (development builds)", Updater.Nightly),
@@ -278,6 +299,7 @@ public partial class SettingsView : UserControl
         ShowUpdateState();
         UpdateCropPreview();
         UpdateEstimates();
+        UpdateDiagnosticsTimer();
         OnRecorderState(Recorder.Instance.State);
     }
 
@@ -289,7 +311,7 @@ public partial class SettingsView : UserControl
     }
 
     private MonitorInfo? SelectedMonitor =>
-        _monitors.FirstOrDefault(m => Equals(m.DeviceName, (MonitorCombo.SelectedItem as Choice)?.Value)) ?? _monitors.FirstOrDefault();
+        _monitors.FirstOrDefault(m => Equals(m.DeviceName, (MonitorCombo.SelectedItem as Choice)?.Value));
 
     private string SelectedAspect => (AreaCombo.SelectedItem as Choice)?.Value as string ?? "";
 
@@ -317,9 +339,17 @@ public partial class SettingsView : UserControl
         if (AppProfile.IsPersonal)
         {
             var settings = AppSettings.Current;
-            GameDisplayConsent.Visibility = ManualDesktopButton.Visibility = Visibility.Visible;
+            GamePermissionOptions.Visibility = ManualDesktopButton.Visibility =
+                DisplayPermissionCheck.Visibility = DisplayPermissionHint.Visibility = Visibility.Visible;
             GameDisplayConsent.Content = settings.AllowGameDisplayFollowing
-                ? "Revoke game display permission" : "Allow game display following…";
+                ? "Disable game display following" : "Allow game display following…";
+            var identity = SelectedMonitor?.CaptureIdentity;
+            DisplayPermissionCheck.IsEnabled = identity != null && settings.AllowGameDisplayFollowing;
+            DisplayPermissionCheck.IsChecked = identity != null && CaptureSourcePolicy.AllowsGameDisplay(settings, identity);
+            DisplayPermissionHint.Text = identity == null ? "Choose a connected, identifiable display."
+                : !settings.AllowGameDisplayFollowing ? "Manage game display permissions below to enable display following."
+                : DisplayPermissionCheck.IsChecked == true ? "Automatic game recording allowed on this display."
+                : "Automatic game recording blocked on this display.";
             RevokeLegacyDisplayConsent.Visibility = !settings.AllowGameDisplayFollowing && settings.AuthorizedGameDisplay != null
                 ? Visibility.Visible : Visibility.Collapsed;
             BackendCombo.IsEnabled = false;
@@ -328,10 +358,10 @@ public partial class SettingsView : UserControl
                     ? settings.PreferGameWindow ? " Your existing permission covers one display." : " Your previous settings disabled automatic capture. Allow game display following to start it."
                     : " Game display permission is required.");
             ManualDesktopButton.IsEnabled = settings.RecordingEnabled;
-            ManualDesktopButton.Content = Recorder.Instance.ManualDesktopRequested
-                ? "Stop manual desktop capture" : "Start manual desktop capture…";
+            ManualDesktopButton.IsChecked = Recorder.Instance.ManualDesktopRequested;
             return;
         }
+        ManualDisplayHint.Visibility = Visibility.Collapsed;
         CaptureTargetHint.Text = gameWindow
             ? "Automatic captures a detected game window even when another window covers it. It records the selected monitor when game capture is unavailable. On Windows 10, WGC can display a yellow border. Strict game-only capture requires a future no-monitor fallback policy."
             : "Records everything visible on the selected display, including windows covering a game. The advanced monitor backend applies to this source.";
@@ -459,20 +489,67 @@ public partial class SettingsView : UserControl
         ApplyDisplayPermission();
     }
 
+    private void DisplayPermission_Click(object sender, RoutedEventArgs e)
+    {
+        var settings = AppSettings.Current;
+        if (settings.AllowGameDisplayFollowing && SelectedMonitor?.CaptureIdentity is { } identity)
+        {
+            var blocked = new HashSet<string>(settings.ExcludedGameDisplays ?? [], StringComparer.OrdinalIgnoreCase);
+            if (DisplayPermissionCheck.IsChecked == true) blocked.Remove(identity);
+            else blocked.Add(identity);
+            settings.ExcludedGameDisplays = blocked.ToArray();
+            ApplyDisplayPermission();
+        }
+        else ShowGameWindowState();
+    }
+
     private void ApplyDisplayPermission()
     {
         AppSettings.Current.Save();
         ShowGameWindowState();
-        _ = Recorder.Instance.ApplySettingsAsync();
+        _ = Recorder.Instance.ReconcileDisplayPermissionsAsync();
     }
 
-    private void ManualDesktop_Click(object sender, RoutedEventArgs e) =>
-        App.Host?.ToggleManualDesktop(Recorder.Instance);
+    private void ManualDesktop_Click(object sender, RoutedEventArgs e)
+    {
+        var recorder = Recorder.Instance;
+        ManualDesktopButton.IsChecked = recorder.ManualDesktopRequested;
+        if (recorder.ManualDesktopRequested) App.Host?.ToggleManualDesktop(recorder);
+        else if (SelectedMonitor is { CaptureIdentity: not null } selected)
+            App.Host?.SelectManualDisplay(recorder, selected);
+        else App.Host?.ToggleManualDesktop(recorder);
+        ShowGameWindowState();
+    }
 
     private void Changed(object sender, RoutedEventArgs e)
     {
         if (_loading || !IsInitialized) return;
         var s = AppSettings.Current;
+        if (sender == MonitorCombo && AppProfile.IsPersonal)
+        {
+            // This control owns only manual display selection. Do not rewrite other
+            // recorder preferences or restart an automatic-game graph on selection.
+            if (SelectedMonitor is not { CaptureIdentity: not null } selected) return;
+            if (Recorder.Instance.ManualDesktopRequested)
+                App.Host?.SelectManualDisplay(Recorder.Instance, selected, onlyIfActive: true);
+            else
+            {
+                string previous = s.RecordMonitor;
+                s.RecordMonitor = selected.DeviceName;
+                if (!s.TrySave())
+                {
+                    s.RecordMonitor = previous;
+                    ModalDialog.Show(Window.GetWindow(this), "Couldn’t save the selected display.", "Settings");
+                }
+            }
+            RefreshAreas(s.RecordAspect);
+            RefreshResolutions(s.RecordResolution);
+            ResetDimensionFields();
+            ShowGameWindowState();
+            UpdateCropPreview();
+            UpdateEstimates();
+            return;
+        }
         if (sender == RecordingCheck) s.RecordingEnabled = RecordingCheck.IsChecked == true;
         if (!AppProfile.IsPersonal || sender == MonitorCombo)
             s.RecordMonitor = (MonitorCombo.SelectedItem as Choice)?.Value as string ?? "";
@@ -490,6 +567,7 @@ public partial class SettingsView : UserControl
         if (BackendCombo.SelectedItem is Choice { Value: CaptureEngine.MonitorBackend backend }) s.CaptureBackend = backend;
         if (NvencPresetCombo.SelectedItem is Choice { Value: CaptureEngine.NvencSpeed preset }) s.NvencPreset = preset;
         s.RecordingDiagnostics = DiagnosticsCheck.IsChecked == true;
+        if (sender == DiagnosticsCheck) UpdateDiagnosticsTimer();
         s.CaptureCursor = CursorCheck.IsChecked == true;
         if (!AppProfile.IsPersonal) s.PreferGameWindow = SourceCombo.SelectedIndex == 0;
         ShowGameWindowState();
@@ -500,7 +578,7 @@ public partial class SettingsView : UserControl
         s.MicDeviceIds = SelectedMics;
         s.SeparateMicTracks = MicTracksCombo.SelectedItem is Choice { Value: true };
         UpdateMicControls();
-        s.MinimizeToTray = MinTrayCheck.IsChecked == true;
+        s.StartInTray = StartTrayCheck.IsChecked == true;
         s.CloseToTray = CloseTrayCheck.IsChecked == true;
         s.ClipSound = SoundCheck.IsChecked == true;
         s.ConfirmClipDeletion = ConfirmDeleteCheck.IsChecked == true;
@@ -508,7 +586,7 @@ public partial class SettingsView : UserControl
         s.Save();
 
         UpdateEstimates();
-        bool recordingSetting = sender != MinTrayCheck && sender != CloseTrayCheck && sender != SoundCheck
+        bool recordingSetting = sender != StartTrayCheck && sender != CloseTrayCheck && sender != SoundCheck
                                 && sender != MotionBlurCheck && sender != ConfirmDeleteCheck;
         if (sender == RecordingCheck || sender == SourceCombo)
         {
@@ -524,11 +602,28 @@ public partial class SettingsView : UserControl
         _restartTimer.Start();
     }
 
-    private void Diagnostics_Expanded(object sender, RoutedEventArgs e) => RefreshDiagnostics();
-    private void Diagnostics_Refresh(object sender, RoutedEventArgs e) => RefreshDiagnostics();
+    private void Diagnostics_Expanded(object sender, RoutedEventArgs e) => UpdateDiagnosticsTimer();
+
+    private void UpdateDiagnosticsTimer()
+    {
+        if (CaptureAdvanced == null || CaptureDiagnostics == null) return;
+        bool enabled = AppSettings.Current.RecordingDiagnostics;
+        if (!enabled || !IsLoaded || !IsVisible || !CaptureAdvanced.IsVisible || !CaptureAdvanced.IsExpanded)
+        {
+            _diagnosticsTimer?.Stop();
+            if (!enabled) CaptureDiagnostics.Text = "Timing sampling is off.";
+            return;
+        }
+        if (_diagnosticsTimer?.IsEnabled == true) return;
+        _diagnosticsTimer ??= new DispatcherTimer(TimeSpan.FromSeconds(5), DispatcherPriority.Background,
+            (_, _) => RefreshDiagnostics(), Dispatcher);
+        _diagnosticsTimer.Start();
+        RefreshDiagnostics();
+    }
     private void RefreshDiagnostics()
     {
-        if (!CaptureEngine.IsAvailable || CaptureDiagnostics == null) return;
+        if (!AppSettings.Current.RecordingDiagnostics || !IsVisible || !CaptureAdvanced.IsVisible ||
+            !CaptureAdvanced.IsExpanded || !CaptureEngine.IsAvailable || CaptureDiagnostics == null) return;
         try
         {
             CaptureEngine.Initialize();
@@ -567,6 +662,7 @@ public partial class SettingsView : UserControl
         if (!AppProfile.IsPersonal) return;
         AppSettings.Current.EnableLibraryIndex = IndexLibraryCheck.IsChecked == true;
         AppSettings.Current.Save();
+        _ = RefreshRecordingFoldersAsync();
     }
 
     private void Exclusions_Commit(object sender, KeyboardFocusChangedEventArgs e)
@@ -613,6 +709,8 @@ public partial class SettingsView : UserControl
         RamText.Visibility = AppProfile.IsPersonal ? Visibility.Collapsed : Visibility.Visible;
         ResourceVideo.Text = $"{BufferText.Text} · {s.RecordFps} FPS target · {RecordingPresets.Label(s.RecordQuality)}";
         ResourceSize.Text = "Size estimates require a display or capture area.";
+        _estimatedClipBytes = 0;
+        UpdateStorageCards();
         if (SelectedArea is not { } area)
         {
             RamText.Text = BitrateText.Text = "";
@@ -625,6 +723,8 @@ public partial class SettingsView : UserControl
         int tracks = RecordingPresets.AudioTrackCount(s);
         long ram = RecordingPresets.EstimateRamBytes(kbps, tracks, s.BufferSeconds);
         long clip = Library.StorageInventory.EstimateBytes(kbps, tracks * RecordingPresets.AudioKbps, TimeSpan.FromSeconds(s.BufferSeconds));
+        _estimatedClipBytes = clip;
+        UpdateStorageCards();
         BitrateText.Text = $"≈ {kbps / 1000.0:0.#} Mbps";
         var encoder = VideoEncoders.Find(encoderId);
         string encoderLabel = s.RecordEncoder.Length > 0 ? encoder?.Label ?? encoderId :

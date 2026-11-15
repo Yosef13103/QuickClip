@@ -15,6 +15,7 @@ internal sealed class MpvPlayer : IDisposable
     private IntPtr _ctx;
     private readonly Thread _eventThread;
     private volatile bool _disposing;
+    private string _letterboxColor;
 
     /// <summary>Raised on the mpv event thread. Value is double, bool, long, string or null.</summary>
     public event Action<string, object?>? PropertyChanged;
@@ -55,7 +56,8 @@ internal sealed class MpvPlayer : IDisposable
         // mpv gpu-next owns the native letterbox surface, not WPF.
         // Use the palette's surface color without touching video pixels or exports.
         SetOption("border-background", "color");
-        SetOption("background-color", ThemeLetterboxColor(AppSettings.Current));
+        _letterboxColor = ThemeLetterboxColor(AppSettings.Current);
+        SetOption("background-color", _letterboxColor);
         SetOption("demuxer-max-back-bytes", "200MiB");
         // The volume mixer shows the audio stream under these (by default "<file> - mpv").
         SetOption("audio-client-name", "QuickClip");
@@ -94,7 +96,12 @@ internal sealed class MpvPlayer : IDisposable
         return ThemePalette.Hex(ThemePalette.Get(theme)[ThemeColor.Surface]);
     }
 
-    internal void RefreshTheme() => SetProperty("background-color", ThemeLetterboxColor(AppSettings.Current));
+    internal void RefreshTheme()
+    {
+        string color = ThemeLetterboxColor(AppSettings.Current);
+        if (color != _letterboxColor && SetProperty("background-color", color))
+            _letterboxColor = color;
+    }
 
     public void SetOption(string name, string value)
     {

@@ -249,7 +249,7 @@ public sealed class ClipFeedbackTests
                     {
                         string path = Path.Combine(folder.FullName, "animated.gif");
                         File.WriteAllBytes(path, GifFixture());
-                        var options = new ClipOverlayOptions { ImagePath = path, Seconds = .6 };
+                        var options = new ClipOverlayOptions { Style = OverlayStyle.ImageOnly, ImagePath = path, Seconds = .6 };
                         var pending = overlay.ShowAsync(options, "Cancelled", true);
                         overlay.Hide();
                         await pending;
@@ -346,4 +346,181 @@ public sealed class ClipFeedbackTests
         Assert.False(feedback.Windows);
         Assert.Equal(success ? "Clip saved" : "Clip not saved", feedback.Title);
     }
+
+    [Theory]
+    [InlineData(false, false, false)]
+    [InlineData(false, true, false)]
+    [InlineData(true, false, false)]
+    [InlineData(true, true, true)]
+    public void Non_save_events_never_use_images_or_detailed_banners(bool banners, bool image, bool unused)
+    {
+        var configured = new ClipOverlayOptions { Enabled = banners, Style = OverlayStyle.Detailed,
+            ImageOnly = image, ImagePath = "test.gif", ImageAppearance = new() { Seconds = 6 } };
+        foreach (var kind in Enum.GetValues<ClipEvent>().Where(k => k != ClipEvent.Saved))
+        {
+            var routed = configured.ForEvent(kind);
+            if (!banners) Assert.Null(routed);
+            else
+            {
+                Assert.NotNull(routed);
+                Assert.Equal(OverlayStyle.Compact, routed.Style);
+                Assert.Null(routed.ImagePath);
+                Assert.False(routed.ImageOnly);
+                Assert.Equal(1.5, routed.Seconds);
+            }
+        }
+    }
+
+    [Theory]
+    [InlineData(false, false, false)]
+    [InlineData(false, true, true)]
+    [InlineData(true, false, true)]
+    [InlineData(true, true, true)]
+    public void Clip_saved_image_works_independently_of_banner_channel(bool banners, bool image, bool expected)
+    {
+        var settings = new AppSettings { ClipNotificationsEnabled = true, ClipWindowsNotification = !banners,
+            ClipOverlay = new() { Enabled = banners, Style = OverlayStyle.Detailed, ImageOnly = image,
+                ImagePath = "test.gif", Seconds = 1.5, ImageAppearance = new() { Seconds = 6 } } };
+        var routed = settings.ClipOverlay.ForEvent(ClipEvent.Saved);
+        Assert.Equal(expected, routed != null);
+        Assert.Equal(AppProfile.IsPersonal && expected, ClipFeedback.From(settings, ClipEvent.Saved, "saved").Overlay);
+        if (routed != null)
+        {
+            Assert.Equal(image ? OverlayStyle.ImageOnly : OverlayStyle.Detailed, routed.Style);
+            Assert.Equal(image ? 6 : 1.5, routed.Seconds);
+            Assert.Equal(image ? "test.gif" : null, routed.ImagePath);
+            if (image) Assert.Equal(OverlayAnchor.TopRight, routed.Anchor);
+        }
+    }
+
+    [Fact]
+    public void Old_image_only_duration_migrates_without_making_status_banners_long()
+    {
+        var settings = AppSettings.Parse("""
+            {"ClipOverlay":{"Enabled":true,"Style":"ImageOnly","ImagePath":"sample.gif","Seconds":6,"Anchor":"TopLeft","Size":48}}
+            """);
+        var saved = settings.ClipOverlay.ForEvent(ClipEvent.Saved)!;
+        var status = settings.ClipOverlay.ForEvent(ClipEvent.DesktopStarted)!;
+        Assert.Equal(6, saved.Seconds);
+        Assert.Equal(OverlayAnchor.TopLeft, saved.Anchor);
+        Assert.Equal(48, saved.Size);
+        Assert.Equal(1.5, status.Seconds);
+        Assert.Equal(OverlayAnchor.BottomRight, status.Anchor);
+        Assert.Equal(settings.ClipOverlay.ImageAppearance, AppSettings.Parse(settings.ToJson()).ClipOverlay.ImageAppearance);
+        Assert.NotEqual(OverlayAnchor.Center, (settings.ClipOverlay with { Anchor = OverlayAnchor.Center }).Banner().Anchor);
+    }
+
+    [Fact]
+    public void Empty_custom_path_selects_bundled_animation_when_available()
+    {
+        var options = new ClipOverlayOptions { Enabled = false, ImageOnly = true, ImageAppearance = new() };
+        if (ClipOverlayImage.HasDefault)
+        {
+            Assert.Equal(OverlayStyle.ImageOnly, options.ForEvent(ClipEvent.Saved)!.Style);
+            Assert.Null(options.ForEvent(ClipEvent.Saved)!.ImagePath);
+            Assert.Equal(OverlayStyle.ImageOnly, (options with { Enabled = true }).ForEvent(ClipEvent.Saved)!.Style);
+        }
+        else
+        {
+            Assert.Null(options.ForEvent(ClipEvent.Saved));
+            Assert.Equal(OverlayStyle.Compact, (options with { Enabled = true }).ForEvent(ClipEvent.Saved)!.Style);
+        }
+        Assert.Null(options.ForEvent(ClipEvent.DesktopStarted));
+        Assert.Null((options with { ImageOnly = false }).ForEvent(ClipEvent.Saved));
+    }
+
+    [Fact]
+    public void Bundled_camera_animation_has_exact_owner_bytes_and_decodes_within_budget()
+    {
+        var dir = new DirectoryInfo(AppContext.BaseDirectory);
+        while (dir != null && !File.Exists(Path.Combine(dir.FullName, "src", "QuickClip", "QuickClip.csproj"))) dir = dir.Parent;
+        bool expected = AppProfile.IsPersonal && dir != null &&
+            File.Exists(Path.Combine(dir.FullName, "src", "QuickClip", "Assets", "clip-saved.gif"));
+        if (!expected && !ClipOverlayImage.HasDefault) return;
+        Assert.True(ClipOverlayImage.HasDefault);
+        using var resource = typeof(ClipOverlayImage).Assembly.GetManifestResourceStream(ClipOverlayImage.DefaultResource);
+        Assert.NotNull(resource);
+        Assert.Equal("9A447241222C1412A058495AC183B662314A6E313B504B6F63C7A362CCCC9FAD",
+            Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(resource!)));
+        var animation = Assert.IsType<ClipOverlayImage.Asset>(ClipOverlayImage.LoadDefaultAsset());
+        Assert.Equal(85, animation.Frames.Length);
+        Assert.Equal(2590d, animation.Frames.Sum(frame => frame.Delay.TotalMilliseconds));
+        Assert.All(animation.Frames, frame => Assert.True(frame.Bitmap.IsFrozen));
+        Assert.True(ClipOverlayImage.WithinGifBudget(512, 512, 85));
+    }
+
+    [Theory]
+    [InlineData(512, 512, 72, 72)]
+    [InlineData(512, 256, 144, 72)]
+    [InlineData(256, 512, 36, 72)]
+    [InlineData(512, 128, 144, 36)]
+    public void Contained_image_uses_only_its_actual_aspect_ratio(int w, int h, double expectedW, double expectedH)
+    {
+        Assert.Equal(new Size(expectedW, expectedH),
+            ClipNotificationOverlay.ImageCanvasSize(w, h, 72, OverlayImageFit.Contain));
+    }
+
+    [Theory]
+    [InlineData(1)]
+    [InlineData(1.25)]
+    [InlineData(1.5)]
+    public void Image_stays_four_physical_pixels_inside_all_monitor_edges(double dpiScale)
+    {
+        var monitor = new Rect(-1920, -1080, 1920, 1080);
+        var size = new Size(Math.Round(72 * dpiScale), Math.Round(72 * dpiScale));
+        foreach (var anchor in Enum.GetValues<OverlayAnchor>())
+        {
+            var p = ClipOverlayOptions.Place(monitor, size, 4, anchor);
+            Assert.True(p.X >= monitor.Left + 4 && p.X + size.Width <= monitor.Right - 4);
+            Assert.True(p.Y >= monitor.Top + 4 && p.Y + size.Height <= monitor.Bottom - 4);
+            int column = (int)anchor % 3, row = (int)anchor / 3;
+            if (column == 0) Assert.Equal(monitor.Left + 4, p.X);
+            if (column == 2) Assert.Equal(monitor.Right - 4, p.X + size.Width);
+            if (row == 0) Assert.Equal(monitor.Top + 4, p.Y);
+            if (row == 2) Assert.Equal(monitor.Bottom - 4, p.Y + size.Height);
+        }
+    }
+
+    [Fact]
+    public void Tight_image_crop_uses_shared_bounds_over_all_frames_without_changing_timing()
+    {
+        ClipOverlayImage.Frame Frame(int x, int y, int ms)
+        {
+            byte[] pixels = new byte[8 * 8 * 4];
+            pixels[(y * 8 + x) * 4 + 3] = 255;
+            var bitmap = System.Windows.Media.Imaging.BitmapSource.Create(8, 8, 96, 96,
+                System.Windows.Media.PixelFormats.Bgra32, null, pixels, 32);
+            bitmap.Freeze();
+            return new(bitmap, TimeSpan.FromMilliseconds(ms));
+        }
+        var original = new ClipOverlayImage.Asset([Frame(2, 1, 30), Frame(5, 6, 70)]);
+        var tight = Assert.IsType<ClipOverlayImage.Asset>(ClipOverlayImage.Tighten(original));
+        Assert.Equal(4, tight.First.PixelWidth);
+        Assert.Equal(6, tight.First.PixelHeight);
+        Assert.All(tight.Frames, f => { Assert.Equal(4, f.Bitmap.PixelWidth); Assert.Equal(6, f.Bitmap.PixelHeight); Assert.True(f.Bitmap.IsFrozen); });
+        Assert.Equal(original.Frames.Select(f => f.Delay), tight.Frames.Select(f => f.Delay));
+    }
+
+    [Fact]
+    public void Restoring_default_image_resets_only_image_duration_and_path()
+    {
+        var options = new ClipOverlayOptions { ImagePath = "custom.gif", Seconds = 1.5,
+            ImageAppearance = new() { Seconds = 9, Size = 83, Anchor = OverlayAnchor.BottomLeft } };
+        var restored = options.RestoreDefaultImage();
+        Assert.Null(restored.ImagePath);
+        Assert.Equal(2.59, restored.Image().Seconds);
+        Assert.Equal(83, restored.Image().Size);
+        Assert.Equal(OverlayAnchor.BottomLeft, restored.Image().Anchor);
+        Assert.Equal(1.5, restored.Banner().Seconds);
+        Assert.Equal(2.59, new ClipImageAppearance().Seconds);
+    }
+
+    [Theory]
+    [InlineData("24", true)]
+    [InlineData("83.5", true)]
+    [InlineData("240", true)]
+    [InlineData("241", false)]
+    [InlineData("NaN", false)]
+    public void Custom_overlay_size_has_bounded_validation(string text, bool valid) =>
+        Assert.Equal(valid, ClipOverlayOptions.TryParseSize(text, out _));
 }

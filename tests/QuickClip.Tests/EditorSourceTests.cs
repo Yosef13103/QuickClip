@@ -83,6 +83,15 @@ public sealed class EditorSourceTests : IDisposable
         Assert.Equal(expected, EditorSource.ShouldRepaintNativePreview(
             windowVisible, minimized, editorVisible, sourceReady, previewLoaded, hasMedia));
 
+    [Theory]
+    [InlineData(false, false, false, true)]
+    [InlineData(false, true, false, false)]
+    [InlineData(false, false, true, false)]
+    [InlineData(true, false, false, false)]
+    public void Preview_initialization_is_single_owner_across_repeated_loaded_events(
+        bool closed, bool initializing, bool playerExists, bool expected) =>
+        Assert.Equal(expected, EditorSource.CanInitializePreview(closed, initializing, playerExists));
+
     private string Fixture(string name)
     {
         string path = Path.Combine(_directory, name);

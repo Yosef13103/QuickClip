@@ -20,6 +20,7 @@ public partial class GamesSettingsView
         public bool IsManual => Entry.Source == CatalogSource.Manual;
         internal bool CheckingExecutables { get; set; }
         public bool IsExcluded => Entry.Rules.Inclusion == CatalogInclusion.Exclude;
+        public bool CaptureEnabled => !IsExcluded;
         public bool IsAdvancedExpanded { get; set; }
         public bool IsExpanded
         {

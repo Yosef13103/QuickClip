@@ -161,7 +161,7 @@
             <StackPanel x:Name="EditControls" Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center" HorizontalAlignment="Right">
                 <Button Style="{StaticResource TextButton}" Click="SetIn_Click" Content="Set in" ToolTip="Start the clip at the playhead (I)" />
                 <Button Style="{StaticResource TextButton}" Click="SetOut_Click" Content="Set out" ToolTip="End the clip at the playhead (O)" />
-                <ToggleButton x:Name="LoopToggle" Style="{StaticResource IconToggle}" Margin="8,0,12,0" Checked="Loop_Changed" Unchecked="Loop_Changed"
+                <ToggleButton x:Name="LoopToggle" Style="{StaticResource SwitchToggleButton}" AutomationProperties.Name="Loop selection" Margin="8,0,12,0" Checked="Loop_Changed" Unchecked="Loop_Changed"
                               ToolTip="Loop the selection while previewing (L)">
                     <StackPanel Orientation="Horizontal">
                         <TextBlock FontFamily="{StaticResource IconFont}" Text="&#xE8EE;" VerticalAlignment="Center" Margin="0,0,6,0" />
@@ -247,7 +247,7 @@
                         <TextBlock Text="Add sound" FontSize="{DynamicResource QuickClipText12}" />
                     </StackPanel>
                 </Button>
-                <CheckBox Content="Taller tracks" IsChecked="{Binding ExpandedTracks, RelativeSource={RelativeSource AncestorType=views:EditorView}}"
+                <CheckBox Style="{StaticResource SwitchCheckBox}" Content="Taller tracks" IsChecked="{Binding ExpandedTracks, RelativeSource={RelativeSource AncestorType=views:EditorView}}"
                           Margin="10,0,0,0" VerticalAlignment="Center" ToolTip="Show more waveform detail" />
             </DockPanel>
 
@@ -399,7 +399,7 @@
                                 </StackPanel>
                             </Expander.Header>
                             <StackPanel x:Name="CropSection" Margin="0,6,0,0">
-                                <CheckBox x:Name="CropCheck" Content="Crop video" Checked="Crop_Changed" Unchecked="Crop_Changed" ToolTip="Toggle cropping (C)" />
+                                <CheckBox Style="{StaticResource SwitchCheckBox}" x:Name="CropCheck" Content="Crop video" Checked="Crop_Changed" Unchecked="Crop_Changed" ToolTip="Toggle cropping (C)" />
                                 <TextBlock x:Name="CropHint" FontSize="{DynamicResource QuickClipText11.5}" Foreground="{DynamicResource SubtleText}" TextWrapping="Wrap" Margin="0,2,0,0"
                                            Text="Drag on the video to draw the area to keep. Drag edges or corners to resize, or inside to move." />
                                 <StackPanel x:Name="CropPanel" IsEnabled="False">

@@ -53,6 +53,7 @@ internal sealed class AppSettings
     // Preserve the original physical-display grant without broadening it on upgrade.
     public string? AuthorizedGameDisplay { get; set; }
     public bool AllowGameDisplayFollowing { get; set; }
+    public string[] ExcludedGameDisplays { get; set; } = [];
     public bool SplitChatAudio { get; set; } = true;
     public bool SplitMusicAudio { get; set; } = true;
     public bool RecordMic { get; set; } = !AppProfile.IsPersonal;
@@ -82,7 +83,7 @@ internal sealed class AppSettings
     // First-run prompt is explicit: a new Personal profile never silently starts screen capture.
     public bool ReplayOnboardingCompleted { get; set; }
     public Shell.ClipOverlayOptions ClipOverlay { get; set; } = new();
-    public bool EnableLibraryIndex { get; set; }
+    public bool EnableLibraryIndex { get; set; } = AppProfile.IsPersonal;
     public double ShareSizeMB { get; set; } = 30;                // shared copies are made to fit under this
     public bool ShareMotionBlur { get; set; } = true;             // sharing a 120 fps clip blends it into 60 fps motion blur
     public string ClipsFolder { get; set; } = AppProfile.ClipsDirectory;
@@ -96,7 +97,7 @@ internal sealed class AppSettings
     public bool? EnableReplayOnStartup { get; set; }
     public string? Theme { get; set; }
     public string? CustomThemeJson { get; set; }
-    public bool MinimizeToTray { get; set; } = true;
+    public bool StartInTray { get; set; } = true;
     public bool CloseToTray { get; set; } = true;
 
     internal void ApplyReplayStartupPreference()
@@ -107,7 +108,7 @@ internal sealed class AppSettings
         if (enabled) PreferGameWindow = true;
     }
 
-    public bool CheckForUpdates { get; set; } = !AppProfile.IsPersonal;
+    public bool CheckForUpdates { get; set; } = true;
     public string? UpdateChannel { get; set; }
     public string? SeenVersion { get; set; }                      // the version whose "what's new" was last shown
 
@@ -148,6 +149,18 @@ internal sealed class AppSettings
     internal static AppSettings Parse(string json)
     {
         var settings = JsonSerializer.Deserialize<AppSettings>(json, JsonOptions) ?? new AppSettings();
+        settings.ClipOverlay = (settings.ClipOverlay ?? new()).Migrate();
+        // V1 shared a preference between minimizing and Windows startup. Only
+        // the startup behavior survives; the newer key takes precedence.
+        using (var legacy = JsonDocument.Parse(json))
+        {
+            var root = legacy.RootElement;
+            if (root.ValueKind == JsonValueKind.Object &&
+                !root.TryGetProperty(nameof(StartInTray), out _) &&
+                root.TryGetProperty("MinimizeToTray", out var oldTray) &&
+                oldTray.ValueKind is JsonValueKind.True or JsonValueKind.False)
+                settings.StartInTray = oldTray.GetBoolean();
+        }
         settings.Games = GameCatalogRuntime.RestoreSavedScan(settings.Games);
         if (AppProfile.IsPersonal && settings.HotkeyKey == 0x79)
         {

@@ -13,6 +13,8 @@ public sealed class RecordingLifecycleTests
             Recorder.CaptureStatusLabel(RecordingMode.GameTriggered, "Terraria", display, "Desktop"));
         Assert.Equal("Desktop recording · Display 2",
             Recorder.CaptureStatusLabel(RecordingMode.ManualDesktop, null, display, "Desktop"));
+        Assert.Equal("Desktop recording · M34WQ",
+            Recorder.CaptureStatusLabel(RecordingMode.ManualDesktop, null, "M34WQ", "Desktop"));
         Assert.Equal("Desktop",
             Recorder.CaptureStatusLabel(RecordingMode.GameTriggered, null, display, "Desktop"));
     }

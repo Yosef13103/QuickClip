@@ -18,7 +18,7 @@
     <DockPanel Margin="28,16,24,16" MaxWidth="1340">
         <StackPanel DockPanel.Dock="Top">
             <TextBlock Text="Games" FontSize="{DynamicResource QuickClipText24}" FontWeight="SemiBold" />
-            <CheckBox x:Name="AutoScan" Content="Automatically discover installed games" Click="AutoScan_Click" Margin="0,8,0,0" />
+            <CheckBox Style="{StaticResource SwitchCheckBox}" x:Name="AutoScan" Content="Automatically discover installed games" Click="AutoScan_Click" Margin="0,8,0,0" />
             <TextBlock Text="Automatic scans read local Steam and Epic manifests and approved folders. You can pause and resume a scan here." TextWrapping="Wrap" Style="{StaticResource Hint}" />
             <Expander Header="Game libraries and launchers" Margin="0,6,0,6">
                 <StackPanel>
@@ -71,24 +71,11 @@
                 <DataTemplate>
                     <StackPanel Margin="2,3">
                         <DockPanel>
-                            <Button DockPanel.Dock="Right" Click="Capture_Click" Width="36" Height="32"
-                                    VerticalAlignment="Center" Margin="8,0,4,0"
-                                    AutomationProperties.Name="{Binding CaptureAction}"
-                                    ToolTip="{Binding CaptureAction}">
-                                <Button.Style>
-                                    <Style TargetType="Button" BasedOn="{StaticResource IconButton}">
-                                        <Setter Property="Focusable" Value="True" />
-                                        <Style.Triggers>
-                                            <DataTrigger Binding="{Binding IsExcluded}" Value="True">
-                                                <Setter Property="Foreground" Value="{DynamicResource RecordingRed}" />
-                                            </DataTrigger>
-                                        </Style.Triggers>
-                                    </Style>
-                                </Button.Style>
-                                <Path Width="16" Height="16" Stretch="Uniform" StrokeThickness="1.5"
-                                      Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"
-                                      Data="{Binding CaptureIcon}" />
-                            </Button>
+                            <CheckBox DockPanel.Dock="Right" Style="{StaticResource SwitchCheckBox}" Click="Capture_Click"
+                                      IsChecked="{Binding CaptureEnabled, Mode=OneWay}"
+                                      VerticalAlignment="Center" Margin="8,0,4,0"
+                                      AutomationProperties.Name="{Binding CaptureAction}"
+                                      ToolTip="{Binding CaptureAction}" />
                             <ToggleButton Style="{StaticResource GameHeadingButton}" IsChecked="{Binding IsExpanded, Mode=OneWay}"
                                           Click="Details_Click" AutomationProperties.Name="{Binding DetailsAction}"
                                           AutomationProperties.HelpText="{Binding Summary}">

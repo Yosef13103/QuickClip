@@ -36,10 +36,12 @@ internal sealed class Recorder
     private GameCaptureObservation? _observedGame;
     private string? _manualDisplay;
     private int _manualConsentRevision;
+    private long _manualRequestSequence;
     private readonly HashSet<string> _manualAuthorized = new(StringComparer.OrdinalIgnoreCase);
     private string? _sessionGameId;
     private string? _sessionGame;
     private string? _sessionDisplay;
+    private string? _actualMonitorName;
     private long _captureStartedAt;
     internal bool ManualDesktopRequested => Volatile.Read(ref _manualDisplay) != null
         && AppSettings.Current.AllowsManualDesktop(Volatile.Read(ref _manualConsentRevision));
@@ -87,8 +89,9 @@ internal sealed class Recorder
     private static string DisplayLabel(string? display)
     {
         if (string.IsNullOrWhiteSpace(display)) return "(unknown display)";
-        int pos = display.LastIndexOf("DISPLAY", StringComparison.OrdinalIgnoreCase);
-        return pos >= 0 ? "Display " + display[(pos + "DISPLAY".Length)..] : display;
+        const string prefix = @"\\.\DISPLAY";
+        return display.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)
+            ? "Display " + display[prefix.Length..] : display;
     }
 
     public RecorderState State => new(IsRunning, Error,
@@ -163,6 +166,19 @@ internal sealed class Recorder
         StateChanged?.Invoke(State);
     });
 
+    // Permission changes re-evaluate the active source without unconditionally
+    // restarting a still-authorized game or a separately confirmed manual capture.
+    internal Task ReconcileDisplayPermissionsAsync() => Task.Run(() =>
+    {
+        lock (_gate)
+        {
+            if (!AppProfile.IsPersonal) return;
+            ReconcilePersonal();
+            if (AppSettings.Current.RecordingEnabled && _poll == null) StartPolling();
+        }
+        StateChanged?.Invoke(State);
+    });
+
     public Task StopAsync() => Task.Run(() =>
     {
         lock (_gate)
@@ -177,11 +193,15 @@ internal sealed class Recorder
         StateChanged?.Invoke(State);
     });
 
-    internal Task SetManualDesktopAsync(string? confirmedDisplay, int consentRevision = -1) => Task.Run(() =>
+    internal Task SetManualDesktopAsync(string? confirmedDisplay, int consentRevision = -1, bool onlyIfActive = false)
     {
+        long sequence = Interlocked.Increment(ref _manualRequestSequence);
+        return Task.Run(() =>
+        {
         lock (_gate)
         {
-            if (!AppProfile.IsPersonal) return;
+            if (!AppProfile.IsPersonal || sequence != Volatile.Read(ref _manualRequestSequence) ||
+                (onlyIfActive && !ManualDesktopRequested)) return;
             var requested = string.IsNullOrWhiteSpace(confirmedDisplay) ? null : confirmedDisplay;
             if (requested == null)
             {
@@ -202,6 +222,8 @@ internal sealed class Recorder
         }
         StateChanged?.Invoke(State);
     });
+
+    }
 
     internal Task<bool> CycleManualDisplayAsync() => Task.Run(() =>
     {
@@ -285,7 +307,7 @@ internal sealed class Recorder
         }
         _sessionGame = game?.VerifiedTarget?.Game;
         _sessionGameId = activation.GameId;
-        _sessionDisplay = activation.Display.Device;
+        _sessionDisplay = _actualMonitorName ?? activation.Display.Device;
         _captureStartedAt = Environment.TickCount64;
         return null;
     }
@@ -358,6 +380,7 @@ internal sealed class Recorder
                 CaptureEngine.MonitorBackend.MonitorOnlyGraphics => new(monitor.DeviceName, ReplayCaptureBackend.WindowsGraphicsCapture),
                 _ => null,
             };
+            _actualMonitorName = string.IsNullOrWhiteSpace(monitor.FriendlyName) ? monitor.DeviceName : monitor.FriendlyName;
             _monitorTarget = _desktopSource?.Backend switch
             {
                 ReplayCaptureBackend.DesktopDuplication => $"Desktop · {monitor.Label} · Desktop Duplication",
@@ -399,6 +422,7 @@ internal sealed class Recorder
         _replaySession = Guid.Empty;
         _replayMarkers.Clear();
         (_sessionGame, _sessionGameId, _sessionDisplay, _desktopSource) = (null, null, null, null);
+        _actualMonitorName = null;
         (_chatApps, _musicApps) = ([], []);
         _summary = "";
     }

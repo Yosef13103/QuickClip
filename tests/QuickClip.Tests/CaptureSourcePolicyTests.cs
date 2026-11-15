@@ -61,4 +61,22 @@ public sealed class CaptureSourcePolicyTests
         Assert.True((receipt with { DesktopSource = null }).SpansCaptureEpochs);
         Assert.False((receipt with { FirstSourceId = 3 }).SpansCaptureEpochs);
     }
+    [Fact]
+    public void Display_exclusions_restrict_an_existing_grant_without_creating_one()
+    {
+        var settings = new AppSettings { AllowGameDisplayFollowing = false, ExcludedGameDisplays = ["blocked"] };
+        Assert.False(CaptureSourcePolicy.AllowsGameDisplay(settings, "other"));
+        settings.AllowGameDisplayFollowing = true;
+        Assert.True(CaptureSourcePolicy.AllowsGameDisplay(settings, "other"));
+        Assert.False(CaptureSourcePolicy.AllowsGameDisplay(settings, "BLOCKED"));
+        var restored = AppSettings.Parse(settings.ToJson());
+        Assert.False(CaptureSourcePolicy.AllowsGameDisplay(restored, "blocked"));
+    }
+
+    [Fact]
+    public void Library_catalog_defaults_on_for_new_personal_profiles_but_respects_opt_out()
+    {
+        Assert.Equal(AppProfile.IsPersonal, new AppSettings().EnableLibraryIndex);
+        Assert.False(AppSettings.Parse("{\"EnableLibraryIndex\":false}").EnableLibraryIndex);
+    }
 }

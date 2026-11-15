@@ -1,5 +1,5 @@
 <ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
-                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" xmlns:controls="clr-namespace:QuickClip.Controls">
     <!-- Shared by every page. Merged per view (not in App.xaml) so the Fluent theme's styles exist for BasedOn. -->
     <FontFamily x:Key="IconFont">Segoe Fluent Icons, Segoe MDL2 Assets</FontFamily>
 
@@ -145,7 +145,12 @@
                 <ControlTemplate TargetType="ListBoxItem">
                     <Border x:Name="NavBg" Background="{TemplateBinding Background}" BorderBrush="Transparent"
                             BorderThickness="1" CornerRadius="6" Padding="9,8" Margin="0,2">
-                        <ContentPresenter ContentSource="Content" />
+                        <Grid>
+                            <Border x:Name="NavAccent" Width="3" Height="18" CornerRadius="2"
+                                    HorizontalAlignment="Left" VerticalAlignment="Center"
+                                    Background="{DynamicResource AccentBrush}" Visibility="Collapsed" Margin="-5,0,0,0" />
+                            <ContentPresenter ContentSource="Content" Margin="5,0,0,0" />
+                        </Grid>
                     </Border>
                     <ControlTemplate.Triggers>
                         <Trigger Property="IsMouseOver" Value="True">
@@ -153,7 +158,7 @@
                         </Trigger>
                         <Trigger Property="IsSelected" Value="True">
                             <Setter TargetName="NavBg" Property="Background" Value="{DynamicResource SelectionBrush}" />
-                            <Setter TargetName="NavBg" Property="BorderBrush" Value="{DynamicResource AccentBrush}" />
+                            <Setter TargetName="NavAccent" Property="Visibility" Value="Visible" />
                         </Trigger>
                         <Trigger Property="IsKeyboardFocused" Value="True">
                             <Setter TargetName="NavBg" Property="BorderBrush" Value="{DynamicResource AccentHoverBrush}" />
@@ -165,22 +170,89 @@
     </Style>
     <Style TargetType="CheckBox" BasedOn="{StaticResource {x:Type CheckBox}}">
         <Setter Property="MinWidth" Value="0" />
-        <Setter Property="Focusable" Value="False" />
+        <Setter Property="Focusable" Value="True" />
     </Style>
+
+
+    <!-- Immediate settings use switches; selection checkboxes keep their native presentation. -->
+    <Style x:Key="SwitchToggleButton" TargetType="ToggleButton">
+        <Setter Property="Focusable" Value="True" />
+        <Setter Property="IsTabStop" Value="True" />
+        <Setter Property="Cursor" Value="Hand" />
+        <Setter Property="Foreground" Value="{DynamicResource PrimaryTextBrush}" />
+        <Setter Property="MinHeight" Value="{DynamicResource QuickClipVisual30}" />
+        <Setter Property="MinWidth" Value="0" />
+        <Setter Property="Padding" Value="2" />
+        <Setter Property="HorizontalContentAlignment" Value="Left" />
+        <Setter Property="VerticalContentAlignment" Value="Center" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="ToggleButton">
+                    <Border x:Name="SwitchRoot" Background="Transparent" BorderBrush="Transparent"
+                            BorderThickness="1" CornerRadius="6" Padding="{TemplateBinding Padding}">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+                            <controls:SwitchVisual x:Name="SwitchTrack" Width="{DynamicResource QuickClipVisual40}"
+                                    Height="{DynamicResource QuickClipVisual24}" VerticalAlignment="Center"
+                                    IsOn="{TemplateBinding IsChecked}" TrackBrush="{DynamicResource SwitchOffBrush}"
+                                    OutlineBrush="{DynamicResource SwitchOutlineBrush}" ThumbBrush="{DynamicResource SwitchOffThumbBrush}" />
+                            <ContentPresenter x:Name="SwitchLabel" Grid.Column="1" Margin="8,0,0,0"
+                                              ContentSource="Content" RecognizesAccessKey="True"
+                                              HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
+                                              VerticalAlignment="{TemplateBinding VerticalContentAlignment}" />
+                        </Grid>
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="HasContent" Value="False">
+                            <Setter TargetName="SwitchLabel" Property="Margin" Value="0" />
+                        </Trigger>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter TargetName="SwitchTrack" Property="TrackBrush" Value="{DynamicResource SelectionBrush}" />
+                        </Trigger>
+                        <Trigger Property="IsChecked" Value="True">
+                            <Setter TargetName="SwitchTrack" Property="TrackBrush" Value="{DynamicResource AccentBrush}" />
+                            <Setter TargetName="SwitchTrack" Property="OutlineBrush" Value="{DynamicResource AccentBrush}" />
+                            <Setter TargetName="SwitchTrack" Property="ThumbBrush" Value="{DynamicResource SwitchThumbBrush}" />
+                        </Trigger>
+                        <MultiTrigger>
+                            <MultiTrigger.Conditions>
+                                <Condition Property="IsChecked" Value="True" />
+                                <Condition Property="IsMouseOver" Value="True" />
+                            </MultiTrigger.Conditions>
+                            <Setter TargetName="SwitchTrack" Property="TrackBrush" Value="{DynamicResource AccentHoverBrush}" />
+                            <Setter TargetName="SwitchTrack" Property="OutlineBrush" Value="{DynamicResource AccentHoverBrush}" />
+                            <Setter TargetName="SwitchTrack" Property="ThumbBrush" Value="{DynamicResource SwitchHoverThumbBrush}" />
+                        </MultiTrigger>
+                        <Trigger Property="IsKeyboardFocused" Value="True">
+                            <Setter TargetName="SwitchRoot" Property="BorderBrush" Value="{DynamicResource AccentBrush}" />
+                        </Trigger>
+                        <Trigger Property="IsEnabled" Value="False">
+                            <Setter TargetName="SwitchRoot" Property="Opacity" Value="0.5" />
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+    <Style x:Key="SwitchCheckBox" TargetType="CheckBox" BasedOn="{StaticResource SwitchToggleButton}" />
 
     <!-- Left navigation rail item -->
     <Style x:Key="RailItem" TargetType="RadioButton">
-        <Setter Property="Focusable" Value="False" />
+        <Setter Property="Focusable" Value="True" />
         <Setter Property="Foreground" Value="{DynamicResource TextFillColorPrimaryBrush}" />
         <Setter Property="Cursor" Value="Hand" />
         <Setter Property="Template">
             <Setter.Value>
                 <ControlTemplate TargetType="RadioButton">
-                    <Border x:Name="Bg" Margin="6,3" Padding="0,9,0,7" CornerRadius="6" Background="Transparent">
+                    <Border x:Name="Bg" Margin="6,3" Padding="0,9,0,7" CornerRadius="8" Background="Transparent"
+                            BorderThickness="1" BorderBrush="Transparent">
                         <StackPanel HorizontalAlignment="Center">
                             <TextBlock x:Name="Glyph" Text="{TemplateBinding Tag}" FontFamily="{StaticResource IconFont}" FontSize="{DynamicResource QuickClipVisual19}"
                                        HorizontalAlignment="Center" Foreground="{DynamicResource SubtleText}" />
-                            <ContentPresenter Margin="0,5,0,0" HorizontalAlignment="Center" TextElement.FontSize="{DynamicResource QuickClipText11}"
+                            <ContentPresenter x:Name="RailLabel" Margin="0,5,0,0" HorizontalAlignment="Center" TextElement.FontSize="{DynamicResource QuickClipText11}"
                                               TextElement.Foreground="{DynamicResource SubtleText}" />
                         </StackPanel>
                     </Border>
@@ -189,8 +261,12 @@
                             <Setter TargetName="Bg" Property="Background" Value="{DynamicResource ElevatedSurfaceBrush}" />
                         </Trigger>
                         <Trigger Property="IsChecked" Value="True">
-                            <Setter TargetName="Bg" Property="Background" Value="{DynamicResource SelectionBrush}" />
-                            <Setter TargetName="Glyph" Property="Foreground" Value="{DynamicResource AccentFillColorDefaultBrush}" />
+                            <Setter TargetName="Bg" Property="Background" Value="{DynamicResource RailSelectedBrush}" />
+                            <Setter TargetName="Glyph" Property="Foreground" Value="{DynamicResource RailSelectedTextBrush}" />
+                            <Setter TargetName="RailLabel" Property="TextElement.Foreground" Value="{DynamicResource RailSelectedTextBrush}" />
+                        </Trigger>
+                        <Trigger Property="IsKeyboardFocused" Value="True">
+                            <Setter TargetName="Bg" Property="BorderBrush" Value="{DynamicResource AccentBrush}" />
                         </Trigger>
                     </ControlTemplate.Triggers>
                 </ControlTemplate>

@@ -6,6 +6,30 @@
             <ResourceDictionary.MergedDictionaries>
                 <ResourceDictionary Source="/QuickClip;component/Themes/Styles.xaml" />
             </ResourceDictionary.MergedDictionaries>
+            <DataTemplate x:Key="DriveUsageTemplate">
+                <Border Background="{DynamicResource PanelBrush}" BorderBrush="{DynamicResource DividerBrush}" BorderThickness="1" CornerRadius="10" Padding="14" Margin="0,10,0,0">
+                <StackPanel>
+                    <TextBlock Text="{Binding Header}" FontWeight="SemiBold" TextWrapping="Wrap" FontSize="{DynamicResource QuickClipText16}" />
+                    <Grid Height="14" Margin="0,12,0,10">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="{Binding TrackedWidth}" />
+                            <ColumnDefinition Width="{Binding OtherWidth}" />
+                            <ColumnDefinition Width="{Binding FreeWidth}" />
+                        </Grid.ColumnDefinitions>
+                        <Border Grid.Column="0" Background="{DynamicResource AccentBrush}" CornerRadius="7" />
+                        <Border Grid.Column="1" Background="{DynamicResource DisabledBrush}" CornerRadius="7" />
+                        <Border Grid.Column="2" Background="{DynamicResource SuccessBrush}" CornerRadius="7" />
+                    </Grid>
+                    <WrapPanel>
+                        <StackPanel Orientation="Horizontal" Margin="0,0,14,6"><Ellipse Width="9" Height="9" Fill="{DynamicResource AccentBrush}" Margin="0,0,6,0" /><TextBlock Text="{Binding Tracked}" Foreground="{DynamicResource PrimaryTextBrush}" TextWrapping="Wrap" /></StackPanel>
+                        <StackPanel Orientation="Horizontal" Margin="0,0,14,6"><Ellipse Width="9" Height="9" Fill="{DynamicResource DisabledBrush}" Margin="0,0,6,0" /><TextBlock Text="{Binding Other}" Foreground="{DynamicResource PrimaryTextBrush}" TextWrapping="Wrap" /></StackPanel>
+                        <StackPanel Orientation="Horizontal" Margin="0,0,14,6"><Ellipse Width="9" Height="9" Fill="{DynamicResource SuccessBrush}" Margin="0,0,6,0" /><TextBlock Text="{Binding Free}" Foreground="{DynamicResource PrimaryTextBrush}" TextWrapping="Wrap" /></StackPanel>
+                    </WrapPanel>
+                    <Border Background="{DynamicResource ElevatedSurfaceBrush}" CornerRadius="7" Padding="10" Margin="0,4,0,6"><TextBlock Text="{Binding Capacity}" FontWeight="SemiBold" TextWrapping="Wrap" /></Border>
+                    <TextBlock Text="{Binding Note}" Style="{StaticResource Hint}" TextWrapping="Wrap" Margin="0,3,0,0" />
+                </StackPanel>
+                </Border>
+            </DataTemplate>
             <Style x:Key="Card" TargetType="Border">
                 <Setter Property="Background" Value="{DynamicResource PanelBrush}" />
                 <Setter Property="CornerRadius" Value="8" />
@@ -25,7 +49,7 @@
                 <Setter Property="Template">
                     <Setter.Value>
                         <ControlTemplate TargetType="CheckBox">
-                            <Border x:Name="MasterCard" Background="{DynamicResource ElevatedSurfaceBrush}" BorderBrush="{DynamicResource BorderBrush}"
+                            <Border x:Name="MasterCard" Background="{DynamicResource ElevatedSurfaceBrush}" BorderBrush="{DynamicResource DividerBrush}"
                                     BorderThickness="1" CornerRadius="9" Padding="15,13">
                                 <Grid>
                                     <Grid.ColumnDefinitions>
@@ -39,19 +63,17 @@
                                                    FontSize="{DynamicResource QuickClipText12}" Foreground="{DynamicResource SecondaryTextBrush}" Margin="0,5,10,0"
                                                    TextWrapping="Wrap" />
                                     </StackPanel>
-                                    <Grid Grid.Column="1" Width="48" Height="26" VerticalAlignment="Center">
-                                        <Border x:Name="SwitchTrack" CornerRadius="13" Background="{DynamicResource DisabledBrush}" />
-                                        <Ellipse x:Name="SwitchThumb" HorizontalAlignment="Left" Margin="4,0,0,0"
-                                                 VerticalAlignment="Center" Width="18" Height="18" Fill="{DynamicResource SwitchThumbBrush}" />
-                                    </Grid>
+                                    <controls:SwitchVisual x:Name="SwitchTrack" Grid.Column="1" Width="{DynamicResource QuickClipVisual44}"
+                                            Height="{DynamicResource QuickClipVisual24}" VerticalAlignment="Center"
+                                            IsOn="{TemplateBinding IsChecked}" TrackBrush="{DynamicResource SwitchOffBrush}"
+                                            OutlineBrush="{DynamicResource SwitchOutlineBrush}" ThumbBrush="{DynamicResource SwitchOffThumbBrush}" />
                                 </Grid>
                             </Border>
                             <ControlTemplate.Triggers>
                                 <Trigger Property="IsChecked" Value="True">
-                                    <Setter TargetName="SwitchTrack" Property="Background" Value="{DynamicResource AccentBrush}" />
-                                    <Setter TargetName="SwitchThumb" Property="HorizontalAlignment" Value="Right" />
-                                    <Setter TargetName="SwitchThumb" Property="Margin" Value="0,0,4,0" />
-                                    <Setter TargetName="MasterCard" Property="BorderBrush" Value="{DynamicResource AccentBrush}" />
+                                    <Setter TargetName="SwitchTrack" Property="TrackBrush" Value="{DynamicResource AccentBrush}" />
+                                    <Setter TargetName="SwitchTrack" Property="OutlineBrush" Value="{DynamicResource AccentBrush}" />
+                                    <Setter TargetName="SwitchTrack" Property="ThumbBrush" Value="{DynamicResource SwitchThumbBrush}" />
                                 </Trigger>
                                 <Trigger Property="IsMouseOver" Value="True">
                                     <Setter TargetName="MasterCard" Property="Background" Value="{DynamicResource SelectionBrush}" />
@@ -92,8 +114,8 @@
             <ColumnDefinition x:Name="SectionsColumn" Width="176" />
             <ColumnDefinition Width="*" />
         </Grid.ColumnDefinitions>
-        <Border Grid.Column="0" Background="{DynamicResource RailBrush}" BorderBrush="{DynamicResource BorderBrush}"
-                BorderThickness="1,0,1,0" Padding="8,16,8,16">
+        <Border x:Name="SettingsSidebar" Grid.Column="0" Background="{DynamicResource InternalSidebarBrush}"
+                BorderThickness="0" Padding="8,16,8,16">
             <!-- Left navigation uses comfortable centered spacing; shrink/scroll when DPI requires. -->
             <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled"
                           VerticalContentAlignment="Center" HorizontalContentAlignment="Stretch">
@@ -185,14 +207,14 @@
                         <Button x:Name="CheckUpdatesButton" DockPanel.Dock="Right" Style="{StaticResource TextButton}" Margin="0" VerticalAlignment="Center"
                                 Click="CheckUpdates_Click">
                             <StackPanel Orientation="Horizontal">
-                                <TextBlock FontFamily="{StaticResource IconFont}" Text="&#xE72C;" VerticalAlignment="Center" Margin="0,0,7,0" />
+                                <TextBlock FontFamily="{StaticResource IconFont}" Text="&#xE72C;" VerticalAlignment="Center" Margin="0,0,7,0"  TextWrapping="Wrap" />
                                 <TextBlock Text="Check for updates" />
                             </StackPanel>
                         </Button>
                         <Button DockPanel.Dock="Right" Style="{StaticResource TextButton}" Margin="0,0,8,0" VerticalAlignment="Center"
                                 Click="ThisVersionNotes_Click" ToolTip="The release notes of the version you have">
                             <StackPanel Orientation="Horizontal">
-                                <TextBlock FontFamily="{StaticResource IconFont}" Text="&#xE789;" VerticalAlignment="Center" Margin="0,0,7,0" />
+                                <TextBlock FontFamily="{StaticResource IconFont}" Text="&#xE789;" VerticalAlignment="Center" Margin="0,0,7,0"  TextWrapping="Wrap" />
                                 <TextBlock Text="What's new" />
                             </StackPanel>
                         </Button>
@@ -205,8 +227,8 @@
                     <StackPanel x:Name="UpdateActions" Orientation="Horizontal" Margin="0,10,0,0" Visibility="Collapsed">
                         <Button x:Name="InstallUpdateButton" Style="{DynamicResource AccentButtonStyle}" Padding="12,5" Focusable="False" Click="InstallUpdate_Click">
                             <StackPanel Orientation="Horizontal">
-                                <TextBlock FontFamily="{StaticResource IconFont}" Text="&#xE896;" VerticalAlignment="Center" Margin="0,0,7,0" />
-                                <TextBlock Text="Install and restart" />
+                                <TextBlock FontFamily="{StaticResource IconFont}" Text="&#xE896;" VerticalAlignment="Center" Margin="0,0,7,0"  TextWrapping="Wrap" />
+                                <TextBlock x:Name="InstallUpdateLabel" Text="Install and restart" />
                             </StackPanel>
                         </Button>
                         <Button Style="{StaticResource TextButton}" Content="What's new" Margin="8,0,0,0" Click="WhatsNew_Click" />
@@ -217,11 +239,11 @@
                             <ColumnDefinition Width="160" />
                             <ColumnDefinition Width="*" />
                         </Grid.ColumnDefinitions>
-                        <TextBlock Text="Channel" VerticalAlignment="Center" />
+                        <TextBlock Text="Channel" VerticalAlignment="Center"  TextWrapping="Wrap" />
                         <ComboBox x:Name="ChannelCombo" Grid.Column="1" SelectionChanged="Channel_Changed" />
                     </Grid>
                     <TextBlock x:Name="ChannelHint" Style="{StaticResource Hint}" Margin="160,4,0,0" TextWrapping="Wrap" />
-                    <CheckBox x:Name="AutoUpdateCheck" Content="Check for updates automatically when QuickClip starts" Margin="0,12,0,0"
+                    <CheckBox Style="{StaticResource SwitchCheckBox}" x:Name="AutoUpdateCheck" Content="Check for updates automatically when QuickClip starts" Margin="0,12,0,0"
                               Checked="AutoUpdate_Changed" Unchecked="AutoUpdate_Changed" />
                 </StackPanel>
             </Border>
@@ -234,37 +256,50 @@
                                Text="QuickClip keeps the last few minutes of your screen in memory; press the hotkey to save them as a clip. Nothing is written to disk until you do." />
                     <CheckBox x:Name="RecordingCheck" Style="{StaticResource ReplayMasterControl}" Margin="0,14,0,2" Checked="Changed" Unchecked="Changed" />
 
-                    <Grid Style="{StaticResource Row}">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="160" />
-                            <ColumnDefinition Width="*" />
-                        </Grid.ColumnDefinitions>
-                        <TextBlock x:Name="MonitorLabel" Text="Monitor" VerticalAlignment="Center" />
-                        <ComboBox x:Name="MonitorCombo" Grid.Column="1" SelectionChanged="Changed" />
-                    </Grid>
-
                     <TextBlock x:Name="RecordingSourceLabel" Text="Recording source" Margin="0,12,0,4" />
                     <ComboBox x:Name="SourceCombo" SelectionChanged="Changed" AutomationProperties.Name="Recording source">
                         <ComboBoxItem x:Name="GameSourceItem" Content="Automatic - Game First" />
                         <ComboBoxItem x:Name="DisplaySourceItem" Content="Selected monitor" />
                     </ComboBox>
                     <TextBlock x:Name="CaptureTargetHint" Style="{StaticResource Hint}" Margin="0,6,0,4" TextWrapping="Wrap" />
-                    <Button x:Name="GameDisplayConsent" Visibility="Collapsed" HorizontalAlignment="Left"
-                            Margin="0,4,0,0" Click="GameDisplayConsent_Click" />
-                    <Button x:Name="RevokeLegacyDisplayConsent" Visibility="Collapsed" HorizontalAlignment="Left"
-                            Margin="0,4,0,0" Content="Revoke existing display permission" Click="RevokeLegacyDisplayConsent_Click" />
-                    <Button x:Name="ManualDesktopButton" Visibility="Collapsed" HorizontalAlignment="Left"
-                            Margin="0,8,0,0" Click="ManualDesktop_Click" />
+                    <Border Background="{DynamicResource CardBrush}" CornerRadius="9" Padding="14" Margin="0,12,0,0">
+                        <StackPanel>
+                            <CheckBox Style="{StaticResource SwitchCheckBox}" x:Name="ManualDesktopButton" Visibility="Collapsed"
+                                      Content="Manual desktop capture" FontWeight="SemiBold"
+                                      ToolTip="Records everything visible on the chosen display until stopped" Click="ManualDesktop_Click" />
+                            <TextBlock x:Name="ManualDisplayHint" Style="{StaticResource Hint}" Text="Records everything visible on the chosen display, including messages and notifications. Change the monitor to switch an active manual capture." Margin="0,3,0,6" />
+                            <TextBlock x:Name="MonitorLabel" Text="Monitor" TextWrapping="Wrap" Margin="0,6,0,4" />
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <ComboBox x:Name="MonitorCombo" MinWidth="0" SelectionChanged="Changed" AutomationProperties.Name="Manual desktop display" />
+                                <CheckBox Grid.Column="1" x:Name="DisplayPermissionCheck" Style="{StaticResource SwitchCheckBox}"
+                                          Margin="10,0,0,0" Visibility="Collapsed" Click="DisplayPermission_Click"
+                                          ToolTip="Allow automatic game recording on the selected physical display"
+                                          AutomationProperties.Name="Allow game recording on selected display" />
+                            </Grid>
+                            <TextBlock x:Name="DisplayPermissionHint" Style="{StaticResource Hint}" TextWrapping="Wrap" Margin="0,5,0,0" Visibility="Collapsed" />
+                            <Expander x:Name="GamePermissionOptions" Header="Game display permissions" Visibility="Collapsed" Margin="0,8,0,0">
+                                <StackPanel Margin="0,6,0,0">
+                                    <TextBlock Style="{StaticResource Hint}" Text="Game capture records everything visible on permitted displays. The selected-display switch controls automatic game recording, not manual capture." />
+                                    <WrapPanel Margin="0,6,0,0">
+                                        <Button x:Name="GameDisplayConsent" Click="GameDisplayConsent_Click" Margin="0,0,8,4" />
+                                        <Button x:Name="RevokeLegacyDisplayConsent" Content="Revoke legacy display permission" Click="RevokeLegacyDisplayConsent_Click" Visibility="Collapsed" />
+                                    </WrapPanel>
+                                </StackPanel>
+                            </Expander>
+                        </StackPanel>
+                    </Border>
 
-                    <Grid Style="{StaticResource Row}">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="160" />
-                            <ColumnDefinition Width="*" />
-                        </Grid.ColumnDefinitions>
-                        <TextBlock Text="Capture area" VerticalAlignment="Center" />
-                        <ComboBox x:Name="AreaCombo" Grid.Column="1" SelectionChanged="Changed"
-                                  AutomationProperties.Name="Capture area" />
-                    </Grid>
+                    <Grid Margin="0,12,0,0">
+                        <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="12" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                        <StackPanel Grid.Column="0">
+                    <StackPanel Margin="0,0,0,4">
+                            <TextBlock Text="Capture area" TextWrapping="Wrap" Margin="0,0,0,4" />
+                            <ComboBox x:Name="AreaCombo" MinWidth="0" SelectionChanged="Changed" AutomationProperties.Name="Capture area" />
+                        </StackPanel>
                     <Expander Header="Custom aspect ratio" Margin="0,4,0,0">
                         <StackPanel Margin="0,4,0,6">
                             <DockPanel>
@@ -276,15 +311,12 @@
                         </StackPanel>
                     </Expander>
 
-                    <Grid Style="{StaticResource Row}">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="160" />
-                            <ColumnDefinition Width="*" />
-                        </Grid.ColumnDefinitions>
-                        <TextBlock Text="Output resolution" VerticalAlignment="Center" />
-                        <ComboBox x:Name="ResolutionCombo" Grid.Column="1" SelectionChanged="Changed"
-                                  AutomationProperties.Name="Output resolution" />
-                    </Grid>
+                        </StackPanel>
+                        <StackPanel Grid.Column="2">
+                    <StackPanel Margin="0,0,0,4">
+                            <TextBlock Text="Output resolution" TextWrapping="Wrap" Margin="0,0,0,4" />
+                            <ComboBox x:Name="ResolutionCombo" MinWidth="0" SelectionChanged="Changed" AutomationProperties.Name="Output resolution" />
+                        </StackPanel>
                     <Expander Header="Custom output size" Margin="0,4,0,0">
                         <StackPanel Margin="0,4,0,6">
                             <TextBlock Text="Width × height in pixels" Margin="0,0,0,4" />
@@ -296,11 +328,11 @@
                                 </Grid.ColumnDefinitions>
                                 <TextBox x:Name="CustomWidthBox" MaxLength="10" ToolTip="Output width in pixels"
                                          AutomationProperties.Name="Output width" TextChanged="CustomDimension_Changed" />
-                                <TextBlock Grid.Column="1" Text="×" VerticalAlignment="Center" Margin="8,0" />
+                                <TextBlock Grid.Column="1" Text="×" VerticalAlignment="Center" Margin="8,0"  TextWrapping="Wrap" />
                                 <TextBox x:Name="CustomHeightBox" Grid.Column="2" MaxLength="10" ToolTip="Output height in pixels"
                                          AutomationProperties.Name="Output height" TextChanged="CustomDimension_Changed" />
                             </Grid>
-                            <CheckBox x:Name="LockOutputRatio" IsChecked="True" Margin="0,6,0,0">
+                            <CheckBox Style="{StaticResource SwitchCheckBox}" x:Name="LockOutputRatio" IsChecked="True" Margin="0,6,0,0">
                                 <TextBlock Text="Match capture area when editing one dimension" TextWrapping="Wrap" />
                             </CheckBox>
                             <TextBlock x:Name="CustomSizeHint" Style="{StaticResource Hint}" TextWrapping="Wrap" Margin="0,4,0,0" />
@@ -311,6 +343,8 @@
                             </WrapPanel>
                         </StackPanel>
                     </Expander>
+                        </StackPanel>
+                    </Grid>
                     <Border Background="{DynamicResource BackgroundBrush}" CornerRadius="6" Padding="10" Margin="0,10,0,0">
                         <StackPanel>
                             <TextBlock x:Name="PreviewHeading" Text="Selected monitor preview" FontWeight="SemiBold" />
@@ -328,18 +362,24 @@
                             <ColumnDefinition Width="*" />
                             <ColumnDefinition Width="150" />
                         </Grid.ColumnDefinitions>
-                        <TextBlock Text="Clip length" VerticalAlignment="Center" />
+                        <TextBlock Text="Clip length" VerticalAlignment="Center"  TextWrapping="Wrap" />
                         <Slider x:Name="BufferSlider" Grid.Column="1" Minimum="0" Maximum="10" TickFrequency="1" IsSnapToTickEnabled="True"
                                 TickPlacement="BottomRight" VerticalAlignment="Center" ValueChanged="Changed" Focusable="False" />
                         <TextBlock x:Name="BufferText" Grid.Column="2" VerticalAlignment="Center" Margin="14,0,0,0" FontWeight="SemiBold" />
                     </Grid>
                     <TextBlock x:Name="RamText" Margin="160,4,0,0" Style="{StaticResource Hint}" />
-                    <Border x:Name="ResourceSummary" Background="{DynamicResource CardBrush}" CornerRadius="6" Padding="12" Margin="0,10,0,0">
+                    <Border x:Name="ResourceSummary" Background="{DynamicResource CardBrush}" CornerRadius="12" Padding="16" Margin="0,10,0,0">
                         <StackPanel>
-                            <TextBlock Text="Recording summary" FontWeight="SemiBold" />
+                            <TextBlock Text="Recording summary" FontWeight="SemiBold" FontSize="{DynamicResource QuickClipText16}" Margin="0,0,0,6" />
                             <TextBlock x:Name="ResourceVideo" Style="{StaticResource Hint}" Margin="0,4,0,0" />
                             <TextBlock x:Name="ResourceSize" Style="{StaticResource Hint}" Margin="0,4,0,0" />
-                            <TextBlock x:Name="ResourceSpace" Text="{Binding Text, ElementName=RecordingFreeSpace}" Style="{StaticResource Hint}" Margin="0,4,0,0" />
+                            <ContentControl x:Name="RecordingDriveUsage" ContentTemplate="{StaticResource DriveUsageTemplate}" />
+                            <TextBlock Text="Saved recordings location" FontWeight="SemiBold" Margin="0,12,0,4" />
+                            <DockPanel>
+                                <Button DockPanel.Dock="Right" Content="Change…" Margin="8,0,0,0" Click="ChangeFolder_Click" />
+                                <TextBox Text="{Binding Text, ElementName=FolderBox, Mode=OneWay}" IsReadOnly="True" MinWidth="0"
+                                         AutomationProperties.Name="Saved recordings location" />
+                            </DockPanel>
                             <TextBlock Text="{Binding Text, ElementName=FolderBox}" ToolTip="{Binding Text, ElementName=FolderBox}"
                                        Style="{StaticResource Hint}" Margin="0,2,0,0" />
                         </StackPanel>
@@ -351,7 +391,7 @@
                             <ColumnDefinition Width="*" />
                             <ColumnDefinition Width="150" />
                         </Grid.ColumnDefinitions>
-                        <TextBlock Text="Quality" VerticalAlignment="Center" />
+                        <TextBlock Text="Quality" VerticalAlignment="Center"  TextWrapping="Wrap" />
                         <ComboBox x:Name="QualityCombo" Grid.Column="1" SelectionChanged="Changed" />
                         <TextBlock x:Name="BitrateText" Grid.Column="2" VerticalAlignment="Center" Margin="14,0,0,0" Style="{StaticResource Hint}" />
                     </Grid>
@@ -361,7 +401,7 @@
                             <ColumnDefinition Width="160" />
                             <ColumnDefinition Width="*" />
                         </Grid.ColumnDefinitions>
-                        <TextBlock Text="Frame rate" VerticalAlignment="Center" />
+                        <TextBlock Text="Frame rate" VerticalAlignment="Center"  TextWrapping="Wrap" />
                         <ComboBox x:Name="FpsCombo" Grid.Column="1" SelectionChanged="Changed" />
                     </Grid>
 
@@ -370,7 +410,7 @@
                             <ColumnDefinition Width="160" />
                             <ColumnDefinition Width="*" />
                         </Grid.ColumnDefinitions>
-                        <TextBlock Text="Encoder" VerticalAlignment="Center" />
+                        <TextBlock Text="Encoder" VerticalAlignment="Center"  TextWrapping="Wrap" />
                         <ComboBox x:Name="EncoderCombo" Grid.Column="1" SelectionChanged="Changed" AutomationProperties.Name="Recording encoder">
                             <ComboBox.ItemContainerStyle>
                                 <Style TargetType="ComboBoxItem">
@@ -387,7 +427,7 @@
                         </ComboBox>
                     </Grid>
 
-                    <CheckBox x:Name="CursorCheck" Content="Show the mouse pointer" Margin="160,12,0,0" Checked="Changed" Unchecked="Changed" />
+                    <CheckBox Style="{StaticResource SwitchCheckBox}" x:Name="CursorCheck" Content="Show the mouse pointer" Margin="160,12,0,0" Checked="Changed" Unchecked="Changed" />
                     <TextBlock x:Name="RecorderStatus" Margin="0,12,0,0" Style="{StaticResource Hint}" />
                     <TextBlock Text="NVENC performance preset" Margin="0,12,0,4" />
                     <ComboBox x:Name="NvencPresetCombo" SelectionChanged="Changed" AutomationProperties.Name="NVENC performance preset" />
@@ -405,9 +445,9 @@
             <Border x:Name="DiagnosticsCard" Style="{StaticResource Card}">
                     <Expander x:Name="CaptureAdvanced" Header="Advanced Recording Diagnostics" Margin="0,12,0,0" Expanded="Diagnostics_Expanded">
                         <StackPanel Margin="0,10,0,0">
-                            <CheckBox x:Name="DiagnosticsCheck" Content="Sample recording timings (every 5 seconds)" Margin="0,10,0,0" Checked="Changed" Unchecked="Changed" />
+                            <CheckBox Style="{StaticResource SwitchCheckBox}" x:Name="DiagnosticsCheck" Content="Sample recording timings (every 5 seconds)" Margin="0,10,0,0" Checked="Changed" Unchecked="Changed" />
                             <TextBox x:Name="CaptureDiagnostics" IsReadOnly="True" TextWrapping="Wrap" Margin="0,10,0,0" />
-                            <Button Content="Refresh diagnostics" Click="Diagnostics_Refresh" HorizontalAlignment="Left" Margin="0,8,0,0" />
+                            <TextBlock Style="{StaticResource Hint}" Text="Enable only for testing: timing sampling can add CPU overhead. Results refresh every five seconds while this panel is visible. Sampling is off by default." Margin="0,8,0,0" />
                         </StackPanel>
                     </Expander>
             </Border>
@@ -416,7 +456,7 @@
             <Border x:Name="AudioCard" Style="{StaticResource Card}">
                 <StackPanel>
                     <TextBlock Text="Audio" Style="{StaticResource CardTitle}" />
-                    <CheckBox x:Name="EndpointModeCheck" Content="Record selected Windows audio devices"
+                    <CheckBox Style="{StaticResource SwitchCheckBox}" x:Name="EndpointModeCheck" Content="Record selected Windows audio devices"
                               Margin="0,8,0,0" Checked="EndpointMode_Changed" Unchecked="EndpointMode_Changed" />
                     <StackPanel x:Name="EndpointPanel" Visibility="Collapsed" Margin="0,8,0,0">
                         <TextBlock Style="{StaticResource Hint}" TextWrapping="Wrap"
@@ -463,11 +503,11 @@
                     <StackPanel x:Name="LegacyAudioPanel" Margin="0,8,0,0">
                         <TextBlock x:Name="AudioHint" Style="{StaticResource Hint}" TextWrapping="Wrap"
                                    Text="Clips get a separate track for each source, named in the editor, so you can set their volumes or merge them when exporting." />
-                        <CheckBox x:Name="SplitChatCheck" Margin="0,12,0,0" Checked="Changed" Unchecked="Changed">
+                        <CheckBox Style="{StaticResource SwitchCheckBox}" x:Name="SplitChatCheck" Margin="0,12,0,0" Checked="Changed" Unchecked="Changed">
                             <TextBlock Text="Put voice chat on its own track (Discord, TeamSpeak, Mumble, Teams, Zoom and more)" TextWrapping="Wrap" />
                         </CheckBox>
                         <TextBlock x:Name="ChatText" Margin="28,4,0,0" Style="{StaticResource Hint}" />
-                        <CheckBox x:Name="SplitMusicCheck" Margin="0,10,0,0" Checked="Changed" Unchecked="Changed">
+                        <CheckBox Style="{StaticResource SwitchCheckBox}" x:Name="SplitMusicCheck" Margin="0,10,0,0" Checked="Changed" Unchecked="Changed">
                             <TextBlock Text="Put music on its own track (Spotify, TIDAL, Apple Music, Deezer, Amazon Music and more)" TextWrapping="Wrap" />
                         </CheckBox>
                         <TextBlock x:Name="MusicText" Margin="28,4,0,0" Style="{StaticResource Hint}" />
@@ -477,7 +517,7 @@
                                 <ColumnDefinition Width="160" />
                                 <ColumnDefinition Width="*" />
                             </Grid.ColumnDefinitions>
-                            <CheckBox x:Name="MicCheck" Content="Microphone" VerticalAlignment="Top" Checked="Changed" Unchecked="Changed" />
+                            <CheckBox Style="{StaticResource SwitchCheckBox}" x:Name="MicCheck" Content="Microphone" VerticalAlignment="Top" Checked="Changed" Unchecked="Changed" />
                             <StackPanel Grid.Column="1">
                                 <!-- A row per microphone, filled in by the code -->
                                 <StackPanel x:Name="MicList" />
@@ -491,7 +531,7 @@
                                 <ColumnDefinition Width="160" />
                                 <ColumnDefinition Width="*" />
                             </Grid.ColumnDefinitions>
-                            <TextBlock Text="Microphone tracks" VerticalAlignment="Center" />
+                            <TextBlock Text="Microphone tracks" VerticalAlignment="Center"  TextWrapping="Wrap" />
                             <ComboBox x:Name="MicTracksCombo" Grid.Column="1" SelectionChanged="Changed" />
                         </Grid>
                     </StackPanel>
@@ -520,15 +560,15 @@
                             <ColumnDefinition Width="90" />
                             <ColumnDefinition Width="*" />
                         </Grid.ColumnDefinitions>
-                        <TextBlock Text="Size limit" VerticalAlignment="Center" />
+                        <TextBlock Text="Size limit" VerticalAlignment="Center"  TextWrapping="Wrap" />
                         <TextBox x:Name="ShareSizeBox" Grid.Column="1" Style="{StaticResource CompactBox}" Padding="8,6"
                                  KeyDown="ShareSize_KeyDown" LostKeyboardFocus="ShareSize_Commit"
                                  ToolTip="Shared copies are made to fit under this size" />
-                        <TextBlock Grid.Column="2" Text="MB" Margin="8,0,0,0" VerticalAlignment="Center" Style="{StaticResource Hint}" />
+                        <TextBlock Grid.Column="2" Text="MB" Margin="8,0,0,0" VerticalAlignment="Center" Style="{StaticResource Hint}"  TextWrapping="Wrap" />
                     </Grid>
                     <TextBlock Style="{StaticResource Hint}" Margin="160,4,0,0" TextWrapping="Wrap"
                                Text="Smaller copies upload faster but look softer. Discord takes up to 10 MB without Nitro." />
-                    <CheckBox x:Name="MotionBlurCheck" Margin="0,10,0,0" Checked="Changed" Unchecked="Changed">
+                    <CheckBox Style="{StaticResource SwitchCheckBox}" x:Name="MotionBlurCheck" Margin="0,10,0,0" Checked="Changed" Unchecked="Changed">
                         <TextBlock Text="Smooth motion: blend the extra frames of clips over 60 fps (like 120 fps) into motion blur" TextWrapping="Wrap" />
                     </CheckBox>
                     <TextBlock Style="{StaticResource Hint}" Margin="28,2,0,0" TextWrapping="Wrap"
@@ -560,20 +600,20 @@
                             <Button Content="Reset scale" Click="ResetScale_Click" VerticalAlignment="Bottom" Margin="0,0,0,6" />
                         </WrapPanel>
                     </StackPanel>
-                    <CheckBox x:Name="StartupCheck" Content="Start QuickClip with Windows" Margin="0,10,0,0"
+                    <CheckBox Style="{StaticResource SwitchCheckBox}" x:Name="StartupCheck" Content="Start QuickClip with Windows" Margin="0,10,0,0"
                               Checked="Startup_Changed" Unchecked="Startup_Changed" />
                     <TextBlock x:Name="StartupHint" Style="{StaticResource Hint}" Margin="0,4,0,0" Visibility="Collapsed" />
-                    <CheckBox x:Name="ReplayAtStartupCheck" Content="Enable Instant Replay when QuickClip starts"
+                    <CheckBox Style="{StaticResource SwitchCheckBox}" x:Name="ReplayAtStartupCheck" Content="Enable Instant Replay when QuickClip starts"
                               Margin="0,8,0,0" Visibility="Collapsed" Checked="ReplayStartup_Changed" Unchecked="ReplayStartup_Changed" />
                     <TextBlock x:Name="ReplayAtStartupHint" Style="{StaticResource Hint}" Margin="0,4,0,0" Visibility="Collapsed"
                                Text="Applies next launch. QuickClip waits for an eligible game and uses your existing display permissions." />
-                    <CheckBox x:Name="MinTrayCheck" Content="Minimizing hides QuickClip to the tray" Margin="0,8,0,0" Checked="Changed" Unchecked="Changed" />
-                    <CheckBox x:Name="CloseTrayCheck" Margin="0,8,0,0" Checked="Changed" Unchecked="Changed">
+                    <CheckBox Style="{StaticResource SwitchCheckBox}" x:Name="StartTrayCheck" Content="Start in the tray when Windows starts QuickClip" Margin="0,8,0,0" Checked="Changed" Unchecked="Changed" />
+                    <CheckBox Style="{StaticResource SwitchCheckBox}" x:Name="CloseTrayCheck" Margin="0,8,0,0" Checked="Changed" Unchecked="Changed">
                         <TextBlock Text="Closing the window keeps QuickClip running in the tray" TextWrapping="Wrap" />
                     </CheckBox>
-                    <CheckBox x:Name="ConfirmDeleteCheck" Content="Confirm before sending clips to the Recycle Bin" Margin="0,8,0,0" Checked="Changed" Unchecked="Changed" />
+                    <CheckBox Style="{StaticResource SwitchCheckBox}" x:Name="ConfirmDeleteCheck" Content="Confirm before sending clips to the Recycle Bin" Margin="0,8,0,0" Checked="Changed" Unchecked="Changed" />
                     <WrapPanel Margin="0,8,0,0">
-                        <CheckBox x:Name="SoundCheck" Focusable="True" Content="Play a sound when a clip is saved" VerticalAlignment="Center" Checked="Changed" Unchecked="Changed" />
+                        <CheckBox Style="{StaticResource SwitchCheckBox}" x:Name="SoundCheck" Focusable="True" Content="Play a sound when a clip is saved" VerticalAlignment="Center" Checked="Changed" Unchecked="Changed" />
                         <Button Style="{StaticResource TextButton}" Content="Test sound" ToolTip="Hear the sound" Margin="10,0,0,0" VerticalAlignment="Center"
                                 Focusable="True" Click="PlayClipSound_Click" />
                     </WrapPanel>
@@ -593,7 +633,7 @@
                         <TextBlock Style="{StaticResource Hint}" Text="Supports local WAV, MP3, FLAC, OGG/Opus, M4A, AAC, AIFF; up to 16 MiB. Only the first 3 seconds play." />
                         <DockPanel Margin="0,0,0,4">
                             <TextBlock DockPanel.Dock="Right" Margin="8,0,0,0" VerticalAlignment="Center"
-                                       Text="{Binding Value, ElementName=SoundVolumeSlider, StringFormat={}{0:0}%}" />
+                                       Text="{Binding Value, ElementName=SoundVolumeSlider, StringFormat={}{0:0}%}"  TextWrapping="Wrap" />
                             <Slider x:Name="SoundVolumeSlider" Minimum="0" Maximum="100" TickFrequency="1"
                                     IsSnapToTickEnabled="True" ValueChanged="SoundVolumeChanged" AutomationProperties.Name="Notification sound volume" />
                         </DockPanel>
@@ -602,41 +642,35 @@
                                   DropDownOpened="SoundOutputOpened" SelectionChanged="SoundOutputChanged" />
                         <TextBlock x:Name="SoundOutputStatus" Style="{StaticResource Hint}" Margin="0,4,0,0" AutomationProperties.LiveSetting="Polite" />
                     </StackPanel>
-                    <CheckBox x:Name="WindowsClipNotificationCheck" Content="Show Windows clip notifications"
+                    <CheckBox Style="{StaticResource SwitchCheckBox}" x:Name="WindowsClipNotificationCheck" Content="Show Windows clip notifications"
                               Margin="0,8,0,0" Click="ClipFeedback_Changed" />
 
                     <StackPanel x:Name="ClipOverlayPanel" Margin="0,12,0,0">
-                        <CheckBox x:Name="ClipNotificationsCheck" Content="Show clip notifications" Focusable="True" Click="ClipFeedback_Changed" />
-                        <TextBlock Text="Notification style" Style="{StaticResource FieldLabel}" />
-                        <ComboBox x:Name="ClipNotificationModeCombo" AutomationProperties.Name="Notification style" SelectionChanged="ClipFeedback_Changed" />
-                        <TextBlock Text="Windows controls placement of its notifications." Style="{StaticResource Hint}" Margin="0,4,0,0" />
+                        <CheckBox Style="{StaticResource SwitchCheckBox}" x:Name="ClipNotificationsCheck" Content="Show clip notifications" Focusable="True" Click="ClipFeedback_Changed" />
+                        <TextBlock Text="Notification channels" Style="{StaticResource FieldLabel}" />
+                        <ComboBox x:Name="ClipNotificationModeCombo" AutomationProperties.Name="Notification channels" SelectionChanged="ClipFeedback_Changed" />
+                        <TextBlock Text="Choose where status messages appear. The clip-saved image can also be enabled with Windows notifications only." Style="{StaticResource Hint}" Margin="0,4,0,0" />
                         <StackPanel x:Name="ClipEventsPanel" Margin="0,8,0,0">
                             <TextBlock Text="Notify me when" Style="{StaticResource FieldLabel}" />
                             <UniformGrid Columns="2">
-                                <CheckBox x:Name="ReplayEnabledNotice" Content="Instant replay is enabled" Focusable="True" Margin="0,0,12,4" Click="ClipFeedback_Changed" />
-                                <CheckBox x:Name="ClipSavedNotice" Content="A clip is saved" Focusable="True" Margin="0,0,12,4" Click="ClipFeedback_Changed" />
-                                <CheckBox x:Name="DesktopStartedNotice" Content="Desktop recording starts" Focusable="True" Margin="0,0,12,4" Click="ClipFeedback_Changed" />
-                                <CheckBox x:Name="DesktopStoppedNotice" Content="Desktop recording stops" Focusable="True" Margin="0,0,12,4" Click="ClipFeedback_Changed" />
-                                <CheckBox x:Name="SaveFailedNotice" Content="Saving fails" Focusable="True" Margin="0,0,12,4" Click="ClipFeedback_Changed" />
-                                <CheckBox x:Name="IdleSaveNotificationCheck" Content="Save Clip is pressed without active recording" Focusable="True" Margin="0,0,12,4" Click="ClipFeedback_Changed" />
+                                <CheckBox Style="{StaticResource SwitchCheckBox}" x:Name="ReplayEnabledNotice" Content="Instant replay is enabled" Focusable="True" Margin="0,0,12,4" Click="ClipFeedback_Changed" />
+                                <CheckBox Style="{StaticResource SwitchCheckBox}" x:Name="ClipSavedNotice" Content="A clip is saved" Focusable="True" Margin="0,0,12,4" Click="ClipFeedback_Changed" />
+                                <CheckBox Style="{StaticResource SwitchCheckBox}" x:Name="DesktopStartedNotice" Content="Desktop recording starts" Focusable="True" Margin="0,0,12,4" Click="ClipFeedback_Changed" />
+                                <CheckBox Style="{StaticResource SwitchCheckBox}" x:Name="DesktopStoppedNotice" Content="Desktop recording stops" Focusable="True" Margin="0,0,12,4" Click="ClipFeedback_Changed" />
+                                <CheckBox Style="{StaticResource SwitchCheckBox}" x:Name="SaveFailedNotice" Content="Saving fails" Focusable="True" Margin="0,0,12,4" Click="ClipFeedback_Changed" />
+                                <CheckBox Style="{StaticResource SwitchCheckBox}" x:Name="IdleSaveNotificationCheck" Content="Save Clip is pressed without active recording" Focusable="True" Margin="0,0,12,4" Click="ClipFeedback_Changed" />
                             </UniformGrid>
                         </StackPanel>
                         <StackPanel x:Name="ClipOverlayOptions" Margin="0,8,0,0" Visibility="Collapsed">
-                            <TextBlock Text="Overlay style" Style="{StaticResource FieldLabel}" />
-                            <ComboBox x:Name="OverlayStyleCombo" AutomationProperties.Name="Overlay style" SelectionChanged="ClipFeedback_Changed" />
-                            <TextBlock Text="Overlay details" Style="{StaticResource FieldLabel}" />
-                            <WrapPanel>
-                                <CheckBox x:Name="OverlayShowTitle" Content="Clip title" Focusable="True" Margin="0,0,14,0" Click="ClipFeedback_Changed" />
-                                <CheckBox x:Name="OverlayShowGame" Content="Game" Focusable="True" Margin="0,0,14,0" Click="ClipFeedback_Changed" />
-                                <CheckBox x:Name="OverlayShowSource" Content="Source" Focusable="True" Margin="0,0,14,0" Click="ClipFeedback_Changed" />
-                                <CheckBox x:Name="OverlayShowDuration" Content="Duration" Focusable="True" Margin="0,0,14,0" Click="ClipFeedback_Changed" />
-                                <CheckBox x:Name="OverlayShowResolution" Content="Resolution" Focusable="True" Margin="0,0,14,0" Click="ClipFeedback_Changed" />
-                                <CheckBox x:Name="OverlayShowFps" Content="FPS" Focusable="True" Margin="0,0,14,0" Click="ClipFeedback_Changed" />
-                                <CheckBox x:Name="OverlayShowHotkey" Content="Save hotkey hint" Focusable="True" Click="ClipFeedback_Changed" />
-                            </WrapPanel>
+                            <Border Background="{DynamicResource ElevatedSurfaceBrush}" CornerRadius="10" Padding="14" Margin="0,6,0,10">
+                                <StackPanel>
+                                    <TextBlock Text="Clip saved" FontWeight="SemiBold" FontSize="{DynamicResource QuickClipText16}" />
+                                    <TextBlock Style="{StaticResource Hint}" Text="Choose a celebration for successful saves only. Other events always use compact text banners when on-screen banners are enabled." Margin="0,4,0,8" />
+                                    <CheckBox x:Name="ImageOnlyCheck" Style="{StaticResource SwitchCheckBox}" Content="Show an image or animation when a clip is saved" Click="ClipFeedback_Changed" />
+                                    <StackPanel x:Name="ImageAppearancePanel" Visibility="Collapsed">
                             <WrapPanel Margin="0,8,0,0">
                                 <Button Content="Choose image / WebM animation…" Margin="0,0,8,0" Click="ChooseOverlayImage_Click" />
-                                <Button x:Name="ClearOverlayImage" Content="Use default icon" Click="ClearOverlayImage_Click" />
+                                <Button x:Name="ClearOverlayImage" Content="Use default animation" Click="ClearOverlayImage_Click" />
                             </WrapPanel>
                             <TextBlock x:Name="OverlayImageStatus" Style="{StaticResource Hint}" AutomationProperties.LiveSetting="Polite" />
                             <TextBlock Text="Image fit" Margin="0,8,0,0" />
@@ -652,6 +686,58 @@
                                 </Grid.ColumnDefinitions>
                                 <StackPanel Margin="0,0,6,0">
                                     <TextBlock Text="Display" />
+                                    <ComboBox x:Name="ImageOverlayDisplayCombo" SelectionChanged="ClipFeedback_Changed" AutomationProperties.Name="Image display" />
+                                    <TextBlock Text="Position" Margin="0,8,0,0" />
+                                    <ComboBox x:Name="ImageOverlayAnchorCombo" SelectionChanged="ClipFeedback_Changed" AutomationProperties.Name="Image position" />
+                                    <TextBlock Text="Animation" Margin="0,8,0,0" />
+                                    <ComboBox x:Name="ImageOverlayAnimationCombo" SelectionChanged="ClipFeedback_Changed" AutomationProperties.Name="Image animation" />
+                                </StackPanel>
+                                <StackPanel Grid.Column="1" Margin="6,0,0,0">
+                                    <TextBlock Text="Size (DIP, 24–240)" TextWrapping="Wrap" />
+                                    <TextBox x:Name="ImageOverlaySizeBox" TextChanged="ClipFeedback_Changed" AutomationProperties.Name="Image size in device-independent pixels" />
+                                    <TextBlock x:Name="ImageOverlaySizeError" Foreground="{DynamicResource DangerBrush}" TextWrapping="Wrap" />
+                                    <TextBlock Text="Opacity" Margin="0,8,0,0" />
+                                    <ComboBox x:Name="ImageOverlayOpacityCombo" SelectionChanged="ClipFeedback_Changed" AutomationProperties.Name="Image opacity" />
+                                    <TextBlock Text="Image duration in seconds (0.6–60)" Margin="0,8,0,0" />
+                                    <TextBox x:Name="ImageOverlayDurationBox" TextChanged="ClipFeedback_Changed"
+                                             AutomationProperties.Name="Image duration in seconds" />
+                                    <TextBlock x:Name="ImageOverlayDurationError" Foreground="{DynamicResource DangerBrush}"
+                                               FontWeight="SemiBold" TextWrapping="Wrap"
+                                               AutomationProperties.LiveSetting="Polite" />
+                                </StackPanel>
+                            </Grid>
+
+                                        <Button Content="Preview clip image" HorizontalAlignment="Left" Margin="0,10,0,0" Click="TestClipOverlay_Click" />
+                                    </StackPanel>
+                                    <StackPanel x:Name="SavedBannerPanel">
+                                        <CheckBox x:Name="DetailedSavedCheck" Style="{StaticResource SwitchCheckBox}" Content="Use detailed banner for clip saved" Click="ClipFeedback_Changed" />
+                                        <StackPanel x:Name="OverlayDetailsPanel">
+                            <TextBlock Text="Overlay details" Style="{StaticResource FieldLabel}" />
+                            <WrapPanel>
+                                <CheckBox x:Name="OverlayShowTitle" Content="Clip title" Focusable="True" Margin="0,0,14,0" Click="ClipFeedback_Changed" />
+                                <CheckBox x:Name="OverlayShowGame" Content="Game" Focusable="True" Margin="0,0,14,0" Click="ClipFeedback_Changed" />
+                                <CheckBox x:Name="OverlayShowSource" Content="Source" Focusable="True" Margin="0,0,14,0" Click="ClipFeedback_Changed" />
+                                <CheckBox x:Name="OverlayShowDuration" Content="Duration" Focusable="True" Margin="0,0,14,0" Click="ClipFeedback_Changed" />
+                                <CheckBox x:Name="OverlayShowResolution" Content="Resolution" Focusable="True" Margin="0,0,14,0" Click="ClipFeedback_Changed" />
+                                <CheckBox x:Name="OverlayShowFps" Content="FPS" Focusable="True" Margin="0,0,14,0" Click="ClipFeedback_Changed" />
+                                <CheckBox x:Name="OverlayShowHotkey" Content="Save hotkey hint" Focusable="True" Click="ClipFeedback_Changed" />
+                            </WrapPanel>
+                                        </StackPanel>
+                                        <Button Content="Preview clip saved banner" HorizontalAlignment="Left" Margin="0,8,0,0" Click="TestClipOverlay_Click" />
+                                    </StackPanel>
+                                </StackPanel>
+                            </Border>
+                            <Border x:Name="BannerAppearancePanel" Background="{DynamicResource ElevatedSurfaceBrush}" CornerRadius="10" Padding="14" Margin="0,0,0,10">
+                                <StackPanel>
+                                    <TextBlock Text="On-screen banners" FontWeight="SemiBold" FontSize="{DynamicResource QuickClipText16}" />
+                                    <TextBlock Style="{StaticResource Hint}" Text="Short status messages, no custom images. These settings are independent of the clip image." Margin="0,4,0,0" />
+                            <Grid Margin="0,8,0,0">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="*" />
+                                </Grid.ColumnDefinitions>
+                                <StackPanel Margin="0,0,6,0">
+                                    <TextBlock Text="Display" />
                                     <ComboBox x:Name="OverlayDisplayCombo" SelectionChanged="ClipFeedback_Changed" AutomationProperties.Name="Indicator display" />
                                     <TextBlock Text="Position" Margin="0,8,0,0" />
                                     <ComboBox x:Name="OverlayAnchorCombo" SelectionChanged="ClipFeedback_Changed" AutomationProperties.Name="Indicator position" />
@@ -659,8 +745,9 @@
                                     <ComboBox x:Name="OverlayAnimationCombo" SelectionChanged="ClipFeedback_Changed" AutomationProperties.Name="Indicator animation" />
                                 </StackPanel>
                                 <StackPanel Grid.Column="1" Margin="6,0,0,0">
-                                    <TextBlock Text="Size" />
-                                    <ComboBox x:Name="OverlaySizeCombo" SelectionChanged="ClipFeedback_Changed" AutomationProperties.Name="Indicator size" />
+                                    <TextBlock Text="Size (DIP, 24–240)" TextWrapping="Wrap" />
+                                    <TextBox x:Name="OverlaySizeBox" TextChanged="ClipFeedback_Changed" AutomationProperties.Name="Banner size in device-independent pixels" />
+                                    <TextBlock x:Name="OverlaySizeError" Foreground="{DynamicResource DangerBrush}" TextWrapping="Wrap" />
                                     <TextBlock Text="Opacity" Margin="0,8,0,0" />
                                     <ComboBox x:Name="OverlayOpacityCombo" SelectionChanged="ClipFeedback_Changed" AutomationProperties.Name="Indicator opacity" />
                                     <TextBlock Text="Duration in seconds (0.6–60)" Margin="0,8,0,0" />
@@ -671,15 +758,16 @@
                                                AutomationProperties.LiveSetting="Polite" />
                                 </StackPanel>
                             </Grid>
-                            <WrapPanel Margin="0,10,0,0">
-                                <Button Content="Preview overlay" Margin="0,0,8,0" Click="TestClipOverlay_Click" />
-                                <Button Content="Reset overlay appearance" Click="ResetClipOverlay_Click" />
-                            </WrapPanel>
+
+                                    <Button Content="Preview compact banner" HorizontalAlignment="Left" Margin="0,10,0,0" Click="TestCompactBanner_Click" />
+                                </StackPanel>
+                            </Border>
+                            <Button Content="Reset notification appearance" HorizontalAlignment="Left" Margin="0,0,0,8" Click="ResetClipOverlay_Click" />
                             <TextBlock Style="{StaticResource Hint}" TextWrapping="Wrap"
                                        Text="Visible over windowed and borderless games. Exclusive fullscreen and capture exclusion depend on Windows and the capture backend." />
                         </StackPanel>
                     </StackPanel>
-                    <CheckBox x:Name="ShellCheck" Margin="0,8,0,0" Checked="ShellCheck_Changed" Unchecked="ShellCheck_Changed">
+                    <CheckBox Style="{StaticResource SwitchCheckBox}" x:Name="ShellCheck" Margin="0,8,0,0" Checked="ShellCheck_Changed" Unchecked="ShellCheck_Changed">
                         <TextBlock Text="Add &quot;Edit with QuickClip&quot; to the right-click menu of video and audio files" TextWrapping="Wrap" />
                     </CheckBox>
 
@@ -702,6 +790,7 @@
                         <Button DockPanel.Dock="Right" Content="Open folder" Click="OpenRecordingFolder_Click" />
                         <TextBlock x:Name="RecordingFreeSpace" Style="{StaticResource Hint}" VerticalAlignment="Center" />
                     </DockPanel>
+                    <ContentControl x:Name="LibraryDriveUsage" ContentTemplate="{StaticResource DriveUsageTemplate}" />
                     <StackPanel x:Name="LibraryOptions" Margin="0,16,0,0">
                         <TextBlock Text="Additional Gallery sources" FontWeight="SemiBold" />
                         <TextBlock Text="These folders stay visible in Gallery. New recordings go to the location above." Style="{StaticResource Hint}" />
@@ -711,15 +800,17 @@
                             <Button Content="Add existing folder…" Click="AddClipSource_Click" Margin="0,0,8,4" />
                             <Button Content="Remove from Gallery…" Click="RemoveClipSource_Click" Margin="0,0,8,4" />
                         </WrapPanel>
-                        <CheckBox x:Name="IndexLibraryCheck" Content="Index Gallery sources and store annotations in SQLite"
-                                  Click="IndexLibrary_Click" Margin="0,0,0,10" />
+                        <CheckBox Style="{StaticResource SwitchCheckBox}" x:Name="IndexLibraryCheck" Content="Smart library catalog"
+                                  Click="IndexLibrary_Click" Margin="0,0,0,4" />
+                        <TextBlock Style="{StaticResource Hint}" Text="Keeps a local catalog of your clips, favorites, tags and bookmarks, and powers storage statistics. The first scan may take a while; later scans reuse saved metadata. Existing clips stay in their original folders." Margin="0,0,0,12" />
                         <TextBlock Text="Clip filename template" />
                         <TextBox x:Name="FilenameTemplate" Margin="0,5,0,0" TextChanged="FilenameTemplate_Changed"
                                  LostKeyboardFocus="FilenameTemplate_Commit" />
                         <TextBlock x:Name="FilenamePreview" Margin="0,5,0,0" Style="{StaticResource Hint}" TextWrapping="Wrap" />
-                        <TextBlock Text="Excluded subfolders (relative to each Gallery source, one per line)" Margin="0,12,0,0" TextWrapping="Wrap" />
+                        <TextBlock Text="Hide folders from Gallery" Margin="0,12,0,0" TextWrapping="Wrap" />
                         <TextBox x:Name="ExclusionsBox" Margin="0,5,0,0" AcceptsReturn="True" MinHeight="50"
                                  LostKeyboardFocus="Exclusions_Commit" />
+                        <TextBlock Style="{StaticResource Hint}" Margin="0,6,0,0" Text="Enter one folder path per line, without the drive or source folder. For Gallery sources E:\Clips and D:\Videos, entering Archive hides E:\Clips\Archive and D:\Videos\Archive. Entering Terraria\Old hides those nested folders; entering Drafts hides Drafts under each source. Files are not deleted." />
                     </StackPanel>
                 </StackPanel>
             </Border>

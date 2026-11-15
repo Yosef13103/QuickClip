@@ -840,13 +840,11 @@ public partial class GalleryView : UserControl
             ? files.Where(f => File.Exists(f) && ShellIntegration.Extensions.Contains(Path.GetExtension(f).ToLowerInvariant())).ToList()
             : [];
 
-    private static readonly Brush DropHighlight = Freeze(new SolidColorBrush(Color.FromArgb(0x40, 0x60, 0xCD, 0xFF)));
-
     private void Project_DragOver(object sender, DragEventArgs e)
     {
         bool ok = DraggedClips(e).Count > 0;
         e.Effects = ok ? DragDropEffects.Copy : DragDropEffects.None;
-        if (ok && sender is Panel row) row.Background = DropHighlight;
+        if (ok && sender is Panel row) row.SetResourceReference(Panel.BackgroundProperty, "SelectionBrush");
         e.Handled = true;
     }
 

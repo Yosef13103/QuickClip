@@ -71,7 +71,7 @@ public sealed class CaptureAlertPolicyTests
         Assert.Null(urgent.ImagePath);
         Assert.Equal(5, urgent.Seconds);
         Assert.Equal(72, urgent.Size);
-        Assert.Equal(OverlayAnchor.TopLeft, urgent.Anchor);
+        Assert.Equal(OverlayAnchor.BottomRight, urgent.Anchor); // old image anchor is independent after migration
         Assert.True(configured.ImageOnly);
         Assert.Equal(.6, configured.Seconds);
     }

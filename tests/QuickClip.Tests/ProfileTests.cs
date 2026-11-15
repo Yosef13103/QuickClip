@@ -38,7 +38,7 @@ public sealed class ProfileTests
         Assert.False(settings.RecordMic);
         Assert.Equal(0, settings.HotkeyKey); // parsed existing Personal profile keeps the old unbound default
         Assert.Equal(0x79, new AppSettings().HotkeyKey);
-        Assert.False(settings.CheckForUpdates);
+        Assert.True(settings.CheckForUpdates); // isolated profiles still cannot contact the release feed
         Assert.False(Startup.IsEnabled);
         Assert.False(ShellIntegration.IsRegistered());
         Assert.Throws<InvalidOperationException>(() => Startup.Set(true));

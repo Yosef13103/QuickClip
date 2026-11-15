@@ -44,7 +44,7 @@ public sealed class ThemeTests
             valid.Replace("\"version\": 1", "\"version\": 1, \"version\": 1"),
             valid.Replace("\"Background\"", "\"Background\": \"#000000\", \"Background\""),
             valid.Replace("\"Background\"", "\"RemoteXaml\""),
-            valid.Replace("#202936", "https://example.invalid/theme"),
+            valid.Replace(ThemePalette.Hex(ThemePalette.Get(ThemeChoice.Slate)[ThemeColor.Background]), "https://example.invalid/theme"),
             valid.Replace("Custom sample", new string('x', ThemeDocument.MaxNameLength + 1)),
             valid.Replace("Custom sample", " "),
             valid + new string(' ', ThemeDocument.MaxBytes),
@@ -172,6 +172,40 @@ public sealed class ThemeTests
         if (!AppProfile.IsPersonal || SystemParameters.HighContrast) return;
         Assert.Equal(ThemePalette.Hex(ThemePalette.Get(ThemeChoice.Dark)[ThemeColor.Surface]),
             Mpv.MpvPlayer.ThemeLetterboxColor(new AppSettings { Theme = "Custom", CustomThemeJson = "invalid" }));
+    }
+
+    [Theory]
+    [InlineData("Dark")]
+    [InlineData("Amoled")]
+    [InlineData("Slate")]
+    [InlineData("Light")]
+    [InlineData("Custom")]
+    public void Switches_and_internal_navigation_have_consistent_semantic_colors(string name)
+    {
+        var resources = new ResourceDictionary();
+        new ThemeResources().Apply(resources, ThemeResources.ThemeChoiceFrom(name),
+            name == "Custom" ? ThemePalette.Get(ThemeChoice.Slate) : null);
+        Color ColorFor(string key) => Assert.IsType<SolidColorBrush>(resources[key]).Color;
+        Assert.Same(resources["SurfaceBrush"], resources["InternalSidebarBrush"]);
+        Assert.True(ThemePalette.Contrast(ColorFor("SwitchOffThumbBrush"), ColorFor("SwitchOffBrush")) >= 3);
+        Assert.True(ThemePalette.Contrast(ColorFor("SwitchThumbBrush"), ColorFor("AccentBrush")) >= 3);
+        Assert.True(ThemePalette.Contrast(ColorFor("SwitchHoverThumbBrush"), ColorFor("AccentHoverBrush")) >= 3);
+        Assert.True(ThemePalette.Contrast(ColorFor("OnDangerBrush"), ColorFor("DangerHoverBrush")) >= 4.5);
+        Assert.True(ThemePalette.Contrast(ColorFor("OnDangerBrush"), ColorFor("DangerPressedBrush")) >= 4.5);
+        Assert.Same(resources["PrimaryTextBrush"], resources["ButtonForegroundPointerOver"]);
+    }
+
+    [Theory]
+    [InlineData("{\"MinimizeToTray\":true}", true)]
+    [InlineData("{\"MinimizeToTray\":false}", false)]
+    [InlineData("{\"MinimizeToTray\":true,\"StartInTray\":false}", false)]
+    [InlineData("{\"CloseToTray\":false}", true)]
+    public void Legacy_minimize_preference_migrates_only_to_startup(string json, bool expected)
+    {
+        var settings = AppSettings.Parse(json);
+        Assert.Equal(expected, settings.StartInTray);
+        Assert.DoesNotContain("MinimizeToTray", settings.ToJson());
+        Assert.Equal(settings.CloseToTray, AppSettings.Parse(settings.ToJson()).CloseToTray);
     }
 
     private static string ExportedPalette()

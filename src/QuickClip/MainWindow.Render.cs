@@ -14,6 +14,62 @@ public partial class MainWindow
     internal async Task RenderPagesAsync(string dir, string? editorFile)
     {
         Directory.CreateDirectory(dir);
+        if (Environment.GetCommandLineArgs().Contains("--editor-lifecycle-smoke-only"))
+        {
+            if (string.IsNullOrWhiteSpace(editorFile))
+                throw new ArgumentException("Supply a scratch video at least four seconds long.");
+            await OpenInEditorAsync(editorFile);
+            var editor = EditorPage;
+            for (int i = 0; i < 100 && !editor.PreviewReadyForRender; i++) await Task.Delay(100);
+            if (!editor.PreviewReadyForRender || editor.PreviewDurationForRender < 4)
+                throw new InvalidOperationException("The scratch video did not load or is too short.");
+            var player = editor.PreviewPlayerForRender;
+            var hwnd = editor.PreviewHwndForRender;
+            editor.SetTrimForRender(editor.PreviewDurationForRender - .5);
+            editor.SeekForRender(1);
+            await Task.Delay(500);
+            double trim = editor.TrimEndForRender;
+            string? originalTheme = AppSettings.Current.Theme;
+            var results = new System.Text.StringBuilder();
+            try
+            {
+                foreach (string theme in new[] { "Light", "Dark", "Slate", "Amoled", "Light" })
+                {
+                    ShowSettings();
+                    AppSettings.Current.Theme = theme;
+                    ((App)Application.Current).Themes.Apply(Application.Current, AppSettings.Current);
+                    await Dispatcher.InvokeAsync(UpdateLayout, System.Windows.Threading.DispatcherPriority.ApplicationIdle);
+                    // Exercise the documented repeat-Loaded path even when this
+                    // specific Windows configuration does not invalidate the template.
+                    editor.RaiseEvent(new RoutedEventArgs(FrameworkElement.LoadedEvent, editor));
+                    await Task.Delay(150);
+                    ShowPage(editor);
+                    await Task.Delay(500);
+                    if (!ReferenceEquals(player, editor.PreviewPlayerForRender) ||
+                        hwnd != editor.PreviewHwndForRender || !editor.PreviewReadyForRender ||
+                        editor.TrimEndForRender != trim || Math.Abs(editor.PositionForRender - 1) > .25)
+                        throw new InvalidOperationException("Theme switch changed preview ownership or editing state: " + theme);
+                    if (!editor.SavePreviewForRender(Path.Combine(dir, $"preview-{theme}.png")))
+                        throw new InvalidOperationException("mpv could not produce a preview frame: " + theme);
+                    editor.PlayForRender();
+                    await Task.Delay(450);
+                    editor.PlayForRender();
+                    await Task.Delay(150);
+                    if (editor.PositionForRender <= 1.1)
+                        throw new InvalidOperationException("Playback did not advance after theme switch: " + theme);
+                    editor.SeekForRender(1);
+                    await Task.Delay(450);
+                    results.AppendLine(theme + ": original player, HWND, trim, seek, decoded frame and playback retained.");
+                }
+                File.WriteAllText(Path.Combine(dir, "editor-lifecycle.txt"), results.ToString());
+            }
+            finally
+            {
+                AppSettings.Current.Theme = originalTheme;
+                ((App)Application.Current).Themes.Apply(Application.Current, AppSettings.Current);
+            }
+            return;
+        }
         if (Environment.GetCommandLineArgs().Contains("--interface-scale-smoke-only"))
         {
             ShowSettings();

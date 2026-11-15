@@ -15,7 +15,7 @@ public partial class SettingsView
             StartupCheck.IsEnabled = Startup.IsAvailable;
             StartupCheck.IsChecked = Startup.IsEnabled;
             StartupHint.Text = StartupCheck.IsEnabled
-                ? "Uses the tray when the minimize-to-tray setting is enabled."
+                ? "Choose below whether Windows startup opens the window or starts QuickClip in the tray."
                 : "Available in the installed edition of QuickClip Personal.";
             ReplayAtStartupCheck.IsChecked = settings.EnableReplayOnStartup ??
                 (settings.RecordingEnabled && settings.PreferGameWindow);

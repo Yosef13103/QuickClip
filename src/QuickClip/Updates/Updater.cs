@@ -14,9 +14,21 @@ public sealed record ReleaseInfo(AppVersion Version, string Tag, string Name, st
 /// <summary>Checks the GitHub repository for newer releases and installs them in place.</summary>
 internal static class Updater
 {
-    public const string Repository = "swiiftex/QuickClip";
+    public static string Repository => AppProfile.IsPersonal ? "Yosef13103/QuickClip" : "swiiftex/QuickClip";
     public static string ReleasesPage => $"https://github.com/{Repository}/releases";
-    public static bool IsEnabled => !AppProfile.IsPersonal;
+    public static bool IsEnabled => !AppProfile.IsPersonal || PersonalUpdatesEnabled;
+    private static bool PersonalUpdatesEnabled
+    {
+        get
+        {
+#if DEBUG
+            return false;
+#else
+            return AppProfile.UsesDefaultDataRoot && !AppSettings.SaveDisabled &&
+                !string.Equals(Environment.GetEnvironmentVariable("QUICKCLIP_CI"), "1", StringComparison.Ordinal);
+#endif
+        }
+    }
 
     private static readonly HttpClient Http = CreateClient();
 
@@ -28,11 +40,11 @@ internal static class Updater
     /// </summary>
     public static string Channel
     {
-        get => AppSettings.Current.UpdateChannel is Stable or Nightly ? AppSettings.Current.UpdateChannel
+        get => AppProfile.IsPersonal ? Stable : AppSettings.Current.UpdateChannel is Stable or Nightly ? AppSettings.Current.UpdateChannel
             : AppVersion.Current.IsPrerelease ? Nightly : Stable;
         set
         {
-            AppSettings.Current.UpdateChannel = value;
+            AppSettings.Current.UpdateChannel = AppProfile.IsPersonal ? Stable : value;
             AppSettings.Current.Save();
         }
     }
@@ -61,12 +73,14 @@ internal static class Updater
         try
         {
             using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(20));
-            Available = PickUpdate(await GetReleasesJsonAsync(cts.Token), AppVersion.Current, Channel == Nightly);
+            string json = await GetReleasesJsonAsync(cts.Token);
+            Available = AppProfile.IsPersonal ? PickPersonalUpdate(json, AppVersion.Current) : PickUpdate(json, AppVersion.Current, Channel == Nightly);
             LastError = null;
             Log.Write(Available != null ? $"Update available: {Available.Version}" : "No update available");
         }
         catch (Exception ex)
         {
+            Available = null;
             LastError = ex is OperationCanceledException or HttpRequestException ? "couldn't reach GitHub" : ex.Message;
             Log.Write("Update check failed: " + ex.Message);
         }
@@ -131,13 +145,90 @@ internal static class Updater
         return best;
     }
 
+    internal const string PersonalRepository = "Yosef13103/QuickClip";
+    internal static string PersonalReleasePage(string tag) => $"https://github.com/{PersonalRepository}/releases/tag/{tag}";
+
+    internal static bool TryPersonalVersion(string tag, out AppVersion version)
+    {
+        version = new AppVersion(0, 0, 0, null);
+        return tag.StartsWith("personal-v", StringComparison.Ordinal) &&
+            AppVersion.TryParse(tag["personal-v".Length..], out version) &&
+            !version.IsPrerelease && tag == $"personal-v{version}";
+    }
+
+    internal static ReleaseInfo? PickPersonalUpdate(string json, AppVersion current)
+    {
+        using var doc = JsonDocument.Parse(json);
+        ReleaseInfo? best = null;
+        foreach (var release in doc.RootElement.EnumerateArray())
+        {
+            if (release.TryGetProperty("draft", out var draft) && draft.GetBoolean() ||
+                release.TryGetProperty("prerelease", out var pre) && pre.GetBoolean()) continue;
+            string tag = release.GetProperty("tag_name").GetString() ?? "";
+            if (!TryPersonalVersion(tag, out var version) || !(version > current) ||
+                best != null && !(version > best.Version)) continue;
+            ReleaseAsset? setup = null, portable = null;
+            if (release.TryGetProperty("assets", out var assets))
+                foreach (var asset in assets.EnumerateArray())
+                {
+                    string name = asset.GetProperty("name").GetString() ?? "";
+                    string url = asset.GetProperty("browser_download_url").GetString() ?? "";
+                    if (url != $"https://github.com/{PersonalRepository}/releases/download/{tag}/{name}") continue;
+                    long size = asset.TryGetProperty("size", out var length) ? length.GetInt64() : 0;
+                    string? hash = asset.TryGetProperty("digest", out var d) && d.GetString() is string digest &&
+                        digest.StartsWith("sha256:", StringComparison.OrdinalIgnoreCase) ? digest[7..] : null;
+                    if (size <= 0 || size > 2L * 1024 * 1024 * 1024 || hash?.Length != 64 || !hash.All(Uri.IsHexDigit)) continue;
+                    var found = new ReleaseAsset(url, size, hash);
+                    if (name == $"QuickClip-Personal-{version}-setup.exe") setup = found;
+                    if (name == $"QuickClip-Personal-{version}-win-x64.zip") portable = found;
+                }
+            best = new ReleaseInfo(version, tag, $"QuickClip Personal {version}", PersonalReleasePage(tag), setup, portable);
+        }
+        return best;
+    }
+
+    // Personal deliberately downloads a verified package for explicit manual installation.
+    // Do not run the inherited silent installer or non-atomic portable file swap.
+    internal static async Task<string> DownloadPersonalAsync(ReleaseInfo release, IProgress<double> progress, CancellationToken ct)
+    {
+        EnsureEnabled();
+        if (!AppProfile.IsPersonal || !TryPersonalVersion(release.Tag, out var version) ||
+            version != release.Version || !(version > AppVersion.Current))
+            throw new InvalidOperationException("Invalid Personal update.");
+        bool installed = IsInstalledCopy;
+        string name = $"QuickClip-Personal-{version}" + (installed ? "-setup.exe" : "-win-x64.zip");
+        var asset = installed ? release.Setup : release.Portable;
+        if (asset == null || asset.Url != $"https://github.com/{PersonalRepository}/releases/download/{release.Tag}/{name}" ||
+            asset.Size <= 0 || asset.Size > 2L * 1024 * 1024 * 1024 ||
+            asset.Sha256?.Length != 64 || !asset.Sha256.All(Uri.IsHexDigit))
+            throw new InvalidOperationException("No verified Personal package is available. Open the release page instead.");
+        string work = Path.Combine(AppProfile.TempDirectory, "updates", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(work);
+        string partial = Path.Combine(work, name + ".part");
+        string complete = Path.Combine(work, name);
+        try
+        {
+            await DownloadAsync(asset, partial, progress, ct, requireExactSize: true);
+            File.Move(partial, complete);
+            return complete;
+        }
+        catch
+        {
+            try { File.Delete(partial); } catch (IOException) { }
+            throw;
+        }
+    }
+
+    internal static bool CanDownloadPersonal(ReleaseInfo release) => IsEnabled && AppProfile.IsPersonal &&
+        (IsInstalledCopy ? release.Setup : release.Portable) is { Sha256.Length: 64 };
+
     /// <summary>This copy was installed with the setup (rather than unzipped), so updates run the new setup.</summary>
     public static bool IsInstalledCopy => File.Exists(Path.Combine(AppContext.BaseDirectory, "unins000.exe"));
 
     /// <summary>True if this copy can update itself to <paramref name="release"/>.</summary>
     public static bool CanInstall(ReleaseInfo release)
     {
-        if (!IsEnabled) return false;
+        if (!IsEnabled || AppProfile.IsPersonal) return false;
         if (IsInstalledCopy) return release.Setup != null;
         if (release.Portable == null) return false;
         try
@@ -161,6 +252,7 @@ internal static class Updater
     public static async Task<Action> PrepareInstallAsync(ReleaseInfo release, bool restartInTray, IProgress<double> progress, CancellationToken ct)
     {
         EnsureEnabled();
+        if (AppProfile.IsPersonal) throw new InvalidOperationException("Download and install Personal packages explicitly.");
         string work = Path.Combine(Path.GetTempPath(), "QuickClip-update", release.Tag);
         if (Directory.Exists(work)) Directory.Delete(work, recursive: true);
         Directory.CreateDirectory(work);
@@ -196,15 +288,16 @@ internal static class Updater
 
     private static void EnsureEnabled()
     {
-        if (!IsEnabled) throw new InvalidOperationException("Updates are disabled for QuickClip Personal.");
+        if (!IsEnabled) throw new InvalidOperationException("Updates are disabled in this development or isolated profile.");
     }
 
-    private static async Task DownloadAsync(ReleaseAsset asset, string path, IProgress<double> progress, CancellationToken ct)
+    private static async Task DownloadAsync(ReleaseAsset asset, string path, IProgress<double> progress, CancellationToken ct, bool requireExactSize = false)
     {
         using (var response = await Http.GetAsync(asset.Url, HttpCompletionOption.ResponseHeadersRead, ct))
         {
             response.EnsureSuccessStatusCode();
             long total = response.Content.Headers.ContentLength ?? asset.Size;
+            if (requireExactSize && total != asset.Size) throw new InvalidOperationException("Unexpected package size.");
             await using var input = await response.Content.ReadAsStreamAsync(ct);
             await using var output = File.Create(path);
             var buffer = new byte[1 << 16];
@@ -212,10 +305,12 @@ internal static class Updater
             int read;
             while ((read = await input.ReadAsync(buffer, ct)) > 0)
             {
+                if (requireExactSize && done + read > asset.Size) throw new InvalidOperationException("Package exceeds expected size.");
                 await output.WriteAsync(buffer.AsMemory(0, read), ct);
                 done += read;
                 if (total > 0) progress.Report(Math.Min(1, done / (double)total));
             }
+            if (requireExactSize && done != asset.Size) throw new InvalidOperationException("Incomplete package.");
         }
 
         if (asset.Sha256 != null)
