@@ -593,6 +593,7 @@ internal sealed class Recorder
     private (SavedClip Clip, ReplaySaveReceipt Receipt)? SaveOnWorker(int? requestedSeconds, long generation,
         long requestedAtTick, CancellationToken cancellationToken)
     {
+        using var activity = QuickClip.Shell.BackgroundActivity.Begin("Saving clip");
         string? staged = null;
         bool complete = false;
         try

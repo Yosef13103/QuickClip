@@ -201,6 +201,13 @@ public partial class GalleryView : UserControl
         _reloadTimer.Start();
     }
 
+    internal void RefreshConfiguredSources()
+    {
+        if (_released) return;
+        _scanRoot = true;
+        _ = ReloadAsync();
+    }
+
     private async Task ReloadAsync()
     {
         if (_released) return;
@@ -210,11 +217,12 @@ public partial class GalleryView : UserControl
             return;
         }
         _loading = true;
+        using var activity = QuickClip.Shell.BackgroundActivity.Begin("Refreshing Gallery");
         try
         {
             string root = AppSettings.Current.ClipsFolder;
             string[] sources = SavedRecordingFolders.Additional(AppSettings.Current);
-            string[] available = AvailableFolders(root, sources);
+            string[] available = await Task.Run(() => AvailableFolders(root, sources), _lifetime.Token);
             string[] exclusions = AppSettings.Current.LibraryExclusions ?? [];
             bool indexed = PersonalLibrary.Enabled && !ClipLibrary.IsMomentsPath(root);
             bool foldersChanged = root != _loadedRoot || !_loadedSources.SequenceEqual(sources, SavedRecordingFolders.Paths) ||
@@ -239,12 +247,18 @@ public partial class GalleryView : UserControl
                 {
                     var loaded = new List<ClipItem>();
                     bool incomplete = false;
-                    foreach (string folder in (scopes == null ? sources : []).Prepend(root))
+                    var folders = (scopes == null ? sources : []).Prepend(root).ToArray();
+                    int folderNumber = 0;
+                    foreach (string folder in folders)
                     {
                         try
                         {
+                            int number = ++folderNumber;
+                            activity.Report($"Indexing Gallery · folder {number}/{folders.Length}");
                             var result = await PersonalLibrary.Current.LoadAsync(folder, exclusions,
-                                SavedRecordingFolders.Paths.Equals(folder, root) ? scopes : null, _lifetime.Token);
+                                SavedRecordingFolders.Paths.Equals(folder, root) ? scopes : null, _lifetime.Token,
+                                (message, fraction) => activity.Report($"{message} · folder {number}/{folders.Length}",
+                                    fraction is double f && folders.Length == 1 ? f : null));
                             loaded.AddRange(result.Clips);
                             incomplete |= !result.Scan.Complete;
                         }
@@ -271,6 +285,7 @@ public partial class GalleryView : UserControl
             if (sources.Any(folder => !available.Contains(folder, SavedRecordingFolders.Paths)))
                 ShowStatus("A saved Gallery source is offline. Its folder remains in Settings → Library.");
             if (_released) return;
+            activity.Report("Updating Gallery view");
             foreach (var clip in _clips)
             {
                 // Keep thumbnails already on screen so a new clip doesn't make every card flicker.
@@ -306,11 +321,12 @@ public partial class GalleryView : UserControl
         finally
         {
             _loading = false;
-        }
-        if (_reloadQueued)
-        {
-            _reloadQueued = false;
-            await ReloadAsync();
+            if (_reloadQueued && !_released)
+            {
+                _reloadQueued = false;
+                // Schedule after this lease exits, including early-return paths.
+                Dispatcher.BeginInvoke(new Action(() => _ = ReloadAsync()));
+            }
         }
     }
 
@@ -1116,6 +1132,7 @@ public partial class GalleryView : UserControl
     /// <summary>Shows "Copying… 2 of 5" in the selection bar (its buttons disabled) while <paramref name="work"/> runs.</summary>
     private async Task<T> WithProgressAsync<T>(string what, int count, Func<IProgress<int>, Task<T>> work)
     {
+        using var activity = QuickClip.Shell.BackgroundActivity.Begin(what);
         SelectionBar.Visibility = Visibility.Visible; // also for a single clip from its menu or a drag
         SelectionActions.IsEnabled = false;
         SelectionText.Text = $"{what}…";
@@ -1123,6 +1140,7 @@ public partial class GalleryView : UserControl
         {
             return await work(new Progress<int>(done =>
             {
+                activity.Report($"{what} · {done}/{count}", count > 0 ? (double)done / count : null);
                 if (!SelectionActions.IsEnabled) SelectionText.Text = $"{what}… {done} of {count}";
             }));
         }

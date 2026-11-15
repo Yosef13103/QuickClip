@@ -12,32 +12,41 @@ internal sealed class PersonalLibrary : IClipAnnotationActions, ILibraryInventor
     private readonly Lazy<LibraryIndex> _index = new(LibraryIndex.ForCurrentProfile);
 
     internal async Task<(List<ClipItem> Clips, LibraryScanResult Scan)> LoadAsync(
-        string root, string[] exclusions, string[]? scopes, CancellationToken token)
+        string root, string[] exclusions, string[]? scopes, CancellationToken token,
+        Action<string, double?>? progress = null)
     {
         var index = _index.Value;
+        progress?.Invoke("Waiting for library index", null);
         await _scanGate.WaitAsync(token);
         Guid id;
         LibraryScanResult scan;
         try
         {
             id = await index.RegisterRootAsync(root, exclusions: exclusions, cancellationToken: token, updateExclusions: true);
-            scan = await index.ReconcileAsync(id, new(RelativeDirectory: scopes is { Length: > 0 } ? scopes[0] : null), token);
+            progress?.Invoke("Indexing Gallery", null);
+            Action<int, int>? report = progress == null ? null : (visited, indexed) =>
+                progress($"Indexing · {indexed:N0} clips found, {visited:N0} entries checked", null);
+            scan = await index.ReconcileAsync(id, new(RelativeDirectory: scopes is { Length: > 0 } ? scopes[0] : null), token, report);
             if (scopes != null)
                 foreach (string scope in scopes.Skip(1))
                 {
-                    var next = await index.ReconcileAsync(id, new(RelativeDirectory: scope), token);
+                    var next = await index.ReconcileAsync(id, new(RelativeDirectory: scope), token, report);
                     if (!next.Complete) scan = next;
                 }
         }
         finally { _scanGate.Release(); }
 
+        progress?.Invoke("Reading indexed clips", null);
         var rows = await index.ReadGalleryAsync(id, null, token);
         var clips = await Task.Run(() =>
         {
             var items = new List<ClipItem>(rows.Count);
+            int checkedRows = 0;
             foreach (var row in rows)
             {
                 token.ThrowIfCancellationRequested();
+                if (progress != null && (++checkedRows % 128 == 0 || checkedRows == rows.Count))
+                    progress($"Loading clips · {checkedRows:N0}/{rows.Count:N0}", (double)checkedRows / rows.Count);
                 var file = new FileInfo(row.Path);
                 try
                 {

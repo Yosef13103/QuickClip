@@ -150,6 +150,7 @@ public partial class SettingsView : UserControl
     private async void InstallUpdate_Click(object sender, RoutedEventArgs e)
     {
         if (Updater.Available is not { } release || _installing) return;
+        using var activity = QuickClip.Shell.BackgroundActivity.Begin("Downloading update");
         _installing = true;
         UpdateActions.Visibility = Visibility.Collapsed;
         UpdateProgress.Visibility = Visibility.Visible;
@@ -159,6 +160,7 @@ public partial class SettingsView : UserControl
         {
             var progress = new Progress<double>(p =>
             {
+                activity.Report("Downloading update", p);
                 UpdateProgress.Value = p;
                 UpdateStatusText.Text = $"Downloading QuickClip {release.Version.Display}… {p:P0}";
             });

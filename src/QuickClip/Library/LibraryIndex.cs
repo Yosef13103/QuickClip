@@ -84,7 +84,7 @@ internal sealed partial class LibraryIndex
         Run(cancellationToken, _ => { _database.Backup(destination); return true; });
 
     public Task<LibraryScanResult> ReconcileAsync(Guid rootId, LibraryScanOptions? options = null,
-        CancellationToken cancellationToken = default) => Run(cancellationToken, token => Reconcile(rootId, options ?? new(), token));
+        CancellationToken cancellationToken = default, Action<int, int>? progress = null) => Run(cancellationToken, token => Reconcile(rootId, options ?? new(), token, progress));
 
     private static Task<T> Run<T>(CancellationToken token, Func<CancellationToken, T> action) =>
         Task.Run(() => { token.ThrowIfCancellationRequested(); return action(token); }, token);
@@ -108,7 +108,7 @@ internal sealed partial class LibraryIndex
     private sealed record Existing(string Id, string Path, string Key, FileStamp Stamp, ClipAvailability Availability);
     private sealed record Observation(string Path, FileStamp Stamp, ClipHeader? Header, LegacyRead? Legacy);
 
-    private LibraryScanResult Reconcile(Guid id, LibraryScanOptions options, CancellationToken token)
+    private LibraryScanResult Reconcile(Guid id, LibraryScanOptions options, CancellationToken token, Action<int, int>? progress)
     {
         if (options.MaxEntries is < 1 or > 250_000 || options.MaxDepth is < 0 or > 32)
             throw new ArgumentOutOfRangeException(nameof(options));
@@ -162,6 +162,7 @@ internal sealed partial class LibraryIndex
                 {
                     token.ThrowIfCancellationRequested();
                     visited++;
+                    if (progress != null && visited % 128 == 0) progress(visited, seen.Count);
                     string path = enumerator.Current;
                     if (LibraryFiles.IsExcluded(root.Directory, path, root.ExcludedDirectories)) continue;
                     string key = LibraryFiles.PathKey(path);
