@@ -53,6 +53,7 @@ internal static class CatalogPaths
         if (name is "STEAM" or "STEAMWEBHELPER" or "EPICGAMESLAUNCHER" or "LAUNCHER" or "GAMELAUNCHER"
             or "BATTLE.NET" or "RIOTCLIENTSERVICES" or "EADESKTOP" or "EALAUNCHER" or "GALAXYCLIENT"
             or "UBISOFTCONNECT" or "ROCKSTAR GAMES LAUNCHER" or "BOOTSTRAPPACKAGEDGAME" or "START_PROTECTED_GAME"
+            or "MCPLACEHOLDERSTUB"
             || name.EndsWith("LAUNCHER", StringComparison.Ordinal))
             return CatalogMatchKind.Launcher;
         if (name is "7ZA" or "SETUP" or "INSTALL" or "INSTALLER" or "UPDATE" or "UPDATER"

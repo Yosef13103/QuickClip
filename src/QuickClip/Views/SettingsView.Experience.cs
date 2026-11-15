@@ -74,8 +74,9 @@ public partial class SettingsView
         SettingsSidebar.IsEnabled = !_guideActive;
         SectionsColumn.Width = _guideActive ? new GridLength(0) : new GridLength(176);
         GuideBanner.Visibility = _guideActive ? Visibility.Visible : Visibility.Collapsed;
-        SharingSection.Visibility = DiagnosticsSection.Visibility = basic ? Visibility.Collapsed : Visibility.Visible;
-        if (basic && (SharingSection.IsChecked == true || DiagnosticsSection.IsChecked == true))
+        SharingSection.Visibility = Visibility.Visible;
+        DiagnosticsSection.Visibility = basic ? Visibility.Collapsed : Visibility.Visible;
+        if (basic && DiagnosticsSection.IsChecked == true)
             RecordingSection.IsChecked = true;
         ApplyExperienceContent();
         if (_guideActive) UpdateGuideHeader();
@@ -105,8 +106,7 @@ public partial class SettingsView
         UpdateBasicAudio();
         UpdateEstimates();
         for (int i = 0; i < HotkeyRows.Children.Count && i < _hotkeyRows.Count; i++)
-            HotkeyRows.Children[i].Visibility = !basic || _hotkeyRows[i].Command == RecordingCommand.SaveClip
-                ? Visibility.Visible : Visibility.Collapsed;
+            HotkeyRows.Children[i].Visibility = Visibility.Visible;
         if (basic) MicTracksRow.Visibility = Visibility.Collapsed;
         else UpdateMicControls();
         // Honor existing notification channel/appearance state without writing a setting or restarting capture.
@@ -175,7 +175,7 @@ public partial class SettingsView
         ApplySettingsSection(section);
         if (GuideStep == 6) GamePermissionOptions.IsExpanded = true;
         UpdateSettingsExperience();
-        if (IsVisible) (_loading ? GuidePause : GuideNext).Focus();
+        if (IsVisible && !_loading) GuideNext.Focus();
     }
 
     private void UpdateGuideHeader()
@@ -189,7 +189,6 @@ public partial class SettingsView
         GuideSummary.Text = step == 8 ? SetupSummary() : "";
         GuideBack.IsEnabled = step > 0 && !_loading && !_finishingGuide;
         GuideNext.IsEnabled = !_loading && !_finishingGuide;
-        GuidePause.IsEnabled = true;
         GuideSkip.IsEnabled = !_finishingGuide;
         GuideNext.Content = step == 8 ? "Finish without changing recording" : step == 0 ? "Get started" : "Continue";
         GuideEnable.Visibility = step == 8 ? Visibility.Visible : Visibility.Collapsed;
@@ -242,11 +241,6 @@ public partial class SettingsView
         if (_loading || _finishingGuide) return;
         if (GuideStep == 8) CompleteGuide(false);
         else MoveGuide(GuideStep + 1);
-    }
-
-    private void GuidePause_Click(object sender, RoutedEventArgs e)
-    {
-        ExitGuide();
     }
 
     private void GuideSkip_Click(object sender, RoutedEventArgs e)

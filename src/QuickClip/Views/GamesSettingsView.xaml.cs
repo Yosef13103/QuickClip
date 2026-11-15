@@ -67,7 +67,8 @@ public partial class GamesSettingsView : UserControl
     {
         if (_basic == basic) return;
         _basic = basic;
-        LibrarySources.Visibility = IgnoredExecutables.Visibility = LastScan.Visibility = basic ? Visibility.Collapsed : Visibility.Visible;
+        LibrarySources.Visibility = ScanDetails.Visibility = basic ? Visibility.Collapsed : Visibility.Visible;
+        ScanHelp.Visibility = TargetingHelp.Visibility = basic ? Visibility.Visible : Visibility.Collapsed;
         ScanHelp.Text = basic ? "Use Add Game if a game is missing. Manage game stores and folders in Advanced settings."
             : "Automatic scans refresh enabled sources. You can pause and resume a scan here.";
         TargetingHelp.Text = basic ? "Games marked ready can start recording when recording is on and the display is allowed."

@@ -52,7 +52,9 @@ public partial class GamesSettingsView
             AppClassification.Launcher => "Launcher",
             _ when !Entry.Executables.IsEmpty && Entry.Executables.All(CatalogPaths.IsDiscordProcess) => "Companion app",
             _ when !Entry.Executables.IsEmpty && Entry.Executables.All(path => CatalogPaths.DefaultRole(path) == CatalogMatchKind.Companion) => "Companion app",
-            _ when !Entry.Executables.IsEmpty && Entry.Executables.All(path => CatalogPaths.DefaultRole(path) == CatalogMatchKind.Launcher) => "Launcher",
+            _ when !Entry.Executables.IsEmpty && Entry.Executables.All(path => CatalogPaths.DefaultRole(path) == CatalogMatchKind.Launcher) =>
+                Entry.Source == CatalogSource.Xbox || Entry.Provenance.Contains(CatalogSource.Xbox)
+                    ? "Game found · needs gameplay executable" : "Launcher",
             _ when !Entry.Executables.IsEmpty && Entry.Executables.All(path => CatalogPaths.DefaultRole(path) == CatalogMatchKind.Application) => "Utility",
             _ => Entry.Executables.Any(path => GameDetector.HasCatalogEligibility(Match(path)))
                 ? "Game · enabled" : "Game candidate",

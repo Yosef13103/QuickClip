@@ -827,6 +827,10 @@ namespace qc
         }
         error_ = S_OK;
         stage_ = AudioStage::Streaming;
+        // An explicit PCM sample gets its capture interval after device startup,
+        // not including endpoint negotiation/initialization. Telemetry-only tests
+        // retain their existing total-time deadline.
+        if (deadline && sink_) deadline = GetTickCount64() + testDurationMs_;
         int64_t sampleStarted = logSignal_ ? NowUs() : 0;
         int64_t nextMeterUs = 0;
         int samplePackets = 0;

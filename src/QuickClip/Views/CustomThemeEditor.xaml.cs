@@ -124,7 +124,7 @@ public partial class CustomThemeEditor : UserControl
     {
         if (ThemePalette.ReadabilityWarnings(theme.Palette).Any())
         {
-            Feedback.Text = "Improve the palette contrast before saving it.";
+            Feedback.Text = "Loaded as a draft only. Improve the palette contrast before it can appear in saved themes.";
             return;
         }
         var settings = AppSettings.Current;
@@ -151,7 +151,8 @@ public partial class CustomThemeEditor : UserControl
             Feedback.Text = "QuickClip could not save the palette.";
             return;
         }
-        app.Themes.Apply(app, settings);
+        // The owning AppearanceSettings applies and refreshes under its selection
+        // guard. A theme switch may recreate the ComboBox's template.
         Saved?.Invoke();
         Feedback.Text = "Theme stored in your QuickClip library.";
     }
