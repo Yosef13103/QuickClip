@@ -287,8 +287,13 @@ public partial class MainWindow : Window
             _recordingBadge = badge;
             string brush = RecordingStatusIcon.BrushKey(badge);
             RecDot.SetResourceReference(System.Windows.Shapes.Shape.FillProperty, brush);
+            // The desktop status dot uses the accent on the neutral status panel,
+            // but the Save button itself is accent-colored. Use contrasting ink there.
             SaveActionDot.SetResourceReference(System.Windows.Shapes.Shape.FillProperty,
-                running ? brush : "SecondaryTextBrush");
+                running ? badge == RecordingBadge.Desktop ? "OnAccentBrush" : brush : "SecondaryTextBrush");
+            SaveActionDot.SetResourceReference(System.Windows.Shapes.Shape.StrokeProperty,
+                running ? "OnAccentBrush" : "SecondaryTextBrush");
+            SaveActionDot.StrokeThickness = running ? 1 : 0;
             SaveActionDot.BeginAnimation(UIElement.OpacityProperty, null);
             SaveActionDot.Opacity = 1;
             if (running && SystemParameters.ClientAreaAnimation && !SystemParameters.HighContrast)

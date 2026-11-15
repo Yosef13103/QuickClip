@@ -511,6 +511,31 @@ public partial class SettingsView : UserControl
     {
         if (_loading || !IsInitialized) return;
         var s = AppSettings.Current;
+        if (sender == MonitorCombo && AppProfile.IsPersonal)
+        {
+            // This control owns only manual display selection. Do not rewrite other
+            // recorder preferences or restart an automatic-game graph on selection.
+            if (SelectedMonitor is not { CaptureIdentity: not null } selected) return;
+            if (Recorder.Instance.ManualDesktopRequested)
+                App.Host?.SelectManualDisplay(Recorder.Instance, selected, onlyIfActive: true);
+            else
+            {
+                string previous = s.RecordMonitor;
+                s.RecordMonitor = selected.DeviceName;
+                if (!s.TrySave())
+                {
+                    s.RecordMonitor = previous;
+                    ModalDialog.Show(Window.GetWindow(this), "Couldn’t save the selected display.", "Settings");
+                }
+            }
+            RefreshAreas(s.RecordAspect);
+            RefreshResolutions(s.RecordResolution);
+            ResetDimensionFields();
+            ShowGameWindowState();
+            UpdateCropPreview();
+            UpdateEstimates();
+            return;
+        }
         if (sender == RecordingCheck) s.RecordingEnabled = RecordingCheck.IsChecked == true;
         if (!AppProfile.IsPersonal || sender == MonitorCombo)
             s.RecordMonitor = (MonitorCombo.SelectedItem as Choice)?.Value as string ?? "";
@@ -549,14 +574,6 @@ public partial class SettingsView : UserControl
         UpdateEstimates();
         bool recordingSetting = sender != StartTrayCheck && sender != CloseTrayCheck && sender != SoundCheck
                                 && sender != MotionBlurCheck && sender != ConfirmDeleteCheck;
-        if (sender == MonitorCombo && AppProfile.IsPersonal)
-        {
-            // A picker change switches only an active manual session. While
-            // inactive it sets the next target; automatic game capture is untouched.
-            if (Recorder.Instance.ManualDesktopRequested && SelectedMonitor is { CaptureIdentity: not null } selected)
-                App.Host?.SelectManualDisplay(Recorder.Instance, selected, onlyIfActive: true);
-            return;
-        }
         if (sender == RecordingCheck || sender == SourceCombo)
         {
             _restartTimer.Stop();
