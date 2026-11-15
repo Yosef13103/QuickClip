@@ -82,7 +82,7 @@ begin
   for I := 1 to 10 do
   begin
     Probe := AddBackslash(Parent) + '.quickclip-write-test-' +
-      GetDateTimeString('yyyymmddhhnnss', '', '') + '-' + IntToStr(I);
+      GetDateTimeString('yyyymmddhhnnss', '-', '-') + '-' + IntToStr(I);
     if not DirExists(Probe) and not FileExists(Probe) then break;
     Probe := '';
   end;

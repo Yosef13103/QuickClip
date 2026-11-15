@@ -325,7 +325,7 @@ public partial class GalleryView : UserControl
             {
                 _reloadQueued = false;
                 // Schedule after this lease exits, including early-return paths.
-                Dispatcher.BeginInvoke(new Action(() => _ = ReloadAsync()));
+                _ = Dispatcher.BeginInvoke(new Action(() => _ = ReloadAsync()));
             }
         }
     }
