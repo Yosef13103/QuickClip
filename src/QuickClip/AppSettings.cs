@@ -77,6 +77,7 @@ internal sealed class AppSettings
     public string? ClipSoundFilePath { get; set; } // Optional user-selected local chime; null uses bundled shutter.
     public Shell.ClipEventOptions ClipEvents { get; set; } = new();
     public bool ShowGameRecordingIndicator { get; set; }
+    public bool ShowRecordingMicrophoneIndicator { get; set; } = true;
     public Shell.OverlayAnchor GameRecordingIndicatorAnchor { get; set; } = Shell.OverlayAnchor.BottomRight;
     public bool ClipNotificationsEnabled { get; set; } = true;
     public bool ClipWindowsNotification { get; set; } = true;

@@ -124,6 +124,7 @@ public partial class SettingsView
         ReplayEnabledNotice.IsChecked = events.ReplayEnabled;
         GameStartedNotice.IsChecked = events.GameStarted;
         GameIndicatorCheck.IsChecked = settings.ShowGameRecordingIndicator;
+        MicrophoneIndicatorCheck.IsChecked = settings.ShowRecordingMicrophoneIndicator;
         SetChoices(GameIndicatorAnchorCombo, Enum.GetValues<OverlayAnchor>().Where(a => a != OverlayAnchor.Center).Select(a => new Choice(AnchorLabels[(int)a], a)), settings.GameRecordingIndicatorAnchor);
         ClipSavedNotice.IsChecked = events.Saved;
         DesktopStartedNotice.IsChecked = events.DesktopStarted;
@@ -223,6 +224,7 @@ public partial class SettingsView
             DesktopStartedNotice.IsChecked == true, DesktopStoppedNotice.IsChecked == true, SaveFailedNotice.IsChecked == true,
             GameStartedNotice.IsChecked == true);
         settings.ShowGameRecordingIndicator = GameIndicatorCheck.IsChecked == true;
+        settings.ShowRecordingMicrophoneIndicator = MicrophoneIndicatorCheck.IsChecked == true;
         settings.GameRecordingIndicatorAnchor = Value(GameIndicatorAnchorCombo, settings.GameRecordingIndicatorAnchor);
         settings.ShowInactiveSaveNotifications = IdleSaveNotificationCheck.IsChecked == true;
         settings.ClipWindowsNotification = mode is ClipNotificationMode.Windows or ClipNotificationMode.Both;
@@ -284,7 +286,7 @@ public partial class SettingsView
 
     private void UpdateFeedbackVisibility()
     {
-        GameIndicatorAnchorCombo.IsEnabled = GameIndicatorCheck.IsChecked == true;
+        GameIndicatorAnchorCombo.IsEnabled = MicrophoneIndicatorCheck.IsEnabled = GameIndicatorCheck.IsChecked == true;
         bool enabled = ClipNotificationsCheck.IsChecked == true;
         ClipNotificationModeCombo.IsEnabled = ClipEventsPanel.IsEnabled = enabled;
         bool banners = enabled && ClipNotificationModeCombo.SelectedItem is Choice

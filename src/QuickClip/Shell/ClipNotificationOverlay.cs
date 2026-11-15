@@ -29,7 +29,8 @@ internal sealed class ClipNotificationOverlay : IDisposable
     private bool _disposed;
     private DispatcherTimer? _timer;
     private IntPtr _handle;
-    private (string Device, OverlayAnchor Anchor, Rect Bounds)? _indicatorPlacement;
+    private (string Device, OverlayAnchor Anchor, Rect Bounds, bool HasMicrophone)? _indicatorPlacement;
+    private System.Windows.Shapes.Path? _indicatorMicrophoneGlyph;
 
     internal bool IsVisible => _window?.IsVisible == true;
     internal bool IsAnimatingImage => _frameTimer?.IsEnabled == true;
@@ -388,6 +389,7 @@ internal sealed class ClipNotificationOverlay : IDisposable
     internal void Hide()
     {
         _indicatorPlacement = null;
+        _indicatorMicrophoneGlyph = null;
         _showRevision++;
         _timer?.Stop();
         _frameTimer?.Stop();
@@ -423,8 +425,8 @@ internal sealed class ClipNotificationOverlay : IDisposable
             ?? available.FirstOrDefault(d => d.Primary) ?? available.FirstOrDefault();
     }
 
-    // Separate, static status surface. No persistent timer and no fallback to another monitor.
-    internal void ShowRecordingIndicator(string device, OverlayAnchor anchor)
+    // Separate status surface: no animation, theme lookup or fallback to another monitor.
+    internal void ShowRecordingIndicator(string device, OverlayAnchor anchor, MicrophoneIndicatorState microphone)
     {
         if (_disposed) return;
         var display = Displays().FirstOrDefault(d => string.Equals(d.Device, device, StringComparison.OrdinalIgnoreCase));
@@ -433,35 +435,47 @@ internal sealed class ClipNotificationOverlay : IDisposable
             Hide();
             return;
         }
-        var placement = (display.Device, anchor, display.Bounds);
-        if (IsVisible && _indicatorPlacement == placement) return;
+        bool hasMicrophone = microphone != MicrophoneIndicatorState.Hidden;
+        var placement = (display.Device, anchor, display.Bounds, hasMicrophone);
+        if (IsVisible && _indicatorPlacement == placement)
+        {
+            UpdateRecordingIndicatorMicrophone(microphone);
+            return;
+        }
         Hide();
         EnsureWindow();
-        // Capture exclusion is a prerequisite, but must still be verified with the actual DDA backend.
+        // Capture exclusion is a prerequisite, not proof of exclusion in the actual capture backend.
         if (!OperatingSystem.IsWindowsVersionAtLeast(10, 0, 19041) || !SetWindowDisplayAffinity(_handle, 0x11)) return;
         _surface!.LayoutTransform = Transform.Identity;
         _surface.Opacity = 1;
         _card!.Background = Brushes.Transparent;
-        _card.Child = new Ellipse
+        _card.Padding = new Thickness(0);
+        _card.BorderThickness = new Thickness(0);
+        var icons = new StackPanel { Orientation = Orientation.Horizontal };
+        var camera = StatusGlyph("M2,5 H5 L6.5,3 H9.5 L11,5 H14 V13 H2 Z M10.5,9 A2.5,2.5 0 1 1 5.5,9 A2.5,2.5 0 1 1 10.5,9", out _);
+        if ((int)anchor % 3 == 0 || !hasMicrophone) icons.Children.Add(camera);
+        if (hasMicrophone)
         {
-            Width = 12, Height = 12, Fill = new SolidColorBrush(Color.FromRgb(239, 72, 85)),
-            Stroke = Brushes.White, StrokeThickness = 1.2,
-            HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center,
-        };
-        _window!.Width = _window.Height = 20;
+            icons.Children.Add(StatusGlyph("M6,3 A2,2 0 0 1 10,3 V8 A2,2 0 0 1 6,8 Z M4,7 V8 A4,4 0 0 0 12,8 V7 M8,12 V14 M5.5,14 H10.5", out var mic));
+            _indicatorMicrophoneGlyph = mic;
+            if ((int)anchor % 3 != 0) icons.Children.Add(camera);
+        }
+        _card.Child = icons;
+        UpdateRecordingIndicatorMicrophone(microphone);
+        _window!.Width = hasMicrophone ? 40 : 20;
+        _window.Height = 20;
         var prior = SetThreadDpiAwarenessContext(new IntPtr(-4));
         try
         {
             GetDpiForMonitor(display.Handle, 0, out uint dpi, out _);
             double scale = dpi == 0 ? 1 : dpi / 96d;
-            double size = Math.Round(20 * scale);
-            var bounds = BannerBounds(display.Bounds, display.WorkArea ?? display.Bounds, anchor, scale, size);
+            var size = new Size(Math.Round(_window.Width * scale), Math.Round(_window.Height * scale));
+            var bounds = BannerBounds(display.Bounds, display.WorkArea ?? display.Bounds, anchor, scale, size.Height);
             Point p = ClipOverlayOptions.Place(bounds, size, 4, anchor);
-            // Place before showing to avoid a transient on the wrong monitor.
-            if (!SetWindowPos(_handle, new IntPtr(-1), (int)Math.Round(p.X), (int)Math.Round(p.Y), (int)size, (int)size, 0x0210)) return;
+            if (!SetWindowPos(_handle, new IntPtr(-1), (int)Math.Round(p.X), (int)Math.Round(p.Y), (int)size.Width, (int)size.Height, 0x0210)) return;
             _window.Show();
             if (!SetWindowDisplayAffinity(_handle, 0x11) ||
-                !SetWindowPos(_handle, new IntPtr(-1), (int)Math.Round(p.X), (int)Math.Round(p.Y), (int)size, (int)size, 0x0210))
+                !SetWindowPos(_handle, new IntPtr(-1), (int)Math.Round(p.X), (int)Math.Round(p.Y), (int)size.Width, (int)size.Height, 0x0210))
             {
                 Hide();
                 return;
@@ -469,6 +483,33 @@ internal sealed class ClipNotificationOverlay : IDisposable
             _indicatorPlacement = placement;
         }
         finally { if (prior != IntPtr.Zero) SetThreadDpiAwarenessContext(prior); }
+    }
+
+    private static Grid StatusGlyph(string geometry, out System.Windows.Shapes.Path foreground)
+    {
+        var data = Geometry.Parse(geometry);
+        data.Freeze();
+        var cell = new Grid { Width = 20, Height = 20, Opacity = .72 };
+        var canvas = new Grid { Width = 16, Height = 16 };
+        cell.Children.Add(canvas);
+        canvas.Children.Add(new System.Windows.Shapes.Path
+        {
+            Data = data, Stroke = Brushes.Black, StrokeThickness = 3.2, StrokeLineJoin = PenLineJoin.Round,
+            StrokeStartLineCap = PenLineCap.Round, StrokeEndLineCap = PenLineCap.Round,
+        });
+        foreground = new System.Windows.Shapes.Path
+        {
+            Data = data, Stroke = Brushes.White, StrokeThickness = 1.5, StrokeLineJoin = PenLineJoin.Round,
+            StrokeStartLineCap = PenLineCap.Round, StrokeEndLineCap = PenLineCap.Round,
+        };
+        canvas.Children.Add(foreground);
+        return cell;
+    }
+
+    internal void UpdateRecordingIndicatorMicrophone(MicrophoneIndicatorState state)
+    {
+        if (_indicatorMicrophoneGlyph == null) return;
+        _indicatorMicrophoneGlyph.Stroke = state == MicrophoneIndicatorState.Active ? Brushes.White : Brushes.Red;
     }
 
     internal static Rect BannerBounds(Rect display, Rect work, OverlayAnchor anchor, double scale, double height)

@@ -32,7 +32,7 @@ internal sealed class AppHost : IDisposable
     private bool _updateBalloonShown;   // the last notification was about an update
     private AppVersion? _notifiedVersion;
     private readonly ClipNotificationOverlay _clipOverlay = new();
-    private readonly ClipNotificationOverlay _recordingIndicator = new();
+    private readonly RecordingIndicator _recordingIndicator = new();
     private readonly CaptureAlertPolicy _captureAlerts = new();
     private DispatcherTimer? _captureAlertTimer;
     private RecorderState? _recentRecorderState;
@@ -273,16 +273,7 @@ internal sealed class AppHost : IDisposable
         _dispatcher.BeginInvoke(() => ShowClipFeedback(kind, error));
     }
 
-    internal void RefreshRecordingIndicator()
-    {
-        var settings = AppSettings.Current;
-        var state = Recorder.Instance.State;
-        if (AppProfile.IsPersonal && settings.RecordingEnabled && settings.ShowGameRecordingIndicator &&
-            state.Running && state.Mode == RecordingMode.GameTriggered && state.CaptureDevice is { } display)
-            _recordingIndicator.ShowRecordingIndicator(display, settings.GameRecordingIndicatorAnchor);
-        else
-            _recordingIndicator.Hide();
-    }
+    internal void RefreshRecordingIndicator() => _recordingIndicator.Refresh();
 
     private void ShowClipFeedback(ClipEvent kind, string message, ClipNotificationDetails? details = null)
     {

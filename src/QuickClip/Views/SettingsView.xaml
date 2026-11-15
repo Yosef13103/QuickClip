@@ -648,9 +648,11 @@
 
                     <StackPanel x:Name="ClipOverlayPanel" Margin="0,12,0,0">
                         <CheckBox Style="{StaticResource SwitchCheckBox}" x:Name="ClipNotificationsCheck" Content="Show clip notifications" Focusable="True" Click="ClipFeedback_Changed" />
-                        <CheckBox Style="{StaticResource SwitchCheckBox}" x:Name="GameIndicatorCheck" Content="Persistent game recording dot (experimental)" Focusable="True" Margin="0,8,0,0" Click="ClipFeedback_Changed" />
-                        <TextBlock Style="{StaticResource Hint}" TextWrapping="Wrap" Text="A small red dot on the captured display while a game is being recorded. Some capture APIs or fullscreen games may hide it or include it in clips; test before relying on it." />
-                        <ComboBox x:Name="GameIndicatorAnchorCombo" AutomationProperties.Name="Recording dot position" SelectionChanged="ClipFeedback_Changed" Margin="0,4,0,0" />
+                        <CheckBox Style="{StaticResource SwitchCheckBox}" x:Name="GameIndicatorCheck" Content="Recording status icons (experimental)" Focusable="True" Margin="0,8,0,0" Click="ClipFeedback_Changed" />
+                        <TextBlock Style="{StaticResource Hint}" TextWrapping="Wrap" Text="A small translucent camera on the actual captured display while replay is recording, independent of clip notifications. Some capture APIs or fullscreen games may hide it or include it in clips; test before relying on it." />
+                        <CheckBox Style="{StaticResource SwitchCheckBox}" x:Name="MicrophoneIndicatorCheck" Content="Show microphone signal status" Focusable="True" Margin="0,8,0,0" Click="ClipFeedback_Changed" />
+                        <TextBlock Style="{StaticResource Hint}" TextWrapping="Wrap" Text="One microphone icon: white when every selected microphone has recent sound, red when any is quiet or unavailable, hidden when none is selected. Quiet does not necessarily mean a broken microphone." />
+                        <ComboBox x:Name="GameIndicatorAnchorCombo" AutomationProperties.Name="Recording status position" SelectionChanged="ClipFeedback_Changed" Margin="0,4,0,0" />
                         <TextBlock Text="Notification channels" Style="{StaticResource FieldLabel}" />
                         <ComboBox x:Name="ClipNotificationModeCombo" AutomationProperties.Name="Notification channels" SelectionChanged="ClipFeedback_Changed" />
                         <TextBlock Text="Choose where status messages appear. The clip-saved image can also be enabled with Windows notifications only." Style="{StaticResource Hint}" Margin="0,4,0,0" />
