@@ -35,7 +35,8 @@ using System.Threading;
 [assembly: AssemblyProduct("QuickClip Personal")]
 [assembly: AssemblyFileVersion("$Version.0")]
 public static class PackageFixture {
-    public static int Main() {
+    public static int Main(string[] args) {
+        if (args.Length > 0 && args[0] == "--quit") return 0;
         File.WriteAllText(Environment.GetEnvironmentVariable("QC_UPGRADE_STARTED"), "$Version");
         if ("$Version" == "1.0.0") {
             for (int attempt = 0; attempt < 600; attempt++) {

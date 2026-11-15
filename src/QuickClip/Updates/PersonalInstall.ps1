@@ -92,8 +92,9 @@ function Assert-Version([string]$File, [string]$Version, [string]$Description) {
     $info = [Diagnostics.FileVersionInfo]::GetVersionInfo($File)
     $numeric = '{0}.{1}.{2}.{3}' -f $info.FileMajorPart, $info.FileMinorPart, $info.FileBuildPart, $info.FilePrivatePart
     $identity = if ($Description -eq 'QuickClip Personal') { $info.ProductName } else { $info.FileDescription }
-    if ($numeric -cne "$Version.0" -or $identity -cne $Description) {
-        throw 'The executable identity or version did not match the update.'
+    # Inno's PE strings are padded with ASCII spaces.
+    if ($numeric -cne "$Version.0" -or ([string]$identity).TrimEnd(' ') -cne $Description) {
+        throw "Expected $Description $Version.0 but found $identity ($numeric)."
     }
 }
 

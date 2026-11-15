@@ -75,7 +75,8 @@ internal static class PersonalInstaller
     internal static bool SupportsHandoff(string package, AppVersion version)
     {
         var info = FileVersionInfo.GetVersionInfo(package);
-        return info.FileDescription == Protocol &&
+        // Inno pads its PE string resources. Compare the description without that padding.
+        return info.FileDescription?.TrimEnd(' ') == Protocol &&
             (info.FileMajorPart, info.FileMinorPart, info.FileBuildPart, info.FilePrivatePart) ==
             (version.Major, version.Minor, version.Patch, 0);
     }
