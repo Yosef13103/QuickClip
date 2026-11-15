@@ -126,7 +126,7 @@ internal static class Monitors
         }
         catch (Exception ex)
         {
-            Log.Write("Reading monitor names failed: " + ex.Message);
+            Log.Failure(DiagnosticCategory.Capture, "Reading monitor names failed", ex);
         }
         return result;
     }

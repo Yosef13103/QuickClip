@@ -78,7 +78,7 @@ internal static class ClipDetailsStore
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException)
         {
-            Log.Write("Could not read saved clip details: " + ex.Message);
+            Log.Failure(DiagnosticCategory.Library, "Could not read saved clip details", ex);
         }
         DateTime fallback = file.CreationTimeUtc <= file.LastWriteTimeUtc ? file.CreationTimeUtc : file.LastWriteTimeUtc;
         return new ClipDetails((embedded ?? new DateTimeOffset(fallback)).ToLocalTime(), game);
@@ -106,7 +106,7 @@ internal static class ClipDetailsStore
         try { Write(path, details); }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            Log.Write("Could not save clip details: " + ex.Message);
+            Log.Failure(DiagnosticCategory.Library, "Could not save clip details", ex);
         }
     }
 }

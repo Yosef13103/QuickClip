@@ -363,7 +363,7 @@ public partial class MainWindow : Window
         }
         catch (Exception ex)
         {
-            Log.Write("Loading the release notes failed: " + ex.Message);
+            Log.Failure(DiagnosticCategory.General, "Loading the release notes failed", ex);
             error = ex is OperationCanceledException or System.Net.Http.HttpRequestException ? "couldn't reach GitHub" : ex.Message;
         }
         if (onlyIfAny && notes.Count == 0 && error == null)

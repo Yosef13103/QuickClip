@@ -51,7 +51,7 @@ public partial class SettingsView
         catch (Exception ex)
         {
             _endpointError = "Could not list audio devices. Check that the native recording engine is up to date.";
-            Log.Write("Listing audio endpoints failed: " + ex.Message);
+            Log.Failure(DiagnosticCategory.Audio, "Listing audio endpoints failed", ex);
             _endpoints = [];
         }
         finally
@@ -237,7 +237,7 @@ public partial class SettingsView
         catch (Exception ex)
         {
             if (request == _statusRequest) EndpointStatusText.Text = "Could not read running audio status.";
-            Log.Write("Reading running endpoint status failed: " + ex.GetType().Name);
+            Log.Failure(DiagnosticCategory.Audio, "Reading running endpoint status failed", ex);
         }
         finally
         {

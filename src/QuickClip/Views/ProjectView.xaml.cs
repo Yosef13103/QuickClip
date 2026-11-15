@@ -117,7 +117,7 @@ public partial class ProjectView : UserControl
         }
         catch (Exception ex)
         {
-            Log.Write("mpv init failed: " + ex);
+            Log.Failure(DiagnosticCategory.Editor, "mpv init failed", ex);
             return;
         }
         _childWindowTimer.Start();
@@ -202,7 +202,7 @@ public partial class ProjectView : UserControl
         }
         catch (Exception ex)
         {
-            Log.Write($"Probing {path} failed: {ex.Message}");
+            Log.Failure(DiagnosticCategory.Editor, "Probing project media failed", ex);
             return null;
         }
     }
@@ -216,7 +216,7 @@ public partial class ProjectView : UserControl
         }
         catch (Exception ex)
         {
-            Log.Write("Loading thumbnail failed: " + ex.Message);
+            Log.Failure(DiagnosticCategory.Editor, "Loading thumbnail failed", ex);
         }
     }
 
@@ -526,7 +526,7 @@ public partial class ProjectView : UserControl
         }
         catch (Exception ex)
         {
-            Log.Write("Setting the music failed: " + ex);
+            Log.Failure(DiagnosticCategory.Editor, "Setting the music failed", ex);
             ModalDialog.Show(Window.GetWindow(this), "Couldn't add the music:\n\n" + ex.Message, "QuickClip", MessageBoxButton.OK, MessageBoxImage.Warning);
         }
         _music = _project.Music != null ? await ProbeAsync(_project.Music) : null;
@@ -574,7 +574,7 @@ public partial class ProjectView : UserControl
         }
         catch (Exception ex)
         {
-            Log.Write("Montage export failed: " + ex);
+            Log.Failure(DiagnosticCategory.Editor, "Montage export failed", ex);
             ModalDialog.Show(Window.GetWindow(this), "The montage couldn't be made:\n\n" + ex.Message, "QuickClip", MessageBoxButton.OK, MessageBoxImage.Error);
         }
         finally
@@ -601,7 +601,7 @@ public partial class ProjectView : UserControl
         }
         catch (Exception ex)
         {
-            Log.Write("Saving the project failed: " + ex.Message);
+            Log.Failure(DiagnosticCategory.Editor, "Saving the project failed", ex);
         }
     }
 

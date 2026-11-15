@@ -144,7 +144,7 @@ internal sealed partial class GameDetector
         }
         catch (Exception ex)
         {
-            Log.Write("Game detection failed: " + ex.Message);
+            Log.Failure(DiagnosticCategory.GameDetection, "Game detection failed", ex);
             return null;
         }
     }

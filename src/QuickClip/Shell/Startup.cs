@@ -96,7 +96,7 @@ internal static class SingleInstance
         }
         catch (Exception ex)
         {
-            Log.Write("Handing over to the running QuickClip failed: " + ex.Message);
+            Log.Essential(DiagnosticCategory.General, "Handing over to the running QuickClip failed", ex);
             return false;
         }
     }
@@ -118,7 +118,7 @@ internal static class SingleInstance
                 }
                 catch (Exception ex)
                 {
-                    Log.Write("Instance pipe error: " + ex.Message);
+                    Log.Essential(DiagnosticCategory.General, "Instance pipe error", ex);
                     await Task.Delay(1000);
                 }
             }

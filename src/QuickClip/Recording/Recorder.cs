@@ -50,8 +50,10 @@ internal sealed class Recorder
         && AppSettings.Current.AllowsManualDesktop(Volatile.Read(ref _manualConsentRevision));
     private IReadOnlyList<string> _chatApps = [], _musicApps = [];
     private string _summary = "";
-    private string? _routingError;
-    private string? _routing;
+    private int? _routingError;
+    private string? _lastSaveTiming;
+
+    internal string? LastSaveTiming => AppSettings.Current.RecordingDiagnostics ? Volatile.Read(ref _lastSaveTiming) : null;
     private readonly Dictionary<uint, string> _audioProcesses = [];  // running processes that have had audio
     private string _family = "h264";
     private GameWindowTarget? _captureTarget;
@@ -115,14 +117,14 @@ internal sealed class Recorder
         _lifecycle = new(StartPersonalGraph, StopGraph, canRetry: () => CaptureEngine.IsAvailable);
         // A display change (a resolution change, a game switching modes) or a sleep can leave the screen capture
         // stale, sending black frames or none; start it again. The replay buffer is kept.
-        SystemEvents.DisplaySettingsChanged += (_, _) => RestartCapture("the display settings changed");
+        SystemEvents.DisplaySettingsChanged += (_, _) => RestartCapture();
         SystemEvents.PowerModeChanged += (_, e) =>
         {
-            if (e.Mode == PowerModes.Resume) RestartCapture("the PC woke from sleep");
+            if (e.Mode == PowerModes.Resume) RestartCapture();
         };
     }
 
-    private void RestartCapture(string why)
+    private void RestartCapture()
     {
         _ = Task.Run(() =>
         {
@@ -138,7 +140,7 @@ internal sealed class Recorder
                 }
                 else if (IsRunning && _replaySession == session)
                 {
-                    Log.Write($"Starting screen capture again: {why}");
+                    Log.Event(DiagnosticCategory.Capture, "Restarting screen capture after a system event");
                     CaptureEngine.RestartVideo();
                 }
                 after = State;
@@ -281,7 +283,10 @@ internal sealed class Recorder
         }
 
         if (IsRunning && CaptureEngine.VideoSourceLost())
+        {
+            Log.Essential(DiagnosticCategory.Capture, "Active capture source was lost");
             _lifecycle.FailActive("The display capture was interrupted. QuickClip will retry.");
+        }
         else if (IsRunning && Environment.TickCount64 - _captureStartedAt >= 15_000 && CaptureEngine.HasVideoOutput())
             _lifecycle.MarkHealthy();
         _lifecycle.Reconcile(s.RecordingEnabled, _manualDisplay, _observedGame,
@@ -373,10 +378,13 @@ internal sealed class Recorder
             Error = CaptureEngine.Start(monitor.DeviceName, aspect, s.RecordFps, scaled ? w : 0, scaled ? h : 0, encoder, VideoKbps,
                 RecordingPresets.AudioKbps, s.BufferSeconds, s.CaptureCursor, splitChat, splitMusic, mics, separateMics, endpoints,
                 new() { Backend = backend, Preset = s.NvencPreset, Diagnostics = s.RecordingDiagnostics ? 1 : 0 }, displayIdentity, gameOwner);
-            if (Error != null) return;
-            if (mics.Count > 0)
-                Log.Write($"Recording {mics.Count} microphone{(mics.Count == 1 ? "" : "s")}{(separateMics ? " on separate tracks" : "")}: " +
-                          string.Join(", ", mics.Select(m => m.DeviceId == "" ? $"{m.Title} (Windows default)" : m.Title)));
+            if (Error != null)
+            {
+                Log.Essential(DiagnosticCategory.Capture, "Capture engine failed to start");
+                return;
+            }
+            if (mics.Count > 0 || endpoints?.Count > 0)
+                Log.Event(DiagnosticCategory.Audio, "Capture audio tracks configured");
 
             _runningEndpointPlan = endpoints?.ToImmutableArray() ?? [];
             _replaySession = Guid.NewGuid();
@@ -400,23 +408,22 @@ internal sealed class Recorder
                 _ => monitor.Label,
             };
             _captureWindowSize = default;
-            _routing = null;
             if (endpoints != null) (_chatApps, _musicApps) = ([], []);
             lock (_audioProcesses) _audioProcesses.Clear();
             _summary = $"{h}p{s.RecordFps}{(cropped ? $" {aspect}" : "")} · {family.ToUpperInvariant()} · {RecordingPresets.Label(s.RecordQuality)}" +
                        (endpoints == null ? "" : endpoints.Count == 0 ? " · video only" : $" · {endpoints.Count} endpoint audio tracks");
-            Log.Write($"Recording {monitor.DeviceName}{(cropped ? $" ({area.Width}x{area.Height} at {area.X},{area.Y})" : "")} at {w}x{h}@{s.RecordFps} " +
-                      $"with {encoder}, {VideoKbps} kbps, {s.BufferSeconds}s buffer");
+            Log.Event(DiagnosticCategory.Capture, "Recorder started");
         }
         catch (Exception ex)
         {
             Error = ex.Message;
-            Log.Write("Starting the recorder failed: " + ex);
+            Log.Essential(DiagnosticCategory.Capture, "Starting the recorder failed", ex);
         }
     }
 
     private void StopCore(bool forgetGame = true)
     {
+        Volatile.Write(ref _lastSaveTiming, null);
         ++_pollGeneration;
         _poll?.Dispose();
         _poll = null;
@@ -464,7 +471,6 @@ internal sealed class Recorder
             List<uint> musicPids = RecordingPresets.SplitMusic(s) ? [.. music.Select(m => m.Pid)] : [];
             var plan = PlanAudio(processes, chatPids, musicPids);
             CaptureEngine.SetAudioProcesses(plan);
-            LogRouting(processes, plan);
             var chatNames = chat.Select(c => c.Name).Distinct().ToList();
             var musicNames = music.Select(m => m.Name).Distinct().ToList();
             if (!chatNames.SequenceEqual(_chatApps) || !musicNames.SequenceEqual(_musicApps))
@@ -474,7 +480,7 @@ internal sealed class Recorder
         }
         catch (Exception ex)
         {
-            Log.Write("Recorder poll failed: " + ex.GetType().Name);
+            Log.Essential(DiagnosticCategory.Capture, "Recorder poll failed", ex);
             if (AppProfile.IsPersonal)
             {
                 _lifecycle.FailActive("Capture stopped because the current source could not be verified.");
@@ -487,23 +493,6 @@ internal sealed class Recorder
             Monitor.Exit(_gate);
             if (after != before) StateChanged?.Invoke(after);
         }
-    }
-
-    /// <summary>Notes in the log which apps each audio track records, whenever that changes.</summary>
-    private void LogRouting(IReadOnlyList<ProcessScan.Entry> processes, AudioRouting.Plan plan)
-    {
-        var names = new Dictionary<uint, string>();
-        foreach (var p in processes) names.TryAdd(p.Pid, Path.GetFileNameWithoutExtension(p.ExeName));
-        string Names(IEnumerable<uint> pids) =>
-            pids.Any() ? string.Join(", ", pids.Select(p => names.GetValueOrDefault(p, $"process {p}")).Distinct()) : "nothing";
-        string desktop = plan.Exclude == 0 ? $"Desktop only {Names(plan.Desktop)}"
-            : $"Desktop everything except {Names([plan.Exclude])}" + (plan.Desktop.Count > 0 ? $" but with {Names(plan.Desktop)}, which it started" : "") +
-              (plan.Subtract.Count > 0 ? $", less {Names(plan.Subtract)}'s sound" : "");
-        string routing = desktop + $"; Chat {Names(plan.Chat)}; Music {Names(plan.Music)}" +
-                         (plan.Missing.Count > 0 ? $"; Desktop can't record {Names(plan.Missing)}, which started the chat or music app" : "");
-        if (routing == _routing) return;
-        _routing = routing;
-        Log.Write("Audio tracks: " + routing);
     }
 
     /// <summary>
@@ -523,14 +512,14 @@ internal sealed class Recorder
         if (window == IntPtr.Zero)
         {
             CaptureEngine.SetCaptureWindow(IntPtr.Zero, 0, 0, 0);
-            Log.Write("Recording the monitor again: the game's window closed");
+            Log.Event(DiagnosticCategory.Capture, "Recording the monitor again after the game window closed");
             StateChanged?.Invoke(State);
             return;
         }
         var (w, h) = RecordingPresets.OutputSize(size.Width & ~7, size.Height & ~1, s.RecordResolution);
         int kbps = RecordingPresets.VideoKbps(s.RecordQuality, w, h, s.RecordFps, _family);
         CaptureEngine.SetCaptureWindow(window, w, h, kbps);
-        Log.Write($"Recording the game window ({size.Width}x{size.Height}) at {w}x{h}, {kbps} kbps");
+        Log.Event(DiagnosticCategory.Capture, "Recorder switched to game window capture");
         StateChanged?.Invoke(State);
     }
 
@@ -552,8 +541,8 @@ internal sealed class Recorder
         catch (Exception ex)
         {
             // Can't list the apps with audio: leave out just the first separated app, as with only one.
-            if (ex.Message != _routingError) Log.Write("Listing the apps with audio failed: " + ex.Message);
-            _routingError = ex.Message;
+            if (ex.HResult != _routingError) Log.Failure(DiagnosticCategory.Audio, "Listing the apps with audio failed", ex);
+            _routingError = ex.HResult;
             return new AudioRouting.Plan(chat.Concat(music).DefaultIfEmpty(self).First(), [], chat, music);
         }
     }
@@ -585,7 +574,7 @@ internal sealed class Recorder
     private async Task<(SavedClip Clip, ReplaySaveReceipt Receipt)?> SaveCoreAsync(int? requestedSeconds, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        long requestedAtTick = Stopwatch.GetTimestamp();
+        long? requestedAtTick = AppSettings.Current.RecordingDiagnostics ? Stopwatch.GetTimestamp() : null;
         long generation = Volatile.Read(ref _replayGeneration);
         if (!IsRunning)
         {
@@ -598,7 +587,7 @@ internal sealed class Recorder
     }
 
     private (SavedClip Clip, ReplaySaveReceipt Receipt)? SaveOnWorker(int? requestedSeconds, long generation,
-        long requestedAtTick, CancellationToken cancellationToken)
+        long? requestedAtTick, CancellationToken cancellationToken)
     {
         using var activity = QuickClip.Shell.BackgroundActivity.Begin("Saving clip");
         string? staged = null;
@@ -627,7 +616,7 @@ internal sealed class Recorder
                 gameContext = AppProfile.IsPersonal ? _sessionGame : _captureTarget?.Game ?? _games.GameForClip(gameLookback);
                 gameId = _sessionGameId;
             }
-            long positionAtTick = Stopwatch.GetTimestamp();
+            long positionAtTick = requestedAtTick.HasValue ? Stopwatch.GetTimestamp() : 0;
             var anchors = candidates.Select(item => new CaptureEngine.ReplayAnchor { Sequence = item.Sequence, OffsetUs = -1 }).ToArray();
             string folder = gameContext ?? "Desktop";
             string mediaTitle = desktopSource != null
@@ -644,21 +633,27 @@ internal sealed class Recorder
             CaptureEngine.ReplaySpan span = default;
             CaptureEngine.ReplayVideo video = default;
             cancellationToken.ThrowIfCancellationRequested();
-            long nativeStarted = Stopwatch.GetTimestamp();
+            long nativeStarted = requestedAtTick.HasValue ? Stopwatch.GetTimestamp() : 0;
             string? error = CaptureEngine.SaveReplay(stagingPath, seconds, mediaTitle, position,
                 requestedSeconds.HasValue, anchors, out span, out video);
-            if (s.RecordingDiagnostics)
+            if (requestedAtTick is long start)
             {
-                double dispatchMs = Stopwatch.GetElapsedTime(requestedAtTick, positionAtTick).TotalMilliseconds;
-                double prepareMs = Stopwatch.GetElapsedTime(positionAtTick, nativeStarted).TotalMilliseconds;
                 double nativeMs = Stopwatch.GetElapsedTime(nativeStarted).TotalMilliseconds;
-                Log.Write(FormattableString.Invariant(
-                    $"Replay save: request to position {dispatchMs:F0} ms, preparation {prepareMs:F0} ms, native snapshot and mux {nativeMs:F0} ms."));
+                lock (_gate)
+                {
+                    if (s.RecordingDiagnostics && generation == _replayGeneration && IsRunning)
+                    {
+                        double dispatchMs = Stopwatch.GetElapsedTime(start, positionAtTick).TotalMilliseconds;
+                        double prepareMs = Stopwatch.GetElapsedTime(positionAtTick, nativeStarted).TotalMilliseconds;
+                        Volatile.Write(ref _lastSaveTiming, FormattableString.Invariant(
+                            $"Replay save: request to position {dispatchMs:F0} ms, preparation {prepareMs:F0} ms, native snapshot and mux {nativeMs:F0} ms."));
+                    }
+                }
             }
             cancellationToken.ThrowIfCancellationRequested();
             if (error != null)
             {
-                Log.Write("Saving a clip failed: " + error);
+                Log.Essential(DiagnosticCategory.Capture, "Native replay save failed");
                 SaveFailed?.Invoke(error);
                 return null;
             }
@@ -705,11 +700,11 @@ internal sealed class Recorder
             }
             int displaySeconds = requestedSeconds.HasValue ? (int)(actual?.TotalSeconds ?? 0) : seconds;
             var clip = new SavedClip(path, folder, displaySeconds);
-            Log.Write($"Saved clip {path}");
+            Log.Event(DiagnosticCategory.Capture, "Replay saved");
             try { ClipSaved?.Invoke(clip); }
-            catch (Exception ex) { Log.Write("Clip saved notification failed: " + ex.Message); }
+            catch (Exception ex) { Log.Failure(DiagnosticCategory.Capture, "Clip saved notification failed", ex); }
             try { ReplaySaved?.Invoke(receipt); }
-            catch (Exception ex) { Log.Write("Replay receipt notification failed: " + ex.Message); }
+            catch (Exception ex) { Log.Failure(DiagnosticCategory.Capture, "Replay receipt notification failed", ex); }
             return (clip, receipt);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -719,7 +714,7 @@ internal sealed class Recorder
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException)
         {
-            Log.Write("Saving a clip failed: " + ex.Message);
+            Log.Essential(DiagnosticCategory.Capture, "Saving a clip failed", ex);
             SaveFailed?.Invoke(complete && File.Exists(staged) ? $"{ex.Message} The recording is still at {staged}." : ex.Message);
             return null;
         }

@@ -7,9 +7,11 @@ namespace QuickClip.Recording;
 internal static class VideoBenchmark
 {
     internal sealed record Options(bool AllowDesktopCapture = false, int Seconds = 10, string Monitor = "", int Fps = 60,
-        int Height = 0, string Encoder = "hevc_nvenc", string Preset = "p4", string Backend = "DesktopDuplication", int? VideoKbps = 20000);
+        int Height = 0, string Encoder = "hevc_nvenc", string Preset = "p4", string Backend = "DesktopDuplication", int? VideoKbps = 20000,
+        bool TimingSampling = true, bool VerboseDiagnostics = false);
     private sealed record Sample(DateTimeOffset Utc, double ElapsedSeconds, double CpuPercentMachine, long WorkingSetBytes, long PrivateBytes,
-        double SubmittedFps, long ReplayBytes, double ReplaySeconds, long MissingTimelineSlots, string Diagnostics);
+        double SubmittedFps, long ReplayBytes, double ReplaySeconds, long MissingTimelineSlots, string Diagnostics,
+        long ManagedAllocatedBytes, int Handles, int Threads);
 
     internal static void Validate(Options options)
     {
@@ -28,6 +30,7 @@ internal static class VideoBenchmark
         {
             var options = JsonSerializer.Deserialize<Options>(File.ReadAllText(input)) ?? new();
             Validate(options);
+            Log.SetEnabled(options.VerboseDiagnostics);
             CaptureEngine.Initialize();
             var monitor = Monitors.List().FirstOrDefault(m => options.Monitor == "" ? m.IsPrimary : m.DeviceName == options.Monitor)
                 ?? throw new InvalidOperationException("Selected monitor unavailable.");
@@ -38,7 +41,7 @@ internal static class VideoBenchmark
             {
                 Backend = Enum.Parse<CaptureEngine.MonitorBackend>(options.Backend),
                 Preset = options.Preset == "p2" ? CaptureEngine.NvencSpeed.FastestP2 : options.Preset == "p3" ? CaptureEngine.NvencSpeed.FasterP3 : CaptureEngine.NvencSpeed.BalancedP4,
-                Diagnostics = 1,
+                Diagnostics = options.TimingSampling ? 1 : 0,
             };
             string? error = CaptureEngine.Start(monitor.DeviceName, "", options.Fps, size.Width, size.Height, options.Encoder,
                 targetVideoKbps, 192, 5, false, false, false, [], false, [], video);
@@ -58,10 +61,20 @@ internal static class VideoBenchmark
                 var stats = CaptureEngine.GetStats();
                 samples.Add(new(DateTimeOffset.UtcNow, elapsed, (nextCpu - cpu).TotalSeconds / (elapsed - previous) / Environment.ProcessorCount * 100,
                     process.WorkingSet64, process.PrivateMemorySize64, stats.Fps, stats.BufferBytes, stats.BufferSeconds,
-                    stats.DroppedFrames, CaptureEngine.VideoDiagnostics()));
+                    stats.DroppedFrames, CaptureEngine.VideoDiagnostics(), GC.GetTotalAllocatedBytes(), process.HandleCount, process.Threads.Count));
                 cpu = nextCpu; previous = elapsed;
             }
-            File.WriteAllText(output, JsonSerializer.Serialize(new { Options = options, TargetVideoKbps = targetVideoKbps, Displays = Monitors.Diagnostics(), Samples = samples }, new JsonSerializerOptions { WriteIndented = true }));
+            DiagnosticCursor cursor = default;
+            var events = Log.Read(ref cursor);
+            File.WriteAllText(output, JsonSerializer.Serialize(new
+            {
+                Options = options,
+                TargetVideoKbps = targetVideoKbps,
+                Displays = Monitors.Diagnostics(),
+                Samples = samples,
+                RetainedDiagnosticEvents = events?.Entries.Length ?? 0,
+                DroppedDiagnosticEvents = events?.Dropped ?? 0,
+            }, new JsonSerializerOptions { WriteIndented = true }));
             return 0;
         }
         catch (Exception ex)
@@ -69,6 +82,10 @@ internal static class VideoBenchmark
             File.WriteAllText(output, JsonSerializer.Serialize(new { Error = ex.Message }));
             return 1;
         }
-        finally { if (started) CaptureEngine.Stop(); }
+        finally
+        {
+            if (started) CaptureEngine.Stop();
+            Log.SetEnabled(false);
+        }
     }
 }

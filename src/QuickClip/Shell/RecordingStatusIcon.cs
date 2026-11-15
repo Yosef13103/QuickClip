@@ -89,7 +89,7 @@ internal static class RecordingStatusIcon
         }
         catch (Exception ex)
         {
-            Log.Write("Status tray icon unavailable: " + ex.GetType().Name);
+            Log.Failure(DiagnosticCategory.General, "Status tray icon unavailable", ex);
             return IntPtr.Zero;
         }
     }

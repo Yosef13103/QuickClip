@@ -129,7 +129,7 @@ public partial class PlayerView : UserControl
         }
         catch (Exception ex)
         {
-            Log.Write("mpv init failed: " + ex);
+            Log.Failure(DiagnosticCategory.Editor, "mpv init failed", ex);
             InfoText.Text = "The video player could not be started: " + ex.Message;
             return;
         }
@@ -172,7 +172,7 @@ public partial class PlayerView : UserControl
         }
         catch (Exception ex)
         {
-            Log.Write($"Probing {clip.Path} failed: {ex.Message}"); // mpv may still manage
+            Log.Failure(DiagnosticCategory.Editor, "Probing clip media failed", ex); // mpv may still manage
         }
         ClipBookmark[] markers = [];
         if (AppProfile.IsPersonal)
@@ -183,7 +183,7 @@ public partial class PlayerView : UserControl
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {
-                Log.Write("Reading clip timeline markers failed: " + ex.Message);
+                Log.Failure(DiagnosticCategory.Editor, "Reading clip timeline markers failed", ex);
             }
         }
         if (token != _openToken || _player == null || _audio == null) return;
@@ -257,7 +257,7 @@ public partial class PlayerView : UserControl
         if (id == MpvEventId.EndFile && error < 0 && Current != null)
         {
             ShowMessage("This clip can't be played");
-            Log.Write("mpv end-file error: " + MpvNative.ErrorString(error));
+            Log.Event(DiagnosticCategory.Editor, "mpv playback ended with an error", DiagnosticSeverity.Error, error);
         }
     });
 

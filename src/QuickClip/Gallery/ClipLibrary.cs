@@ -341,7 +341,7 @@ internal static class ThumbnailCache
         }
         catch (Exception ex)
         {
-            Log.Write("Thumbnail generation failed: " + ex.GetType().Name);
+            Log.Failure(DiagnosticCategory.Library, "Thumbnail generation failed", ex);
             return null;
         }
         finally

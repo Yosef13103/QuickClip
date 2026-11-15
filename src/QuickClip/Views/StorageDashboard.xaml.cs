@@ -61,7 +61,7 @@ public partial class StorageDashboard : UserControl
         catch (OperationCanceledException) when (refresh.IsCancellationRequested) { }
         catch (Exception ex)
         {
-            Log.Write("Could not read indexed storage inventory: " + ex.Message);
+            Log.Failure(DiagnosticCategory.Library, "Could not read indexed storage inventory", ex);
             if (!refresh.IsCancellationRequested) Status.Text = "Couldn’t read the inventory. Try refreshing.";
         }
         finally

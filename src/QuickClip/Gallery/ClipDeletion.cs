@@ -50,7 +50,7 @@ internal sealed class ClipDeletion
                     {
                         deleted++;
                         try { if (_find(path, since) is { } receipt) receipts.Add(receipt); }
-                        catch (Exception ex) { Log.Write("Recycle Bin undo receipt unavailable: " + ex.GetType().Name); }
+                        catch (Exception ex) { Log.Failure(DiagnosticCategory.Library, "Recycle Bin undo receipt unavailable", ex); }
                     }
                     else failed++;
                     progress?.Report(deleted + failed);

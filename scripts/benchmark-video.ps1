@@ -18,6 +18,8 @@ param(
     [ValidateRange(500,250000)][int]$VideoKbps = 20000,
     [switch]$AutoVideoBitrate,
     [string]$Monitor = '',
+    [switch]$NoTimingSampling,
+    [switch]$VerboseDiagnostics,
     [switch]$Build
 )
 $ErrorActionPreference = 'Stop'
@@ -35,7 +37,8 @@ New-Item -ItemType Directory -Path $directory -Force | Out-Null
 $inputFile = Join-Path $directory 'input.json'
 $outputFile = Join-Path $directory 'result.json'
 $targetKbps = if ($AutoVideoBitrate) { $null } else { $VideoKbps }
-@{ AllowDesktopCapture=$true; Seconds=$Seconds; Fps=$Fps; Height=$Height; Encoder=$Encoder; Preset=$Preset; Backend=$Backend; VideoKbps=$targetKbps; Monitor=$Monitor } |
+@{ AllowDesktopCapture=$true; Seconds=$Seconds; Fps=$Fps; Height=$Height; Encoder=$Encoder; Preset=$Preset; Backend=$Backend;
+   VideoKbps=$targetKbps; Monitor=$Monitor; TimingSampling=!$NoTimingSampling; VerboseDiagnostics=[bool]$VerboseDiagnostics } |
     ConvertTo-Json | Set-Content -LiteralPath $inputFile -Encoding UTF8
 $previousProfile = $env:QUICKCLIP_PERSONAL_DATA_DIR
 $env:QUICKCLIP_PERSONAL_DATA_DIR = Join-Path $directory 'profile'

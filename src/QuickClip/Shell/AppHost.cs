@@ -315,7 +315,7 @@ internal sealed class AppHost : IDisposable
         ClipNotificationDetails? details, string? message = null, ClipOverlayOptions? missingImageFallback = null)
     {
         try { await _clipOverlay.ShowAsync(options, title, success, details, message, missingImageFallback); }
-        catch (Exception ex) { Log.Write("Clip overlay unavailable: " + ex.GetType().Name); }
+        catch (Exception ex) { Log.Failure(DiagnosticCategory.General, "Clip overlay unavailable", ex); }
     }
 
     private void UpdateTooltip()

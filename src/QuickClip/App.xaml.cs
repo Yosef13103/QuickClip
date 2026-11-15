@@ -23,6 +23,7 @@ public partial class App : Application
     {
         base.OnStartup(e);
         DispatcherUnhandledException += OnUnhandledException;
+        AppDomain.CurrentDomain.UnhandledException += OnFatalException;
         ShutdownMode = ShutdownMode.OnExplicitShutdown;
 
         var args = e.Args;
@@ -51,7 +52,7 @@ public partial class App : Application
             }
             catch (Exception ex)
             {
-                Log.Write($"{args[0]} failed: {ex}");
+                Log.Essential(DiagnosticCategory.General, "Shell registration command failed", ex);
                 Shutdown(1);
             }
             return;
@@ -131,7 +132,7 @@ public partial class App : Application
             Dispatcher.BeginInvoke(async () =>
             {
                 try { await window.RenderPagesAsync(render["--render=".Length..], file); }
-                catch (Exception ex) { Log.Write("render failed: " + ex); }
+                catch (Exception ex) { Log.Essential(DiagnosticCategory.General, "render failed", ex); }
                 Quit();
             }, DispatcherPriority.ApplicationIdle);
             return;
@@ -311,15 +312,24 @@ public partial class App : Application
         Host?.Dispose();
         AppSettings.Current.Save();
         ShellClipboard.KeepAfterExit();
-        Log.Flush();
         beforeExit?.Invoke();
         Shutdown(0);
         return true;
     }
 
+    protected override void OnExit(ExitEventArgs e)
+    {
+        AppDomain.CurrentDomain.UnhandledException -= OnFatalException;
+        Log.Shutdown();
+        base.OnExit(e);
+    }
+
+    private static void OnFatalException(object sender, UnhandledExceptionEventArgs e) =>
+        Log.Essential(DiagnosticCategory.General, "Unhandled process exception", e.ExceptionObject as Exception, crash: true);
+
     private void OnUnhandledException(object sender, DispatcherUnhandledExceptionEventArgs e)
     {
-        Log.Write("Unhandled: " + e.Exception);
+        Log.Essential(DiagnosticCategory.General, "Unhandled dispatcher exception", e.Exception, crash: true);
         Views.ModalDialog.Show(_main, e.Exception.Message, "QuickClip – unexpected error", MessageBoxButton.OK, MessageBoxImage.Error);
         e.Handled = true;
     }

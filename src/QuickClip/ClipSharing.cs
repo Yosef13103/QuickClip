@@ -53,7 +53,7 @@ internal static class ClipSharing
                 limitMB: Math.Clamp(AppSettings.Current.ShareSizeMB, 1, 4000), motionBlur: AppSettings.Current.ShareMotionBlur);
 
             await CopyToClipboardAsync(output);
-            Log.Write($"Shared {clip} as {output} ({Fmt.Size(size)}), copied to the clipboard");
+            Log.Event(DiagnosticCategory.General, "Clip shared to clipboard");
             Report(new ShareStatus(ShareStage.Done, name, 1, $"Copied to the clipboard ({Fmt.Size(size)}): paste it anywhere with Ctrl+V", output));
             if (Application.Current?.MainWindow is not { IsActive: true })
                 App.Host?.Notify("Clip ready to share", $"{name} ({Fmt.Size(size)}) is on the clipboard: paste it anywhere with Ctrl+V");
@@ -64,7 +64,7 @@ internal static class ClipSharing
         }
         catch (Exception ex)
         {
-            Log.Write($"Sharing {clip} failed: {ex}");
+            Log.Failure(DiagnosticCategory.General, "Sharing a clip failed", ex);
             Report(new ShareStatus(ShareStage.Failed, name, 0, $"Couldn't share: {FirstLine(ex.Message)}"));
         }
         finally
@@ -93,7 +93,7 @@ internal static class ClipSharing
         }
         catch (Exception ex)
         {
-            Log.Write("Copying the file the shell's way failed, using a plain file list: " + ex.Message);
+            Log.Failure(DiagnosticCategory.General, "Copying the file the shell's way failed, using a plain file list", ex);
         }
 
         var data = new DataObject();

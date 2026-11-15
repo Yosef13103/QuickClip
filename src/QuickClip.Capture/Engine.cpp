@@ -451,8 +451,13 @@ namespace qc
         std::atomic<int> width{ 0 }, height{ 0 };
         std::atomic<int64_t> dropped{ 0 };
         std::mutex statsLock;
-        std::deque<int64_t> frameTimes;
-        std::string videoDescription, videoSample;
+        std::deque<int64_t> frameTimes; // trailing FPS for the recording HUD
+        struct VideoDescription
+        {
+            bool duplication, window, hasClient;
+            int sourceWidth, sourceHeight, outputWidth, outputHeight, kbps;
+        } videoDescription{};
+        std::string videoSample;
 
         ~Shared()
         {
@@ -561,8 +566,7 @@ namespace qc
                 {
                     // A persistent GPU-scaler incompatibility should not restart a healthy WGC graph every few seconds.
                     fallback = !preferGraphics && !scaled;
-                    Log("preferred monitor backend unavailable (%s); using %s", error.c_str(),
-                        duplication ? "desktop duplication" : "graphics capture");
+                    Log(LogCategory::Capture, "Preferred monitor backend unavailable; using fallback", LogSeverity::Warning);
                     return true;
                 }
                 if (s.videoOptions.backend == 0) error += "; fallback failed: " + (preferGraphics ? ddaError : wgcError);
@@ -664,16 +668,14 @@ namespace qc
             VideoPipe pipe;
             FlatWatch flat;
             bool reportStart = generation == 0; // the first thread tells Start how it went
-            std::string lastError;
+            bool restartFailureReported = false;
             int64_t lastIndex = -1, lastKeyIndex = -1;
             int64_t retryDuplicationUs = 0, retryDuplicationWait = 5'000'000;
             int duplicationBusy = 0;
             AVRational sourceBase{ 1, 1000000 };
             int64_t sourceOffsetUs = INT64_MIN; // maps the capture source's timestamps onto the engine clock
-            // Desktop Duplication falling behind the frame rate is logged with where the time went: waiting for the
-            // next picture, or handing it to the encoder. (Graphics Capture sends frames only when the screen changes.)
-            int64_t paceStartUs = NowUs(), paceWaitUs = 0, paceEncodeUs = 0, paceFrames = 0, paceSkipped = 0, paceCaptured = 0;
             const bool diagnostics = s->videoOptions.diagnostics != 0;
+            int64_t paceStartUs = 0, paceWaitUs = 0, paceEncodeUs = 0, paceFrames = 0, paceSkipped = 0, paceCaptured = 0;
             int64_t source = 0;
             struct
             {
@@ -742,7 +744,7 @@ namespace qc
                     if (window && ok && !pipe.BuildWindow(*s, window, windowWidth, windowHeight, device, error))
                     {
                         // Record the monitor instead until the window changes.
-                        Log("recording the game window failed (%s); recording the monitor", error.c_str());
+                        Log(LogCategory::Capture, "Game window capture failed; using monitor capture", LogSeverity::Warning);
                         {
                             std::lock_guard guard(s->targetLock);
                             if (s->window == window) s->window = nullptr;
@@ -785,12 +787,12 @@ namespace qc
                             if (current()) s->InvalidateVideo();
                             break;
                         }
-                        if (error != lastError) Log("starting capture again failed: %s", error.c_str());
-                        lastError = error;
+                        if (!restartFailureReported) Log(LogCategory::Capture, "Capture restart failed", LogSeverity::Error);
+                        restartFailureReported = true;
                         Sleep(1000);
                         continue;
                     }
-                    lastError.clear();
+                    restartFailureReported = false;
 
                     auto info = std::make_shared<StreamInfo>();
                     info->params = avcodec_parameters_alloc();
@@ -801,7 +803,7 @@ namespace qc
                         if (!current()) break;
                         if (s->video && !SameVideoFormat(*s->video, *info))
                         {
-                            Log("video format changed; starting a new replay buffer");
+                            Log(LogCategory::Capture, "Video format changed; starting a new replay buffer");
                             s->ring.Clear();
                         }
                         s->video = info;
@@ -813,25 +815,18 @@ namespace qc
                     s->usingFallback = pipe.fallback;
                     s->windowMode = window != nullptr;
                     {
-                        char description[512];
                         RECT client{};
                         bool hasClient = window && GetClientRect(window, &client);
-                        snprintf(description, sizeof description, "%s%s | %s %dx%d | output %dx%d | %s%s | %d fps target | %d kbps target | %s",
-                            pipe.duplication ? "Desktop Duplication" : "Windows Graphics Capture", window ? " (window)" : "",
-                            window ? (hasClient ? "window client" : "window request") : "source",
-                            window ? (hasClient ? client.right - client.left : windowWidth) : area.width,
-                            window ? (hasClient ? client.bottom - client.top : windowHeight) : area.height, pipe.encoder->width, pipe.encoder->height,
-                            s->encoder.c_str(), s->encoder.ends_with("_nvenc")
-                                ? (s->videoOptions.nvencPreset == 2 ? " p2/HQ" : s->videoOptions.nvencPreset == 1 ? " p3/HQ" : " p4/HQ") : "",
-                            s->fps, kbps, VideoPipe::NeedsSystemFrames(*s) ? "CPU readback + NV12 conversion" : "D3D11 hardware frames");
                         std::lock_guard guard(s->statsLock);
-                        s->videoDescription = description;
+                        s->videoDescription = { pipe.duplication, window != nullptr, hasClient,
+                            window ? (hasClient ? static_cast<int>(client.right - client.left) : windowWidth) : area.width,
+                            window ? (hasClient ? static_cast<int>(client.bottom - client.top) : windowHeight) : area.height,
+                            pipe.encoder->width, pipe.encoder->height, kbps };
                         s->videoSample.clear();
                         s->frameTimes.clear();
-                        paceStartUs = NowUs();
+                        paceStartUs = diagnostics ? NowUs() : 0;
                         paceWaitUs = paceEncodeUs = paceFrames = paceSkipped = paceCaptured = 0;
                         timing = {};
-                        Log("%s", description);
                     }
                     lastKeyIndex = -1;
                     if (pipe.fallback) retryDuplicationUs = NowUs() + retryDuplicationWait;
@@ -839,11 +834,8 @@ namespace qc
                     s->lastFrameUs = NowUs(); // the watchdog counts from here until the first frame
                     sourceBase = av_buffersink_get_time_base(pipe.sink);
                     sourceOffsetUs = INT64_MIN;
-                    if (window)
-                        Log("capturing the game window at %dx%d with %s via graphics capture", pipe.encoder->width, pipe.encoder->height, s->encoder.c_str());
-                    else
-                        Log("capturing %dx%d at %d,%d of a %dx%d monitor with %s via %s", pipe.encoder->width, pipe.encoder->height,
-                            area.x, area.y, monitor.width, monitor.height, s->encoder.c_str(), pipe.duplication ? "desktop duplication" : "graphics capture");
+                    Log(LogCategory::Capture, pipe.duplication ? "Desktop Duplication capture started" :
+                        window ? "Windows Graphics Capture started for a window" : "Windows Graphics Capture started for a display");
                     if (reportStart)
                     {
                         reportStart = false;
@@ -856,9 +848,9 @@ namespace qc
                 // Tests: hang the way a capture call that doesn't return would.
                 if (int freeze = s->testFreezeMs.exchange(0); freeze > 0) Sleep(freeze);
 
-                int64_t waitStartUs = NowUs();
+                int64_t waitStartUs = diagnostics ? NowUs() : 0;
                 int ret = av_buffersink_get_frame(pipe.sink, frame);
-                int64_t gotFrameUs = NowUs();
+                int64_t gotFrameUs = diagnostics || !s->displayIdentity.empty() ? NowUs() : 0;
                 if (!current())
                 {
                     av_frame_unref(frame);
@@ -879,7 +871,7 @@ namespace qc
                         continue;
                     }
                     if (s->AuthorizedDuplication()) { s->InvalidateVideo(); break; }
-                    Log("capture interrupted (%s); starting it again", AvError(ret).c_str());
+                    Log(LogCategory::Capture, "Capture interrupted; restarting", LogSeverity::Warning, ret);
                     closeCapture();
                     Sleep(500);
                     continue;
@@ -887,21 +879,24 @@ namespace qc
                 if (s->rebuildRequested.exchange(false))
                 {
                     av_frame_unref(frame);
-                    Log("the display changed; starting capture again");
+                    Log(LogCategory::Capture, "Display changed; restarting capture");
                     closeCapture();
                     continue;
                 }
-                ++paceCaptured;
-                const int64_t waitUs = gotFrameUs - waitStartUs;
-                paceWaitUs += waitUs;
-                if (diagnostics) timing.maxWaitUs = std::max(timing.maxWaitUs, waitUs);
+                if (diagnostics)
+                {
+                    ++paceCaptured;
+                    const int64_t waitUs = gotFrameUs - waitStartUs;
+                    paceWaitUs += waitUs;
+                    timing.maxWaitUs = std::max(timing.maxWaitUs, waitUs);
+                }
 
                 std::string scaleError;
                 if (!pipe.scaler.Apply(frame, scaleError))
                 {
                     av_frame_unref(frame);
                     if (s->AuthorizedDuplication()) { s->InvalidateVideo(); break; }
-                    Log("%s; restarting capture", scaleError.c_str());
+                    Log(LogCategory::Capture, "Video scaling failed; restarting capture", LogSeverity::Error);
                     closeCapture();
                     Sleep(500);
                     continue;
@@ -937,7 +932,7 @@ namespace qc
                     continue;
                 }
                 if (lastIndex >= 0 && index > lastIndex + 1 && pipe.duplication) s->dropped += index - lastIndex - 1;
-                if (lastIndex >= 0 && index > lastIndex + 1) paceSkipped += index - lastIndex - 1;
+                if (diagnostics && lastIndex >= 0 && index > lastIndex + 1) paceSkipped += index - lastIndex - 1;
                 lastIndex = index;
                 frame->pts = index;
                 // A keyframe at least once a second by the clock, not only every `fps` frames: when the picture barely
@@ -955,7 +950,7 @@ namespace qc
                 if (ret < 0)
                 {
                     if (s->AuthorizedDuplication()) { s->InvalidateVideo(); break; }
-                    Log("encoding failed (%s); starting capture again", AvError(ret).c_str());
+                    Log(LogCategory::Capture, "Encoding failed; restarting capture", LogSeverity::Error, ret);
                     closeCapture();
                     continue;
                 }
@@ -987,14 +982,14 @@ namespace qc
                     av_packet_unref(packet);
                 }
                 if (!s->AuthorizedDuplication()) s->lastFrameUs = now;
-                const int64_t pipelineEndUs = NowUs();
-                paceEncodeUs += pipelineEndUs - gotFrameUs;
-                if (diagnostics) timing.drainUs += pipelineEndUs - submitEndUs;
-                if (++paceFrames, pipelineEndUs - paceStartUs >= (diagnostics ? 5'000'000 : 30'000'000))
+                if (diagnostics)
                 {
-                    double seconds = (pipelineEndUs - paceStartUs) / 1e6;
-                    if (diagnostics)
+                    const int64_t pipelineEndUs = NowUs();
+                    paceEncodeUs += pipelineEndUs - gotFrameUs;
+                    timing.drainUs += pipelineEndUs - submitEndUs;
+                    if (++paceFrames; pipelineEndUs - paceStartUs >= 5'000'000)
                     {
+                        double seconds = (pipelineEndUs - paceStartUs) / 1e6;
                         char sample[640];
                         snprintf(sample, sizeof sample,
                             "%.1f source / %.1f submitted / %.1f encoded FPS | %lld same-slot rejects | %lld missing timeline slots\n"
@@ -1008,14 +1003,10 @@ namespace qc
                             timing.drainUs / 1000.0 / paceFrames, timing.packets ? timing.ringUs / 1000.0 / timing.packets : 0.0);
                         std::lock_guard guard(s->statsLock);
                         s->videoSample = sample;
-                        Log("%s", sample);
+                        paceStartUs = pipelineEndUs;
+                        paceWaitUs = paceEncodeUs = paceFrames = paceSkipped = paceCaptured = 0;
+                        timing = {};
                     }
-                    if (pipe.duplication && paceFrames < seconds * s->fps * 0.9)
-                        Log("capture falling behind: %.1f fps of %d (%lld frames skipped); per frame %.2f ms waiting for the picture, %.2f ms encoding",
-                            paceFrames / seconds, s->fps, paceSkipped, paceWaitUs / 1000.0 / paceCaptured, paceEncodeUs / 1000.0 / paceFrames);
-                    paceStartUs = pipelineEndUs;
-                    paceWaitUs = paceEncodeUs = paceFrames = paceSkipped = paceCaptured = 0;
-                    timing = {};
                 }
                 {
                     std::lock_guard guard(s->statsLock);
@@ -1024,14 +1015,14 @@ namespace qc
                 }
                 if (flatPicture)
                 {
-                    Log("the picture has been a flat color for %.0f s; starting capture again", flat.RetryUs() / 1e6);
+                    Log(LogCategory::Capture, "Flat picture detected; restarting capture", LogSeverity::Warning);
                     flat.Restarted();
                     closeCapture();
                 }
                 else if (pipe.fallback && now >= retryDuplicationUs)
                 {
                     // Desktop Duplication may be free again (an old capture that held it has finished).
-                    Log("trying desktop duplication again");
+                    Log(LogCategory::Capture, "Retrying desktop duplication");
                     retryDuplicationWait = std::min<int64_t>(retryDuplicationWait * 2, 60'000'000);
                     closeCapture();
                 }
@@ -1108,7 +1099,7 @@ namespace qc
         auto addTrack = [&](const char* title, bool measureSignal = false) {
             auto track = std::make_unique<Track>();
             track->title = title;
-            track->mixer = std::make_unique<TrackMixer>(shared_->t0, measureSignal);
+            track->mixer = std::make_unique<TrackMixer>(shared_->t0, measureSignal, endpointMode_ && shared_->videoOptions.diagnostics != 0);
             if (!track->encoder.Open(audioKbps_, error)) return -1;
             tracks_.push_back(std::move(track));
             return static_cast<int>(tracks_.size()) - 1;
@@ -1222,7 +1213,7 @@ namespace qc
             shared_->windowHeight = std::max(16, height & ~1);
             shared_->windowKbps = videoKbps > 0 ? videoKbps : shared_->videoKbps;
         }
-        Log(window ? "recording the game window" : "recording the monitor again");
+        Log(LogCategory::Capture, window ? "Requested game window capture" : "Requested monitor capture");
         RestartVideo();
     }
 
@@ -1276,7 +1267,7 @@ namespace qc
             if (shared_->windowMode || VideoSourceLost()) continue;
             if (shared_->lastFrameUs == 0 || quiet < limit || now - lastRestartUs < limit) continue;
             if (shared_->runningVideoThreads >= 4) continue; // several are stuck already; wait for one to come back
-            Log("no picture for %.1f s; starting capture again", quiet / 1e6);
+            Log(LogCategory::Capture, "No picture received; restarting capture", LogSeverity::Warning);
             RestartVideo();
             lastRestartUs = now;
             retryUs = std::min<int64_t>(retryUs * 2, 60'000'000);
@@ -1355,12 +1346,7 @@ namespace qc
                 started++;
             }
         if (stopped > 0 || started > 0)
-        {
-            std::string less = subtracting ? ", less the others' sound at " + std::to_string(nativeRate_) + " Hz" : "";
-            Log("app audio changed: desktop %s%s, %zu chat and %zu music processes (%zu streams stopped, %zu started)",
-                desktopExclude == 0 ? "is recorded app by app" : desktopInclude.empty() ? "is all but one app" : "is all but one app, with apps it started",
-                less.c_str(), chat.size(), music.size(), stopped, started);
-        }
+            Log(LogCategory::Audio, "App audio routing changed");
     }
 
     void Engine::AudioLoop()
@@ -1603,10 +1589,26 @@ namespace qc
 
     std::string Engine::VideoDiagnostics()
     {
-        std::string text;
+        Shared::VideoDescription video;
+        std::string sample;
         {
             std::lock_guard guard(shared_->statsLock);
-            text = shared_->videoDescription + (shared_->videoSample.empty() ? "" : "\n" + shared_->videoSample);
+            video = shared_->videoDescription;
+            sample = shared_->videoSample;
+        }
+        std::string text;
+        if (video.outputWidth > 0)
+        {
+            int preset = shared_->videoOptions.nvencPreset;
+            char description[512];
+            snprintf(description, sizeof description, "%s%s | %s %dx%d | output %dx%d | %s%s | %d fps target | %d kbps target | %s",
+                video.duplication ? "Desktop Duplication" : "Windows Graphics Capture", video.window ? " (window)" : "",
+                video.window ? (video.hasClient ? "window client" : "window request") : "source",
+                video.sourceWidth, video.sourceHeight, video.outputWidth, video.outputHeight, shared_->encoder.c_str(),
+                shared_->encoder.ends_with("_nvenc") ? (preset == 2 ? " p2/HQ" : preset == 1 ? " p3/HQ" : " p4/HQ") : "",
+                shared_->fps, video.kbps, VideoPipe::NeedsSystemFrames(*shared_) ? "CPU readback + NV12 conversion" : "D3D11 hardware frames");
+            text = description;
+            if (!sample.empty()) text += "\n" + sample;
         }
         if (endpointMode_ && shared_->videoOptions.diagnostics)
         {
