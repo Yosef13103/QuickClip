@@ -249,7 +249,7 @@ public sealed class ClipFeedbackTests
                     {
                         string path = Path.Combine(folder.FullName, "animated.gif");
                         File.WriteAllBytes(path, GifFixture());
-                        var options = new ClipOverlayOptions { ImagePath = path, Seconds = .6 };
+                        var options = new ClipOverlayOptions { Style = OverlayStyle.ImageOnly, ImagePath = path, Seconds = .6 };
                         var pending = overlay.ShowAsync(options, "Cancelled", true);
                         overlay.Hide();
                         await pending;
@@ -345,5 +345,76 @@ public sealed class ClipFeedbackTests
         Assert.Equal(sound, feedback.Sound);
         Assert.False(feedback.Windows);
         Assert.Equal(success ? "Clip saved" : "Clip not saved", feedback.Title);
+    }
+
+    [Theory]
+    [InlineData(false, false, false)]
+    [InlineData(false, true, false)]
+    [InlineData(true, false, false)]
+    [InlineData(true, true, true)]
+    public void Non_save_events_never_use_images_or_detailed_banners(bool banners, bool image, bool unused)
+    {
+        var configured = new ClipOverlayOptions { Enabled = banners, Style = OverlayStyle.Detailed,
+            ImageOnly = image, ImagePath = "test.gif", ImageAppearance = new() { Seconds = 6 } };
+        foreach (var kind in Enum.GetValues<ClipEvent>().Where(k => k != ClipEvent.Saved))
+        {
+            var routed = configured.ForEvent(kind);
+            if (!banners) Assert.Null(routed);
+            else
+            {
+                Assert.NotNull(routed);
+                Assert.Equal(OverlayStyle.Compact, routed.Style);
+                Assert.Null(routed.ImagePath);
+                Assert.False(routed.ImageOnly);
+                Assert.Equal(1.5, routed.Seconds);
+            }
+        }
+    }
+
+    [Theory]
+    [InlineData(false, false, false)]
+    [InlineData(false, true, true)]
+    [InlineData(true, false, true)]
+    [InlineData(true, true, true)]
+    public void Clip_saved_image_works_independently_of_banner_channel(bool banners, bool image, bool expected)
+    {
+        var settings = new AppSettings { ClipNotificationsEnabled = true, ClipWindowsNotification = !banners,
+            ClipOverlay = new() { Enabled = banners, Style = OverlayStyle.Detailed, ImageOnly = image,
+                ImagePath = "test.gif", Seconds = 1.5, ImageAppearance = new() { Seconds = 6 } } };
+        var routed = settings.ClipOverlay.ForEvent(ClipEvent.Saved);
+        Assert.Equal(expected, routed != null);
+        Assert.Equal(AppProfile.IsPersonal && expected, ClipFeedback.From(settings, ClipEvent.Saved, "saved").Overlay);
+        if (routed != null)
+        {
+            Assert.Equal(image ? OverlayStyle.ImageOnly : OverlayStyle.Detailed, routed.Style);
+            Assert.Equal(image ? 6 : 1.5, routed.Seconds);
+            Assert.Equal(image ? "test.gif" : null, routed.ImagePath);
+            if (image) Assert.Equal(OverlayAnchor.TopRight, routed.Anchor);
+        }
+    }
+
+    [Fact]
+    public void Old_image_only_duration_migrates_without_making_status_banners_long()
+    {
+        var settings = AppSettings.Parse("""
+            {"ClipOverlay":{"Enabled":true,"Style":"ImageOnly","ImagePath":"sample.gif","Seconds":6,"Anchor":"TopLeft","Size":48}}
+            """);
+        var saved = settings.ClipOverlay.ForEvent(ClipEvent.Saved)!;
+        var status = settings.ClipOverlay.ForEvent(ClipEvent.DesktopStarted)!;
+        Assert.Equal(6, saved.Seconds);
+        Assert.Equal(OverlayAnchor.TopLeft, saved.Anchor);
+        Assert.Equal(48, saved.Size);
+        Assert.Equal(1.5, status.Seconds);
+        Assert.Equal(OverlayAnchor.BottomRight, status.Anchor);
+        Assert.Equal(settings.ClipOverlay.ImageAppearance, AppSettings.Parse(settings.ToJson()).ClipOverlay.ImageAppearance);
+        Assert.NotEqual(OverlayAnchor.Center, (settings.ClipOverlay with { Anchor = OverlayAnchor.Center }).Banner().Anchor);
+    }
+
+    [Fact]
+    public void Saved_image_without_a_path_uses_only_an_enabled_banner()
+    {
+        var options = new ClipOverlayOptions { Enabled = false, ImageOnly = true, ImageAppearance = new() };
+        Assert.Null(options.ForEvent(ClipEvent.Saved));
+        Assert.Equal(OverlayStyle.Compact, (options with { Enabled = true }).ForEvent(ClipEvent.Saved)!.Style);
     }
 }

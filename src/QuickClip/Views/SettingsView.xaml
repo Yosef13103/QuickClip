@@ -647,9 +647,9 @@
 
                     <StackPanel x:Name="ClipOverlayPanel" Margin="0,12,0,0">
                         <CheckBox Style="{StaticResource SwitchCheckBox}" x:Name="ClipNotificationsCheck" Content="Show clip notifications" Focusable="True" Click="ClipFeedback_Changed" />
-                        <TextBlock Text="Notification style" Style="{StaticResource FieldLabel}" />
-                        <ComboBox x:Name="ClipNotificationModeCombo" AutomationProperties.Name="Notification style" SelectionChanged="ClipFeedback_Changed" />
-                        <TextBlock Text="Windows controls placement of its notifications." Style="{StaticResource Hint}" Margin="0,4,0,0" />
+                        <TextBlock Text="Notification channels" Style="{StaticResource FieldLabel}" />
+                        <ComboBox x:Name="ClipNotificationModeCombo" AutomationProperties.Name="Notification channels" SelectionChanged="ClipFeedback_Changed" />
+                        <TextBlock Text="Choose where status messages appear. The clip-saved image can also be enabled with Windows notifications only." Style="{StaticResource Hint}" Margin="0,4,0,0" />
                         <StackPanel x:Name="ClipEventsPanel" Margin="0,8,0,0">
                             <TextBlock Text="Notify me when" Style="{StaticResource FieldLabel}" />
                             <UniformGrid Columns="2">
@@ -662,8 +662,55 @@
                             </UniformGrid>
                         </StackPanel>
                         <StackPanel x:Name="ClipOverlayOptions" Margin="0,8,0,0" Visibility="Collapsed">
-                            <TextBlock Text="Overlay style" Style="{StaticResource FieldLabel}" />
-                            <ComboBox x:Name="OverlayStyleCombo" AutomationProperties.Name="Overlay style" SelectionChanged="ClipFeedback_Changed" />
+                            <Border Background="{DynamicResource ElevatedSurfaceBrush}" CornerRadius="10" Padding="14" Margin="0,6,0,10">
+                                <StackPanel>
+                                    <TextBlock Text="Clip saved" FontWeight="SemiBold" FontSize="{DynamicResource QuickClipText16}" />
+                                    <TextBlock Style="{StaticResource Hint}" Text="Choose a celebration for successful saves only. Other events always use compact text banners when on-screen banners are enabled." Margin="0,4,0,8" />
+                                    <CheckBox x:Name="ImageOnlyCheck" Style="{StaticResource SwitchCheckBox}" Content="Show a custom image or animation when a clip is saved" Click="ClipFeedback_Changed" />
+                                    <StackPanel x:Name="ImageAppearancePanel" Visibility="Collapsed">
+                            <WrapPanel Margin="0,8,0,0">
+                                <Button Content="Choose image / WebM animation…" Margin="0,0,8,0" Click="ChooseOverlayImage_Click" />
+                                <Button x:Name="ClearOverlayImage" Content="Remove image" Click="ClearOverlayImage_Click" />
+                            </WrapPanel>
+                            <TextBlock x:Name="OverlayImageStatus" Style="{StaticResource Hint}" AutomationProperties.LiveSetting="Polite" />
+                            <TextBlock Text="Image fit" Margin="0,8,0,0" />
+                            <ComboBox x:Name="OverlayImageFitCombo" SelectionChanged="ClipFeedback_Changed"
+                                      AutomationProperties.Name="Image fit or cropped fill" />
+                            <TextBlock x:Name="OverlayImageError" Foreground="{DynamicResource DangerBrush}"
+                                       FontWeight="SemiBold" FontSize="{DynamicResource QuickClipText14}" TextWrapping="Wrap"
+                                       Visibility="Collapsed" AutomationProperties.LiveSetting="Assertive" />
+                            <Grid Margin="0,8,0,0">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="*" />
+                                </Grid.ColumnDefinitions>
+                                <StackPanel Margin="0,0,6,0">
+                                    <TextBlock Text="Display" />
+                                    <ComboBox x:Name="ImageOverlayDisplayCombo" SelectionChanged="ClipFeedback_Changed" AutomationProperties.Name="Image display" />
+                                    <TextBlock Text="Position" Margin="0,8,0,0" />
+                                    <ComboBox x:Name="ImageOverlayAnchorCombo" SelectionChanged="ClipFeedback_Changed" AutomationProperties.Name="Image position" />
+                                    <TextBlock Text="Animation" Margin="0,8,0,0" />
+                                    <ComboBox x:Name="ImageOverlayAnimationCombo" SelectionChanged="ClipFeedback_Changed" AutomationProperties.Name="Image animation" />
+                                </StackPanel>
+                                <StackPanel Grid.Column="1" Margin="6,0,0,0">
+                                    <TextBlock Text="Size" />
+                                    <ComboBox x:Name="ImageOverlaySizeCombo" SelectionChanged="ClipFeedback_Changed" AutomationProperties.Name="Image size" />
+                                    <TextBlock Text="Opacity" Margin="0,8,0,0" />
+                                    <ComboBox x:Name="ImageOverlayOpacityCombo" SelectionChanged="ClipFeedback_Changed" AutomationProperties.Name="Image opacity" />
+                                    <TextBlock Text="Image duration in seconds (0.6–60)" Margin="0,8,0,0" />
+                                    <TextBox x:Name="ImageOverlayDurationBox" TextChanged="ClipFeedback_Changed"
+                                             AutomationProperties.Name="Image duration in seconds" />
+                                    <TextBlock x:Name="ImageOverlayDurationError" Foreground="{DynamicResource DangerBrush}"
+                                               FontWeight="SemiBold" TextWrapping="Wrap"
+                                               AutomationProperties.LiveSetting="Polite" />
+                                </StackPanel>
+                            </Grid>
+
+                                        <Button Content="Preview clip image" HorizontalAlignment="Left" Margin="0,10,0,0" Click="TestClipOverlay_Click" />
+                                    </StackPanel>
+                                    <StackPanel x:Name="SavedBannerPanel">
+                                        <CheckBox x:Name="DetailedSavedCheck" Style="{StaticResource SwitchCheckBox}" Content="Use detailed banner for clip saved" Click="ClipFeedback_Changed" />
+                                        <StackPanel x:Name="OverlayDetailsPanel">
                             <TextBlock Text="Overlay details" Style="{StaticResource FieldLabel}" />
                             <WrapPanel>
                                 <CheckBox x:Name="OverlayShowTitle" Content="Clip title" Focusable="True" Margin="0,0,14,0" Click="ClipFeedback_Changed" />
@@ -674,17 +721,15 @@
                                 <CheckBox x:Name="OverlayShowFps" Content="FPS" Focusable="True" Margin="0,0,14,0" Click="ClipFeedback_Changed" />
                                 <CheckBox x:Name="OverlayShowHotkey" Content="Save hotkey hint" Focusable="True" Click="ClipFeedback_Changed" />
                             </WrapPanel>
-                            <WrapPanel Margin="0,8,0,0">
-                                <Button Content="Choose image / WebM animation…" Margin="0,0,8,0" Click="ChooseOverlayImage_Click" />
-                                <Button x:Name="ClearOverlayImage" Content="Use default icon" Click="ClearOverlayImage_Click" />
-                            </WrapPanel>
-                            <TextBlock x:Name="OverlayImageStatus" Style="{StaticResource Hint}" AutomationProperties.LiveSetting="Polite" />
-                            <TextBlock Text="Image fit" Margin="0,8,0,0" />
-                            <ComboBox x:Name="OverlayImageFitCombo" SelectionChanged="ClipFeedback_Changed"
-                                      AutomationProperties.Name="Image fit or cropped fill" />
-                            <TextBlock x:Name="OverlayImageError" Foreground="{DynamicResource DangerBrush}"
-                                       FontWeight="SemiBold" FontSize="{DynamicResource QuickClipText14}" TextWrapping="Wrap"
-                                       Visibility="Collapsed" AutomationProperties.LiveSetting="Assertive" />
+                                        </StackPanel>
+                                        <Button Content="Preview clip saved banner" HorizontalAlignment="Left" Margin="0,8,0,0" Click="TestClipOverlay_Click" />
+                                    </StackPanel>
+                                </StackPanel>
+                            </Border>
+                            <Border x:Name="BannerAppearancePanel" Background="{DynamicResource ElevatedSurfaceBrush}" CornerRadius="10" Padding="14" Margin="0,0,0,10">
+                                <StackPanel>
+                                    <TextBlock Text="On-screen banners" FontWeight="SemiBold" FontSize="{DynamicResource QuickClipText16}" />
+                                    <TextBlock Style="{StaticResource Hint}" Text="Short status messages, no custom images. These settings are independent of the clip image." Margin="0,4,0,0" />
                             <Grid Margin="0,8,0,0">
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="*" />
@@ -711,10 +756,11 @@
                                                AutomationProperties.LiveSetting="Polite" />
                                 </StackPanel>
                             </Grid>
-                            <WrapPanel Margin="0,10,0,0">
-                                <Button Content="Preview overlay" Margin="0,0,8,0" Click="TestClipOverlay_Click" />
-                                <Button Content="Reset overlay appearance" Click="ResetClipOverlay_Click" />
-                            </WrapPanel>
+
+                                    <Button Content="Preview compact banner" HorizontalAlignment="Left" Margin="0,10,0,0" Click="TestCompactBanner_Click" />
+                                </StackPanel>
+                            </Border>
+                            <Button Content="Reset notification appearance" HorizontalAlignment="Left" Margin="0,0,0,8" Click="ResetClipOverlay_Click" />
                             <TextBlock Style="{StaticResource Hint}" TextWrapping="Wrap"
                                        Text="Visible over windowed and borderless games. Exclusive fullscreen and capture exclusion depend on Windows and the capture backend." />
                         </StackPanel>

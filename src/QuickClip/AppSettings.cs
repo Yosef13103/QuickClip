@@ -149,6 +149,7 @@ internal sealed class AppSettings
     internal static AppSettings Parse(string json)
     {
         var settings = JsonSerializer.Deserialize<AppSettings>(json, JsonOptions) ?? new AppSettings();
+        settings.ClipOverlay = (settings.ClipOverlay ?? new()).Migrate();
         // V1 shared a preference between minimizing and Windows startup. Only
         // the startup behavior survives; the newer key takes precedence.
         using (var legacy = JsonDocument.Parse(json))

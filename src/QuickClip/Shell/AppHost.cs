@@ -233,7 +233,7 @@ internal sealed class AppHost : IDisposable
         (settings.ClipWindowsNotification, settings.ClipOverlay?.Enabled == true);
 
     internal static ClipOverlayOptions CriticalCaptureOverlayOptions(ClipOverlayOptions? configured) =>
-        (configured ?? new()) with
+        (configured ?? new()).Banner() with
         {
             Style = OverlayStyle.Compact,
             ImageOnly = false,
@@ -270,19 +270,28 @@ internal sealed class AppHost : IDisposable
         if (feedback.Windows) Notify(feedback.Title, feedback.Message);
         if (feedback.Overlay)
         {
-            _ = ShowOverlayAsync(settings.ClipOverlay, feedback.Title, feedback.Success, details, details == null ? feedback.Message : null);
+            var options = settings.ClipOverlay.ForEvent(kind);
+            if (options != null) _ = ShowOverlayAsync(options, feedback.Title, feedback.Success, details,
+                details == null ? feedback.Message : null,
+                settings.ClipOverlay.Enabled ? settings.ClipOverlay.Banner() : null);
         }
     }
 
     internal void HideClipOverlay() => _clipOverlay.Hide();
 
-    internal void TestClipOverlay() => _ = ShowOverlayAsync(AppSettings.Current.ClipOverlay ?? new(), "Clip saved", true,
-        new("Example game", "Example clip", "Game · Entire display", "30 s", "1920 × 1080", "60 FPS", "Save clip · Alt+F10"));
+    internal void TestClipOverlay(bool banner = false)
+    {
+        var options = AppSettings.Current.ClipOverlay ?? new();
+        var appearance = banner ? options.Banner() : (options with { Enabled = true }).ForEvent(ClipEvent.Saved);
+        if (appearance != null) _ = ShowOverlayAsync(appearance, banner ? "Instant replay enabled" : "Clip saved", true,
+            banner ? null : new("Terraria", "Example clip", "Game · Entire display", "30 s", "1920 × 1080", "60 FPS", "Alt+F10"),
+            banner ? "Waiting for an eligible game." : null, options.Banner());
+    }
 
     private async Task ShowOverlayAsync(ClipOverlayOptions options, string title, bool success,
-        ClipNotificationDetails? details, string? message = null)
+        ClipNotificationDetails? details, string? message = null, ClipOverlayOptions? missingImageFallback = null)
     {
-        try { await _clipOverlay.ShowAsync(options, title, success, details, message); }
+        try { await _clipOverlay.ShowAsync(options, title, success, details, message, missingImageFallback); }
         catch (Exception ex) { Log.Write("Clip overlay unavailable: " + ex.GetType().Name); }
     }
 

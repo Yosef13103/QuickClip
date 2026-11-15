@@ -113,9 +113,9 @@ public partial class SettingsView
         LoadSoundOutputs();
         ShowSelectedClipSound(settings.ClipSoundFilePath);
         SoundVolumeSlider.Value = Math.Clamp(settings.ClipSoundVolume, 0, 100);
-        var options = (settings.ClipOverlay ?? new()).Normalize();
+        var options = (settings.ClipOverlay ?? new()).Migrate().Normalize();
         WindowsClipNotificationCheck.Visibility = Visibility.Collapsed;
-        ClipNotificationsCheck.IsChecked = settings.ClipNotificationsEnabled && (settings.ClipWindowsNotification || options.Enabled);
+        ClipNotificationsCheck.IsChecked = settings.ClipNotificationsEnabled && (settings.ClipWindowsNotification || options.Enabled || options.WantsImage);
         SetChoices(ClipNotificationModeCombo,
             [new("Windows notification", ClipNotificationMode.Windows), new("QuickClip overlay", ClipNotificationMode.Overlay),
              new("Windows and QuickClip overlay", ClipNotificationMode.Both)],
@@ -127,9 +127,8 @@ public partial class SettingsView
         DesktopStoppedNotice.IsChecked = events.DesktopStopped;
         SaveFailedNotice.IsChecked = events.Failed;
         IdleSaveNotificationCheck.IsChecked = settings.ShowInactiveSaveNotifications;
-        SetChoices(OverlayStyleCombo, [new("Compact banner", OverlayStyle.Compact),
-            new("Detailed banner", OverlayStyle.Detailed), new("Image only (transparent)", OverlayStyle.ImageOnly)],
-            options.ImageOnly ? OverlayStyle.ImageOnly : options.Style);
+        ImageOnlyCheck.IsChecked = options.WantsImage;
+        DetailedSavedCheck.IsChecked = options.Style == OverlayStyle.Detailed;
         OverlayShowResolution.IsChecked = options.ShowResolution;
         OverlayShowFps.IsChecked = options.ShowFps;
         OverlayShowHotkey.IsChecked = options.ShowHotkey;
@@ -147,12 +146,23 @@ public partial class SettingsView
         if (!string.IsNullOrWhiteSpace(options.Display) && !displays.Any(d => Equals(d.Value, options.Display)))
             displays.Add(new("Saved display (disconnected)", options.Display));
         SetChoices(OverlayDisplayCombo, displays, options.Display ?? "");
-        SetChoices(OverlayAnchorCombo, Enum.GetValues<OverlayAnchor>().Select(a => new Choice(AnchorLabels[(int)a], a)), options.Anchor);
+        SetChoices(OverlayAnchorCombo, Enum.GetValues<OverlayAnchor>().Where(a => a != OverlayAnchor.Center).Select(a => new Choice(AnchorLabels[(int)a], a)), options.Banner().Anchor);
         SetChoices(OverlayAnimationCombo, OverlayAnimationChoices(options.Anchor), options.Animation);
         SetNumbers(OverlaySizeCombo, [48, 60, 72, 88, 104], options.Size, value => $"{value:0} DIP");
         SetNumbers(OverlayOpacityCombo, [.3, .5, .7, .9, 1], options.Opacity, value => $"{value:P0}");
         OverlayDurationBox.Text = options.Seconds.ToString("0.##", CultureInfo.CurrentCulture);
         OverlayDurationError.Text = "";
+        var image = options.Image();
+        var imageDisplays = displays.ToList();
+        if (!string.IsNullOrWhiteSpace(image.Display) && !imageDisplays.Any(d => Equals(d.Value, image.Display)))
+            imageDisplays.Add(new("Saved display (disconnected)", image.Display));
+        SetChoices(ImageOverlayDisplayCombo, imageDisplays, image.Display ?? "");
+        SetChoices(ImageOverlayAnchorCombo, Enum.GetValues<OverlayAnchor>().Select(a => new Choice(AnchorLabels[(int)a], a)), image.Anchor);
+        SetChoices(ImageOverlayAnimationCombo, OverlayAnimationChoices(image.Anchor), image.Animation);
+        SetNumbers(ImageOverlaySizeCombo, [40, 48, 60, 72, 88, 104, 120], image.Size, value => $"{value:0} DIP");
+        SetNumbers(ImageOverlayOpacityCombo, [.3, .5, .7, .9, 1], image.Opacity, value => $"{value:P0}");
+        ImageOverlayDurationBox.Text = image.Seconds.ToString("0.##", CultureInfo.CurrentCulture);
+        ImageOverlayDurationError.Text = "";
         OverlayImageError.Text = "";
         OverlayImageError.Visibility = Visibility.Collapsed;
     }
@@ -164,7 +174,9 @@ public partial class SettingsView
         choices.AddRange([
             new("Grow / shrink", OverlayAnimation.Grow),
             new("Fade", OverlayAnimation.Fade),
-            new("Ripple", OverlayAnimation.Ripple),
+            new("Ripple wave", OverlayAnimation.Ripple),
+            new("Soft pop", OverlayAnimation.SoftPop),
+            new("Lift and fade", OverlayAnimation.Lift),
             new("No animation", OverlayAnimation.None),
         ]);
         return [.. choices];
@@ -190,31 +202,27 @@ public partial class SettingsView
             return;
         }
 
-        // Center has no edge to enter from. Refresh the combobox on anchor changes
-        // so Slide is not selectable there, and use Grow when switching to Center.
-        if (sender == OverlayAnchorCombo &&
-            OverlayAnchorCombo.SelectedItem is Choice { Value: OverlayAnchor selectedAnchor })
+        if (sender == ImageOverlayAnchorCombo &&
+            ImageOverlayAnchorCombo.SelectedItem is Choice { Value: OverlayAnchor selectedAnchor })
         {
-            OverlayAnimation current = (OverlayAnimationCombo.SelectedItem as Choice)?.Value is OverlayAnimation a
-                ? a : OverlayAnimation.Grow;
-            if (selectedAnchor == OverlayAnchor.Center && current == OverlayAnimation.Slide)
-                current = OverlayAnimation.Grow;
+            var current = (ImageOverlayAnimationCombo.SelectedItem as Choice)?.Value is OverlayAnimation animation
+                ? animation : OverlayAnimation.Fade;
+            if (selectedAnchor == OverlayAnchor.Center && current == OverlayAnimation.Slide) current = OverlayAnimation.Grow;
             _loading = true;
-            try { SetChoices(OverlayAnimationCombo, OverlayAnimationChoices(selectedAnchor), current); }
+            try { SetChoices(ImageOverlayAnimationCombo, OverlayAnimationChoices(selectedAnchor), current); }
             finally { _loading = false; }
         }
-
         if (ClipNotificationModeCombo.SelectedItem is not Choice { Value: ClipNotificationMode mode }) return;
         settings.ClipNotificationsEnabled = ClipNotificationsCheck.IsChecked == true;
         settings.ClipEvents = new(ReplayEnabledNotice.IsChecked == true, ClipSavedNotice.IsChecked == true,
             DesktopStartedNotice.IsChecked == true, DesktopStoppedNotice.IsChecked == true, SaveFailedNotice.IsChecked == true);
         settings.ShowInactiveSaveNotifications = IdleSaveNotificationCheck.IsChecked == true;
         settings.ClipWindowsNotification = mode is ClipNotificationMode.Windows or ClipNotificationMode.Both;
-        bool imageOnlyWithoutMedia = (OverlayStyleCombo.SelectedItem as Choice)?.Value is OverlayStyle.ImageOnly &&
-            string.IsNullOrWhiteSpace(settings.ClipOverlay?.ImagePath);
-        if (imageOnlyWithoutMedia)
+        var old = (settings.ClipOverlay ?? new()).Migrate();
+        bool imageOnly = ImageOnlyCheck.IsChecked == true;
+        if (imageOnly && string.IsNullOrWhiteSpace(old.ImagePath))
         {
-            OverlayImageError.Text = "Choose a local image or transparent WebM before using Image only.";
+            OverlayImageError.Text = "Choose a local image or animation. Until then, an enabled banner or Windows notification is used.";
             OverlayImageError.Visibility = Visibility.Visible;
         }
         else if (OverlayImageError.Text.StartsWith("Choose a local image", StringComparison.Ordinal))
@@ -222,34 +230,42 @@ public partial class SettingsView
             OverlayImageError.Text = "";
             OverlayImageError.Visibility = Visibility.Collapsed;
         }
-        UpdateFeedbackVisibility();
-        bool validDuration = QuickClip.Shell.ClipOverlayOptions.TryParseSeconds(OverlayDurationBox.Text, out double enteredSeconds);
+        bool validDuration = QuickClip.Shell.ClipOverlayOptions.TryParseSeconds(OverlayDurationBox.Text, out double seconds);
+        bool validImageDuration = QuickClip.Shell.ClipOverlayOptions.TryParseSeconds(ImageOverlayDurationBox.Text, out double imageSeconds);
         OverlayDurationError.Text = validDuration ? "" : "Enter a duration from 0.6 to 60 seconds.";
-        if (OverlayAnchorCombo.SelectedItem is Choice { Value: OverlayAnchor anchor } &&
-            OverlaySizeCombo.SelectedItem is Choice { Value: double size } &&
-            OverlayOpacityCombo.SelectedItem is Choice { Value: double opacity } &&
-            OverlayAnimationCombo.SelectedItem is Choice { Value: OverlayAnimation animation })
+        ImageOverlayDurationError.Text = validImageDuration ? "" : "Enter a duration from 0.6 to 60 seconds.";
+        T Value<T>(ComboBox combo, T fallback) => combo.SelectedItem is Choice { Value: T value } ? value : fallback;
+        var image = old.ImageAppearance ?? new();
+        settings.ClipOverlay = old with
         {
-            settings.ClipOverlay = (settings.ClipOverlay ?? new()) with
+            Enabled = mode is ClipNotificationMode.Overlay or ClipNotificationMode.Both,
+            Style = DetailedSavedCheck.IsChecked == true ? OverlayStyle.Detailed : OverlayStyle.Compact,
+            ImageOnly = imageOnly,
+            ImageFit = Value(OverlayImageFitCombo, old.ImageFit),
+            ShowResolution = OverlayShowResolution.IsChecked == true,
+            ShowFps = OverlayShowFps.IsChecked == true,
+            ShowHotkey = OverlayShowHotkey.IsChecked == true,
+            ShowTitle = OverlayShowTitle.IsChecked == true,
+            ShowGame = OverlayShowGame.IsChecked == true,
+            ShowSource = OverlayShowSource.IsChecked == true,
+            ShowDuration = OverlayShowDuration.IsChecked == true,
+            Display = Value(OverlayDisplayCombo, old.Display ?? ""),
+            Anchor = Value(OverlayAnchorCombo, old.Banner().Anchor),
+            Size = Value(OverlaySizeCombo, old.Size),
+            Opacity = Value(OverlayOpacityCombo, old.Opacity),
+            Seconds = validDuration ? seconds : old.Seconds,
+            Animation = Value(OverlayAnimationCombo, old.Animation),
+            ImageAppearance = image with
             {
-                Enabled = mode is ClipNotificationMode.Overlay or ClipNotificationMode.Both,
-                Style = (OverlayStyleCombo.SelectedItem as Choice)?.Value is OverlayStyle style ? style : OverlayStyle.Compact,
-                ShowResolution = OverlayShowResolution.IsChecked == true,
-                ShowFps = OverlayShowFps.IsChecked == true,
-                ShowHotkey = OverlayShowHotkey.IsChecked == true,
-                ImageOnly = (OverlayStyleCombo.SelectedItem as Choice)?.Value is OverlayStyle.ImageOnly,
-                ImageFit = (OverlayImageFitCombo.SelectedItem as Choice)?.Value is OverlayImageFit fit
-                    ? fit : OverlayImageFit.Contain,
-                ShowTitle = OverlayShowTitle.IsChecked == true,
-                ShowGame = OverlayShowGame.IsChecked == true,
-                ShowSource = OverlayShowSource.IsChecked == true,
-                ShowDuration = OverlayShowDuration.IsChecked == true,
-                Display = (OverlayDisplayCombo.SelectedItem as Choice)?.Value as string,
-                Anchor = anchor, Size = size, Opacity = opacity,
-                Seconds = validDuration ? enteredSeconds : (settings.ClipOverlay ?? new()).Seconds,
-                Animation = animation,
-            };
-        }
+                Display = Value(ImageOverlayDisplayCombo, image.Display ?? ""),
+                Anchor = Value(ImageOverlayAnchorCombo, image.Anchor),
+                Size = Value(ImageOverlaySizeCombo, image.Size),
+                Opacity = Value(ImageOverlayOpacityCombo, image.Opacity),
+                Seconds = validImageDuration ? imageSeconds : image.Seconds,
+                Animation = Value(ImageOverlayAnimationCombo, image.Animation),
+            },
+        };
+        UpdateFeedbackVisibility();
         settings.Save();
     }
 
@@ -257,10 +273,15 @@ public partial class SettingsView
     {
         bool enabled = ClipNotificationsCheck.IsChecked == true;
         ClipNotificationModeCombo.IsEnabled = ClipEventsPanel.IsEnabled = enabled;
-        bool showOverlay = enabled && ClipNotificationModeCombo.SelectedItem is Choice
+        bool banners = enabled && ClipNotificationModeCombo.SelectedItem is Choice
             { Value: ClipNotificationMode.Overlay or ClipNotificationMode.Both };
-        if (!showOverlay) App.Host?.HideClipOverlay();
-        ClipOverlayOptions.Visibility = showOverlay ? Visibility.Visible : Visibility.Collapsed;
+        bool image = enabled && ImageOnlyCheck.IsChecked == true;
+        if (!banners && !image) App.Host?.HideClipOverlay();
+        ClipOverlayOptions.Visibility = enabled ? Visibility.Visible : Visibility.Collapsed;
+        BannerAppearancePanel.Visibility = banners ? Visibility.Visible : Visibility.Collapsed;
+        ImageAppearancePanel.Visibility = image ? Visibility.Visible : Visibility.Collapsed;
+        SavedBannerPanel.Visibility = banners && !image ? Visibility.Visible : Visibility.Collapsed;
+        OverlayDetailsPanel.Visibility = banners && !image ? Visibility.Visible : Visibility.Collapsed;
     }
 
     private async void ChooseOverlayImage_Click(object sender, RoutedEventArgs e)
@@ -284,7 +305,7 @@ public partial class SettingsView
             }
             // Choose the animation's natural duration on import; custom seconds remain editable.
             if (asset.Frames.Length > 1)
-                OverlayDurationBox.Text = Math.Clamp(asset.Frames.Sum(frame => frame.Delay.TotalSeconds),
+                ImageOverlayDurationBox.Text = Math.Clamp(asset.Frames.Sum(frame => frame.Delay.TotalSeconds),
                     QuickClip.Shell.ClipOverlayOptions.MinSeconds, QuickClip.Shell.ClipOverlayOptions.MaxSeconds)
                     .ToString("0.##", CultureInfo.CurrentCulture);
             SaveOverlayImage(dialog.FileName);
@@ -298,7 +319,7 @@ public partial class SettingsView
     private void SaveOverlayImage(string? path)
     {
         var settings = AppSettings.Current;
-        settings.ClipOverlay = (settings.ClipOverlay ?? new()) with { ImagePath = path };
+        settings.ClipOverlay = (settings.ClipOverlay ?? new()).Migrate() with { ImagePath = path };
         settings.Save();
         ShowOverlayImage(path);
         OverlayImageError.Text = "";
@@ -308,13 +329,14 @@ public partial class SettingsView
     private void ShowOverlayImage(string? path)
     {
         ClearOverlayImage.IsEnabled = path != null;
-        OverlayImageStatus.Text = path == null ? "" : Path.GetFileName(path);
+        OverlayImageStatus.Text = path == null ? "No image selected" : Path.GetFileName(path);
     }
 
     private void ResetClipOverlay_Click(object sender, RoutedEventArgs e)
     {
         var settings = AppSettings.Current;
-        settings.ClipOverlay = new() { Enabled = settings.ClipOverlay?.Enabled == true };
+        var old = (settings.ClipOverlay ?? new()).Migrate();
+        settings.ClipOverlay = new() { Enabled = old.Enabled, ImageOnly = old.WantsImage, ImagePath = old.ImagePath, ImageAppearance = new() };
         settings.Save();
         bool wasLoading = _loading;
         _loading = true;
@@ -324,4 +346,5 @@ public partial class SettingsView
     }
 
     private void TestClipOverlay_Click(object sender, RoutedEventArgs e) => App.Host?.TestClipOverlay();
+    private void TestCompactBanner_Click(object sender, RoutedEventArgs e) => App.Host?.TestClipOverlay(banner: true);
 }

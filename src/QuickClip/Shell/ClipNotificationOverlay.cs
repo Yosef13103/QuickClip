@@ -14,8 +14,7 @@ internal sealed class ClipNotificationOverlay : IDisposable
 {
     private Window? _window;
     private Grid? _surface;
-    private Ellipse? _ring;
-    private StackPanel? _details;
+    private Border? _ring;
     private Border? _card;
     private string? _imagePath;
     private ClipOverlayImage.Asset? _image;
@@ -28,34 +27,41 @@ internal sealed class ClipNotificationOverlay : IDisposable
     private int _showRevision;
     private Task<ClipOverlayImage.Asset?>? _imageLoad;
     private bool _disposed;
-    private Border? _badge;
-    private TextBlock? _glyph;
     private DispatcherTimer? _timer;
     private IntPtr _handle;
 
     internal bool IsVisible => _window?.IsVisible == true;
     internal bool IsAnimatingImage => _frameTimer?.IsEnabled == true;
 
-    internal async Task ShowAsync(ClipOverlayOptions options, string title, bool success, ClipNotificationDetails? details = null, string? error = null)
+    internal async Task ShowAsync(ClipOverlayOptions options, string title, bool success, ClipNotificationDetails? details = null, string? error = null, ClipOverlayOptions? missingImageFallback = null)
     {
         if (_disposed) return;
         Hide();
         int revision = _showRevision;
         options = options.Normalize();
-        if (!string.Equals(_imagePath, options.ImagePath, StringComparison.OrdinalIgnoreCase))
+        bool imageOnly = options.Style == OverlayStyle.ImageOnly || options.ImageOnly;
+        // The renderer never loads custom media for a banner.
+        if (!imageOnly) options = options with { ImagePath = null, ImageOnly = false, Style = options.Style == OverlayStyle.Detailed ? OverlayStyle.Detailed : OverlayStyle.Compact, Anchor = options.Anchor == OverlayAnchor.Center ? OverlayAnchor.BottomRight : options.Anchor };
+        if (imageOnly && !string.Equals(_imagePath, options.ImagePath, StringComparison.OrdinalIgnoreCase))
         {
             _imagePath = options.ImagePath;
             _image = null;
             string? path = options.ImagePath;
             _imageLoad = path == null ? null : ClipOverlayImage.LoadAssetAsync(path);
         }
-        if (_imageLoad != null)
+        if (imageOnly && _imageLoad != null)
         {
             var asset = await _imageLoad;
             if (revision != _showRevision || _disposed) return;
             _image = asset;
             _imageLoad = null;
             if (asset == null) _imagePath = null; // Retry an unavailable file on a later notification.
+        }
+        if (imageOnly && _image == null)
+        {
+            if (missingImageFallback == null) return;
+            imageOnly = false;
+            options = missingImageFallback.Banner();
         }
         var displays = Displays();
         var display = SelectDisplay(displays, options.Display);
@@ -64,102 +70,119 @@ internal sealed class ClipNotificationOverlay : IDisposable
         _timer!.Stop();
         _surface!.BeginAnimation(UIElement.OpacityProperty, null);
         _surface.Opacity = 0;
-        var accent = Application.Current?.TryFindResource(success ? "SuccessBrush" : "DangerBrush") as Brush
+        string accentKey = success ? (title == "Clip saved" ? "SuccessBrush" : "AccentBrush") : "DangerBrush";
+        var accent = Application.Current?.TryFindResource(accentKey) as Brush
             ?? new SolidColorBrush(success ? Color.FromRgb(92, 237, 172) : Color.FromRgb(255, 127, 131));
-        // Success is conveyed by the message, not a decorative checkmark.
-        _glyph!.Text = success ? (options.Style == OverlayStyle.Badge ? "●" : "") : "!";
-        _glyph.SetResourceReference(TextBlock.ForegroundProperty, success ? "SuccessBrush" : "DangerBrush");
-        _glyph.FontSize = options.Size * .32;
-        var icon = (Grid)_badge!.Parent;
-        icon.Width = icon.Height = options.Size * .64;
-        _badge.Width = _badge.Height = options.Size * .55;
-        bool badge = options.Style == OverlayStyle.Badge;
-        icon.Visibility = badge || _image != null || !success ? Visibility.Visible : Visibility.Collapsed;
-        _details!.Visibility = badge ? Visibility.Collapsed : Visibility.Visible;
-        icon.Margin = badge ? new Thickness(0) : new Thickness(0, 0, 10, 0);
-        _badge.CornerRadius = new CornerRadius(options.Size);
-        _badge.SetResourceReference(Border.BorderBrushProperty, success ? "SuccessBrush" : "DangerBrush");
         _ring!.BeginAnimation(UIElement.OpacityProperty, null);
-        _ring.SetResourceReference(System.Windows.Shapes.Shape.StrokeProperty, success ? "SuccessBrush" : "DangerBrush");
-        _ring.RenderTransform = new ScaleTransform();
+        _ring.BorderBrush = accent;
+        _ring.RenderTransform = new ScaleTransform(1, 1);
         _ring.Opacity = 0;
-
-        bool imageOnly = (options.Style == OverlayStyle.ImageOnly || options.ImageOnly) && _image != null;
+        _card!.ClearValue(Border.BackgroundProperty);
+        _card.ClearValue(Border.BorderBrushProperty);
+        _card.Padding = new Thickness(0);
+        _card.BorderThickness = new Thickness(0);
+        _card.Child = null;
+        _imageView = null;
+        double width, height;
+        bool detailed = !imageOnly && options.Style == OverlayStyle.Detailed;
+        double factor = options.Size / 72;
         if (imageOnly)
         {
-            _details.Visibility = Visibility.Collapsed;
-            icon.Margin = new Thickness(0);
-            icon.Width = options.Size * 2;
-            icon.Height = options.Size;
-            _badge.Width = icon.Width;
-            _badge.Height = icon.Height;
-            _badge.BorderThickness = new Thickness(0);
-            _badge.Background = Brushes.Transparent;
+            width = options.Size * 2;
+            height = options.Size;
+            _card.Background = Brushes.Transparent;
+            _imageView = new Image { Source = _image!.First,
+                Stretch = options.ImageFit == OverlayImageFit.Cover ? Stretch.UniformToFill : Stretch.Uniform,
+                ClipToBounds = true };
+            _card.Child = _imageView;
         }
         else
         {
-            _badge.BorderThickness = new Thickness(1);
-            _badge.SetResourceReference(Border.BackgroundProperty, "OverlayBackgroundBrush");
-        }
-        _imageView = _image == null ? null : new Image
-        {
-            Source = _image.First,
-            Stretch = options.ImageFit == OverlayImageFit.Cover ? Stretch.UniformToFill : Stretch.Uniform,
-            ClipToBounds = true,
-        };
-        _badge.Child = _imageView ?? (UIElement)_glyph;
-        _details!.Children.Clear();
-        _details.Children.Add(new TextBlock
-        {
-            Text = title, Foreground = accent, FontSize = options.Style == OverlayStyle.Detailed ? 16 : 15,
-            FontWeight = FontWeights.SemiBold, TextWrapping = TextWrapping.NoWrap,
-            TextTrimming = TextTrimming.CharacterEllipsis,
-        });
-        var lines = error != null ? new[] { error } : details?.Lines(options) ?? [];
-        var foreground = Application.Current?.TryFindResource("PrimaryTextBrush") as Brush ?? Brushes.White;
-        if (options.Style == OverlayStyle.Compact)
-        {
-            // Compact is actually compact: title + one horizontally readable summary.
-            // Full per-field breakdown remains available in Detailed.
-            string summary = string.Join("  ·  ", lines);
-            if (!string.IsNullOrEmpty(summary))
-                _details.Children.Add(new TextBlock
-                {
-                    Text = summary, Foreground = foreground, FontSize = 12,
-                    TextWrapping = TextWrapping.NoWrap, TextTrimming = TextTrimming.CharacterEllipsis,
-                    Margin = new Thickness(0, 5, 0, 0),
-                });
-        }
-        else
-        {
-            foreach (var line in lines)
-                _details.Children.Add(new TextBlock
-                {
-                    Text = line, Foreground = foreground, FontSize = 12,
-                    TextWrapping = TextWrapping.WrapWithOverflow, Margin = new Thickness(0, 5, 0, 0),
-                });
-        }
-        // Keep sufficient width at small icon sizes: previous 320*(Size/72) DIP
-        // squeezed every word into a character-wide column.
-        double width = options.Style == OverlayStyle.Detailed
-            ? Math.Clamp(450 * options.Size / 72, 390, 690)
-            : Math.Clamp(360 * options.Size / 72, 310, 570);
-        if (imageOnly) width = options.Size * 2;
-        if (imageOnly)
-        {
-            // Image-only means just the asset: no banner background, outline or extra padding.
-            _card!.Background = Brushes.Transparent;
-            _card.BorderThickness = new Thickness(0);
-            _card.Padding = new Thickness(0);
-        }
-        else
-        {
-            _card!.SetResourceReference(Border.BackgroundProperty, "OverlayBackgroundBrush");
+            width = Math.Clamp((detailed ? 386 : 310) * factor, detailed ? 330 : 255, detailed ? 560 : 480);
+            _card.SetResourceReference(Border.BackgroundProperty, "OverlayBackgroundBrush");
+            _card.SetResourceReference(Border.BorderBrushProperty, "DividerBrush");
             _card.BorderThickness = new Thickness(1);
-            _card.Padding = new Thickness(badge ? options.Size * .12 : 10);
+            _card.CornerRadius = new CornerRadius(12);
+            _card.Padding = new Thickness(14, 11, 14, 12);
+            var root = new StackPanel();
+            var header = new Grid();
+            header.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            header.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            var status = new Border { Width = 30, Height = 30, CornerRadius = new CornerRadius(9),
+                Margin = new Thickness(0, 0, 10, 0), VerticalAlignment = VerticalAlignment.Top };
+            status.SetResourceReference(Border.BackgroundProperty, "ElevatedSurfaceBrush");
+            status.Child = new TextBlock { Text = success ? title == "Clip saved" ? "✓" : "●" : "!",
+                Foreground = accent, FontWeight = FontWeights.SemiBold, FontSize = 16,
+                HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
+            header.Children.Add(status);
+            var heading = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
+            Grid.SetColumn(heading, 1);
+            header.Children.Add(heading);
+            var label = Text(title, "PrimaryTextBrush", 15, true);
+            heading.Children.Add(label);
+            root.Children.Add(header);
+            if (error != null)
+            {
+                heading.Children.Add(Text(error, "SecondaryTextBrush", 12));
+            }
+            else if (details != null)
+            {
+                if (detailed)
+                {
+                    if (options.ShowTitle && !string.IsNullOrWhiteSpace(details.Title))
+                        heading.Children.Add(Text(details.Title, "SecondaryTextBrush", 12));
+                    var rows = new (string Label, string? Value)[] {
+                        ("Game", options.ShowGame ? details.Game : null),
+                        ("Source", options.ShowSource ? details.Source : null),
+                        ("Duration", options.ShowDuration ? details.Duration : null),
+                        ("Resolution", options.ShowResolution ? details.Resolution : null),
+                        ("Frame rate", options.ShowFps ? details.Fps : null),
+                        ("Shortcut", options.ShowHotkey ? details.Hotkey : null) };
+                    var fields = rows.Where(row => !string.IsNullOrWhiteSpace(row.Value)).ToArray();
+                    if (fields.Length > 0)
+                    {
+                        var divider = new Border { Height = 1, Margin = new Thickness(0, 10, 0, 5) };
+                        divider.SetResourceReference(Border.BackgroundProperty, "DividerBrush");
+                        root.Children.Add(divider);
+                        foreach (var row in fields)
+                        {
+                            var line = new Grid { Margin = new Thickness(0, 4, 0, 0) };
+                            line.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(86) });
+                            line.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+                            var value = Text(row.Value!, "PrimaryTextBrush", 12);
+                            Grid.SetColumn(value, 1);
+                            line.Children.Add(Text(row.Label, "SecondaryTextBrush", 11));
+                            line.Children.Add(value);
+                            root.Children.Add(line);
+                        }
+                    }
+                }
+                else
+                {
+                    var lines = details.Lines(options);
+                    if (lines.Length > 0)
+                    {
+                        var summary = Text(string.Join("  ·  ", lines), "SecondaryTextBrush", 12);
+                        summary.MaxHeight = 48;
+                        heading.Children.Add(summary);
+                    }
+                }
+            }
+            _card.Child = root;
+            _card.Margin = new Thickness(0);
+            _card.Measure(new Size(width, double.PositiveInfinity));
+            height = Math.Ceiling(root.DesiredSize.Height + _card.Padding.Top + _card.Padding.Bottom + 2);
         }
-        _card.Measure(new Size(width, double.PositiveInfinity));
-        double height = imageOnly ? options.Size : badge ? options.Size : _card.DesiredSize.Height;
+        // Reserve actual transparent space for the expanding wave, rather than
+        // scaling a hidden icon inside a clipped content column.
+        bool ripple = MotionEnabled(SystemParameters.ClientAreaAnimation, options.Animation) && options.Animation == OverlayAnimation.Ripple;
+        double waveSpace = ripple ? 14 : 0;
+        _card.Margin = new Thickness(waveSpace);
+        _ring.Margin = new Thickness(waveSpace);
+        _ring.CornerRadius = new CornerRadius(imageOnly ? 8 : 12);
+        double contentWidth = width, contentHeight = height;
+        width += 2 * waveSpace;
+        height += 2 * waveSpace;
         _surface.RenderTransformOrigin = new Point(.5, .5);
         _surface.RenderTransform = new TranslateTransform();
         _window!.Width = width;
@@ -190,11 +213,11 @@ internal sealed class ClipNotificationOverlay : IDisposable
                 _surface.RenderTransform.BeginAnimation(
                     offset.X != 0 ? TranslateTransform.XProperty : TranslateTransform.YProperty, slide);
             }
-            else if (options.Animation == OverlayAnimation.Grow)
+            else if (options.Animation is OverlayAnimation.Grow or OverlayAnimation.SoftPop)
             {
                 _surface.Opacity = options.Opacity;
                 _surface.RenderTransform = new ScaleTransform(1, 1);
-                var scale = EnterExitMotion(.65, options.Seconds, visible: 1);
+                var scale = EnterExitMotion(options.Animation == OverlayAnimation.SoftPop ? .92 : .65, options.Seconds, visible: 1);
                 _surface.RenderTransform.BeginAnimation(ScaleTransform.ScaleXProperty, scale);
                 _surface.RenderTransform.BeginAnimation(ScaleTransform.ScaleYProperty, scale);
             }
@@ -206,18 +229,21 @@ internal sealed class ClipNotificationOverlay : IDisposable
                 fade.KeyFrames.Add(new LinearDoubleKeyFrame(options.Opacity, KeyTime.FromTimeSpan(TimeSpan.FromSeconds(options.Seconds - .22))));
                 fade.KeyFrames.Add(new LinearDoubleKeyFrame(0, KeyTime.FromTimeSpan(TimeSpan.FromSeconds(options.Seconds))));
                 _surface.BeginAnimation(UIElement.OpacityProperty, fade);
+                if (options.Animation == OverlayAnimation.Lift)
+                    _surface.RenderTransform.BeginAnimation(TranslateTransform.YProperty, EnterExitMotion(10, options.Seconds));
             }
-            if (options.Animation == OverlayAnimation.Ripple && !imageOnly)
+            if (ripple)
             {
-                var pulse = new DoubleAnimation(1, 1.65, TimeSpan.FromSeconds(.65));
-                _ring.RenderTransform.BeginAnimation(ScaleTransform.ScaleXProperty, pulse);
-                _ring.RenderTransform.BeginAnimation(ScaleTransform.ScaleYProperty, pulse);
-                _ring.BeginAnimation(UIElement.OpacityProperty,
-                    new DoubleAnimation(.95, 0, TimeSpan.FromSeconds(.65)));
+                var duration = TimeSpan.FromSeconds(Math.Min(.55, options.Seconds * .8));
+                _ring.RenderTransform.BeginAnimation(ScaleTransform.ScaleXProperty,
+                    new DoubleAnimation(1, 1 + 22 / contentWidth, duration) { EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut } });
+                _ring.RenderTransform.BeginAnimation(ScaleTransform.ScaleYProperty,
+                    new DoubleAnimation(1, 1 + 22 / contentHeight, duration) { EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut } });
+                _ring.BeginAnimation(UIElement.OpacityProperty, new DoubleAnimation(.85, 0, duration));
             }
         }
         else _surface.Opacity = options.Opacity;
-        if (SystemParameters.ClientAreaAnimation && _image?.Frames.Length > 1)
+        if (imageOnly && SystemParameters.ClientAreaAnimation && _image?.Frames.Length > 1)
         {
             // GIF/WebM frame playback is independent of the banner entrance effect.
             // Absolute elapsed-time lookup prevents timer catch-up storms and drift on
@@ -239,46 +265,21 @@ internal sealed class ClipNotificationOverlay : IDisposable
         _timer.Start();
     }
 
+    private static TextBlock Text(string value, string brush, double size, bool bold = false)
+    {
+        var text = new TextBlock { Text = value, FontSize = size, FontWeight = bold ? FontWeights.SemiBold : FontWeights.Normal,
+            TextWrapping = TextWrapping.Wrap, TextTrimming = TextTrimming.CharacterEllipsis, Margin = new Thickness(0, 2, 0, 0) };
+        text.SetResourceReference(TextBlock.ForegroundProperty, brush);
+        return text;
+    }
+
     private void EnsureWindow()
     {
         if (_window != null) return;
         _surface = new Grid { IsHitTestVisible = false };
-        _ring = new Ellipse { StrokeThickness = 1.5, Margin = new Thickness(3), RenderTransformOrigin = new Point(.5, .5) };
-        _glyph = new TextBlock { FontWeight = FontWeights.SemiBold, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
-        _badge = new Border
-        {
-            HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center,
-            Background = new SolidColorBrush(Color.FromArgb(236, 23, 28, 32)),
-            BorderThickness = new Thickness(1), Child = _glyph,
-        };
-        _badge.SetResourceReference(Border.BackgroundProperty, "OverlayBackgroundBrush");
-        var icon = new Grid { VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 12, 0) };
-        icon.Children.Add(_ring);
-        icon.Children.Add(_badge);
-        _details = new StackPanel
-        {
-            VerticalAlignment = VerticalAlignment.Center,
-            HorizontalAlignment = HorizontalAlignment.Stretch,
-        };
-        // Explicit flexible text column, rather than DockPanel intrinsic width
-        // collapsing wrapped TextBlocks to a near-vertical letter stack.
-        var content = new Grid();
-        content.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-        content.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-        Grid.SetColumn(icon, 0);
-        Grid.SetColumn(_details, 1);
-        content.Children.Add(icon);
-        content.Children.Add(_details);
-        _card = new Border
-        {
-            Background = Application.Current?.TryFindResource("OverlayBackgroundBrush") as Brush
-                ?? new SolidColorBrush(Color.FromArgb(245, 23, 28, 32)),
-            BorderBrush = new SolidColorBrush(Color.FromRgb(58, 70, 75)),
-            BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(10),
-            Padding = new Thickness(12), Child = content,
-        };
-        _card.SetResourceReference(Border.BackgroundProperty, "OverlayBackgroundBrush");
-        _card.SetResourceReference(Border.BorderBrushProperty, "BorderBrush");
+        _ring = new Border { BorderThickness = new Thickness(1.5), RenderTransformOrigin = new Point(.5, .5), Opacity = 0 };
+        _card = new Border { CornerRadius = new CornerRadius(12) };
+        _surface.Children.Add(_ring);
         _surface.Children.Add(_card);
         _window = new Window
         {
@@ -373,8 +374,7 @@ internal sealed class ClipNotificationOverlay : IDisposable
             _ring.BeginAnimation(UIElement.OpacityProperty, null);
             _ring.RenderTransform = null;
         }
-        _details?.Children.Clear();
-        if (_badge != null) _badge.Child = _glyph;
+        if (_card != null) _card.Child = null;
     }
 
     public void Dispose()
