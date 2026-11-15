@@ -106,7 +106,7 @@ public partial class App : Application
             return;
         }
         if (AppProfile.IsPersonal && args.Contains("--reset-theme", StringComparer.OrdinalIgnoreCase)) ResetTheme();
-        bool tray = args.Contains("--tray") || (windowsStartup && AppSettings.Current.MinimizeToTray);
+        bool tray = args.Contains("--tray") || (windowsStartup && AppSettings.Current.StartInTray);
         string? file = args.FirstOrDefault(a => !a.StartsWith("--", StringComparison.Ordinal));
 #if DEBUG
         // Test runs: point clips at a scratch folder without touching the saved settings.

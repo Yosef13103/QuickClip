@@ -33,6 +33,14 @@ public sealed class SettingsRailTests
                     Assert.True(section.IsEnabled);
                 }
                 Assert.True(view.SectionsColumn.Width.Value > 0);
+                Assert.Equal(new Thickness(0), view.SettingsSidebar.BorderThickness);
+                var toggle = new CheckBox { Style = (Style)view.FindResource("SwitchCheckBox"), Content = "Test" };
+                toggle.ApplyTemplate();
+                var thumb = Assert.IsType<System.Windows.Shapes.Ellipse>(toggle.Template.FindName("SwitchThumb", toggle));
+                Assert.True(toggle.Focusable);
+                Assert.Equal(HorizontalAlignment.Left, thumb.HorizontalAlignment);
+                toggle.IsChecked = true;
+                Assert.Equal(HorizontalAlignment.Right, thumb.HorizontalAlignment);
                 completion.SetResult();
             }
             catch (Exception ex) { completion.SetException(ex); }

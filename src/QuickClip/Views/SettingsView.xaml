@@ -25,7 +25,7 @@
                 <Setter Property="Template">
                     <Setter.Value>
                         <ControlTemplate TargetType="CheckBox">
-                            <Border x:Name="MasterCard" Background="{DynamicResource ElevatedSurfaceBrush}" BorderBrush="{DynamicResource BorderBrush}"
+                            <Border x:Name="MasterCard" Background="{DynamicResource ElevatedSurfaceBrush}" BorderBrush="{DynamicResource DividerBrush}"
                                     BorderThickness="1" CornerRadius="9" Padding="15,13">
                                 <Grid>
                                     <Grid.ColumnDefinitions>
@@ -40,18 +40,19 @@
                                                    TextWrapping="Wrap" />
                                     </StackPanel>
                                     <Grid Grid.Column="1" Width="48" Height="26" VerticalAlignment="Center">
-                                        <Border x:Name="SwitchTrack" CornerRadius="13" Background="{DynamicResource DisabledBrush}" />
+                                        <Border x:Name="SwitchTrack" CornerRadius="13" Background="{DynamicResource SwitchOffBrush}" BorderBrush="{DynamicResource SwitchOutlineBrush}" BorderThickness="1" />
                                         <Ellipse x:Name="SwitchThumb" HorizontalAlignment="Left" Margin="4,0,0,0"
-                                                 VerticalAlignment="Center" Width="18" Height="18" Fill="{DynamicResource SwitchThumbBrush}" />
+                                                 VerticalAlignment="Center" Width="18" Height="18" Fill="{DynamicResource SwitchOffThumbBrush}" />
                                     </Grid>
                                 </Grid>
                             </Border>
                             <ControlTemplate.Triggers>
                                 <Trigger Property="IsChecked" Value="True">
                                     <Setter TargetName="SwitchTrack" Property="Background" Value="{DynamicResource AccentBrush}" />
+                                    <Setter TargetName="SwitchTrack" Property="BorderBrush" Value="{DynamicResource AccentBrush}" />
+                                    <Setter TargetName="SwitchThumb" Property="Fill" Value="{DynamicResource SwitchThumbBrush}" />
                                     <Setter TargetName="SwitchThumb" Property="HorizontalAlignment" Value="Right" />
                                     <Setter TargetName="SwitchThumb" Property="Margin" Value="0,0,4,0" />
-                                    <Setter TargetName="MasterCard" Property="BorderBrush" Value="{DynamicResource AccentBrush}" />
                                 </Trigger>
                                 <Trigger Property="IsMouseOver" Value="True">
                                     <Setter TargetName="MasterCard" Property="Background" Value="{DynamicResource SelectionBrush}" />
@@ -92,8 +93,8 @@
             <ColumnDefinition x:Name="SectionsColumn" Width="176" />
             <ColumnDefinition Width="*" />
         </Grid.ColumnDefinitions>
-        <Border Grid.Column="0" Background="{DynamicResource RailBrush}" BorderBrush="{DynamicResource BorderBrush}"
-                BorderThickness="1,0,1,0" Padding="8,16,8,16">
+        <Border x:Name="SettingsSidebar" Grid.Column="0" Background="{DynamicResource InternalSidebarBrush}"
+                BorderThickness="0" Padding="8,16,8,16">
             <!-- Left navigation uses comfortable centered spacing; shrink/scroll when DPI requires. -->
             <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled"
                           VerticalContentAlignment="Center" HorizontalContentAlignment="Stretch">
@@ -221,7 +222,7 @@
                         <ComboBox x:Name="ChannelCombo" Grid.Column="1" SelectionChanged="Channel_Changed" />
                     </Grid>
                     <TextBlock x:Name="ChannelHint" Style="{StaticResource Hint}" Margin="160,4,0,0" TextWrapping="Wrap" />
-                    <CheckBox x:Name="AutoUpdateCheck" Content="Check for updates automatically when QuickClip starts" Margin="0,12,0,0"
+                    <CheckBox Style="{StaticResource SwitchCheckBox}" x:Name="AutoUpdateCheck" Content="Check for updates automatically when QuickClip starts" Margin="0,12,0,0"
                               Checked="AutoUpdate_Changed" Unchecked="AutoUpdate_Changed" />
                 </StackPanel>
             </Border>
@@ -253,7 +254,8 @@
                             Margin="0,4,0,0" Click="GameDisplayConsent_Click" />
                     <Button x:Name="RevokeLegacyDisplayConsent" Visibility="Collapsed" HorizontalAlignment="Left"
                             Margin="0,4,0,0" Content="Revoke existing display permission" Click="RevokeLegacyDisplayConsent_Click" />
-                    <Button x:Name="ManualDesktopButton" Visibility="Collapsed" HorizontalAlignment="Left"
+                    <CheckBox Style="{StaticResource SwitchCheckBox}" x:Name="ManualDesktopButton" Visibility="Collapsed" HorizontalAlignment="Left"
+                            Content="Manual desktop capture" ToolTip="Requires explicit display permission before capture starts"
                             Margin="0,8,0,0" Click="ManualDesktop_Click" />
 
                     <Grid Style="{StaticResource Row}">
@@ -300,7 +302,7 @@
                                 <TextBox x:Name="CustomHeightBox" Grid.Column="2" MaxLength="10" ToolTip="Output height in pixels"
                                          AutomationProperties.Name="Output height" TextChanged="CustomDimension_Changed" />
                             </Grid>
-                            <CheckBox x:Name="LockOutputRatio" IsChecked="True" Margin="0,6,0,0">
+                            <CheckBox Style="{StaticResource SwitchCheckBox}" x:Name="LockOutputRatio" IsChecked="True" Margin="0,6,0,0">
                                 <TextBlock Text="Match capture area when editing one dimension" TextWrapping="Wrap" />
                             </CheckBox>
                             <TextBlock x:Name="CustomSizeHint" Style="{StaticResource Hint}" TextWrapping="Wrap" Margin="0,4,0,0" />
@@ -387,7 +389,7 @@
                         </ComboBox>
                     </Grid>
 
-                    <CheckBox x:Name="CursorCheck" Content="Show the mouse pointer" Margin="160,12,0,0" Checked="Changed" Unchecked="Changed" />
+                    <CheckBox Style="{StaticResource SwitchCheckBox}" x:Name="CursorCheck" Content="Show the mouse pointer" Margin="160,12,0,0" Checked="Changed" Unchecked="Changed" />
                     <TextBlock x:Name="RecorderStatus" Margin="0,12,0,0" Style="{StaticResource Hint}" />
                     <TextBlock Text="NVENC performance preset" Margin="0,12,0,4" />
                     <ComboBox x:Name="NvencPresetCombo" SelectionChanged="Changed" AutomationProperties.Name="NVENC performance preset" />
@@ -405,7 +407,7 @@
             <Border x:Name="DiagnosticsCard" Style="{StaticResource Card}">
                     <Expander x:Name="CaptureAdvanced" Header="Advanced Recording Diagnostics" Margin="0,12,0,0" Expanded="Diagnostics_Expanded">
                         <StackPanel Margin="0,10,0,0">
-                            <CheckBox x:Name="DiagnosticsCheck" Content="Sample recording timings (every 5 seconds)" Margin="0,10,0,0" Checked="Changed" Unchecked="Changed" />
+                            <CheckBox Style="{StaticResource SwitchCheckBox}" x:Name="DiagnosticsCheck" Content="Sample recording timings (every 5 seconds)" Margin="0,10,0,0" Checked="Changed" Unchecked="Changed" />
                             <TextBox x:Name="CaptureDiagnostics" IsReadOnly="True" TextWrapping="Wrap" Margin="0,10,0,0" />
                             <Button Content="Refresh diagnostics" Click="Diagnostics_Refresh" HorizontalAlignment="Left" Margin="0,8,0,0" />
                         </StackPanel>
@@ -416,7 +418,7 @@
             <Border x:Name="AudioCard" Style="{StaticResource Card}">
                 <StackPanel>
                     <TextBlock Text="Audio" Style="{StaticResource CardTitle}" />
-                    <CheckBox x:Name="EndpointModeCheck" Content="Record selected Windows audio devices"
+                    <CheckBox Style="{StaticResource SwitchCheckBox}" x:Name="EndpointModeCheck" Content="Record selected Windows audio devices"
                               Margin="0,8,0,0" Checked="EndpointMode_Changed" Unchecked="EndpointMode_Changed" />
                     <StackPanel x:Name="EndpointPanel" Visibility="Collapsed" Margin="0,8,0,0">
                         <TextBlock Style="{StaticResource Hint}" TextWrapping="Wrap"
@@ -463,11 +465,11 @@
                     <StackPanel x:Name="LegacyAudioPanel" Margin="0,8,0,0">
                         <TextBlock x:Name="AudioHint" Style="{StaticResource Hint}" TextWrapping="Wrap"
                                    Text="Clips get a separate track for each source, named in the editor, so you can set their volumes or merge them when exporting." />
-                        <CheckBox x:Name="SplitChatCheck" Margin="0,12,0,0" Checked="Changed" Unchecked="Changed">
+                        <CheckBox Style="{StaticResource SwitchCheckBox}" x:Name="SplitChatCheck" Margin="0,12,0,0" Checked="Changed" Unchecked="Changed">
                             <TextBlock Text="Put voice chat on its own track (Discord, TeamSpeak, Mumble, Teams, Zoom and more)" TextWrapping="Wrap" />
                         </CheckBox>
                         <TextBlock x:Name="ChatText" Margin="28,4,0,0" Style="{StaticResource Hint}" />
-                        <CheckBox x:Name="SplitMusicCheck" Margin="0,10,0,0" Checked="Changed" Unchecked="Changed">
+                        <CheckBox Style="{StaticResource SwitchCheckBox}" x:Name="SplitMusicCheck" Margin="0,10,0,0" Checked="Changed" Unchecked="Changed">
                             <TextBlock Text="Put music on its own track (Spotify, TIDAL, Apple Music, Deezer, Amazon Music and more)" TextWrapping="Wrap" />
                         </CheckBox>
                         <TextBlock x:Name="MusicText" Margin="28,4,0,0" Style="{StaticResource Hint}" />
@@ -477,7 +479,7 @@
                                 <ColumnDefinition Width="160" />
                                 <ColumnDefinition Width="*" />
                             </Grid.ColumnDefinitions>
-                            <CheckBox x:Name="MicCheck" Content="Microphone" VerticalAlignment="Top" Checked="Changed" Unchecked="Changed" />
+                            <CheckBox Style="{StaticResource SwitchCheckBox}" x:Name="MicCheck" Content="Microphone" VerticalAlignment="Top" Checked="Changed" Unchecked="Changed" />
                             <StackPanel Grid.Column="1">
                                 <!-- A row per microphone, filled in by the code -->
                                 <StackPanel x:Name="MicList" />
@@ -528,7 +530,7 @@
                     </Grid>
                     <TextBlock Style="{StaticResource Hint}" Margin="160,4,0,0" TextWrapping="Wrap"
                                Text="Smaller copies upload faster but look softer. Discord takes up to 10 MB without Nitro." />
-                    <CheckBox x:Name="MotionBlurCheck" Margin="0,10,0,0" Checked="Changed" Unchecked="Changed">
+                    <CheckBox Style="{StaticResource SwitchCheckBox}" x:Name="MotionBlurCheck" Margin="0,10,0,0" Checked="Changed" Unchecked="Changed">
                         <TextBlock Text="Smooth motion: blend the extra frames of clips over 60 fps (like 120 fps) into motion blur" TextWrapping="Wrap" />
                     </CheckBox>
                     <TextBlock Style="{StaticResource Hint}" Margin="28,2,0,0" TextWrapping="Wrap"
@@ -560,20 +562,20 @@
                             <Button Content="Reset scale" Click="ResetScale_Click" VerticalAlignment="Bottom" Margin="0,0,0,6" />
                         </WrapPanel>
                     </StackPanel>
-                    <CheckBox x:Name="StartupCheck" Content="Start QuickClip with Windows" Margin="0,10,0,0"
+                    <CheckBox Style="{StaticResource SwitchCheckBox}" x:Name="StartupCheck" Content="Start QuickClip with Windows" Margin="0,10,0,0"
                               Checked="Startup_Changed" Unchecked="Startup_Changed" />
                     <TextBlock x:Name="StartupHint" Style="{StaticResource Hint}" Margin="0,4,0,0" Visibility="Collapsed" />
-                    <CheckBox x:Name="ReplayAtStartupCheck" Content="Enable Instant Replay when QuickClip starts"
+                    <CheckBox Style="{StaticResource SwitchCheckBox}" x:Name="ReplayAtStartupCheck" Content="Enable Instant Replay when QuickClip starts"
                               Margin="0,8,0,0" Visibility="Collapsed" Checked="ReplayStartup_Changed" Unchecked="ReplayStartup_Changed" />
                     <TextBlock x:Name="ReplayAtStartupHint" Style="{StaticResource Hint}" Margin="0,4,0,0" Visibility="Collapsed"
                                Text="Applies next launch. QuickClip waits for an eligible game and uses your existing display permissions." />
-                    <CheckBox x:Name="MinTrayCheck" Content="Minimizing hides QuickClip to the tray" Margin="0,8,0,0" Checked="Changed" Unchecked="Changed" />
-                    <CheckBox x:Name="CloseTrayCheck" Margin="0,8,0,0" Checked="Changed" Unchecked="Changed">
+                    <CheckBox Style="{StaticResource SwitchCheckBox}" x:Name="StartTrayCheck" Content="Start in the tray when Windows starts QuickClip" Margin="0,8,0,0" Checked="Changed" Unchecked="Changed" />
+                    <CheckBox Style="{StaticResource SwitchCheckBox}" x:Name="CloseTrayCheck" Margin="0,8,0,0" Checked="Changed" Unchecked="Changed">
                         <TextBlock Text="Closing the window keeps QuickClip running in the tray" TextWrapping="Wrap" />
                     </CheckBox>
-                    <CheckBox x:Name="ConfirmDeleteCheck" Content="Confirm before sending clips to the Recycle Bin" Margin="0,8,0,0" Checked="Changed" Unchecked="Changed" />
+                    <CheckBox Style="{StaticResource SwitchCheckBox}" x:Name="ConfirmDeleteCheck" Content="Confirm before sending clips to the Recycle Bin" Margin="0,8,0,0" Checked="Changed" Unchecked="Changed" />
                     <WrapPanel Margin="0,8,0,0">
-                        <CheckBox x:Name="SoundCheck" Focusable="True" Content="Play a sound when a clip is saved" VerticalAlignment="Center" Checked="Changed" Unchecked="Changed" />
+                        <CheckBox Style="{StaticResource SwitchCheckBox}" x:Name="SoundCheck" Focusable="True" Content="Play a sound when a clip is saved" VerticalAlignment="Center" Checked="Changed" Unchecked="Changed" />
                         <Button Style="{StaticResource TextButton}" Content="Test sound" ToolTip="Hear the sound" Margin="10,0,0,0" VerticalAlignment="Center"
                                 Focusable="True" Click="PlayClipSound_Click" />
                     </WrapPanel>
@@ -602,23 +604,23 @@
                                   DropDownOpened="SoundOutputOpened" SelectionChanged="SoundOutputChanged" />
                         <TextBlock x:Name="SoundOutputStatus" Style="{StaticResource Hint}" Margin="0,4,0,0" AutomationProperties.LiveSetting="Polite" />
                     </StackPanel>
-                    <CheckBox x:Name="WindowsClipNotificationCheck" Content="Show Windows clip notifications"
+                    <CheckBox Style="{StaticResource SwitchCheckBox}" x:Name="WindowsClipNotificationCheck" Content="Show Windows clip notifications"
                               Margin="0,8,0,0" Click="ClipFeedback_Changed" />
 
                     <StackPanel x:Name="ClipOverlayPanel" Margin="0,12,0,0">
-                        <CheckBox x:Name="ClipNotificationsCheck" Content="Show clip notifications" Focusable="True" Click="ClipFeedback_Changed" />
+                        <CheckBox Style="{StaticResource SwitchCheckBox}" x:Name="ClipNotificationsCheck" Content="Show clip notifications" Focusable="True" Click="ClipFeedback_Changed" />
                         <TextBlock Text="Notification style" Style="{StaticResource FieldLabel}" />
                         <ComboBox x:Name="ClipNotificationModeCombo" AutomationProperties.Name="Notification style" SelectionChanged="ClipFeedback_Changed" />
                         <TextBlock Text="Windows controls placement of its notifications." Style="{StaticResource Hint}" Margin="0,4,0,0" />
                         <StackPanel x:Name="ClipEventsPanel" Margin="0,8,0,0">
                             <TextBlock Text="Notify me when" Style="{StaticResource FieldLabel}" />
                             <UniformGrid Columns="2">
-                                <CheckBox x:Name="ReplayEnabledNotice" Content="Instant replay is enabled" Focusable="True" Margin="0,0,12,4" Click="ClipFeedback_Changed" />
-                                <CheckBox x:Name="ClipSavedNotice" Content="A clip is saved" Focusable="True" Margin="0,0,12,4" Click="ClipFeedback_Changed" />
-                                <CheckBox x:Name="DesktopStartedNotice" Content="Desktop recording starts" Focusable="True" Margin="0,0,12,4" Click="ClipFeedback_Changed" />
-                                <CheckBox x:Name="DesktopStoppedNotice" Content="Desktop recording stops" Focusable="True" Margin="0,0,12,4" Click="ClipFeedback_Changed" />
-                                <CheckBox x:Name="SaveFailedNotice" Content="Saving fails" Focusable="True" Margin="0,0,12,4" Click="ClipFeedback_Changed" />
-                                <CheckBox x:Name="IdleSaveNotificationCheck" Content="Save Clip is pressed without active recording" Focusable="True" Margin="0,0,12,4" Click="ClipFeedback_Changed" />
+                                <CheckBox Style="{StaticResource SwitchCheckBox}" x:Name="ReplayEnabledNotice" Content="Instant replay is enabled" Focusable="True" Margin="0,0,12,4" Click="ClipFeedback_Changed" />
+                                <CheckBox Style="{StaticResource SwitchCheckBox}" x:Name="ClipSavedNotice" Content="A clip is saved" Focusable="True" Margin="0,0,12,4" Click="ClipFeedback_Changed" />
+                                <CheckBox Style="{StaticResource SwitchCheckBox}" x:Name="DesktopStartedNotice" Content="Desktop recording starts" Focusable="True" Margin="0,0,12,4" Click="ClipFeedback_Changed" />
+                                <CheckBox Style="{StaticResource SwitchCheckBox}" x:Name="DesktopStoppedNotice" Content="Desktop recording stops" Focusable="True" Margin="0,0,12,4" Click="ClipFeedback_Changed" />
+                                <CheckBox Style="{StaticResource SwitchCheckBox}" x:Name="SaveFailedNotice" Content="Saving fails" Focusable="True" Margin="0,0,12,4" Click="ClipFeedback_Changed" />
+                                <CheckBox Style="{StaticResource SwitchCheckBox}" x:Name="IdleSaveNotificationCheck" Content="Save Clip is pressed without active recording" Focusable="True" Margin="0,0,12,4" Click="ClipFeedback_Changed" />
                             </UniformGrid>
                         </StackPanel>
                         <StackPanel x:Name="ClipOverlayOptions" Margin="0,8,0,0" Visibility="Collapsed">
@@ -679,7 +681,7 @@
                                        Text="Visible over windowed and borderless games. Exclusive fullscreen and capture exclusion depend on Windows and the capture backend." />
                         </StackPanel>
                     </StackPanel>
-                    <CheckBox x:Name="ShellCheck" Margin="0,8,0,0" Checked="ShellCheck_Changed" Unchecked="ShellCheck_Changed">
+                    <CheckBox Style="{StaticResource SwitchCheckBox}" x:Name="ShellCheck" Margin="0,8,0,0" Checked="ShellCheck_Changed" Unchecked="ShellCheck_Changed">
                         <TextBlock Text="Add &quot;Edit with QuickClip&quot; to the right-click menu of video and audio files" TextWrapping="Wrap" />
                     </CheckBox>
 
@@ -711,7 +713,7 @@
                             <Button Content="Add existing folder…" Click="AddClipSource_Click" Margin="0,0,8,4" />
                             <Button Content="Remove from Gallery…" Click="RemoveClipSource_Click" Margin="0,0,8,4" />
                         </WrapPanel>
-                        <CheckBox x:Name="IndexLibraryCheck" Content="Index Gallery sources and store annotations in SQLite"
+                        <CheckBox Style="{StaticResource SwitchCheckBox}" x:Name="IndexLibraryCheck" Content="Index Gallery sources and store annotations in SQLite"
                                   Click="IndexLibrary_Click" Margin="0,0,0,10" />
                         <TextBlock Text="Clip filename template" />
                         <TextBox x:Name="FilenameTemplate" Margin="0,5,0,0" TextChanged="FilenameTemplate_Changed"

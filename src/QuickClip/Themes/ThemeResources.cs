@@ -7,7 +7,7 @@ namespace QuickClip.Themes;
 internal sealed class ThemeResources
 {
     private readonly ResourceDictionary _resources = new();
-    private readonly Dictionary<ThemeChoice, Dictionary<object, Brush>> _builtIns = [];
+    private readonly Dictionary<(ThemeChoice Choice, bool OverrideFluent), Dictionary<object, Brush>> _builtIns = [];
 
     internal void Attach(Application application) => application.Resources.MergedDictionaries.Add(_resources);
 
@@ -16,7 +16,7 @@ internal sealed class ThemeResources
         var choice = AppProfile.IsPersonal ? ThemeChoiceFrom(settings.Theme) : ThemeChoice.Dark;
         if (!AppProfile.IsPersonal)
         {
-            Apply(_resources, ThemeChoice.Dark);
+            Apply(_resources, ThemeChoice.Dark, overrideFluent: false);
             return;
         }
         ThemeDocument? custom = choice == ThemeChoice.Custom ? ReadSaved(settings.CustomThemeJson) : null;
@@ -37,11 +37,12 @@ internal sealed class ThemeResources
     internal void Apply(ResourceDictionary resources, ThemeChoice choice, IReadOnlyDictionary<ThemeColor, Color>? custom = null,
         bool overrideFluent = true)
     {
-        if (choice != ThemeChoice.Custom && !_builtIns.TryGetValue(choice, out _))
-            _builtIns.Add(choice, BrushesFor(ThemePalette.Get(choice), overrideFluent: choice != ThemeChoice.Dark));
+        var cacheKey = (choice, overrideFluent);
+        if (choice != ThemeChoice.Custom && !_builtIns.ContainsKey(cacheKey))
+            _builtIns.Add(cacheKey, BrushesFor(ThemePalette.Get(choice), overrideFluent));
         var brushes = choice == ThemeChoice.Custom
             ? BrushesFor(custom ?? ThemePalette.Get(ThemeChoice.Dark), overrideFluent)
-            : _builtIns[choice];
+            : _builtIns[cacheKey];
         foreach (object key in resources.Keys.Cast<object>().Except(brushes.Keys).ToArray()) resources.Remove(key);
         foreach (var (key, brush) in brushes)
             if (!ReferenceEquals(resources[key], brush)) resources[key] = brush;
@@ -83,10 +84,19 @@ internal sealed class ThemeResources
         Map(ThemeColor.Danger, "RecordingRed");
         brushes["ModalScrimBrush"] = Frozen(Color.FromArgb(140, 0, 0, 0));
         var danger = colors[ThemeColor.Danger];
-        brushes["DangerHoverBrush"] = Frozen(danger);
-        brushes["DangerPressedBrush"] = Frozen(danger);
+        // Move away from the chosen foreground to keep destructive states readable.
+        var dangerInk = ThemePalette.Contrast(danger, Colors.Black) >= ThemePalette.Contrast(danger, Colors.White)
+            ? Colors.Black : Colors.White;
+        var awayFromInk = dangerInk == Colors.Black ? Colors.White : Colors.Black;
+        brushes["DangerHoverBrush"] = Frozen(Blend(danger, awayFromInk, .12));
+        brushes["DangerPressedBrush"] = Frozen(Blend(danger, awayFromInk, .22));
         brushes["OnDangerBrush"] = OnColor(danger);
         brushes["SwitchThumbBrush"] = OnColor(colors[ThemeColor.Accent]);
+        brushes["SwitchHoverThumbBrush"] = OnColor(colors[ThemeColor.AccentHover]);
+        Map(ThemeColor.SecondaryText, "SwitchOffThumbBrush", "SwitchOutlineBrush");
+        Map(ThemeColor.ElevatedSurface, "SwitchOffBrush");
+        Map(ThemeColor.Surface, "InternalSidebarBrush");
+        brushes["DividerBrush"] = Frozen(Blend(colors[ThemeColor.Surface], colors[ThemeColor.Border], .38));
         // Semantic foregrounds are available to all palettes, including the legacy Dark and high-contrast paths.
         brushes["OnAccentBrush"] = OnColor(colors[ThemeColor.Accent]);
         brushes["OnAccentHoverBrush"] = OnColor(colors[ThemeColor.AccentHover]);
@@ -96,24 +106,29 @@ internal sealed class ThemeResources
             brushes["DangerHoverBrush"] = Frozen(Color.FromRgb(0xC3, 0x37, 0x44));
             brushes["DangerPressedBrush"] = Frozen(Color.FromRgb(0x8C, 0x22, 0x2C));
             brushes["OnDangerBrush"] = Brushes.White;
-            brushes["SwitchThumbBrush"] = Brushes.White;
         }
         if (!overrideFluent) return brushes;
 
         Map(ThemeColor.Background, "ApplicationBackgroundBrush", "WindowBackground");
         Map(ThemeColor.PrimaryText, "TextFillColorPrimaryBrush", "ToolTipForeground", "ToolTipForegroundBrush",
             "ComboBoxForeground", "ComboBoxItemForeground", "MenuFlyoutItemForeground", "ButtonForeground",
-            "TextBoxForeground", SystemColors.WindowTextBrushKey);
+            "TextBoxForeground", "ButtonForegroundPointerOver", "ButtonForegroundPressed",
+            "ComboBoxForegroundPointerOver", "ComboBoxForegroundPressed", "ComboBoxForegroundFocused",
+            "ComboBoxForegroundFocusedPressed", SystemColors.WindowTextBrushKey);
         Map(ThemeColor.SecondaryText, "TextFillColorSecondaryBrush", "TextFillColorTertiaryBrush", "ScrollBarThumbFill");
-        Map(ThemeColor.Disabled, "TextFillColorDisabledBrush", "AccentFillColorDisabledBrush");
-        Map(ThemeColor.Surface, "ControlFillColorDefaultBrush", "ComboBoxBackground", "TextBoxBackground");
+        Map(ThemeColor.Disabled, "TextFillColorDisabledBrush", "AccentFillColorDisabledBrush",
+            "ButtonForegroundDisabled", "ComboBoxForegroundDisabled");
+        Map(ThemeColor.Surface, "ControlFillColorDefaultBrush", "ComboBoxBackground", "TextBoxBackground", "ButtonBackground");
         Map(ThemeColor.ElevatedSurface, "ControlFillColorSecondaryBrush", "ControlFillColorInputActiveBrush",
             "ComboBoxDropDownBackground", "TextBoxBackgroundFocused", "ScrollBarTrackFill",
-            "ComboBoxItemBackground", "MenuFlyoutPresenterBackground", "MenuFlyoutItemBackground");
+            "ComboBoxItemBackground", "MenuFlyoutPresenterBackground", "MenuFlyoutItemBackground",
+            "ButtonBackgroundPointerOver", "ComboBoxBackgroundPointerOver");
         Map(ThemeColor.Selection, "ControlFillColorTertiaryBrush", "ComboBoxItemBackgroundSelected",
             "ComboBoxItemBackgroundPointerOver", "MenuFlyoutItemBackgroundPointerOver",
-            "MenuFlyoutItemBackgroundSelected", "ButtonBackgroundPointerOver", "ButtonBackgroundPressed");
-        Map(ThemeColor.Border, "ControlStrokeColorDefaultBrush", "ControlStrokeColorSecondaryBrush", "ToolTipBorderBrush");
+            "MenuFlyoutItemBackgroundSelected", "ButtonBackgroundPressed", "ComboBoxBackgroundPressed");
+        Map(ThemeColor.Border, "ControlStrokeColorDefaultBrush", "ControlStrokeColorSecondaryBrush", "ToolTipBorderBrush",
+            "ButtonBorderBrush", "ButtonBorderBrushPointerOver", "ButtonBorderBrushPressed",
+            "ComboBoxBorderBrush", "ComboBoxBorderBrushPointerOver", "ComboBoxBorderBrushPressed");
         Map(ThemeColor.OverlayBackground, "ToolTipBackground", "ToolTipBackgroundBrush");
         Map(ThemeColor.Accent, "AccentFillColorDefaultBrush", "AccentFillColorSelectedTextBackgroundBrush",
             "AccentButtonBackground", "SliderThumbFill", "SliderThumbFillPointerOver",
@@ -126,6 +141,11 @@ internal sealed class ThemeResources
             OnColor(colors[ThemeColor.AccentHover]);
         return brushes;
     }
+
+    private static Color Blend(Color from, Color to, double amount) => Color.FromRgb(
+        (byte)Math.Round(from.R + (to.R - from.R) * amount),
+        (byte)Math.Round(from.G + (to.G - from.G) * amount),
+        (byte)Math.Round(from.B + (to.B - from.B) * amount));
 
     private static Brush OnColor(Color background) => ThemePalette.Contrast(background, Colors.Black) >=
         ThemePalette.Contrast(background, Colors.White) ? Brushes.Black : Brushes.White;

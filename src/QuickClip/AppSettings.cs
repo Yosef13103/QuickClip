@@ -96,7 +96,7 @@ internal sealed class AppSettings
     public bool? EnableReplayOnStartup { get; set; }
     public string? Theme { get; set; }
     public string? CustomThemeJson { get; set; }
-    public bool MinimizeToTray { get; set; } = true;
+    public bool StartInTray { get; set; } = true;
     public bool CloseToTray { get; set; } = true;
 
     internal void ApplyReplayStartupPreference()
@@ -148,6 +148,17 @@ internal sealed class AppSettings
     internal static AppSettings Parse(string json)
     {
         var settings = JsonSerializer.Deserialize<AppSettings>(json, JsonOptions) ?? new AppSettings();
+        // V1 shared a preference between minimizing and Windows startup. Only
+        // the startup behavior survives; the newer key takes precedence.
+        using (var legacy = JsonDocument.Parse(json))
+        {
+            var root = legacy.RootElement;
+            if (root.ValueKind == JsonValueKind.Object &&
+                !root.TryGetProperty(nameof(StartInTray), out _) &&
+                root.TryGetProperty("MinimizeToTray", out var oldTray) &&
+                oldTray.ValueKind is JsonValueKind.True or JsonValueKind.False)
+                settings.StartInTray = oldTray.GetBoolean();
+        }
         settings.Games = GameCatalogRuntime.RestoreSavedScan(settings.Games);
         if (AppProfile.IsPersonal && settings.HotkeyKey == 0x79)
         {

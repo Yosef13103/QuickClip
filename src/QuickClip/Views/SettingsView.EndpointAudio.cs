@@ -96,6 +96,7 @@ public partial class SettingsView
             row.Children.Add(actions);
 
             var enabled = new CheckBox { IsChecked = track.Enabled, VerticalAlignment = VerticalAlignment.Center, ToolTip = "Record this device" };
+            enabled.SetResourceReference(FrameworkElement.StyleProperty, "SwitchCheckBox");
             AutomationProperties.SetName(enabled, $"Record {FlowName(track.Flow)} track {caption}");
             enabled.Checked += (_, _) => UpdateEndpoint(track, t => t with { Enabled = true });
             enabled.Unchecked += (_, _) => UpdateEndpoint(track, t => t with { Enabled = false });

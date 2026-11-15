@@ -245,7 +245,7 @@ public partial class SettingsView : UserControl
 
             ShowHotkeys();
             RefreshStartupSettings(s);
-            MinTrayCheck.IsChecked = s.MinimizeToTray;
+            StartTrayCheck.IsChecked = s.StartInTray;
             CloseTrayCheck.IsChecked = s.CloseToTray;
             SoundCheck.IsChecked = s.ClipSound;
             ConfirmDeleteCheck.IsChecked = s.ConfirmClipDeletion;
@@ -328,8 +328,7 @@ public partial class SettingsView : UserControl
                     ? settings.PreferGameWindow ? " Your existing permission covers one display." : " Your previous settings disabled automatic capture. Allow game display following to start it."
                     : " Game display permission is required.");
             ManualDesktopButton.IsEnabled = settings.RecordingEnabled;
-            ManualDesktopButton.Content = Recorder.Instance.ManualDesktopRequested
-                ? "Stop manual desktop capture" : "Start manual desktop capture…";
+            ManualDesktopButton.IsChecked = Recorder.Instance.ManualDesktopRequested;
             return;
         }
         CaptureTargetHint.Text = gameWindow
@@ -466,8 +465,13 @@ public partial class SettingsView : UserControl
         _ = Recorder.Instance.ApplySettingsAsync();
     }
 
-    private void ManualDesktop_Click(object sender, RoutedEventArgs e) =>
+    private void ManualDesktop_Click(object sender, RoutedEventArgs e)
+    {
+        // The existing consent flow and recorder state, not the clicked visual, are authoritative.
+        ManualDesktopButton.IsChecked = Recorder.Instance.ManualDesktopRequested;
         App.Host?.ToggleManualDesktop(Recorder.Instance);
+        ShowGameWindowState();
+    }
 
     private void Changed(object sender, RoutedEventArgs e)
     {
@@ -500,7 +504,7 @@ public partial class SettingsView : UserControl
         s.MicDeviceIds = SelectedMics;
         s.SeparateMicTracks = MicTracksCombo.SelectedItem is Choice { Value: true };
         UpdateMicControls();
-        s.MinimizeToTray = MinTrayCheck.IsChecked == true;
+        s.StartInTray = StartTrayCheck.IsChecked == true;
         s.CloseToTray = CloseTrayCheck.IsChecked == true;
         s.ClipSound = SoundCheck.IsChecked == true;
         s.ConfirmClipDeletion = ConfirmDeleteCheck.IsChecked == true;
@@ -508,7 +512,7 @@ public partial class SettingsView : UserControl
         s.Save();
 
         UpdateEstimates();
-        bool recordingSetting = sender != MinTrayCheck && sender != CloseTrayCheck && sender != SoundCheck
+        bool recordingSetting = sender != StartTrayCheck && sender != CloseTrayCheck && sender != SoundCheck
                                 && sender != MotionBlurCheck && sender != ConfirmDeleteCheck;
         if (sender == RecordingCheck || sender == SourceCombo)
         {

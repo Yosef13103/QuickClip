@@ -57,7 +57,7 @@ public sealed class GamesSettingsViewTests
         Assert.Equal("Manual · Game · enabled", first.Summary);
         var container = Assert.IsType<ListBoxItem>(page.Games.ItemContainerGenerator.ContainerFromIndex(0));
         double collapsedHeight = container.ActualHeight;
-        var capture = Descendants<Button>(container).Single(button =>
+        var capture = Descendants<CheckBox>(container).Single(button =>
             AutomationProperties.GetName(button).StartsWith("Disable automatic targeting", StringComparison.Ordinal));
         Assert.True(capture.Focusable);
         Assert.Equal($"Disable automatic targeting for {first.Entry.DisplayName}", capture.ToolTip);

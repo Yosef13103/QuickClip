@@ -85,10 +85,10 @@ public partial class MainWindow : Window
         StateChanged += (_, _) =>
         {
             if (WindowState != WindowState.Minimized) return;
-            // Coming back from the taskbar or the tray then shows the ordinary window.
+            // Normal minimize keeps the WPF tree and native video HWND alive.
+            // The Editor already queues a native repaint on restoration.
             _editor?.ExitFullscreen();
             SetFullScreen(false);
-            if (AppSettings.Current.MinimizeToTray) Hide();
         };
     }
 
