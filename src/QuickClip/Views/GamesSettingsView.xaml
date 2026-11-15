@@ -22,12 +22,26 @@
             <TextBlock Text="Automatic scans refresh enabled sources. You can pause and resume a scan here." TextWrapping="Wrap" Style="{StaticResource Hint}" />
             <Expander Header="Game libraries and launchers" Margin="0,6,0,6">
                 <StackPanel>
-                    <WrapPanel>
-                        <CheckBox x:Name="SteamDiscovery" Content="Steam auto-discovery" Click="Provider_Click" Margin="0,0,10,0" />
-                        <CheckBox x:Name="EpicDiscovery" Content="Epic" Click="Provider_Click" Margin="0,0,10,0" />
-                        <CheckBox x:Name="GogDiscovery" Content="GOG" Click="Provider_Click" />
-                    </WrapPanel>
-                    <TextBlock x:Name="GogStatus" Style="{StaticResource Hint}" />
+                    <ListBox x:Name="Launchers" MaxHeight="180" AutomationProperties.Name="Game launchers">
+                        <ListBox.ItemContainerStyle>
+                            <Style TargetType="ListBoxItem" BasedOn="{StaticResource {x:Type ListBoxItem}}">
+                                <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                            </Style>
+                        </ListBox.ItemContainerStyle>
+                        <ListBox.ItemTemplate>
+                            <DataTemplate>
+                                <DockPanel Margin="2">
+                                    <Button DockPanel.Dock="Right" Content="Refresh" Click="RefreshLauncher_Click"
+                                            IsEnabled="{Binding CanRefresh}" AutomationProperties.Name="{Binding RefreshName}" />
+                                    <CheckBox DockPanel.Dock="Left" Content="{Binding Name}" Click="Provider_Click"
+                                              IsChecked="{Binding Enabled, Mode=OneWay}" IsEnabled="{Binding Supported}"
+                                              MinWidth="160" VerticalAlignment="Center" />
+                                    <TextBlock Text="{Binding Status}" Style="{StaticResource Hint}"
+                                               VerticalAlignment="Center" TextWrapping="Wrap" Margin="6,0" />
+                                </DockPanel>
+                            </DataTemplate>
+                        </ListBox.ItemTemplate>
+                    </ListBox>
                     <ListBox x:Name="Roots" MaxHeight="105" AutomationProperties.Name="Approved folders" />
                     <WrapPanel Margin="0,5,0,0">
                         <Button Content="Approve Steam library…" Click="Steam_Click" Margin="0,0,6,0" />

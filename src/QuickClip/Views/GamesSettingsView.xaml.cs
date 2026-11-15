@@ -11,6 +11,12 @@ namespace QuickClip.Views;
 
 public partial class GamesSettingsView : UserControl
 {
+    private sealed record LauncherRow(CatalogSource Source, string Name, bool Enabled, bool Supported, string Status)
+    {
+        public bool CanRefresh => Enabled && Supported;
+        public string RefreshName => $"Refresh {Name}";
+    }
+
     private sealed record RootRow(string Path, bool Steam, bool Automatic = false, bool Excluded = false, bool Epic = false,
         string? Key = null, string? Status = null)
     {
@@ -22,6 +28,7 @@ public partial class GamesSettingsView : UserControl
     private bool _rendering;
     private GameCatalogSettings? _renderedState;
     private List<GameRow> _rows = [];
+    private LauncherRow[] _launchers = [];
     private ListCollectionView? _gamesView;
     private int _uniqueCount, _manualCount, _retainedCount, _offlineCount;
     private GameRow? _expanded;
@@ -72,11 +79,23 @@ public partial class GamesSettingsView : UserControl
 
     private void Provider_Click(object sender, RoutedEventArgs e)
     {
+        if (sender is not CheckBox { DataContext: LauncherRow { Supported: true } row } box) return;
+        bool enabled = box.IsChecked == true;
         var state = State;
-        if (sender == SteamDiscovery) state = state with { DiscoverSteam = SteamDiscovery.IsChecked == true };
-        if (sender == EpicDiscovery) state = state with { DiscoverEpic = EpicDiscovery.IsChecked == true };
-        if (sender == GogDiscovery) state = state with { DiscoverGog = GogDiscovery.IsChecked == true };
-        SetState(state);
+        SetState(row.Source switch
+        {
+            CatalogSource.Steam => state with { DiscoverSteam = enabled },
+            CatalogSource.Epic => state with { DiscoverEpic = enabled },
+            CatalogSource.Gog => state with { DiscoverGog = enabled },
+            _ => state with { EnabledLaunchers = enabled
+                ? state.EnabledLaunchers.Add(row.Source) : state.EnabledLaunchers.Remove(row.Source) },
+        });
+    }
+
+    private async void RefreshLauncher_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is Button { DataContext: LauncherRow { CanRefresh: true } row })
+            await Discovery.RequestAsync(manual: true, sourceKey: new CatalogScope(row.Source).Key);
     }
 
     private void ToggleSource_Click(object sender, RoutedEventArgs e)
@@ -401,7 +420,12 @@ public partial class GamesSettingsView : UserControl
     private void SaveRules(CatalogEntry entry, CatalogRules rules)
     {
         var request = State.Request;
-        var overrides = request.Overrides.RemoveAll(item => item.Id == entry.Id).Add(new(entry.Id, rules));
+        var prior = request.Overrides.LastOrDefault(item => item.Id == entry.Id);
+        var overrides = request.Overrides.RemoveAll(item => item.Id == entry.Id).Add(new(entry.Id, rules)
+        {
+            DeniedExecutables = rules.Inclusion == CatalogInclusion.Exclude
+                ? [.. (prior?.DeniedExecutables ?? []).Concat(entry.Executables).Distinct(StringComparer.OrdinalIgnoreCase)] : [],
+        });
         if (entry.Rules.Inclusion != rules.Inclusion)
             overrides = [.. overrides.Select(item => entry.AliasIds.Contains(item.Id) ?
                 item with { Rules = item.Rules with { Inclusion = rules.Inclusion } } : item)];
@@ -423,19 +447,40 @@ public partial class GamesSettingsView : UserControl
         _renderedState = AppSettings.Current.Games;
         var state = _renderedState ?? new();
         AutoScan.IsChecked = state.AutoScan;
-        SteamDiscovery.IsChecked = state.DiscoverSteam ?? state.AutoScan;
-        EpicDiscovery.IsChecked = state.DiscoverEpic ?? state.AutoScan;
-        GogDiscovery.IsChecked = state.DiscoverGog;
         var claims = (state.SourceClaims ?? []).ToDictionary(claim => claim.Scope.Key, StringComparer.Ordinal);
         string DescribeSource(string key)
         {
             if (state.DisabledSourceKeys.Contains(key)) return "Disabled";
             if (!claims.TryGetValue(key, out var claim)) return "Awaiting scan";
-            if (claim.Verified) return $"{claim.Result.Entries.Length:N0} discovered";
-            return claim.Result.Issues.Any(issue => issue.Kind == CatalogIssueKind.SourceMissing)
-                ? "Source missing" : "Incomplete · cached results retained";
+            var issues = claim.Result.Issues;
+            string count = $"{claim.DiscoveredCount ?? claim.Result.Entries.Length:N0} found";
+            if (claim.Verified && claim.Scope.Kind == CatalogSource.Steam && claim.Scope.Root == null &&
+                claim.Result.SteamLibraries.IsEmpty) return "No local library found";
+            if (claim.Verified) return $"Available · {count}";
+            if (issues.Any(issue => issue.Kind == CatalogIssueKind.Unavailable) || claim.Result.SourceUnavailable)
+                return $"Inaccessible or offline · {count}";
+            if (issues.Any(issue => issue.Kind == CatalogIssueKind.SourceMissing) &&
+                issues.All(issue => issue.Kind is CatalogIssueKind.SourceMissing or CatalogIssueKind.ReparsePoint))
+                return "No local library found";
+            return $"Incomplete · {count}";
         }
-        GogStatus.Text = state.DiscoverGog ? $"GOG · {DescribeSource(new CatalogScope(CatalogSource.Gog).Key)}" : "GOG · Disabled";
+        var enabled = CatalogScope.Enabled(state).Select(scope => scope.Key).ToHashSet(StringComparer.Ordinal);
+        LauncherRow[] launchers = new[]
+        {
+            CatalogSource.Steam, CatalogSource.Epic, CatalogSource.Gog, CatalogSource.Xbox, CatalogSource.Ea, CatalogSource.Riot,
+            CatalogSource.BattleNet, CatalogSource.Ubisoft, CatalogSource.Rockstar, CatalogSource.Heroic, CatalogSource.Origin,
+            CatalogSource.Amazon, CatalogSource.Itch,
+        }.Select(source =>
+        {
+            string key = new CatalogScope(source).Key;
+            bool supported = source is CatalogSource.Steam or CatalogSource.Epic or CatalogSource.Gog || LocalLaunchers.IsSupported(source);
+            bool active = enabled.Contains(key);
+            return new LauncherRow(source, LocalLaunchers.Name(source), active, supported,
+                !supported ? "Unsupported" : active ? DescribeSource(key) : "Disabled");
+        }).Concat([
+            new LauncherRow(CatalogSource.Manual, "Other Microsoft Store installs", false, false, "Unsupported · Add Game for accessible executables"),
+        ]).ToArray();
+        if (!_launchers.SequenceEqual(launchers)) Launchers.ItemsSource = _launchers = launchers;
         RootRow[] epic = state.Snapshot?.EpicManifestDirectory is { } manifestDirectory &&
             !state.Request.ExcludedDirectories.Any(root => CatalogPaths.IsWithin(manifestDirectory, root))
             ? [new(manifestDirectory, Steam: false, Automatic: true, Epic: true)] : [];
@@ -462,7 +507,7 @@ public partial class GamesSettingsView : UserControl
         var entries = GameCatalogRuntime.Rows(state);
         var offline = entries.Where(entry => entry.IsUnverified).Select(entry => entry.Id)
             .Concat(state.OfflineIds).ToHashSet(StringComparer.Ordinal);
-        var catalog = new GameCatalogIndex(new(entries, [], 0, false, default), state.BlockedExecutables);
+        var catalog = new GameCatalogIndex(new(entries, [], 0, false, default), CatalogClaims.BlockedExecutables(state));
         var retained = entries.Where(entry => entry.IsUnverified || !entry.UnverifiedExecutables.IsEmpty)
             .Select(entry => entry.Id).Concat(state.RetainedIds).ToHashSet(StringComparer.Ordinal);
         _manualCount = entries.Count(entry => entry.Source == CatalogSource.Manual);
