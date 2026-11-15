@@ -1,0 +1,549 @@
+{
+  "schema_version": 1,
+  "active_wave": 2,
+  "baseline_snapshot": "6de4ad684f4268b685c630d639977c439bf557ed",
+  "selected_milestone": "discovery",
+  "note": "Design only; no feature task dispatched. Exact gate semantics see .ai/README.md and QUALITY Q4. Local dependencies can run on candidate code; N/A satisfies dependency only with recorded reason and owner approval where scope is deferred. Hardware pending does not satisfy closure. All required relevant CI/review/hardware gates enforced by W2-Z, irrespective of local-only dependency edges.",
+  "tasks": [
+    {
+      "id": "W2-A",
+      "title": "Discovery-focused baseline and preflight",
+      "kind": "audit",
+      "depends_on": [],
+      "read": [
+        "QUALITY Q1/Q3",
+        "DISCOVERY D1–D3",
+        "REGRESSIONS discovery rows"
+      ],
+      "scope": [
+        "Verify current source and exact baseline, identify current scan/eligibility/selection/persistence tests and relevant past fixes. Capture cheap isolated idle/armed baseline if possible; preserve baseline SHA for later measurement. No full legacy audit or broad feature work."
+      ],
+      "acceptance": [
+        "Map relevant symbols + current behavior; baseline candidate and tests known; classify old discovery symptoms with evidence/gaps."
+      ],
+      "effort": "high",
+      "status": "not_started",
+      "candidate": null,
+      "gates": {
+        "local": "pending",
+        "ci": "not_applicable",
+        "review": "pending",
+        "hardware": "not_applicable"
+      },
+      "evidence": [],
+      "blocker": null,
+      "next_action": null
+    },
+    {
+      "id": "W2-G1",
+      "title": "Authorized games actually activate",
+      "kind": "implementation",
+      "depends_on": [
+        {
+          "task": "W2-A",
+          "gate": "local"
+        }
+      ],
+      "read": [
+        "DISCOVERY D1",
+        "PRODUCT Capture and platform"
+      ],
+      "scope": [
+        "Current catalog index has exact approval/renderer candidate checks; GameCatalogService scores renderer evidence. Explicitly authorized game folders must allow legitimate executables without per-EXE confidence/no-renderer approval blockade. Exact manual EXE approvals work reliably.",
+        "Keep live verified HWND/PID, install identity, launcher/helper/crash reporter/installer discrimination, explicit disabled/excluded overrides, display grant and capture policy. Avoid generic Update.exe or basename collisions; do not execute discovered files."
+      ],
+      "acceptance": [
+        "Exact selected EXE not vetoed by renderer evidence; legitimate approved folder game eligible without another approval; helper/disabled/ambiguous and unauthorized monitor denied; stable explicit identity. Focused positive/negative fixtures."
+      ],
+      "effort": "high",
+      "status": "not_started",
+      "candidate": null,
+      "gates": {
+        "local": "pending",
+        "ci": "pending",
+        "review": "pending",
+        "hardware": "pending"
+      },
+      "evidence": [],
+      "blocker": null,
+      "next_action": null
+    },
+    {
+      "id": "W2-G2",
+      "title": "Game arbitration and source transitions",
+      "kind": "implementation",
+      "depends_on": [
+        {
+          "task": "W2-G1",
+          "gate": "local"
+        }
+      ],
+      "read": [
+        "DISCOVERY D2",
+        "REGRESSIONS arbitration"
+      ],
+      "scope": [
+        "Fix sticky first-game selection only if current defect reproduced; foreground eligible game wins over prior game, non-game focus retains selected valid game; ensure source/permission/epoch correctness and liveness."
+      ],
+      "acceptance": [
+        "Nidhogg/tModLoader equivalent two-game fixtures, alt-tab to companion, close/reopen, display move/exclude, recovery and stale PID; no surprise capture."
+      ],
+      "effort": "high",
+      "status": "not_started",
+      "candidate": null,
+      "gates": {
+        "local": "pending",
+        "ci": "pending",
+        "review": "pending",
+        "hardware": "pending"
+      },
+      "evidence": [],
+      "blocker": null,
+      "next_action": null
+    },
+    {
+      "id": "W2-G3",
+      "title": "Incremental library and scan correctness",
+      "kind": "implementation",
+      "depends_on": [
+        {
+          "task": "W2-G1",
+          "gate": "local"
+        }
+      ],
+      "read": [
+        "DISCOVERY D3/D5"
+      ],
+      "scope": [
+        "Per-source add/remove/enable/refresh; dedup/provenance, cache, stable IDs/overrides/manual counts, cancellation, bounded resumable traversal. Keep working readers, no unrelated roots."
+      ],
+      "acceptance": [
+        "Two-root instrumented fixtures prove one-root mutation avoids global rescan; malformed/offline/partial results preserve valid cache; stale generations cannot resurrect removed grant; truthful counts and progress; large collections complete over slices."
+      ],
+      "effort": "high",
+      "status": "not_started",
+      "candidate": null,
+      "gates": {
+        "local": "pending",
+        "ci": "pending",
+        "review": "pending",
+        "hardware": "pending"
+      },
+      "evidence": [],
+      "blocker": null,
+      "next_action": null
+    },
+    {
+      "id": "W2-G4",
+      "title": "Provider decision (GameFinder vs direct readers)",
+      "kind": "research",
+      "depends_on": [
+        {
+          "task": "W2-A",
+          "gate": "local"
+        }
+      ],
+      "read": [
+        "RESEARCH Game providers",
+        "DISCOVERY D4"
+      ],
+      "scope": [
+        "Read-only research, existing Steam/Epic gaps; GOG first, Xbox and EA conditional, other launcher feasibility. ChatGPT research reusable. No install or source write required."
+      ],
+      "acceptance": [
+        "Per-provider source/pin/license/ACL/metadata/identity/error/dependency/test decision, approve subset before G5. Unsupported explicit."
+      ],
+      "effort": "medium",
+      "status": "not_started",
+      "candidate": null,
+      "gates": {
+        "local": "pending",
+        "ci": "not_applicable",
+        "review": "pending",
+        "hardware": "not_applicable"
+      },
+      "evidence": [],
+      "blocker": null,
+      "next_action": null
+    },
+    {
+      "id": "W2-G5",
+      "title": "Bounded launcher-provider additions",
+      "kind": "implementation",
+      "depends_on": [
+        {
+          "task": "W2-G1",
+          "gate": "local"
+        },
+        {
+          "task": "W2-G3",
+          "gate": "local"
+        },
+        {
+          "task": "W2-G4",
+          "gate": "local"
+        },
+        {
+          "task": "W2-G4",
+          "gate": "review"
+        }
+      ],
+      "read": [
+        "DISCOVERY D4/D5",
+        "RESEARCH Game providers"
+      ],
+      "scope": [
+        "Implement only owner-approved subset from G4, preserve Steam/Epic launch evidence; optional modular GOG baseline if approved, others conditional. No blanket launcher package or whole disk scans."
+      ],
+      "acceptance": [
+        "Per-provider parser and lookup fixtures, missing/malformed/offline/access errors, no automatic consent, correct stable IDs and UI coverage; pin/audit licenses/dependencies. Actual launcher checks when available."
+      ],
+      "effort": "high",
+      "status": "not_started",
+      "candidate": null,
+      "gates": {
+        "local": "pending",
+        "ci": "pending",
+        "review": "pending",
+        "hardware": "pending"
+      },
+      "evidence": [],
+      "blocker": null,
+      "next_action": null
+    },
+    {
+      "id": "W2-G6",
+      "title": "Integrated discovery candidate and owner validation",
+      "kind": "integration",
+      "depends_on": [
+        {
+          "task": "W2-G1",
+          "gate": "local"
+        },
+        {
+          "task": "W2-G2",
+          "gate": "local"
+        },
+        {
+          "task": "W2-G3",
+          "gate": "local"
+        },
+        {
+          "task": "W2-G4",
+          "gate": "review"
+        },
+        {
+          "task": "W2-G5",
+          "gate": "local"
+        }
+      ],
+      "read": [
+        "DISCOVERY D5",
+        "QUALITY Q2/Q5"
+      ],
+      "scope": [
+        "Integrate coherent discovery changes including only approved provider subset; G5 may be N/A with explicit owner deferral and reason. Review actual diff, both profiles, owner scenario script."
+      ],
+      "acceptance": [
+        "No unresolved discovery safety failures; full Personal/Upstream CI exact candidate, independent review, actual owner game/monitor and helper results or explicit pending."
+      ],
+      "effort": "high",
+      "status": "not_started",
+      "candidate": null,
+      "gates": {
+        "local": "pending",
+        "ci": "pending",
+        "review": "pending",
+        "hardware": "pending"
+      },
+      "evidence": [],
+      "blocker": null,
+      "next_action": null
+    },
+    {
+      "id": "W2-R1",
+      "title": "Broader historical defect reconciliation",
+      "kind": "audit",
+      "depends_on": [
+        {
+          "task": "W2-G6",
+          "gate": "local"
+        }
+      ],
+      "read": [
+        "REGRESSIONS",
+        "PRODUCT",
+        "QUALITY Q2/Q5"
+      ],
+      "scope": [
+        "Inspect v1.1.0 code, release notes, prior PR ancestry and tests; classify each historical issue: resolved, reproducible, partial, superseded, cannot reproduce, hardware unverified. Fix actual current defects, don't merge old branches or recreate already-shipped functionality.",
+        "Prioritize game eligibility and source switching; inventory audio/Sonar, actual replay duration and saves, markers, recovery/watchdog, memory, editor/gallery deletion and autosave, indexing, notifications, startup/hotkeys. Historical evidence list is a checklist, not current bug status."
+      ],
+      "acceptance": [
+        "Issue-by-issue classification and evidence; prioritize real defects, assign bounded fixes; do not redispatch shipped Wave 1 work."
+      ],
+      "effort": "high",
+      "status": "not_started",
+      "candidate": null,
+      "gates": {
+        "local": "pending",
+        "ci": "not_applicable",
+        "review": "pending",
+        "hardware": "not_applicable"
+      },
+      "evidence": [],
+      "blocker": null,
+      "next_action": null
+    },
+    {
+      "id": "W2-P",
+      "title": "Reproducible performance baseline",
+      "kind": "audit",
+      "depends_on": [
+        {
+          "task": "W2-A",
+          "gate": "local"
+        }
+      ],
+      "read": [
+        "QUALITY Q3"
+      ],
+      "scope": [
+        "Idle window visible/tray-hidden/armed, active game, replay length/quality, editor lifecycle, scanning, save latency, logger off/on. CPU, private bytes/working set, handles/threads, GPU 3D/Video Encode, VRAM, frame pacing, game FPS/1% lows, dropped frames, IO; repeat same settings and workload. Report exact variants/SHAs/hardware, don't invent numeric gains.",
+        "Old 565.7 MB idle and 800MB→1.2GB during capture are historical observations, not v1.1.0 baseline. Read benchmark scripts/methodology; replace obsolete preview branch with current release and appropriate comparison. Keep no-record/empty-profile baseline distinct from controlled active capture. Profile before optimizing/rewrite."
+      ],
+      "acceptance": [
+        "Matched idle/armed/game/editor/scan/save comparisons and metrics; no invented FPS/memory claims. Baseline measurements are evidence, not optimization approval."
+      ],
+      "effort": "high",
+      "status": "not_started",
+      "candidate": null,
+      "gates": {
+        "local": "pending",
+        "ci": "not_applicable",
+        "review": "pending",
+        "hardware": "pending"
+      },
+      "evidence": [],
+      "blocker": null,
+      "next_action": null
+    },
+    {
+      "id": "W2-R2",
+      "title": "Reproduced reliability defects only",
+      "kind": "implementation",
+      "depends_on": [
+        {
+          "task": "W2-R1",
+          "gate": "local"
+        },
+        {
+          "task": "W2-G6",
+          "gate": "local"
+        }
+      ],
+      "read": [
+        "REGRESSIONS",
+        "QUALITY Q2/Q5"
+      ],
+      "scope": [
+        "Split into small ledger child tasks with exact issue and paths if >1 coherent fix. Recovery/liveness, audio, saves/load, editor/gallery/index/notifications/hotkeys only where current defects evidenced. Separate native audio from unrelated frontend edits. No speculative fix."
+      ],
+      "acceptance": [
+        "Regression test or concrete evidence for each issue; owner hardware as relevant; record resolved/superseded/blocked. If no defects owner may mark N/A with evidence."
+      ],
+      "effort": "high",
+      "status": "not_started",
+      "candidate": null,
+      "gates": {
+        "local": "pending",
+        "ci": "pending",
+        "review": "pending",
+        "hardware": "pending"
+      },
+      "evidence": [],
+      "blocker": null,
+      "next_action": null
+    },
+    {
+      "id": "W2-D",
+      "title": "Live native replay ring duration changes",
+      "kind": "implementation",
+      "depends_on": [
+        {
+          "task": "W2-G6",
+          "gate": "local"
+        },
+        {
+          "task": "W2-R1",
+          "gate": "local"
+        }
+      ],
+      "read": [
+        "PRODUCT Capture and platform/Audio",
+        "QUALITY Q2/Q5",
+        "docs/replay-runtime-handoff.md"
+      ],
+      "scope": [
+        "Increase 60s→120s retains existing last minute and accumulates more, no new graph/session. Decrease 60s→30s immediately limits saves to 30s, evicts older history safely, no wipe. Save promptly after increase returns currently available duration.",
+        "Native encoded-packet ring runtime capacity API under existing locks: video/audio, keyframes/GOP, timestamp normalization, capture epoch, markers, metrics, caps, concurrent saves, multiple rapid settings changes and failure recovery. Do not simply suppress managed ApplySettingsAsync restart while native capacity stays old. Source/encoder changes may legitimately restart.",
+        "Preserve hybrid tracks and real measured duration. Historical PR #21 only measurement, not fix; inspect shipped state first."
+      ],
+      "acceptance": [
+        "Native synchronization/GOP+audio tests; 60→120 preserves previous minute and grows, 60→30 immediately caps and prunes, save during resize, rapid changes/markers/epoch/caps; no managed-only fake resize. Actual clip duration measured."
+      ],
+      "effort": "high (extra high only for isolated native race)",
+      "status": "not_started",
+      "candidate": null,
+      "gates": {
+        "local": "pending",
+        "ci": "pending",
+        "review": "pending",
+        "hardware": "pending"
+      },
+      "evidence": [],
+      "blocker": null,
+      "next_action": null
+    },
+    {
+      "id": "W2-L",
+      "title": "Unified opt-in categorical diagnostics",
+      "kind": "implementation",
+      "depends_on": [
+        {
+          "task": "W2-G6",
+          "gate": "local"
+        },
+        {
+          "task": "W2-R1",
+          "gate": "local"
+        },
+        {
+          "task": "W2-P",
+          "gate": "local"
+        }
+      ],
+      "read": [
+        "QUALITY Q3",
+        "PRODUCT Privacy and safety"
+      ],
+      "scope": [
+        "Categories Game detection, Capture/Encoder, Audio, Library/index, Settings, Editor, Updater, General; timestamps, severity (errors-only), category/all, search, copy/export, bounded history, visible auto-refresh. Separate timing sampling vs verbose event logging. Both default OFF; warn for testing/CPU/memory/disk use.",
+        "OFF: no eager formatted strings, event allocation, timing, verbose queue/buffer/worker/timer/disk writes. Cheap early branch only; no literal-zero-instructions promise. Release optional resources on disable. ON: bounded batched queue/UI, throttled IO, no frame spam, privacy-safe export. Preserve appropriate essential crash/error reporting separately; do not merely hide existing worker output.",
+        "Existing Util.cs Log uses BlockingCollection (10,000), writer thread, timestamped messages, batches to quickclip.log, rotates >2MB at startup. Audit managed and native call sites. Wave 1 timing panel is NOT this implementation. Benchmark off baseline/disabled vs enabled including CPU, allocated bytes, memory, disk IO and FPS."
+      ],
+      "acceptance": [
+        "Off path only cheap guard/essential failures; no optional allocation/formatting/worker/timer/queue/disk; enabled bounded batched UI and safe export, categories/severity/search; separate timing toggle. OFF/ON benchmark incl allocations, CPU, IO/FPS."
+      ],
+      "effort": "high",
+      "status": "not_started",
+      "candidate": null,
+      "gates": {
+        "local": "pending",
+        "ci": "pending",
+        "review": "pending",
+        "hardware": "pending"
+      },
+      "evidence": [],
+      "blocker": null,
+      "next_action": null
+    },
+    {
+      "id": "W2-U",
+      "title": "Safe stable-only Personal install and recovery",
+      "kind": "implementation",
+      "depends_on": [
+        {
+          "task": "W2-G6",
+          "gate": "local"
+        },
+        {
+          "task": "W2-R1",
+          "gate": "local"
+        }
+      ],
+      "read": [
+        "QUALITY Q1/Q2",
+        "PRODUCT Additional compatibility invariants"
+      ],
+      "scope": [
+        "Wave 1 already uses Yosef13103/QuickClip public stable release feed, exact personal-vX.Y.Z tags, exact Personal EXE/ZIP names, GitHub asset SHA256 digest mandatory, exact lengths, verified staged downloads, checks at startup (~20s) and daily/manual, General UI + release notes. Fresh automatic check on, existing opt-outs respected. Development/debug/isolated profiles disabled. Upstream profile isolated.",
+        "Production currently downloads and opens Explorer for explicit manual installation; inherited automatic install/swap intentionally disabled for Personal. Remaining work: safe staging, verify package/provenance, wait actual exit, explicit install approval, no interruption of capture/export, safe ZIP extraction against traversal/reparse, isolate install roots, atomic replacement where feasible, rollback/recovery, installer/portable handling, preserve data. Test offline/rate limit, wrong profile, missing digest/mismatch, failure/interruption and upgrades.",
+        "Stable only. Owner does NOT intend unfinished releases/nightlies. Do not build nightly workflow or silently downgrade. Keep stable publish user-approved and quality gated."
+      ],
+      "acceptance": [
+        "Existing verified feed reused. Wrong asset/profile, missing/mismatched digest, interruption, staging/traversal/reparse, wait process exit, active capture/export, installer and portable rollback/recovery tests; scratch/actual authorized upgrade. No nightly channel or unsolicited install."
+      ],
+      "effort": "high",
+      "status": "not_started",
+      "candidate": null,
+      "gates": {
+        "local": "pending",
+        "ci": "pending",
+        "review": "pending",
+        "hardware": "pending"
+      },
+      "evidence": [],
+      "blocker": null,
+      "next_action": null
+    },
+    {
+      "id": "W2-Z",
+      "title": "Wave 2 integrated candidate closure",
+      "kind": "integration",
+      "depends_on": [
+        {
+          "task": "W2-G6",
+          "gate": "local"
+        },
+        {
+          "task": "W2-R1",
+          "gate": "local"
+        },
+        {
+          "task": "W2-P",
+          "gate": "local"
+        },
+        {
+          "task": "W2-R2",
+          "gate": "local"
+        },
+        {
+          "task": "W2-D",
+          "gate": "local"
+        },
+        {
+          "task": "W2-L",
+          "gate": "local"
+        },
+        {
+          "task": "W2-U",
+          "gate": "local"
+        }
+      ],
+      "read": [
+        "QUALITY Q2–Q5",
+        "PRODUCT",
+        "docs/post-v1-roadmap.md"
+      ],
+      "scope": [
+        "Verify combined candidate, all applicable task gates, scope and release readiness; benchmark against W2 baseline, no unrelated scope. Explicitly track blocked tests, rights and upgrade caveats."
+      ],
+      "acceptance": [
+        "All required gates pass at exact integrated candidate or authorized documented deferral (not hidden failure); prepare PR/release recommendation only, owner separately approves merge/version/publication."
+      ],
+      "effort": "high",
+      "status": "not_started",
+      "candidate": null,
+      "gates": {
+        "local": "pending",
+        "ci": "pending",
+        "review": "pending",
+        "hardware": "pending"
+      },
+      "evidence": [],
+      "blocker": null,
+      "next_action": null
+    }
+  ]
+}

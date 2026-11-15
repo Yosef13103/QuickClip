@@ -40,7 +40,6 @@ jobs:
           "TEMP=$scratch" >> $env:GITHUB_ENV
           "TMP=$scratch" >> $env:GITHUB_ENV
           dotnet --info
-          python .ai/public/progress.py
       - name: Provision hash-verified dependencies
         run: |
           ./scripts/get-deps.ps1 -Force

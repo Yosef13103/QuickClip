@@ -56,7 +56,6 @@ dotnet build QuickClip.slnx -c Release --no-restore -p:QuickClipProfile=Personal
 dotnet test QuickClip.slnx -c Release --no-build --no-restore -p:QuickClipProfile=Personal --logger 'trx;LogFileName=hold-Personal.trx' --results-directory .quickclip-local/results --blame-hang-timeout 3m
 dotnet build QuickClip.slnx -c Release --no-restore -p:QuickClipProfile=Upstream -p:RequireCaptureEngine=true
 dotnet test QuickClip.slnx -c Release --no-build --no-restore -p:QuickClipProfile=Upstream --filter 'FullyQualifiedName~ProfileTests|FullyQualifiedName~RecordingDefaultsTests|FullyQualifiedName~MenuPackageTests|FullyQualifiedName~CaptureEngineTests' --logger 'trx;LogFileName=hold-Upstream.trx' --results-directory .quickclip-local/results --blame-hang-timeout 3m
-python -X utf8 .ai/public/progress.py
 ```
 
 For supervised acceptance, start minimized with a disposable legacy game-window profile. Confirm the tray guidance and try the Save Clip shortcut. Dismiss the display prompt, restart and verify game-window intent remains. Select and explicitly approve a disposable test display, then run the existing DDA, Sonar and Discord checks. Inspect clip organization and MP4 title separately from the visible captured display. Keep Win11 borderless and live acceptance pending until there is a verified package capability, consent grant and visual confirmation.

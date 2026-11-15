@@ -1,0 +1,9 @@
+*.local.json
+*.local.toml
+*.local.md
+*.scratch.md
+local/
+sessions/
+secrets/
+cache/
+logs/

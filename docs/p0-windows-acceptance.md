@@ -19,7 +19,6 @@ dotnet restore QuickClip.slnx
 dotnet build QuickClip.slnx -c Release --no-restore -p:RequireCaptureEngine=true
 dotnet test QuickClip.slnx -c Release --no-build --no-restore --logger 'trx;LogFileName=results.trx' --results-directory TestResults --blame-hang-timeout 3m
 ./scripts/summarize-ci-tests.ps1 -Path TestResults/results.trx
-python .ai/public/progress.py
 ```
 
 For Upstream repeat in a separate clean checkout with `-p:QuickClipProfile=Upstream` on build and test, adding filter `FullyQualifiedName~ProfileTests|FullyQualifiedName~RecordingDefaultsTests|FullyQualifiedName~MenuPackageTests|FullyQualifiedName~CaptureEngineTests`.
