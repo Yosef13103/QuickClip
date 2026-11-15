@@ -30,9 +30,9 @@ internal sealed class RecordingIndicator : IDisposable
             return;
         }
         _epoch = state.CaptureEpoch;
-        _signal.Configure(_epoch, MicrophoneIndicatorSignal.SelectedMicrophones(settings));
+        _signal.Configure(_epoch, MicrophoneIndicatorSignal.SelectedMicrophones(settings), Environment.TickCount64);
         _overlay.ShowRecordingIndicator(state.CaptureDevice!, settings.GameRecordingIndicatorAnchor, _signal.State);
-        if (!_overlay.IsVisible || _signal.Selected.Count == 0)
+        if (!_overlay.IsVisible || _signal.Selected.Count == 0 || _signal.State == MicrophoneIndicatorState.Active)
         {
             _timer?.Stop();
             _buffer = null;
@@ -74,6 +74,11 @@ internal sealed class RecordingIndicator : IDisposable
                 return;
             }
             if (current != previous) _overlay.UpdateRecordingIndicatorMicrophone(current);
+            if (current == MicrophoneIndicatorState.Active)
+            {
+                _timer?.Stop();
+                _buffer = null;
+            }
         }
         catch (EntryPointNotFoundException)
         {

@@ -14,45 +14,47 @@ public sealed class MicrophoneIndicatorSignalTests
     };
 
     [Fact]
-    public void No_selection_is_hidden_and_every_selected_lane_needs_recent_pcm()
+    public void Ten_second_startup_check_latches_each_lane_independently()
     {
         var indicator = new MicrophoneIndicatorSignal();
         Assert.Equal(MicrophoneIndicatorState.Hidden, indicator.Observe([], 0, 0));
-        indicator.Configure(1, ["a", "b"]);
-        Assert.Equal(MicrophoneIndicatorState.Quiet, indicator.Observe([Mic("a"), Mic("b", 0)], 2, 0));
-        Assert.Equal(MicrophoneIndicatorState.Active, indicator.Observe([Mic("a", 0), Mic("b")], 2, 100));
-        Assert.Equal(MicrophoneIndicatorState.Active, indicator.Observe([Mic("a", 0), Mic("b", 0)], 2, 500));
-        Assert.Equal(MicrophoneIndicatorState.Quiet, indicator.Observe([Mic("a", 0), Mic("b")], 2, 2501));
+        indicator.Configure(1, ["a", "b"], 100);
+        Assert.Equal(MicrophoneIndicatorState.Checking, indicator.Observe([Mic("a"), Mic("b", 0)], 2, 101));
+        Assert.Equal(MicrophoneIndicatorState.Checking, indicator.Observe([], 0, 10099));
+        Assert.Equal(MicrophoneIndicatorState.Quiet, indicator.Observe([], 0, 10100));
+        Assert.Equal(MicrophoneIndicatorState.Active, indicator.Observe([Mic("b")], 1, 15000));
+        Assert.Equal(MicrophoneIndicatorState.Active, indicator.Observe([], 0, 1000000));
     }
 
     [Fact]
-    public void Missing_failed_wrong_flow_and_stale_lanes_do_not_count()
+    public void Missing_failed_wrong_flow_and_stale_lanes_do_not_confirm()
     {
         var indicator = new MicrophoneIndicatorSignal();
-        indicator.Configure(1, ["a", "b"]);
-        Assert.Equal(MicrophoneIndicatorState.Active, indicator.Observe([Mic("a"), Mic("b")], 2, 0));
+        indicator.Configure(1, ["a", "b"], 0);
         var failed = Mic("b");
         failed.HResult = -1;
-        Assert.Equal(MicrophoneIndicatorState.Quiet, indicator.Observe([Mic("a"), failed], 2, 1));
+        Assert.Equal(MicrophoneIndicatorState.Quiet, indicator.Observe([Mic("a"), failed], 2, 10000));
         failed = Mic("b");
         failed.Flow = EndpointFlow.Playback;
-        Assert.Equal(MicrophoneIndicatorState.Quiet, indicator.Observe([Mic("a"), failed], 2, 2));
+        Assert.Equal(MicrophoneIndicatorState.Quiet, indicator.Observe([Mic("a"), failed], 2, 10001));
         failed = Mic("b");
         failed.MillisecondsSincePacket = 600;
-        Assert.Equal(MicrophoneIndicatorState.Quiet, indicator.Observe([Mic("a"), failed], 2, 3));
-        Assert.Equal(MicrophoneIndicatorState.Quiet, indicator.Observe([Mic("a")], 1, 4));
+        Assert.Equal(MicrophoneIndicatorState.Quiet, indicator.Observe([Mic("a"), failed], 2, 10002));
+        Assert.Equal(MicrophoneIndicatorState.Active, indicator.Observe([Mic("b")], 1, 10003));
     }
 
     [Fact]
-    public void Epoch_change_and_selection_change_discard_previous_audio()
+    public void Epoch_change_and_selection_change_discard_previous_audio_but_repeated_refresh_does_not()
     {
         var indicator = new MicrophoneIndicatorSignal();
-        indicator.Configure(1, ["a"]);
+        indicator.Configure(1, ["a"], 0);
         Assert.Equal(MicrophoneIndicatorState.Active, indicator.Observe([Mic("a")], 1, 1));
-        indicator.Configure(2, ["a"]);
-        Assert.Equal(MicrophoneIndicatorState.Quiet, indicator.Observe([Mic("a", 0)], 1, 2));
-        indicator.Configure(2, ["b"]);
-        Assert.Equal(MicrophoneIndicatorState.Quiet, indicator.Observe([Mic("a")], 1, 3));
+        indicator.Configure(1, ["a"], 2);
+        Assert.Equal(MicrophoneIndicatorState.Active, indicator.Observe([], 0, 50000));
+        indicator.Configure(2, ["a"], 50001);
+        Assert.Equal(MicrophoneIndicatorState.Checking, indicator.Observe([Mic("a", 0)], 1, 50002));
+        indicator.Configure(2, ["b"], 50003);
+        Assert.Equal(MicrophoneIndicatorState.Quiet, indicator.Observe([Mic("a")], 1, 60003));
         indicator.Reset();
         Assert.Equal(MicrophoneIndicatorState.Hidden, indicator.State);
     }
@@ -61,12 +63,12 @@ public sealed class MicrophoneIndicatorSignalTests
     public void Default_alias_can_share_a_proven_actual_default_lane_but_not_an_unrelated_lane()
     {
         var indicator = new MicrophoneIndicatorSignal();
-        indicator.Configure(1, ["", "a"]);
+        indicator.Configure(1, ["", "a"], 0);
         var lane = Mic("a");
         lane.DefaultCaptureId = "b";
-        Assert.Equal(MicrophoneIndicatorState.Quiet, indicator.Observe([lane], 1, 0));
+        Assert.Equal(MicrophoneIndicatorState.Quiet, indicator.Observe([lane], 1, 10000));
         lane.DefaultCaptureId = "a";
-        Assert.Equal(MicrophoneIndicatorState.Active, indicator.Observe([lane], 1, 1));
+        Assert.Equal(MicrophoneIndicatorState.Active, indicator.Observe([lane], 1, 10001));
     }
 
     [Fact]

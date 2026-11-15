@@ -509,7 +509,12 @@ internal sealed class ClipNotificationOverlay : IDisposable
     internal void UpdateRecordingIndicatorMicrophone(MicrophoneIndicatorState state)
     {
         if (_indicatorMicrophoneGlyph == null) return;
-        _indicatorMicrophoneGlyph.Stroke = state == MicrophoneIndicatorState.Active ? Brushes.White : Brushes.Red;
+        _indicatorMicrophoneGlyph.Stroke = state switch
+        {
+            MicrophoneIndicatorState.Active => Brushes.White,
+            MicrophoneIndicatorState.Checking => Brushes.Goldenrod,
+            _ => Brushes.Red,
+        };
     }
 
     internal static Rect BannerBounds(Rect display, Rect work, OverlayAnchor anchor, double scale, double height)

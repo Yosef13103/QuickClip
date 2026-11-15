@@ -3,15 +3,16 @@ using static QuickClip.Recording.CaptureEngine;
 
 namespace QuickClip.Shell;
 
-internal enum MicrophoneIndicatorState { Hidden, Quiet, Active }
+internal enum MicrophoneIndicatorState { Hidden, Checking, Quiet, Active }
 
-/// <summary>All selected inputs must have recent audible captured PCM; one good lane cannot hide a quiet one.</summary>
+/// <summary>One startup signal check per capture epoch. Each selected input must independently prove captured PCM.</summary>
 internal sealed class MicrophoneIndicatorSignal
 {
-    internal const long HoldMilliseconds = 2500;
+    internal const long CheckMilliseconds = 10_000;
     private string[] _selected = [];
     private long _epoch = -1;
-    private readonly Dictionary<string, long> _lastSound = new(StringComparer.OrdinalIgnoreCase);
+    private long _startedAt;
+    private readonly HashSet<string> _confirmed = new(StringComparer.OrdinalIgnoreCase);
     internal IReadOnlyList<string> Selected => _selected;
     internal MicrophoneIndicatorState State { get; private set; }
 
@@ -23,45 +24,41 @@ internal sealed class MicrophoneIndicatorSignal
             : settings.RecordMic ? [.. settings.MicDeviceIds.Distinct(StringComparer.OrdinalIgnoreCase)] : [];
     }
 
-    internal void Configure(long epoch, string[] selected)
+    internal void Configure(long epoch, string[] selected, long now)
     {
         if (_epoch == epoch && _selected.SequenceEqual(selected, StringComparer.OrdinalIgnoreCase)) return;
         _epoch = epoch;
         _selected = selected;
-        _lastSound.Clear();
-        State = selected.Length == 0 ? MicrophoneIndicatorState.Hidden : MicrophoneIndicatorState.Quiet;
+        _confirmed.Clear();
+        _startedAt = now;
+        State = selected.Length == 0 ? MicrophoneIndicatorState.Hidden : MicrophoneIndicatorState.Checking;
     }
 
     internal MicrophoneIndicatorState Observe(NativeAudioSignal[] signals, int count, long now)
     {
         if (_selected.Length == 0) return State = MicrophoneIndicatorState.Hidden;
+        if (State == MicrophoneIndicatorState.Active) return State;
         count = Math.Clamp(count, 0, signals.Length);
-        bool allActive = true;
         foreach (string id in _selected)
         {
-            bool matching = false, healthy = false, audible = false;
+            if (_confirmed.Contains(id)) continue;
             for (int i = 0; i < count; i++)
             {
                 var lane = signals[i];
-                if (!Matches(lane, id)) continue;
-                matching = true;
-                if (lane.ActualFlow != (int)EndpointFlow.Microphone || lane.Stage != EndpointStage.Streaming ||
-                    lane.HResult < 0 || lane.MillisecondsSincePacket is < 0 or > 500 || lane.PacketCount <= 0)
+                if (!Matches(lane, id) || lane.ActualFlow != (int)EndpointFlow.Microphone ||
+                    lane.Stage != EndpointStage.Streaming || lane.HResult < 0 ||
+                    lane.MillisecondsSincePacket is < 0 or > 500 || lane.PacketCount <= 0 ||
+                    MicrophoneSignal.MeterValue(lane.RecentPeak) <= 0)
                     continue;
-                healthy = true;
-                audible |= MicrophoneSignal.MeterValue(lane.RecentPeak) > 0;
+                _confirmed.Add(id);
+                break;
             }
-            // A zero-count non-blocking native read can mean a busy engine. Retain only the short hold,
-            // never treat missing lanes as successful or reuse sound across recorder epochs.
-            if (count > 0 && (!matching || !healthy)) _lastSound.Remove(id);
-            else if (audible) _lastSound[id] = now;
-            if (!_lastSound.TryGetValue(id, out long last) || now - last > HoldMilliseconds)
-                allActive = false;
         }
-        return State = allActive ? MicrophoneIndicatorState.Active : MicrophoneIndicatorState.Quiet;
+        return State = _confirmed.Count == _selected.Length ? MicrophoneIndicatorState.Active :
+            now - _startedAt >= CheckMilliseconds ? MicrophoneIndicatorState.Quiet : MicrophoneIndicatorState.Checking;
     }
 
-    internal void Reset() => Configure(-1, []);
+    internal void Reset() => Configure(-1, [], 0);
 
     private static bool Matches(NativeAudioSignal lane, string id)
     {
