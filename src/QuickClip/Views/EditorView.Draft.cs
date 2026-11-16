@@ -286,9 +286,11 @@ public partial class EditorView
         return saved;
     }
 
+    internal bool CanLeaveAfterSaveFailure => !_leavingClip && !_resettingDraft && !_loading;
+
     internal async Task<bool> FlushForNavigationAsync()
     {
-        if (_leavingClip || _resettingDraft || _loading) return false;
+        if (!CanLeaveAfterSaveFailure) return false;
         _leavingClip = true;
         try
         {

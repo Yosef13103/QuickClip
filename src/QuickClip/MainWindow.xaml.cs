@@ -208,7 +208,8 @@ public partial class MainWindow : Window
             };
             _navigationFlush = flush;
             saved = await flush;
-            if (!saved && !_closing && request == _pageRequest && current is EditorView && page != current)
+            if (!saved && !_closing && request == _pageRequest &&
+                current is EditorView { CanLeaveAfterSaveFailure: true })
             {
                 saved = ModalDialog.ConfirmAction(this,
                     "Some changes could not be saved. They will stay open in the editor for this session.",

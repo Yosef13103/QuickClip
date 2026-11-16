@@ -62,6 +62,8 @@ public partial class MainWindow
             string other = Path.Combine(AppSettings.Current.ClipsFolder, "fixture-b.mp4");
             var opening = OpenInEditorAsync(other);
             await WaitForAsync(() => editor.ProbingSourceForRender || opening.IsCompleted, "The next preview probe did not start.");
+            if (editor.ProbingSourceForRender && (await ShowPageAsync(SettingsPage) || EditorNav.IsChecked != true))
+                throw new InvalidOperationException("An in-progress source switch changed the selected page.");
             await Task.WhenAll(opening, OpenInEditorAsync(editorFile));
             await WaitForAsync(() => editor.CurrentFile == editorFile && editor.PreviewReadyForRender, "Rapid switching lost the last clip.");
             editor.VerifyDraftForRender();
