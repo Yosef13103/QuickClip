@@ -61,7 +61,7 @@ public sealed class GameCatalogTests : IDisposable
     }
 
     [Fact]
-    public async Task Collection_loose_executables_and_ambiguous_installs_are_not_approved()
+    public async Task Collection_loose_executable_stays_unresolved_but_scoped_game_binaries_are_ready()
     {
         string loose = FileAt("Library", "Loose.exe");
         string first = FileAt("Library", "Install", "First.exe");
@@ -69,8 +69,21 @@ public sealed class GameCatalogTests : IDisposable
         var scan = await GameCatalogService.ScanAsync(new() { GameRoots = [new(At("Library"), IsCollection: true)] });
         var index = new GameCatalogIndex(scan);
         Assert.Equal(CatalogMatchKind.Candidate, index.Match(loose, true).Kind);
-        Assert.Equal(CatalogMatchKind.Candidate, index.Match(first, true).Kind);
-        Assert.Equal(CatalogMatchKind.Candidate, index.Match(second, true).Kind);
+        Assert.Equal(CatalogMatchKind.Game, index.Match(first, true).Kind);
+        Assert.Equal(CatalogMatchKind.Game, index.Match(second, true).Kind);
+    }
+
+    [Fact]
+    public async Task Current_install_layout_accepts_osu_without_per_executable_approval()
+    {
+        string game = FileAt("Library", "osu!lazer", "current", "osu!.exe");
+        string java = FileAt("Library", "osu!lazer", "current", "javaw.exe");
+        string helper = FileAt("Library", "osu!lazer", "current", "Update.exe");
+        var scan = await GameCatalogService.ScanAsync(new() { GameRoots = [new(At("Library"), true)] });
+        var index = new GameCatalogIndex(scan);
+        Assert.Equal(CatalogMatchKind.Game, index.Match(game, true).Kind);
+        Assert.NotEqual(CatalogMatchKind.Game, index.Match(java, true).Kind);
+        Assert.NotEqual(CatalogMatchKind.Game, index.Match(helper, true).Kind);
     }
 
     [Theory]

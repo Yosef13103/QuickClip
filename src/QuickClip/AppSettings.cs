@@ -8,7 +8,11 @@ namespace QuickClip;
 /// <summary>User preferences persisted in the active application profile.</summary>
 internal sealed class AppSettings
 {
-    public GameCatalogSettings Games { get; set; } = new();
+    public GameCatalogSettings Games { get; set; } = new()
+    {
+        DiscoverGog = AppProfile.IsPersonal,
+        EnabledLaunchers = AppProfile.IsPersonal ? [.. Enum.GetValues<CatalogSource>().Where(LocalLaunchers.IsSupported)] : [],
+    };
     // The editor's encoder, quality, size and frame rate start at "same as original" for every clip.
     public InterfaceScale InterfaceScale { get; set; } = new();
     public string Format { get; set; } = "source";

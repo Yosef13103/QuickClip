@@ -489,7 +489,7 @@ internal static partial class GameCatalogService
         }
 
         private static bool IsBinaryDirectory(string path) => Path.GetFileName(path).ToUpperInvariant()
-            is "BIN" or "BINARIES" or "WIN64" or "WIN32" or "X64" or "X86";
+            is "BIN" or "BINARIES" or "WIN64" or "WIN32" or "X64" or "X86" or "CURRENT";
 
         private IEnumerable<ScanStep> ScanFolder(string path, int depth = 0)
         {
@@ -572,6 +572,7 @@ internal static partial class GameCatalogService
         {
             string? preferred = null;
             var exactInstallVariants = new List<string>();
+            var scopedExecutables = new List<string>();
             int best = 0;
             bool unrealBootstrap = false;
             foreach (string executable in executables)
@@ -581,11 +582,14 @@ internal static partial class GameCatalogService
                 int score = RendererScore(install, executable);
                 if (allowFolderFallback && IsInInstallBinaryLocation(install, executable) &&
                     !ManualGameInput.IsSupportFile(executable, install) &&
+                    !Paths.Equals(Path.GetFileName(executable), "javaw.exe") &&
+                    !Paths.Equals(Path.GetFileName(executable), "java.exe") &&
                     QuickClip.Recording.GameDetector.ApplyProcessRole(executable, new(CatalogMatchKind.Unknown)).Kind == CatalogMatchKind.Unknown)
                 {
                     bool named = Paths.Equals(VariantStem(executable), Path.GetFileName(install));
                     if (named)
                         exactInstallVariants.Add(executable);
+                    if (game.Source == CatalogSource.Folder) scopedExecutables.Add(executable);
                     if (score == 0 && (!requireInstallNamedFallback || named)) score = ScopedFolderExecutable;
                 }
                 if (launchExecutable != null && score == EngineRenderer && !Paths.Equals(launchExecutable, executable))
@@ -618,6 +622,12 @@ internal static partial class GameCatalogService
                 (CatalogPaths.IsWithin(issue.Location, install) || CatalogPaths.IsWithin(install, issue.Location)))))
                 yield break;
 
+            // A user-selected game install is positive scope evidence, even
+            // without a unique name match or engine signature. Keep known
+            // helpers, shared Java runtimes and incomplete sources excluded.
+            if (game.Source == CatalogSource.Folder && launchExecutable == null &&
+                best == ScopedFolderExecutable && exactInstallVariants.Count == 0)
+                game.Renderers.UnionWith(scopedExecutables);
             if (exactInstallVariants.Count > 0)
                 game.Renderers.UnionWith(exactInstallVariants);
 

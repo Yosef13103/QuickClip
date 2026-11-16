@@ -19,13 +19,13 @@ public sealed class GamesSettingsViewTests
         var entry = new CatalogEntry("folder:osu", "osu!lazer", CatalogSource.Folder, [@"C:\Collection\osu!lazer"],
             [renderer, helper], new()) { RendererExecutables = [] };
         var row = new GamesSettingsView.GameRow(entry);
-        Assert.Contains("unresolved executable", row.Executables.First().Label);
+        Assert.Contains("Not ready to record", row.Executables.First().Label);
         Assert.NotNull(row.RulesAfterApproval([renderer]));
         Assert.Null(row.RulesAfterApproval([helper]));
         var approved = entry with { Rules = new() { ApprovedExecutables = [renderer] } };
         row.Update(approved, false, [], new(new([approved], [], 0, false, default)));
-        Assert.Contains("Game · enabled", row.Summary);
-        Assert.Contains("verified window and display permission", row.Executables.First().Label);
+        Assert.Contains("Game · Enabled", row.Summary);
+        Assert.Contains("Ready to record", row.Executables.First().Label);
         Assert.Null(row.RulesAfterApproval([renderer]));
         row.Update(approved, true, [], new(new([approved], [], 0, false, default)));
         Assert.Contains("scan incomplete", row.Executables.First().Label);
@@ -54,7 +54,7 @@ public sealed class GamesSettingsViewTests
         Assert.Equal(count, page.Games.Items.Count);
         var first = Assert.IsType<GamesSettingsView.GameRow>(page.Games.Items[0]);
         var second = Assert.IsType<GamesSettingsView.GameRow>(page.Games.Items[1]);
-        Assert.Equal("Manual · Game · enabled", first.Summary);
+        Assert.Equal("Manual · Game · Enabled", first.Summary);
         var container = Assert.IsType<ListBoxItem>(page.Games.ItemContainerGenerator.ContainerFromIndex(0));
         double collapsedHeight = container.ActualHeight;
         var capture = Descendants<CheckBox>(container).Single(button =>
@@ -112,8 +112,8 @@ public sealed class GamesSettingsViewTests
         Assert.Null(GamesSettingsView.ValidateManualGameExecutables([@"C:\Apps\Discord.exe"]));
         var discord = new GamesSettingsView.GameRow(new("manual:discord", "Discord", CatalogSource.Manual,
             [], [@"C:\Apps\Discord.exe"], new()));
-        Assert.Contains("Companion app", discord.Summary);
-        Assert.EndsWith(" · companion", Assert.Single(discord.Executables).Label);
+        Assert.Contains("Not a game", discord.Summary);
+        Assert.EndsWith(" · Not a game", Assert.Single(discord.Executables).Label);
         Assert.NotNull(GamesSettingsView.ValidateManualGameExecutables([@"C:\Apps\not-video.txt"]));
     }
 

@@ -40,24 +40,24 @@ public partial class GamesSettingsView
         public string CaptureIcon => IsExcluded ? DisplayIcon + " M1,15 L15,1" : DisplayIcon;
         public string CaptureAction => (IsExcluded ? "Enable" : "Disable") + $" automatic targeting for {Entry.DisplayName}";
         public string Inheritance => "Uses global Recording and Audio settings.";
-        public string Diagnostics => $"{Entry.Id} · Catalog association confidence: {Entry.Confidence}";
+        public string Diagnostics => $"{Entry.Id}";
 
         private string Source => string.Join(" / ",
             (Entry.Provenance.IsEmpty ? [Entry.Source] : Entry.Provenance)
-                .Select(source => source == CatalogSource.Folder ? "Approved folder" : LocalLaunchers.Name(source)));
-        private string Eligibility => IsExcluded ? "Ignored · Disabled" : Entry.Rules.Classification switch
+                .Select(source => source == CatalogSource.Folder ? "Game folder" : LocalLaunchers.Name(source)));
+        private string Eligibility => IsExcluded ? "Disabled" : Entry.Rules.Classification switch
         {
             AppClassification.Application => "Utility",
-            AppClassification.Companion => "Companion app",
+            AppClassification.Companion => "Not a game",
             AppClassification.Launcher => "Launcher",
-            _ when !Entry.Executables.IsEmpty && Entry.Executables.All(CatalogPaths.IsDiscordProcess) => "Companion app",
-            _ when !Entry.Executables.IsEmpty && Entry.Executables.All(path => CatalogPaths.DefaultRole(path) == CatalogMatchKind.Companion) => "Companion app",
+            _ when !Entry.Executables.IsEmpty && Entry.Executables.All(CatalogPaths.IsDiscordProcess) => "Not a game",
+            _ when !Entry.Executables.IsEmpty && Entry.Executables.All(path => CatalogPaths.DefaultRole(path) == CatalogMatchKind.Companion) => "Not a game",
             _ when !Entry.Executables.IsEmpty && Entry.Executables.All(path => CatalogPaths.DefaultRole(path) == CatalogMatchKind.Launcher) =>
                 Entry.Source == CatalogSource.Xbox || Entry.Provenance.Contains(CatalogSource.Xbox)
                     ? "Game found · needs gameplay executable" : "Launcher",
             _ when !Entry.Executables.IsEmpty && Entry.Executables.All(path => CatalogPaths.DefaultRole(path) == CatalogMatchKind.Application) => "Utility",
             _ => Entry.Executables.Any(path => GameDetector.HasCatalogEligibility(Match(path)))
-                ? "Game · enabled" : "Game candidate",
+                ? "Game · Enabled" : "Game · Needs checking",
         };
         private string? Availability => _offline ? "Source unavailable or scan incomplete · games remembered" :
             Entry.Executables.IsEmpty ? "No executable found · check the source and rescan" :
@@ -91,29 +91,30 @@ public partial class GamesSettingsView
             new(AppClassification.Game, "Treat as a game"),
             new(AppClassification.Application, "Utility"),
             new(AppClassification.Launcher, "Launcher"),
-            new(AppClassification.Companion, "Companion app"),
+            new(AppClassification.Companion, "Not a game"),
         ];
         public ClassificationChoice[] Classifications => ClassificationOptions;
-        public sealed record ExecutableChoice(string Path, string Label);
+        public sealed record ExecutableChoice(string Path, string Label, bool CanUse);
         public IEnumerable<ExecutableChoice> Executables => Entry.Executables.Select(path => new ExecutableChoice(path,
             path + ExecutableRole(path) +
-            (_unavailable.Contains(path, StringComparer.OrdinalIgnoreCase) ? " · unavailable" : "")));
+            (_unavailable.Contains(path, StringComparer.OrdinalIgnoreCase) ? " · unavailable" : ""),
+            !_unavailable.Contains(path, StringComparer.OrdinalIgnoreCase) && RulesAfterApproval([path]) != null));
 
         private string ExecutableRole(string path)
         {
             var match = Match(path);
             return match.Kind switch
             {
-                CatalogMatchKind.Companion => " · companion",
-                CatalogMatchKind.Launcher => " · launcher",
-                CatalogMatchKind.Application => " · utility",
-                CatalogMatchKind.Ignored => " · ignored",
+                CatalogMatchKind.Companion => " · Not a game",
+                CatalogMatchKind.Launcher => " · Launcher",
+                CatalogMatchKind.Application => " · Not a game",
+                CatalogMatchKind.Ignored => " · Blocked",
                 CatalogMatchKind.Ambiguous => " · claimed by multiple catalog entries",
-                CatalogMatchKind.Inactive => " · awaiting source verification",
+                CatalogMatchKind.Inactive => " · Source not checked yet",
                 _ when _offline => " · source offline or scan incomplete",
                 _ when GameDetector.HasCatalogEligibility(match) => Entry.Rules.Activation == CatalogActivation.ForegroundOnly
-                    ? " · eligible in foreground" : " · eligible with a verified window and display permission",
-                _ => " · unresolved executable, approve it if it owns the game window",
+                    ? " · Ready in foreground" : " · Ready to record",
+                _ => " · Not ready to record",
             };
         }
 

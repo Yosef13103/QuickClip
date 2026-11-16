@@ -15,17 +15,18 @@
             <BooleanToVisibilityConverter x:Key="ShowManualActions" />
         </ResourceDictionary>
     </UserControl.Resources>
-    <DockPanel Margin="28,16,24,16" MaxWidth="1340">
-        <StackPanel DockPanel.Dock="Top">
-            <TextBlock Text="Games" FontSize="{DynamicResource QuickClipText24}" FontWeight="SemiBold" />
+    <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+      <StackPanel Margin="28,22,14,28" MaxWidth="1340">
+        <TextBlock Text="Games" FontSize="{DynamicResource QuickClipText24}" FontWeight="SemiBold" Margin="0,0,0,16" />
+        <Border Background="{DynamicResource PanelBrush}" CornerRadius="8" Padding="20,8,20,18" Margin="0,0,14,14">
+        <StackPanel>
             <CheckBox Style="{StaticResource SwitchCheckBox}" x:Name="AutoScan" Content="Automatically discover installed games" Click="AutoScan_Click" Margin="0,8,0,0" />
             <TextBlock x:Name="ScanHelp" TextWrapping="Wrap" Style="{StaticResource Hint}" Visibility="Collapsed" />
-            <Expander x:Name="LibrarySources" Header="Discovery and capture details" Margin="0,3,0,3">
+            <StackPanel x:Name="LibrarySources">
+            <Expander Header="Game libraries and folders" Margin="0,6,0,6">
                 <StackPanel>
-            <TextBlock Text="Automatic scans refresh enabled sources. You can pause and resume a scan here." TextWrapping="Wrap" Style="{StaticResource Hint}" />
-            <Expander Header="Game libraries and launchers" Margin="0,6,0,6">
-                <StackPanel>
-                    <ListBox x:Name="Launchers" MaxHeight="180" AutomationProperties.Name="Game launchers">
+                    <Button Content="Enable all supported game stores" Click="EnableStores_Click" HorizontalAlignment="Left" Margin="0,4,0,6" />
+                    <ListBox x:Name="Launchers" Background="Transparent" BorderThickness="0" ScrollViewer.VerticalScrollBarVisibility="Disabled" AutomationProperties.Name="Game launchers">
                         <ListBox.ItemContainerStyle>
                             <Style TargetType="ListBoxItem" BasedOn="{StaticResource {x:Type ListBoxItem}}">
                                 <Setter Property="HorizontalContentAlignment" Value="Stretch" />
@@ -36,7 +37,7 @@
                                 <DockPanel Margin="2">
                                     <Button DockPanel.Dock="Right" Content="Refresh" Click="RefreshLauncher_Click"
                                             IsEnabled="{Binding CanRefresh}" AutomationProperties.Name="{Binding RefreshName}" />
-                                    <CheckBox DockPanel.Dock="Left" Content="{Binding Name}" Click="Provider_Click"
+                                    <CheckBox DockPanel.Dock="Left" Style="{StaticResource SwitchCheckBox}" Content="{Binding Name}" Click="Provider_Click"
                                               IsChecked="{Binding Enabled, Mode=OneWay}" IsEnabled="{Binding Supported}"
                                               MinWidth="160" VerticalAlignment="Center" />
                                     <TextBlock Text="{Binding Status}" Style="{StaticResource Hint}"
@@ -45,29 +46,33 @@
                             </DataTemplate>
                         </ListBox.ItemTemplate>
                     </ListBox>
-                    <ListBox x:Name="Roots" MaxHeight="105" AutomationProperties.Name="Approved folders" />
+                    <TextBlock Text="Game folders" FontWeight="SemiBold" Margin="0,12,0,4" />
+                    <ListBox x:Name="Roots" Background="Transparent" BorderThickness="0" ScrollViewer.VerticalScrollBarVisibility="Disabled" AutomationProperties.Name="Game folders">
+                        <ListBox.ItemContainerStyle><Style TargetType="ListBoxItem" BasedOn="{StaticResource {x:Type ListBoxItem}}"><Setter Property="HorizontalContentAlignment" Value="Stretch" /></Style></ListBox.ItemContainerStyle>
+                        <ListBox.ItemTemplate><DataTemplate><DockPanel Margin="2">
+                            <CheckBox DockPanel.Dock="Right" Style="{StaticResource SwitchCheckBox}" IsChecked="{Binding Enabled, Mode=OneWay}" IsEnabled="{Binding CanToggle}" Click="RootEnabled_Click" VerticalAlignment="Center" AutomationProperties.Name="Enable game folder" />
+                            <TextBlock Text="{Binding Label}" TextWrapping="Wrap" VerticalAlignment="Center" Margin="0,0,8,0" />
+                        </DockPanel></DataTemplate></ListBox.ItemTemplate>
+                    </ListBox>
                     <WrapPanel Margin="0,5,0,0">
-                        <Button Content="Approve Steam library…" Click="Steam_Click" Margin="0,0,6,0" />
-                        <Button Content="Approve game collection…" Click="Collection_Click" Margin="0,0,6,0" />
-                        <Button Content="Enable or disable selected" Click="ToggleSource_Click" Margin="0,0,6,0" />
+                        <Button Content="Add game collection…" Click="Collection_Click" Margin="0,0,6,0" />
                         <Button Content="Refresh selected" Click="RefreshSource_Click" Margin="0,0,6,0" />
                         <Button Content="Remove or restore source" Click="RemoveRoot_Click" />
                     </WrapPanel>
-                    <ListBox x:Name="ScanIssues" MaxHeight="80" AutomationProperties.Name="Last scan issues" />
+
                 </StackPanel>
             </Expander>
-            <Expander x:Name="IgnoredExecutables" Header="Ignored executables" Margin="0,0,0,6">
+            <Expander x:Name="IgnoredExecutables" Header="Blocked executables" Margin="0,0,0,6">
                 <StackPanel>
                     <TextBlock Text="Block an exact executable path from automatic game detection. Restore it here to apply its usual catalog rules." Style="{StaticResource Hint}" />
-                    <ListBox x:Name="BlockedFiles" MaxHeight="85" AutomationProperties.Name="Ignored executables" />
+                    <ListBox x:Name="BlockedFiles" ScrollViewer.VerticalScrollBarVisibility="Disabled" AutomationProperties.Name="Blocked executables" />
                     <WrapPanel Margin="0,4,0,0">
-                        <Button Content="Ignore executables…" Click="BlockFile_Click" Margin="0,0,6,4" />
+                        <Button Content="Block executables…" Click="BlockFile_Click" Margin="0,0,6,4" />
                         <Button Content="Restore selected executable" Click="RestoreFile_Click" Margin="0,0,0,4" />
                     </WrapPanel>
                 </StackPanel>
             </Expander>
                 </StackPanel>
-            </Expander>
             <WrapPanel Margin="0,4,0,0">
                 <Button x:Name="ScanButton" Content="Scan Now" Click="Scan_Click" Margin="0,0,6,0" />
                 <Button x:Name="CancelButton" Content="Pause scan" Click="Cancel_Click" IsEnabled="False" Margin="0,0,6,0" />
@@ -79,6 +84,7 @@
             <Expander x:Name="ScanDetails" Header="Scan details and recording scope" Margin="0,2,0,2">
                 <StackPanel>
                     <TextBlock x:Name="LastScan" Style="{StaticResource Hint}" />
+                    <ListBox x:Name="ScanIssues" ScrollViewer.VerticalScrollBarVisibility="Disabled" Background="Transparent" BorderThickness="0" AutomationProperties.Name="Last scan issues" />
                     <TextBlock Text="Targeting rules apply to game detection. Manual entire-display capture includes anything visible on the approved display, including games disabled here." Style="{StaticResource Hint}" />
                     <TextBlock x:Name="DiscoveryCountDetail" Style="{StaticResource Hint}" TextWrapping="Wrap"
                                ToolTip="A retained game may also be awaiting verification." />
@@ -87,8 +93,7 @@
             <TextBlock x:Name="Count" FontWeight="SemiBold" TextWrapping="Wrap" Margin="0,10,0,0" />
             <TextBox x:Name="Search" Margin="0,4,0,6" AutomationProperties.Name="Search catalog by name or executable"
                      TextChanged="Search_Changed" />
-        </StackPanel>
-        <ListBox x:Name="Games" AutomationProperties.Name="Games and applications catalog"
+        <ListBox x:Name="Games" MaxHeight="720" MinHeight="240" Background="{DynamicResource PanelBrush}" BorderThickness="0" AutomationProperties.Name="Games catalog"
                  ScrollViewer.CanContentScroll="True" ScrollViewer.HorizontalScrollBarVisibility="Disabled"
                  VirtualizingPanel.IsVirtualizing="True" VirtualizingPanel.VirtualizationMode="Recycling"
                  VirtualizingPanel.ScrollUnit="Pixel">
@@ -107,7 +112,7 @@
                                       AutomationProperties.Name="{Binding CaptureAction}"
                                       ToolTip="{Binding CaptureAction}" />
                             <ToggleButton Style="{StaticResource GameHeadingButton}" IsChecked="{Binding IsExpanded, Mode=OneWay}"
-                                          Click="Details_Click" AutomationProperties.Name="{Binding DetailsAction}"
+                                          HorizontalAlignment="Stretch" Click="Details_Click" AutomationProperties.Name="{Binding DetailsAction}"
                                           AutomationProperties.HelpText="{Binding Summary}">
                                 <DockPanel>
                                     <TextBlock DockPanel.Dock="Right" Text="{Binding Chevron}" Margin="10,0,0,0"
@@ -133,17 +138,13 @@
                                           Visibility="{Binding ShowAdvanced, Converter={StaticResource ShowManualActions}}">
                                     <StackPanel Margin="0,4,0,2">
                                         <TextBlock Text="{Binding Diagnostics}" Style="{StaticResource Hint}" />
-                                        <TextBlock Text="Choose how this entry participates in game detection. Companion apps such as Discord can take focus while the current game stays active." Style="{StaticResource Hint}" Margin="0,4" />
-                                        <ComboBox ItemsSource="{Binding Classifications}" DisplayMemberPath="Label" SelectedValuePath="Value"
-                                                  SelectedValue="{Binding Entry.Rules.Classification, Mode=OneWay}"
-                                                  AutomationProperties.Name="How QuickClip treats this app"
-                                                  HorizontalAlignment="Left" SelectionChanged="Classification_Changed" />
-                                        <TextBlock Text="Mark a launcher so its window cannot take the game's place. Select an executable below first." Style="{StaticResource Hint}" Margin="0,6,0,4" />
+                                        <TextBlock Text="Game files can start recording. Launcher and blocked files cannot." Style="{StaticResource Hint}" Margin="0,6,0,4" />
                                         <ListBox x:Name="ExecutableList" ItemsSource="{Binding Executables}" DisplayMemberPath="Label" SelectedValuePath="Path"
                                                  MaxHeight="105" AutomationProperties.Name="Associated executables" />
                                         <WrapPanel>
-                                            <Button Content="Approve selected executable" Click="ApproveExecutable_Click"
+                                            <Button Content="Use this game executable" Click="ApproveExecutable_Click"
                                                     CommandParameter="{Binding SelectedValue, ElementName=ExecutableList}"
+                                                    IsEnabled="{Binding SelectedItem.CanUse, ElementName=ExecutableList, FallbackValue=False, TargetNullValue=False}"
                                                     Margin="0,4,6,0" />
                                             <Button Content="Toggle launcher role" Click="Launcher_Click"
                                                 CommandParameter="{Binding SelectedValue, ElementName=ExecutableList}"
@@ -158,7 +159,7 @@
                                                 </Style>
                                             </Button.Style>
                                         </Button>
-                                        <Button Content="Ignore selected executable" Click="BlockSelected_Click"
+                                        <Button Content="Block selected executable" Click="BlockSelected_Click"
                                                 CommandParameter="{Binding SelectedValue, ElementName=ExecutableList}"
                                                 Margin="0,4,0,0">
                                             <Button.Style>
@@ -180,5 +181,8 @@
                 </DataTemplate>
             </ListBox.ItemTemplate>
         </ListBox>
-    </DockPanel>
+        </StackPanel>
+        </Border>
+      </StackPanel>
+    </ScrollViewer>
 </UserControl>
