@@ -93,6 +93,45 @@ public partial class EditorView : UserControl
         set => MetadataEditor.AnnotationActions = value;
     }
     public string? CurrentFile => _media?.Path;
+    private string[] _navigationClips = [];
+
+    internal void SetNavigationClips(string[] paths)
+    {
+        _navigationClips = paths.Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
+        UpdateClipNavigation();
+    }
+
+    internal static string? AdjacentClip(IReadOnlyList<string> paths, string? current, int direction)
+    {
+        if (current == null || direction is not (-1 or 1)) return null;
+        for (int index = 0; index < paths.Count; index++)
+        {
+            if (!string.Equals(paths[index], current, StringComparison.OrdinalIgnoreCase)) continue;
+            int next = index + direction;
+            return next >= 0 && next < paths.Count ? paths[next] : null;
+        }
+        return null;
+    }
+
+    private bool CanNavigateClips => !_loading && !_deletingMedia && !_exportPreparing &&
+        !_resettingDraft && !_leavingClip && _exportCts == null && !_closed;
+
+    private void UpdateClipNavigation()
+    {
+        if (PreviousClipButton == null || NextClipButton == null) return;
+        PreviousClipButton.IsEnabled = CanNavigateClips && AdjacentClip(_navigationClips, CurrentFile, -1) != null;
+        NextClipButton.IsEnabled = CanNavigateClips && AdjacentClip(_navigationClips, CurrentFile, 1) != null;
+    }
+
+    private async Task NavigateClipAsync(int direction)
+    {
+        if (CanNavigateClips && AdjacentClip(_navigationClips, CurrentFile, direction) is { } target)
+            await OpenAsync(target);
+    }
+
+    private async void PreviousClip_Click(object sender, RoutedEventArgs e) => await NavigateClipAsync(-1);
+    private async void NextClip_Click(object sender, RoutedEventArgs e) => await NavigateClipAsync(1);
+
     private bool _viewMode, _fullscreen, _updatingViewSeek;
     private double _inspectorWidth = 330;
     private const double DefaultTimelineHeight = 260;
@@ -817,6 +856,7 @@ public partial class EditorView : UserControl
         {
             _loading = false;
             IsEnabled = enabled;
+            UpdateClipNavigation();
             if (IsVisible) Root.Focus();
             if (_sourceSuspended && !ClipDeletion.Current.Busy) await RefreshSourceAsync();
             await OpenPendingFileAsync();
@@ -1705,6 +1745,7 @@ public partial class EditorView : UserControl
     private void UpdateUiState()
     {
         if (!IsInitialized) return;
+        UpdateClipNavigation();
         var container = CurrentContainer(forOverwrite: false);
         bool hasVideo = _media?.Video != null;
         bool busy = _exportCts != null || _exportPreparing || _resettingDraft || !SourceReady;

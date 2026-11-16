@@ -154,6 +154,12 @@
                     </TextBlock>
                 </Button.ToolTip>
             </Button>
+            <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center" Margin="8,0,4,0">
+                <Button x:Name="PreviousClipButton" Style="{StaticResource IconButton}" Content="&#xE76B;" IsEnabled="False"
+                        Click="PreviousClip_Click" ToolTip="Previous clip in Gallery" AutomationProperties.Name="Previous clip" />
+                <Button x:Name="NextClipButton" Style="{StaticResource IconButton}" Content="&#xE76C;" IsEnabled="False"
+                        Click="NextClip_Click" ToolTip="Next clip in Gallery" AutomationProperties.Name="Next clip" />
+            </StackPanel>
             <StackPanel Margin="14,0,0,0" VerticalAlignment="Center">
                 <TextBlock x:Name="FileNameText" FontSize="{DynamicResource QuickClipText15}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" Text="No file open" />
                 <TextBlock x:Name="FileInfoText" FontSize="{DynamicResource QuickClipText12}" Foreground="{DynamicResource SubtleText}" TextTrimming="CharacterEllipsis"

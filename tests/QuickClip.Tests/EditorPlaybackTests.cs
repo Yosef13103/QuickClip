@@ -4,6 +4,18 @@ namespace QuickClip.Tests;
 
 public sealed class EditorPlaybackTests
 {
+    [Fact]
+    public void Clip_navigation_respects_gallery_order_boundaries_and_current_identity()
+    {
+        string[] ordered = ["newest.mp4", "middle.mp4", "oldest.mp4"];
+        Assert.Equal("newest.mp4", EditorView.AdjacentClip(ordered, "MIDDLE.mp4", -1));
+        Assert.Equal("oldest.mp4", EditorView.AdjacentClip(ordered, "middle.mp4", 1));
+        Assert.Null(EditorView.AdjacentClip(ordered, "newest.mp4", -1));
+        Assert.Null(EditorView.AdjacentClip(ordered, "oldest.mp4", 1));
+        Assert.Null(EditorView.AdjacentClip(ordered, "imported.mp4", 1));
+        Assert.Null(EditorView.AdjacentClip(ordered, null, -1));
+    }
+
     [Theory]
     [InlineData(true, 0, false)]
     [InlineData(true, 2, true)]

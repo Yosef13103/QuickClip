@@ -105,7 +105,12 @@ public partial class MainWindow : Window
 
     public async Task OpenInEditorAsync(string path)
     {
-        if (await ShowPageAsync(EditorPage)) await EditorPage.OpenAsync(path);
+        var clips = Gallery.IsVisible ? Gallery.EditorNavigationPaths() : Array.Empty<string>();
+        if (await ShowPageAsync(EditorPage))
+        {
+            EditorPage.SetNavigationClips(clips);
+            await EditorPage.OpenAsync(path);
+        }
     }
 
     private bool _refreshing;

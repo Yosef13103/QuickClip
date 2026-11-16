@@ -440,6 +440,7 @@ public partial class GalleryView : UserControl
     }
 
     private IReadOnlyList<ClipItem> CurrentClips => _visibleClips;
+    internal string[] EditorNavigationPaths() => CurrentClips.Select(clip => clip.Path).ToArray();
 
     private void OrganizationFilter_Changed(object sender, RoutedEventArgs e)
     {
