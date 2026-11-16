@@ -68,6 +68,21 @@ internal static partial class GameCatalogService
                 game.Executables.Add(launcher);
             }
             string? renderer = GetExecutable(record.Renderer);
+            // This exact launcher-managed runtime is verified directly; never scan Java helpers.
+            if (source == CatalogSource.Xbox && renderer != null && CatalogPaths.IsMinecraftBundledRuntime(renderer))
+            {
+                game.Executables.Add(renderer);
+                game.Renderers.Add(renderer);
+                var entry = game.ToEntry(new());
+                _verifiedInstalls.Add(entry with
+                {
+                    InstallDirectories = [install],
+                    Executables = [.. entry.Executables.Where(path => CatalogPaths.IsWithin(path, install))],
+                    RendererExecutables = [renderer],
+                    DetectedLaunchers = [.. entry.DetectedLaunchers.Where(path => CatalogPaths.IsWithin(path, install))],
+                });
+                return;
+            }
             _launcherInstalls.Enqueue(() => ScanInstall(install, 0, game, renderer, allowFolderFallback: true,
                 requireInstallNamedFallback: true));
         }
@@ -92,7 +107,9 @@ internal static partial class GameCatalogService
         internal IEnumerable<LauncherInstall?> ReadXbox(IEnumerable<string> drives)
         {
             bool present = false;
-            foreach (string drive in drives)
+            string? minecraftProxyId = null;
+            var roots = drives.Distinct(Paths).ToArray();
+            foreach (string drive in roots)
             {
                 _cancel.ThrowIfCancellationRequested();
                 var libraries = new HashSet<string>(Paths);
@@ -119,9 +136,25 @@ internal static partial class GameCatalogService
                             yield return null;
                             continue;
                         }
-                        yield return ReadXboxInstall(install.Path);
+                        var record = ReadXboxInstall(install.Path);
+                        if (record?.Launcher is { } launcher && Path.GetFileName(launcher).Equals("MCPlaceholderStub.exe", StringComparison.OrdinalIgnoreCase))
+                            minecraftProxyId ??= record.Id;
+                        yield return record;
                     }
                 }
+            }
+            // Probe a few known paths per fixed drive, not a recursive disk search.
+            foreach (string drive in roots)
+            foreach (string parent in new[] { Path.Combine(drive, "Program Files (x86)"), Path.Combine(drive, "Program Files"), drive })
+            {
+                _cancel.ThrowIfCancellationRequested();
+                string install = Path.Combine(parent, CatalogPaths.MinecraftLauncherFolder);
+                string runtime = Path.Combine(install, CatalogPaths.MinecraftRuntimeRelative);
+                // Require both the exact dedicated path and a real, non-reparse file.
+                if (!MetadataExists(runtime)) continue;
+                present = true;
+                yield return new(minecraftProxyId ?? "minecraft-java-bundled", "Minecraft Java Edition", install,
+                    Renderer: CatalogPaths.MinecraftRuntimeRelative, Launcher: "MinecraftLauncher.exe");
             }
             if (!present) yield return new(Issue: CatalogIssueKind.SourceMissing);
         }

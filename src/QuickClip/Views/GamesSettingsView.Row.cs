@@ -92,7 +92,7 @@ public partial class GamesSettingsView
             DetectionIssue.MissingExecutable => "QuickClip could not find a usable executable for this game.",
             DetectionIssue.OwnershipConflict => "Multiple game entries claim the same executable.",
             DetectionIssue.UnassociatedExecutable => "The source found an executable but could not associate it with a verified game installation.",
-            DetectionIssue.MinecraftJava => "Xbox found the Minecraft launcher proxy. The Java gameplay process still needs a verified association.",
+            DetectionIssue.MinecraftJava => "Minecraft's bundled Java runtime was not found. Locate the gameplay executable.",
             _ => "",
         };
         public string IssueTechnicalDetail => string.Join(", ", Entry.Executables.Select(path =>

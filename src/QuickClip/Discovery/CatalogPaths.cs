@@ -46,6 +46,12 @@ internal static class CatalogPaths
 
     private static readonly string WindowsDirectory = Environment.GetFolderPath(Environment.SpecialFolder.Windows);
 
+    internal const string MinecraftRuntimeRelative = @"runtime\java-runtime-epsilon\windows-x64\java-runtime-epsilon\bin\javaw.exe";
+    internal const string MinecraftLauncherFolder = "Minecraft Launcher";
+
+    internal static bool IsMinecraftBundledRuntime(string path) =>
+        path.EndsWith("\\" + MinecraftLauncherFolder + "\\" + MinecraftRuntimeRelative, StringComparison.OrdinalIgnoreCase);
+
     public static bool IsJavaRuntime(string path) => Path.GetFileNameWithoutExtension(path) is { } name &&
         (name.Equals("java", StringComparison.OrdinalIgnoreCase) || name.Equals("javaw", StringComparison.OrdinalIgnoreCase));
 

@@ -667,7 +667,9 @@ public partial class GamesSettingsView : UserControl
         if (row.Issue == DetectionIssue.MinecraftJava)
         {
             if (!ModalDialog.ConfirmAction(Window.GetWindow(this),
-                "Start Minecraft Java and enter the game. In Task Manager (Details), find the game’s javaw.exe and choose Open file location. Select that exact javaw.exe, not MinecraftLauncher.exe or the Xbox placeholder. Only register a runtime dedicated to Minecraft; for shared Java use manual display recording. Bedrock is a separate game.",
+                "QuickClip could not find Minecraft's bundled Java runtime. Look inside your Minecraft Launcher installation (often under Program Files (x86), possibly on another drive) for:\n\n" +
+                CatalogPaths.MinecraftLauncherFolder + "\\" + CatalogPaths.MinecraftRuntimeRelative +
+                "\n\nIf your runtime version differs, start Minecraft and use Task Manager > Details > javaw.exe > Open file location. Select the dedicated javaw.exe, not MinecraftLauncher.exe. Bedrock is separate.",
                 "Fix Minecraft Java detection", "Locate dedicated executable", "Close", destructive: false)) return;
             initial = null;
         }

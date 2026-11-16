@@ -126,6 +126,30 @@ public sealed class LauncherDiscoveryTests : IDisposable
     }
 
     [Fact]
+    public async Task Minecraft_bundled_runtime_is_discovered_and_only_exact_runtime_is_eligible()
+    {
+        string install = _root.CreateSubdirectory("Program Files (x86)\\Minecraft Launcher").FullName;
+        string runtime = Path.Combine(install, CatalogPaths.MinecraftRuntimeRelative);
+        Directory.CreateDirectory(Path.GetDirectoryName(runtime)!);
+        File.WriteAllBytes(runtime, [1]);
+        string launcher = WriteExecutable(install, "MinecraftLauncher.exe");
+        string other = WriteExecutable(_root.CreateSubdirectory("Shared Java").FullName, "javaw.exe");
+        using var metadata = GameCatalogService.CreateScan(new());
+        using var scan = GameCatalogService.CreateScan(new() { Launchers = [CatalogSource.Xbox] },
+            localInstalls: _ => metadata.ReadXbox([_root.FullName]));
+        CatalogResult result;
+        do { result = await scan.ContinueAsync(100, TimeSpan.FromSeconds(1), default); } while (scan.HasMore);
+        var state = CatalogClaims.Apply(new() { AutoScan = false, EnabledLaunchers = [CatalogSource.Xbox] },
+            new CatalogScope(CatalogSource.Xbox), result, false);
+        var row = Assert.Single(GameCatalogRuntime.Rows(state));
+        Assert.Equal("Minecraft Java Edition", row.DisplayName);
+        Assert.Equal(CatalogMatchKind.Game, Match(state, runtime));
+        Assert.Equal(CatalogMatchKind.Launcher, Match(state, launcher));
+        Assert.NotEqual(CatalogMatchKind.Game, Match(state, other));
+        Assert.Equal(CatalogMatchKind.Ignored, new GameCatalogIndex(result, [runtime]).Match(runtime, true).Kind);
+    }
+
+    [Fact]
     public void Launcher_registration_patterns_skip_client_and_unknown_products()
     {
         Assert.Null(LocalLaunchers.ParseRegistration(CatalogSource.Riot, new("Riot Client", "Riot Client", @"C:\Riot", null)));

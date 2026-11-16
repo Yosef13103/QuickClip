@@ -77,7 +77,14 @@ internal sealed class GameCatalogIndex
             if (candidate.Rules.Classification == AppClassification.Application) return new(CatalogMatchKind.Application, entry);
             if (candidate.Rules.Classification == AppClassification.Companion) return new(CatalogMatchKind.Companion, entry);
         }
-        if (CatalogPaths.IsJavaRuntime(path) && entry.Source != CatalogSource.Manual)
+        // Only a verified Xbox discovery record naming this exact bundled runtime may
+        // bypass the shared-Java guard. Ordinary Java remains ineligible.
+        bool minecraftRuntime = entry.Source == CatalogSource.Xbox &&
+            CatalogPaths.IsMinecraftBundledRuntime(path) &&
+            entry.RendererExecutables is { } renderers && renderers.Contains(path, StringComparer.OrdinalIgnoreCase) &&
+            entry.InstallDirectories.Any(root => Path.GetFileName(root).Equals(CatalogPaths.MinecraftLauncherFolder, StringComparison.OrdinalIgnoreCase) &&
+                StringComparer.OrdinalIgnoreCase.Equals(Path.Combine(root, CatalogPaths.MinecraftRuntimeRelative), path));
+        if (CatalogPaths.IsJavaRuntime(path) && entry.Source != CatalogSource.Manual && !minecraftRuntime)
             return new(CatalogMatchKind.Application, entry);
         if (ambiguous) return new(CatalogMatchKind.Ambiguous);
         var rules = entry.Rules;
