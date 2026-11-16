@@ -236,7 +236,7 @@ public partial class SettingsView
     [
         new("Performance", 720, 30, RecordingQuality.Medium, CaptureEngine.NvencSpeed.FastestP2),
         new("Balanced", 1080, 60, RecordingQuality.High, CaptureEngine.NvencSpeed.FastestP2),
-        new("Quality", 0, 60, RecordingQuality.Ultra, CaptureEngine.NvencSpeed.BalancedP4),
+        new("Quality", 0, 60, RecordingQuality.Ultra, CaptureEngine.NvencSpeed.FastestP2),
     ];
 
     private void UpdateSetupPresetStatus()

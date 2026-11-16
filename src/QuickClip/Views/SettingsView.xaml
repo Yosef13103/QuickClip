@@ -341,10 +341,10 @@
                             <WrapPanel>
                                 <Button Content="Performance" Tag="Performance" Click="SetupPreset_Click" Margin="0,0,6,4" ToolTip="720p, 30 FPS, Medium, fast NVENC preset" />
                                 <Button Content="Balanced" Tag="Balanced" Click="SetupPreset_Click" Margin="0,0,6,4" ToolTip="1080p, 60 FPS, High, fast NVENC preset" />
-                                <Button Content="Quality" Tag="Quality" Click="SetupPreset_Click" Margin="0,0,6,4" ToolTip="Native size, 60 FPS, Ultra, balanced NVENC preset" />
+                                <Button Content="Quality" Tag="Quality" Click="SetupPreset_Click" Margin="0,0,6,4" ToolTip="Native size, 60 FPS, Ultra, fast NVENC preset" />
                             </WrapPanel>
                             <TextBlock x:Name="SetupPresetStatus" Style="{StaticResource Hint}" TextWrapping="Wrap" />
-                            <TextBlock Text="Customize resolution, clip length, quality and FPS below. Presets change only these video choices and the NVENC speed preset; they do not change audio, permissions, or your encoder." Style="{StaticResource Hint}" TextWrapping="Wrap" Margin="0,4,0,0" />
+                            <TextBlock Text="Customize resolution, clip length, quality and FPS below. Presets adjust video resolution, frame rate, quality and NVENC speed (P2 for all three). AMD, Intel and other encoders retain their existing tuning. Audio, clip length, permissions and encoder selection are unchanged." Style="{StaticResource Hint}" TextWrapping="Wrap" Margin="0,4,0,0" />
                         </StackPanel>
                     </Border>
 
