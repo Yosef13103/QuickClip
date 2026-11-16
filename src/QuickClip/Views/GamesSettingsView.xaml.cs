@@ -493,13 +493,14 @@ public partial class GamesSettingsView : UserControl
             var issues = claim.Result.Issues;
             string count = $"{claim.DiscoveredCount ?? claim.Result.Entries.Length:N0} found";
             if (claim.Verified && claim.Scope.Kind == CatalogSource.Steam && claim.Scope.Root == null &&
-                claim.Result.SteamLibraries.IsEmpty) return "No local library found";
+                claim.Result.SteamLibraries.IsEmpty) return "Not installed";
             if (claim.Verified) return $"Available · {count}";
             if (issues.Any(issue => issue.Kind == CatalogIssueKind.Unavailable) || claim.Result.SourceUnavailable)
                 return $"Inaccessible or offline · {count}";
             if (issues.Any(issue => issue.Kind == CatalogIssueKind.SourceMissing) &&
                 issues.All(issue => issue.Kind is CatalogIssueKind.SourceMissing or CatalogIssueKind.ReparsePoint))
-                return "No local library found";
+                return claim.Scope.Root != null ? "Source missing" :
+                    claim.Result.Entries.IsEmpty ? "Not installed" : "Not currently found";
             return $"Incomplete · {count}";
         }
         var enabled = CatalogScope.Enabled(state).Select(scope => scope.Key).ToHashSet(StringComparer.Ordinal);
@@ -533,7 +534,15 @@ public partial class GamesSettingsView : UserControl
         LastScan.Text = state.Snapshot is { CompletedAt: var completed } && completed != default
             ? $"Last finished scan · {completed.ToLocalTime():g}" : "No finished scan.";
         BlockedFiles.ItemsSource = state.BlockedExecutables;
-        var issues = state.Snapshot?.Issues.Select(ScanIssueText) ?? [];
+        // Old saved snapshots may predate the coordinator's presentation filter.
+        // Show SourceMissing only for an explicitly configured folder; never
+        // list each absent optional launcher as a scan warning.
+        var explicitMissing = claims.Values.Where(claim => claim.Scope.Root != null)
+            .SelectMany(claim => claim.Result.Issues)
+            .Where(issue => issue.Kind == CatalogIssueKind.SourceMissing).ToHashSet();
+        var issues = state.Snapshot?.Issues.Where(issue =>
+            issue.Kind != CatalogIssueKind.SourceMissing || explicitMissing.Contains(issue))
+            .Select(ScanIssueText) ?? [];
         ScanIssues.ItemsSource = state.Snapshot?.HasMoreIssues == true ? issues.Append("Additional scan issues are omitted.").ToArray()
             : issues.ToArray();
         RenderRows(CatalogClaims.Start(state));

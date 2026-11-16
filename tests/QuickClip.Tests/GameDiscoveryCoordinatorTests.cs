@@ -184,6 +184,41 @@ public sealed class GameDiscoveryCoordinatorTests : IDisposable
         Assert.Equal("Scan canceled", coordinator.Status);
     }
 
+    [Fact]
+    public async Task Absent_optional_launcher_does_not_warn_or_change_source_claim_safety()
+    {
+        string missingManifests = Path.Combine(_fixture.FullName, "MissingEpic");
+        GameCatalogSettings state = new() { DiscoverSteam = false, DiscoverEpic = true };
+        using var coordinator = new GameDiscoveryCoordinator(() => state, (updated, _) => state = updated,
+            request => GameCatalogService.CreateScan(request, () => [], () => missingManifests));
+
+        await coordinator.RequestAsync(manual: true);
+
+        Assert.StartsWith("Completed ·", coordinator.Status);
+        Assert.DoesNotContain("source missing", coordinator.Status, StringComparison.OrdinalIgnoreCase);
+        Assert.Empty(state.Snapshot!.Issues);
+        var claim = Assert.Single(state.SourceClaims!.Value);
+        Assert.False(claim.Verified);
+        Assert.Contains(claim.Result.Issues, issue => issue.Kind == CatalogIssueKind.SourceMissing);
+    }
+
+    [Fact]
+    public async Task Absent_optional_launcher_does_not_hide_an_explicitly_added_missing_folder()
+    {
+        string missingManifests = Path.Combine(_fixture.FullName, "MissingEpic");
+        string missingFolder = Path.Combine(_fixture.FullName, "MissingGame");
+        GameCatalogSettings state = new() { DiscoverSteam = false, DiscoverEpic = true,
+            Request = new() { GameRoots = [new(missingFolder)] } };
+        using var coordinator = new GameDiscoveryCoordinator(() => state, (updated, _) => state = updated,
+            request => GameCatalogService.CreateScan(request, () => [], () => missingManifests));
+
+        await coordinator.RequestAsync(manual: true);
+
+        Assert.StartsWith("Incomplete", coordinator.Status);
+        Assert.Contains(state.Snapshot!.Issues, issue => issue.Kind == CatalogIssueKind.Unavailable);
+        Assert.DoesNotContain(state.Snapshot.Issues, issue => issue.Kind == CatalogIssueKind.SourceMissing);
+    }
+
     private string AddInstall(string name)
     {
         string path = _fixture.CreateSubdirectory(name).FullName;

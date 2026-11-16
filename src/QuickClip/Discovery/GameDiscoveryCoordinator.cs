@@ -341,9 +341,17 @@ internal sealed class GameDiscoveryCoordinator : IDisposable
 
     private void Publish(GameCatalogSettings state, bool finished, bool persist)
     {
-        var preview = state.ScanPreview?.Result;
-        var results = _results.Values.Concat(preview != null ? [preview] : []).ToArray();
-        var issues = results.SelectMany(result => result.Issues).Distinct().Take(129).ToArray();
+        var preview = state.ScanPreview;
+        var results = _results.Values.Concat(preview != null ? [preview.Result] : []).ToArray();
+        // Missing optional launcher discovery metadata is normal on a machine
+        // without that launcher. Retain raw source claims for cache/authorization
+        // reconciliation; only omit expected absence from the user-facing report.
+        var issues = _results.SelectMany(pair => pair.Value.Issues.Where(issue =>
+                issue.Kind != CatalogIssueKind.SourceMissing ||
+                (_plans.TryGetValue(pair.Key, out var plan) && plan.Scope.Root != null)))
+            .Concat(preview == null ? [] : preview.Result.Issues.Where(issue =>
+                issue.Kind != CatalogIssueKind.SourceMissing || preview.Scope.Root != null))
+            .Distinct().Take(129).ToArray();
         var summary = new CatalogResult([], [.. issues.Take(128)], results.Sum(result => result.VisitedEntries),
             results.Any(result => result.LimitReached), _clock.GetUtcNow())
         {
