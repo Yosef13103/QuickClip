@@ -287,6 +287,8 @@ public partial class GalleryView : UserControl
             if (sources.Any(folder => !available.Contains(folder, SavedRecordingFolders.Paths)))
                 ShowStatus("A saved Gallery source is offline. Its folder remains in Settings → Library.");
             if (_released) return;
+            if (AppProfile.IsPersonal) await LoadDraftRangesAsync();
+            if (_released) return;
             activity.Report("Updating Gallery view");
             foreach (var clip in _clips)
             {
@@ -648,7 +650,7 @@ public partial class GalleryView : UserControl
     private void Card_MouseLeftButtonUp(object sender, MouseButtonEventArgs e)
     {
         _dragStart = null;
-        if (_dragged || ItemOf(sender) is not { } item) return;
+        if (_dragged || IsCardControl(e.OriginalSource, sender) || ItemOf(sender) is not { } item) return;
         // While clips are being picked, a click picks; Ctrl+click always does.
         if (HasSelection || Keyboard.Modifiers.HasFlag(ModifierKeys.Control)) item.IsSelected = !item.IsSelected;
         else OpenClip(item);
@@ -717,14 +719,10 @@ public partial class GalleryView : UserControl
         }
     }
 
-    private void EditClipDetails_Click(object sender, RoutedEventArgs e)
+    private async void EditClipDetails_Click(object sender, RoutedEventArgs e)
     {
         if (!AppProfile.IsPersonal || ItemOf(sender) is not { } item) return;
-        if (InlineDetails.IsVisible && (GalleryDetailsEditor.HasDraft || GalleryDetailsEditor.IsSaving))
-        {
-            ShowStatus("Save or cancel the current clip details first.");
-            return;
-        }
+        if (!await FlushAnnotationsAsync()) return;
         InlineDetails.Visibility = Visibility.Visible;
         GalleryDetailsEditor.Open(item.Path, item.Details, focus: true, duration: item.Duration);
     }
@@ -767,8 +765,7 @@ public partial class GalleryView : UserControl
         if (!PersonalAnnotations || _editingAnnotations || _released || !SelectionActions.IsEnabled || clips.Count == 0) return;
         if (InlineDetails.IsVisible && (GalleryDetailsEditor.HasDraft || GalleryDetailsEditor.IsSaving))
         {
-            ShowStatus("Save or cancel the open details before organizing clips.");
-            return;
+            if (!await FlushAnnotationsAsync()) return;
         }
         if (addTag != null && !ClipDetails.IsValidTag(addTag))
         {
@@ -816,7 +813,9 @@ public partial class GalleryView : UserControl
     private void Card_KeyDown(object sender, KeyEventArgs e)
     {
         if (e.OriginalSource != sender || ItemOf(sender) is not { } item || e.IsRepeat) return;
-        if (e.Key == Key.Space || e.Key == Key.Enter && (HasSelection || Keyboard.Modifiers.HasFlag(ModifierKeys.Control)))
+        if (e.Key == Key.F2 && sender is FrameworkElement { Tag: TextBox renameBox } && PersonalAnnotations)
+            BeginRename(renameBox);
+        else if (e.Key == Key.Space || e.Key == Key.Enter && (HasSelection || Keyboard.Modifiers.HasFlag(ModifierKeys.Control)))
             item.IsSelected = !item.IsSelected;
         else if (e.Key == Key.Enter) OpenClip(item);
         else return;
@@ -832,8 +831,7 @@ public partial class GalleryView : UserControl
 
     private void Card_PreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
     {
-        for (var node = e.OriginalSource as DependencyObject; node != null && node != sender; node = VisualTreeHelper.GetParent(node))
-            if (node is ButtonBase) { _dragStart = null; return; }
+        if (IsCardControl(e.OriginalSource, sender)) { _dragStart = null; return; }
         _dragStart = e.GetPosition(this);
         _dragItem = ItemOf(sender);
         _dragged = false;
@@ -1322,6 +1320,39 @@ public partial class GalleryView : UserControl
             ClipSearchBox.Text = saved;
             _filterTimer.Stop();
             await SearchAsync();
+        }
+    }
+
+    internal ClipItem? DraftCardForRender(string path) => _clips.FirstOrDefault(clip => clip.Path == path);
+
+    internal async Task VerifyHoverTrimForRenderAsync(ClipItem item)
+    {
+        var poster = FindPoster(Rows) ?? throw new InvalidOperationException("The draft card poster was not realized.");
+        await _hoverPreview.StartForRenderAsync(poster, item);
+        bool played = false;
+        try
+        {
+            for (int i = 0; i < 120 && _hoverPreview.IsActive; i++)
+            {
+                if (_hoverPreview.VisiblePositionForRender is { } position)
+                {
+                    if (position < 0.98 || position > 4.6)
+                        throw new InvalidOperationException($"Hover played outside the saved trim at {position:0.00} s.");
+                    played |= position > 1.1;
+                }
+                await Task.Delay(40);
+            }
+            if (!played || _hoverPreview.IsActive)
+                throw new InvalidOperationException("Hover playback failed to play and stop within the saved trim.");
+        }
+        finally { _hoverPreview.Stop(); }
+
+        Grid? FindPoster(DependencyObject parent)
+        {
+            if (parent is Grid { Name: "ClipPoster" } grid && ReferenceEquals(grid.DataContext, item)) return grid;
+            for (int i = 0; i < VisualTreeHelper.GetChildrenCount(parent); i++)
+                if (FindPoster(VisualTreeHelper.GetChild(parent, i)) is { } child) return child;
+            return null;
         }
     }
 

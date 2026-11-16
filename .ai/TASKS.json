@@ -384,6 +384,30 @@
       "next_action": "Verify the final strict Windows candidate and complete the supervised checklist in docs/owner-field-polish.md."
     },
     {
+      "id": "W2-R2-EDIT",
+      "title": "Persist non-destructive clip edits and autosave details",
+      "kind": "implementation",
+      "depends_on": [],
+      "read": ["PRODUCT Editor, Gallery and storage", "QUALITY Q2/Q5"],
+      "scope": ["Personal editor sessions, clip annotations, Gallery trim previews and display-title renaming."],
+      "acceptance": ["Restore generated clip edits across restart, flush across navigation and export, and preserve staged replacement and Undo."],
+      "effort": "high",
+      "status": "implemented",
+      "candidate": null,
+      "gates": {
+        "local": "pass",
+        "ci": "pending",
+        "review": "pending",
+        "hardware": "pending"
+      },
+      "evidence": [
+        "Strict Release with native capture required: Personal 855 passed / 22 opt-in skips, Upstream workflow filter 74 passed / 14 opt-in skips.",
+        "Isolated generated three-track media: full restart, rapid clip switching, trim-limited hover, single-mix export and staged Recycle Bin Undo. Exact head and test evidence in the draft PR."
+      ],
+      "blocker": null,
+      "next_action": "Review the draft PR and exercise the owner flow on the integration candidate."
+    },
+    {
       "id": "W2-D",
       "title": "Live native replay ring duration changes",
       "kind": "implementation",

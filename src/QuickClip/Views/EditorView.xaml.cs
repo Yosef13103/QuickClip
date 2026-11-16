@@ -91,7 +91,6 @@ public partial class EditorView : UserControl
         get => MetadataEditor.AnnotationActions;
         set => MetadataEditor.AnnotationActions = value;
     }
-    private bool _favoriteSaving;
     public string? CurrentFile => _media?.Path;
     private bool _viewMode, _fullscreen, _updatingViewSeek;
     private double _inspectorWidth = 330;
@@ -115,21 +114,32 @@ public partial class EditorView : UserControl
     /// <summary>Opens a file now, or as soon as the player is ready.</summary>
     public async Task OpenAsync(string path)
     {
+        if (_closed) return;
+        path = Path.GetFullPath(path);
         // Gallery may request a different clip while the previous probe or a confirmed
         // Recycle Bin deletion is still running. Never silently drop the newer request.
-        if (_loading || _deletingMedia)
+        if (_loading || _deletingMedia || _exportPreparing || _resettingDraft)
         {
             _pendingFile = path;
             return;
         }
-        if (string.Equals(CurrentFile, Path.GetFullPath(path), StringComparison.OrdinalIgnoreCase))
+        if (string.Equals(CurrentFile, path, StringComparison.OrdinalIgnoreCase))
         {
+            if (EditorSource.Check(path, _sourceStamp, out _) == EditorSourceState.Replaced && CanOpenAnother())
+            {
+                await OpenFileAsync(path, flushCurrent: true);
+                return;
+            }
             await RefreshSourceAsync();
             if (!SourceReady) return;
-            if (AppProfile.IsPersonal && !MetadataEditor.HasDraft && File.Exists(path))
+            if (AppProfile.IsPersonal && !MetadataEditor.HasDraft && !MetadataEditor.IsSaving && File.Exists(path))
             {
-                var details = await PersonalLibrary.Current.ReadAsync(path) ?? CurrentClipDetails();
-                MetadataEditor.Open(path, details, duration: _media?.Duration);
+                var source = _sourceStamp;
+                var details = await PersonalLibrary.Current.ReadAsync(path);
+                if (!string.Equals(CurrentFile, path, StringComparison.OrdinalIgnoreCase) || _sourceStamp != source ||
+                    MetadataEditor.HasDraft || MetadataEditor.IsSaving || !VerifySource(path)) return;
+                details ??= ClipDetailsStore.Read(new FileInfo(path), ClipLibrary.InitialGame(_settings.ClipsFolder, path), _media?.EmbeddedCreationTime);
+                MetadataEditor.Open(path, details, duration: _media?.Duration, source: source);
                 ShowClipTitle(details);
             }
             return;
@@ -144,7 +154,7 @@ public partial class EditorView : UserControl
 
     private async Task OpenPendingFileAsync()
     {
-        if (_loading || _deletingMedia || !_uiReady || _closed || _pendingFile is not { } next) return;
+        if (_loading || _deletingMedia || _exportPreparing || _resettingDraft || _exportCts != null || !_uiReady || _closed || _pendingFile is not { } next) return;
         _pendingFile = null;
         await OpenAsync(next);
     }
@@ -156,10 +166,11 @@ public partial class EditorView : UserControl
 
     private async void DeleteMedia_Click(object sender, RoutedEventArgs e)
     {
-        if (_deletingMedia || _loading || _favoriteSaving || MetadataEditor.IsSaving || _exportCts != null || _media is not { } media) return;
+        if (_deletingMedia || _loading || _exportPreparing || _resettingDraft || _exportCts != null || _media is not { } media) return;
         _deletingMedia = true;
         try
         {
+            if (!await TryLeaveClipAsync()) return;
             var result = await ClipDeletion.Current.DeleteAsync([media.Path],
                 paths => ClipDeleteDialog.Confirm(OwnerWindow, paths), () => _player?.Command("stop"));
             if (result.Cancelled) return;
@@ -183,6 +194,7 @@ public partial class EditorView : UserControl
             _sourceStamp = null;
             SetSourceState(EditorSourceState.Ready);
             _openedDraft = null;
+            ClearEditDraft();
             _undo = null;
             _lastExport = null;
             RevealButton.Visibility = UndoButton.Visibility = Visibility.Collapsed;
@@ -329,11 +341,16 @@ public partial class EditorView : UserControl
     public EditorView()
     {
         InitializeComponent();
-        MetadataEditor.Saved += (path, details) =>
-        {
-            if (string.Equals(CurrentFile, path, StringComparison.OrdinalIgnoreCase)) ShowClipTitle(details);
-            ClipDetailsSaved?.Invoke(path, details);
-        };
+        MetadataEditor.AutoSaveEnabled = AppProfile.IsPersonal;
+        MetadataEditor.CloseButtonVisible = false;
+        MetadataEditor.AutoSaved += OnDetailsSaved;
+        MetadataEditor.Saved += OnDetailsSaved;
+        _draftTimer = new DispatcherTimer(TimeSpan.FromMilliseconds(700), DispatcherPriority.Background,
+            async (_, _) =>
+            {
+                _draftTimer!.Stop();
+                if (_exportCts == null) await SaveEditDraftAsync();
+            }, Dispatcher) { IsEnabled = false };
         MetadataEditor.KnownTags = () => KnownTags?.Invoke() ?? [];
         MetadataEditor.SeekBookmark = seconds => OnSeekRequested(seconds, true);
         MetadataEditor.BookmarksChanged += Timeline.SetBookmarks;
@@ -357,6 +374,7 @@ public partial class EditorView : UserControl
             e.Handled = true;
         }));
         _timeline.SelectionChanged += OnSelectionChanged;
+        _timeline.PositionChanged += () => { if (_paused) QueueEditDraft(); };
         _crop.Changed += OnCropChanged;
 
         Video.CursorQuery = (x, y) => _media?.Video == null ? VideoHost.IDC_ARROW : _crop.CursorAt(x, y);
@@ -467,7 +485,7 @@ public partial class EditorView : UserControl
     public async Task<bool> CloseAsync()
     {
         if (_closed) return true;
-        if (_deletingMedia || _loading || _favoriteSaving || MetadataEditor.IsSaving) return false;
+        if (_deletingMedia || _loading || _exportPreparing || _resettingDraft || _replacingSource) return false;
         if (_exportCts != null)
         {
             var answer = ModalDialog.Show(OwnerWindow, "An export is still running. Cancel it and close?", "QuickClip",
@@ -476,7 +494,8 @@ public partial class EditorView : UserControl
             _exportCts.Cancel();
         }
 
-        if (_exportCts == null && !ConfirmDiscardDraft()) return false;
+        if (!await TryLeaveClipAsync()) return false;
+        _draftTimer.Stop();
         _closed = true;
         Loaded -= OnLoaded;
         DetachSourceEvents();
@@ -595,21 +614,26 @@ public partial class EditorView : UserControl
         return p.X >= 0 && p.Y >= 0 && p.X <= element.ActualWidth && p.Y <= element.ActualHeight;
     }
 
-    private async Task OpenFileAsync(string path)
+    private async Task OpenFileAsync(string path, bool flushCurrent = false)
     {
-        if (_loading || _deletingMedia)
+        if (_loading || _deletingMedia || _exportPreparing || _resettingDraft)
         {
             _pendingFile = path;
             return;
         }
-        if (!string.Equals(CurrentFile, Path.GetFullPath(path), StringComparison.OrdinalIgnoreCase) && !ConfirmDiscardDraft()) return;
         _loading = true;
+        bool enabled = IsEnabled;
+        IsEnabled = false;
         try
         {
+            if ((flushCurrent || !string.Equals(CurrentFile, Path.GetFullPath(path), StringComparison.OrdinalIgnoreCase)) &&
+                !await TryLeaveClipAsync()) return;
+            if (_pendingFile != null && !_replacingSource) return;
             path = Path.GetFullPath(path);
             MediaInfo info;
             FileStamp stamp;
             ClipDetails details;
+            StoredClipDraft? storedDraft;
             try
             {
                 var source = EditorSource.Check(path, null, out stamp);
@@ -618,6 +642,7 @@ public partial class EditorView : UserControl
                 info = await MediaInfo.ProbeAsync(path);
                 details = await PersonalLibrary.Current.ReadAsync(path) ??
                     ClipDetailsStore.Read(new FileInfo(path), ClipLibrary.InitialGame(_settings.ClipsFolder, path), info.EmbeddedCreationTime);
+                storedDraft = await ReadEditDraftAsync(path, stamp);
                 source = EditorSource.Check(path, stamp, out _);
                 if (source != EditorSourceState.Ready) throw new IOException(EditorSource.Message(source));
             }
@@ -663,7 +688,7 @@ public partial class EditorView : UserControl
             MetadataGroup.Visibility = AppProfile.IsPersonal ? Visibility.Visible : Visibility.Collapsed;
             if (AppProfile.IsPersonal)
             {
-                MetadataEditor.Open(path, details, duration: info.Duration);
+                MetadataEditor.Open(path, details, duration: info.Duration, source: stamp);
                 if (differentClip) MetadataGroup.IsExpanded = true;
             }
 
@@ -693,12 +718,13 @@ public partial class EditorView : UserControl
             _crop.Reset(info.Video?.Width ?? 0, info.Video?.Height ?? 0);
             CropCheck.IsChecked = false;
             AspectCombo.SelectedIndex = 0;
+            SetUpEditDraft(storedDraft);
 
             if (_player != null)
             {
                 _player.Command("stop");
                 _player.SetList("audio-files", []);
-                _player.SetProperty("start", "none");
+                SetPreviewStart();
                 ConfigurePreviewAudio();
                 _player.SetProperty("pause", true);
                 _player.CommandAsync("loadfile", path, "replace");
@@ -717,13 +743,14 @@ public partial class EditorView : UserControl
             RefreshFpsList();
             RefreshEncoderList();
             UpdateUiState();
-            _openedDraft = DraftSignature();
+            _openedDraft = AppProfile.IsPersonal ? null : DraftSignature();
             UpdateViewSeek();
-            Root.Focus();
         }
         finally
         {
             _loading = false;
+            IsEnabled = enabled;
+            if (IsVisible) Root.Focus();
             if (_sourceSuspended && !ClipDeletion.Current.Busy) await RefreshSourceAsync();
             await OpenPendingFileAsync();
         }
@@ -1013,6 +1040,7 @@ public partial class EditorView : UserControl
     {
         ApplyPreviewVolumes();
         UpdateSummary();
+        QueueEditDraft();
     }
 
     private void VolumeSlider_DoubleClick(object sender, MouseButtonEventArgs e)
@@ -1069,6 +1097,7 @@ public partial class EditorView : UserControl
         {
             case "pause":
                 _paused = value is true;
+                if (_paused) QueueEditDraft();
                 PlayButton.Content = _paused ? PlayGlyph : PauseGlyph;
                 break;
             case "eof-reached":
@@ -1167,6 +1196,7 @@ public partial class EditorView : UserControl
         if (_audioSyncTimer.IsEnabled) SyncPreviewAudio();
         t = Math.Clamp(t, 0, _timeline.Duration);
         _timeline.SetPosition(t);
+        if (exact) QueueEditDraft();
         ApplyLoop();
         UpdateTimeText();
         _player.CommandAsync("seek", Fmt.Num(t, "0.######"), exact ? "absolute+exact" : "absolute+keyframes");
@@ -1178,47 +1208,11 @@ public partial class EditorView : UserControl
         Seek(t);
     }
 
-    private async void Favorite_Click(object sender, RoutedEventArgs e)
+    private void Favorite_Click(object sender, RoutedEventArgs e)
     {
-        if (MetadataEditor.AnnotationTarget is not { } target || _media == null) return;
-        if (_favoriteSaving || _loading || MetadataEditor.IsSaving || _exportCts != null || _deletingMedia) return;
-        if (MetadataEditor.HasDraft)
-        {
-            _viewMode = false;
-            ExitFullscreen();
-            ApplyMode();
-            MetadataGroup.IsExpanded = true;
-            MetadataEditor.ShowSaveReminder("Save or cancel the open details before changing the favorite.");
-            return;
-        }
-        _favoriteSaving = true;
-        UpdateUiState();
-        try
-        {
-            var results = await AnnotationActions.ApplyAsync([target], null, !target.Details.IsFavorite, CancellationToken.None);
-            var result = results.Single();
-            bool isCurrent = string.Equals(CurrentFile, target.Path, StringComparison.OrdinalIgnoreCase);
-            if (result.Details is { } details)
-            {
-                if (isCurrent)
-                {
-                    MetadataEditor.Open(target.Path, details, duration: _media?.Duration);
-                    ShowClipTitle(details);
-                }
-                ClipDetailsSaved?.Invoke(target.Path, details);
-            }
-            else if (isCurrent) StatusText.Text = result.Error;
-        }
-        catch (Exception ex)
-        {
-            Log.Failure(DiagnosticCategory.Editor, "Could not change clip favorite", ex);
-            StatusText.Text = "Couldn’t change favorite.";
-        }
-        finally
-        {
-            _favoriteSaving = false;
-            UpdateUiState();
-        }
+        if (!_loading && !_deletingMedia && !_exportPreparing && !_leavingClip && _exportCts == null &&
+            MetadataEditor.AnnotationTarget != null && SourceReady)
+            FavoriteButton.Tag = MetadataEditor.ToggleFavorite();
     }
 
     private void TogglePlay()
@@ -1256,7 +1250,11 @@ public partial class EditorView : UserControl
     private void ZoomIn_Click(object sender, RoutedEventArgs e) => _timeline.ZoomAt(_timeline.Position, 0.5);
     private void ZoomOut_Click(object sender, RoutedEventArgs e) => _timeline.ZoomAt(_timeline.Position, 2);
     private void ZoomFit_Click(object sender, RoutedEventArgs e) => _timeline.Fit();
-    private void Loop_Changed(object sender, RoutedEventArgs e) => ApplyLoop();
+    private void Loop_Changed(object sender, RoutedEventArgs e)
+    {
+        ApplyLoop();
+        QueueEditDraft();
+    }
 
     private void ApplyLoop()
     {
@@ -1276,6 +1274,7 @@ public partial class EditorView : UserControl
         if (!InBox.IsKeyboardFocused) InBox.Text = Fmt.Time(_timeline.In);
         if (!OutBox.IsKeyboardFocused) OutBox.Text = Fmt.Time(_timeline.Out);
         SelectionText.Text = $"Clip length {Fmt.Time(_timeline.Out - _timeline.In)}";
+        QueueEditDraft();
         ApplyLoop();
         UpdateSummary();
     }
@@ -1474,6 +1473,7 @@ public partial class EditorView : UserControl
         }
         UpdateCropFields(force: false);
         UpdateSummary();
+        QueueEditDraft();
     }
 
     private void UpdateCropFields(bool force)
@@ -1664,7 +1664,8 @@ public partial class EditorView : UserControl
         if (!IsInitialized) return;
         var container = CurrentContainer(forOverwrite: false);
         bool hasVideo = _media?.Video != null;
-        bool busy = _exportCts != null || _favoriteSaving || !SourceReady;
+        bool busy = _exportCts != null || _exportPreparing || _resettingDraft || !SourceReady;
+        ResetEditsButton.IsEnabled = _media != null && !busy && !_resettingDraft;
         Transport.IsEnabled = TracksArea.IsEnabled = Inspector.IsEnabled = SourceReady;
         PlayButton.IsEnabled = SourceReady && _previewReady;
         bool videoOut = (container.HasVideo || container.IsGif) && (hasVideo || _media == null);
@@ -1843,7 +1844,7 @@ public partial class EditorView : UserControl
     private async void ExportNew_Click(object sender, RoutedEventArgs e)
     {
         if (_media == null || _exportCts != null || _deletingMedia) return;
-        if (!VerifySource(_media.Path) || !SourceReady || !EnsureSavedDetails()) return;
+        if (!VerifySource(_media.Path) || !SourceReady) return;
         var container = CurrentContainer(forOverwrite: false);
         string dir = Path.GetDirectoryName(_media.Path)!;
         var details = CurrentClipDetails();
@@ -1890,22 +1891,12 @@ public partial class EditorView : UserControl
         return ClipDetailsStore.Read(file, ClipLibrary.InitialGame(_settings.ClipsFolder, file.FullName), _media.EmbeddedCreationTime);
     }
 
-    private bool EnsureSavedDetails()
-    {
-        if (_favoriteSaving || MetadataEditor.IsSaving) return false;
-        if (!MetadataEditor.HasDraft) return true;
-        _viewMode = false;
-            ExitFullscreen();
-        ApplyMode();
-        MetadataGroup.IsExpanded = true;
-        MetadataEditor.ShowSaveReminder();
-        return false;
-    }
+
 
     private async void SaveOver_Click(object sender, RoutedEventArgs e)
     {
         if (_media == null || _exportCts != null || _deletingMedia) return;
-        if (!VerifySource(_media.Path) || !SourceReady || !EnsureSavedDetails()) return;
+        if (!VerifySource(_media.Path) || !SourceReady) return;
         var container = CurrentContainer(forOverwrite: true);
         string fileName = Path.GetFileName(_media.Path);
         int tracks = _tracks.Count(t => t.Include);
@@ -1925,8 +1916,24 @@ public partial class EditorView : UserControl
 
     private async Task RunExportAsync(string outputPath, Container container, bool overwrite)
     {
-        if (App.IsQuittingForUpdate) return;
+        if (App.IsQuittingForUpdate || _exportPreparing || _exportCts != null || _loading || _resettingDraft) return;
         if (CurrentFile is not { } source || !VerifySource(source) || !SourceReady) return;
+        _exportPreparing = true;
+        MetadataEditor.IsEnabled = false;
+        try
+        {
+            if (!await FlushMetadataForExportAsync()) return;
+            if (!await FlushEditDraftAsync() && overwrite &&
+                !ModalDialog.ConfirmAction(OwnerWindow, "The edit draft could not be saved for Undo. Replace the video anyway?",
+                    "Unsaved edit draft", "Replace video", "Keep editing", destructive: true)) return;
+        }
+        finally
+        {
+            _exportPreparing = false;
+            MetadataEditor.IsEnabled = SourceReady;
+            if (_pendingFile != null) _ = Dispatcher.BeginInvoke(() => _ = OpenPendingFileAsync());
+        }
+        if (!VerifySource(source) || !SourceReady) return;
         string? staging = null;
         var details = CurrentClipDetails();
         ExportRequest request;
@@ -2032,6 +2039,7 @@ public partial class EditorView : UserControl
             ProgressPanel.Visibility = Visibility.Collapsed;
             if (MissingSourceOverlay.Visibility == Visibility.Visible) ClearMissingSourceButton.IsEnabled = true;
             UpdateUiState();
+            await OpenPendingFileAsync();
         }
     }
 
@@ -2118,6 +2126,7 @@ public partial class EditorView : UserControl
         {
             var original = RecycleBin.FindLatest(clip, undo.RecycledUtc)
                 ?? throw new IOException("The original isn't in the Recycle Bin any more.");
+            if (!await MetadataEditor.FlushAsync() || !await FlushEditDraftAsync() || !VerifySource(clip)) return;
             await ReleaseFileAsync();
             // Out of the Recycle Bin beside the clip first, so nothing is lost if the edited version can't be moved.
             parked = UniquePath(dir, name + ".quickclip-restore", ext);
@@ -2256,6 +2265,29 @@ public partial class EditorView : UserControl
     }
     internal string FpsChoicesForRender => string.Join(", ", FpsCombo.Items.OfType<Choice>().Select(c => c.Label));
     internal string StatusForRender => StatusText.Text;
+    internal void EditDraftForRender()
+    {
+        _timeline.SetIn(1);
+        _timeline.SetOut(4.5);
+        Seek(2.25);
+        _tracks[0].Include = false;
+        _tracks[1].Volume = 0.46;
+        MetadataEditor.TitleBox.Text = "Persisted fixture";
+        MetadataEditor.GameBox.Text = "Synthetic game";
+        MetadataEditor.ToggleFavorite();
+        MetadataEditor.TagBox.Text = "Fixture tag";
+    }
+
+    internal void VerifyDraftForRender()
+    {
+        if (_timeline.In != 1 || _timeline.Out != 4.5 || Math.Abs(_timeline.Position - 2.25) > 0.25 ||
+            _tracks[0].Include || _tracks[1].Volume != 0.46 || MetadataEditor.AnnotationTarget?.Details is not
+            { Title: "Persisted fixture", Game: "Synthetic game", IsFavorite: true, Tags: ["Fixture tag"] })
+            throw new InvalidOperationException("Editor did not restore the trim, playhead, track settings and metadata.");
+    }
+
+    internal Task ExportDraftForRender(string path) => RunExportAsync(path, CurrentContainer(forOverwrite: false), overwrite: false);
+
     internal Task UndoForRender() => UndoAsync();
     internal Task SaveOverForRender(double newIn)
     {

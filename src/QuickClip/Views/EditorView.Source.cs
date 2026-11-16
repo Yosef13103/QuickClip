@@ -180,12 +180,12 @@ public partial class EditorView
 
     private async void RetrySource_Click(object sender, RoutedEventArgs e) => await RefreshSourceAsync();
 
-    private void ClearUnavailableSource_Click(object sender, RoutedEventArgs e)
+    private async void ClearUnavailableSource_Click(object sender, RoutedEventArgs e)
     {
         if (!AppProfile.IsPersonal || SourceReady || _media == null || _closed || _loading ||
             _deletingMedia || _exportCts != null || _recheckingSource || MetadataEditor.IsSaving)
             return;
-        if (!ConfirmDiscardDraft()) return;
+        if (!await TryLeaveClipAsync()) return;
 
         // Forget the unavailable source in this editor only. Never delete media or Gallery entries.
         ClearNativePreview();
@@ -203,6 +203,7 @@ public partial class EditorView
         _media = null;
         _sourceStamp = null;
         _openedDraft = null;
+        ClearEditDraft();
         _undo = null;
         _lastExport = null;
         _sourceState = EditorSourceState.Ready;

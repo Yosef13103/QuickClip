@@ -93,38 +93,47 @@ public sealed class ClipDetailsTests
         var result = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var thread = new Thread(() =>
         {
-            try
+            var dispatcher = System.Windows.Threading.Dispatcher.CurrentDispatcher;
+            dispatcher.InvokeAsync(async () =>
             {
-                string media = Path.Combine(AppProfile.LocalDirectory, Guid.NewGuid().ToString("N") + ".mp4");
-                Directory.CreateDirectory(Path.GetDirectoryName(media)!);
-                File.WriteAllText(media, "fixture");
-                double? sought = null;
-                var editor = new ClipDetailsEditor { SeekBookmark = seconds => sought = seconds, KnownTags = () => ["boss", "chat"] };
-                var bookmark = new ClipBookmark(1.75, "Boss arrives");
-                var original = new ClipDetails(Capture, "Terraria") { Bookmarks = [bookmark] };
-                ClipDetailsStore.Write(media, original);
-                editor.Open(media, original, duration: 3);
-                Assert.Contains(Path.GetFileName(media), editor.MediaSummary.Text);
-                var row = Assert.IsType<DockPanel>(Assert.Single(editor.BookmarkRows.Children));
-                Assert.IsType<Button>(row.Children[0]).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
-                Assert.Equal(bookmark.Seconds, sought);
-                Assert.Equal(bookmark.Label, Assert.IsType<TextBlock>(row.Children[1]).Text);
-                editor.TagBox.Text = "BO";
-                var suggestion = Assert.IsType<Button>(Assert.Single(editor.TagSuggestions.Children));
-                suggestion.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
-                editor.FavoriteBox.IsChecked = true;
-                Assert.True(editor.HasDraft);
-                editor.SaveButton.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
-                Assert.False(editor.HasDraft);
+                try
+                {
+                    string media = Path.Combine(AppProfile.LocalDirectory, Guid.NewGuid().ToString("N") + ".mp4");
+                    Directory.CreateDirectory(Path.GetDirectoryName(media)!);
+                    File.WriteAllText(media, "fixture");
+                    double? sought = null;
+                    var editor = new ClipDetailsEditor { SeekBookmark = seconds => sought = seconds, KnownTags = () => ["boss", "chat"] };
+                    var bookmark = new ClipBookmark(1.75, "Boss arrives");
+                    var original = new ClipDetails(Capture, "Terraria") { Bookmarks = [bookmark] };
+                    ClipDetailsStore.Write(media, original);
+                    editor.Open(media, original, duration: 3);
+                    Assert.Contains(Path.GetFileName(media), editor.MediaSummary.Text);
+                    var row = Assert.IsType<DockPanel>(Assert.Single(editor.BookmarkRows.Children));
+                    Assert.IsType<Button>(row.Children[0]).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                    Assert.Equal(bookmark.Seconds, sought);
+                    Assert.Equal(bookmark.Label, Assert.IsType<TextBlock>(row.Children[1]).Text);
+                    editor.TagBox.Text = "BO";
+                    var suggestion = Assert.IsType<Button>(Assert.Single(editor.TagSuggestions.Children));
+                    suggestion.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                    editor.FavoriteBox.IsChecked = true;
+                    Assert.True(editor.HasDraft);
+                    var savedEvent = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                    editor.Saved += (_, _) => savedEvent.TrySetResult();
+                    editor.SaveButton.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                    await savedEvent.Task.WaitAsync(TimeSpan.FromSeconds(5));
+                    Assert.False(editor.HasDraft);
 
-                var saved = ClipDetailsStore.Read(new FileInfo(media), "Fallback", null);
-                Assert.Equal("boss", Assert.Single(saved.Tags));
-                Assert.True(saved.IsFavorite);
-                Assert.Equal(bookmark, Assert.Single(saved.Bookmarks));
-                Assert.Equal(Capture, saved.CapturedAt);
-                result.SetResult();
-            }
-            catch (Exception ex) { result.SetException(ex); }
+                    var saved = ClipDetailsStore.Read(new FileInfo(media), "Fallback", null);
+                    Assert.Equal("boss", Assert.Single(saved.Tags));
+                    Assert.True(saved.IsFavorite);
+                    Assert.Equal(bookmark, Assert.Single(saved.Bookmarks));
+                    Assert.Equal(Capture, saved.CapturedAt);
+                    result.SetResult();
+                }
+                catch (Exception ex) { result.SetException(ex); }
+                finally { dispatcher.BeginInvokeShutdown(System.Windows.Threading.DispatcherPriority.Background); }
+            });
+            System.Windows.Threading.Dispatcher.Run();
         }) { IsBackground = true };
         thread.SetApartmentState(ApartmentState.STA);
         thread.Start();

@@ -4,7 +4,7 @@ namespace QuickClip.Library;
 
 internal sealed class LibraryDatabase
 {
-    internal const int SchemaVersion = 2;
+    internal const int SchemaVersion = 3;
     private const int ApplicationId = 0x51434C49; // QCLI
     private readonly string _connectionString;
 
@@ -72,6 +72,12 @@ internal sealed class LibraryDatabase
             {
                 Execute(connection, transaction, AnnotationSchema);
                 Execute(connection, transaction, "PRAGMA user_version=2;");
+                version = 2;
+            }
+            if (version == 2)
+            {
+                Execute(connection, transaction, DraftSchema);
+                Execute(connection, transaction, "PRAGMA user_version=3;");
             }
             transaction.Commit();
         }
@@ -116,6 +122,14 @@ internal sealed class LibraryDatabase
         using var command = Command(connection, transaction, sql, parameters);
         return command.ExecuteScalar();
     }
+
+    private const string DraftSchema = """
+        CREATE TABLE edit_drafts (
+            file_id TEXT NOT NULL, created_ticks INTEGER NOT NULL, modified_ticks INTEGER NOT NULL,
+            bytes INTEGER NOT NULL, version INTEGER NOT NULL, start REAL NOT NULL, end REAL NOT NULL, payload TEXT NOT NULL,
+            PRIMARY KEY (created_ticks, modified_ticks, bytes, file_id)
+        ) WITHOUT ROWID;
+        """;
 
     internal const string BaseSchema = """
         CREATE TABLE roots (

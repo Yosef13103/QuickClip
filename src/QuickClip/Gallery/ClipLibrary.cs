@@ -7,6 +7,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Windows.Media;
 using QuickClip.Media;
+using QuickClip.Library;
 
 namespace QuickClip.Gallery;
 
@@ -42,7 +43,16 @@ public sealed class ClipItem : INotifyPropertyChanged
     internal ClipHeader Header { get; }
     internal int ThumbnailWidth { get; set; }
 
-    public string DurationText => Duration is double d ? Fmt.CompactDuration(d) : "";
+    internal ClipDraftRange? EditRange { get; private set; }
+    internal double? SelectedDuration => EditRange is { } range ? range.End - range.Start : Duration;
+    public string DurationText => SelectedDuration is double d ? Fmt.CompactDuration(d) : "";
+
+    internal void ApplyEditRange(ClipDraftRange? range)
+    {
+        if (EditRange == range) return;
+        EditRange = range;
+        OnChanged(nameof(DurationText));
+    }
     public string SizeText => Fmt.Size(Size);
 
     internal void ApplyDetails(ClipDetails details)

@@ -341,6 +341,9 @@
                             <TextBlock Text="Export as new file…" />
                         </StackPanel>
                     </Button>
+                    <Button x:Name="ResetEditsButton" Content="Reset edits" Click="ResetEdits_Click" Style="{StaticResource TextButton}"
+                            HorizontalAlignment="Left" Margin="0,6,0,0" Visibility="Collapsed" />
+                    <TextBlock x:Name="DraftStatus" TextWrapping="Wrap" Foreground="{DynamicResource SubtleText}" />
                     <Button x:Name="SaveOverButton" HorizontalAlignment="Stretch" Padding="10,8" Margin="0,8,0,0" Focusable="False"
                             Click="SaveOver_Click" ToolTip="Replace the original file with the edited clip (Ctrl+S). The original goes to the Recycle Bin.">
                         <StackPanel Orientation="Horizontal">
