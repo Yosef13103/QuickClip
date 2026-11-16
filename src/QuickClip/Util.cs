@@ -85,9 +85,9 @@ internal static class Fmt
     /// <summary>Whole seconds for short UI labels, independent of media or trimming precision.</summary>
     public static string CompactDuration(double seconds)
     {
-        if (!double.IsFinite(seconds) || seconds < 0 || seconds >= long.MaxValue) return "00";
+        if (!double.IsFinite(seconds) || seconds < 0 || seconds >= long.MaxValue) return "0s";
         long wholeSeconds = (long)seconds;
-        return wholeSeconds < 60 ? wholeSeconds.ToString("00", CultureInfo.InvariantCulture)
+        return wholeSeconds < 60 ? FormattableString.Invariant($"{wholeSeconds}s")
             : FormattableString.Invariant($"{wholeSeconds / 60:00}:{wholeSeconds % 60:00}");
     }
 

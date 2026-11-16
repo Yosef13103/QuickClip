@@ -138,31 +138,20 @@ public partial class SettingsView
     {
         if (!AppProfile.IsPersonal || BasicAudioHint == null || LegacyAudioPanel == null) return;
         bool basic = IsBasicExperience;
-        AudioHint.Visibility = basic ? Visibility.Collapsed : Visibility.Visible;
-        EndpointDetailHint.Visibility = EndpointOrderLabel.Visibility = basic ? Visibility.Collapsed : Visibility.Visible;
-        EndpointModeCheck.Content = basic ? "Choose specific audio devices" : "Record selected Windows audio devices";
+        AudioHint.Visibility = Visibility.Collapsed;
+        EndpointDetailHint.Visibility = EndpointOrderLabel.Visibility = Visibility.Collapsed;
+        EndpointModeCheck.Content = "Choose specific audio devices";
         foreach (var item in _advancedEndpointControls)
-            item.Visibility = basic ? Visibility.Collapsed : Visibility.Visible;
+            item.Visibility = Visibility.Visible;
         foreach (var meter in _endpointMeters.Concat(_legacyMeters))
             meter.Save.Visibility = basic ? Visibility.Collapsed : Visibility.Visible;
         var settings = AppSettings.Current;
-        if (settings.UseAudioEndpoints)
-        {
-            var plan = EndpointAudio.Plan(settings)!;
-            int playback = plan.Count(track => track.Flow == EndpointFlow.Playback);
-            int missing = _endpointsLoaded && _endpointError == null ? plan.Count(track => EndpointAudio.FindEndpoint(track, _endpoints) == null) : 0;
-            BasicAudioHint.Text = playback == 0 ? "Computer sound is off. Add an output to record what you hear." :
-                $"Computer sound uses {playback} selected output(s). To save voice chat separately, your chat app must send sound to a different output that you add here.";
-            if (missing > 0) BasicAudioHint.Text += $" {missing} selected device(s) could not be found.";
-        }
-        else
-        {
-            BasicAudioHint.Text = "Computer sound includes your game and voice chat together. To choose what to record, turn on specific audio devices.";
-            if (!_loading && settings.RecordMic && settings.MicDeviceIds.Any(id => id.Length == 0
-                    ? !_mics.Any(mic => mic.IsDefault != 0)
-                    : !_mics.Any(mic => string.Equals(mic.Id, id, StringComparison.OrdinalIgnoreCase))))
-                BasicAudioHint.Text += " A selected microphone is missing. Connect it or choose another microphone below.";
-        }
+        BasicAudioHint.Text = "";
+        if (!settings.UseAudioEndpoints && !_loading && settings.RecordMic && settings.MicDeviceIds.Any(id => id.Length == 0
+                ? !_mics.Any(mic => mic.IsDefault != 0)
+                : !_mics.Any(mic => string.Equals(mic.Id, id, StringComparison.OrdinalIgnoreCase))))
+            BasicAudioHint.Text = "A selected microphone is missing. Connect it or choose another microphone below.";
+        BasicAudioHint.Visibility = BasicAudioHint.Text.Length == 0 ? Visibility.Collapsed : Visibility.Visible;
     }
 
     private void ShowGuideStep()

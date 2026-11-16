@@ -346,7 +346,7 @@ public partial class GamesSettingsView : UserControl
         if (paths.FirstOrDefault(path => GameDetector.ApplyProcessRole(path, new(CatalogPaths.DefaultRole(path))).Kind
             != CatalogMatchKind.Unknown) is { } nonGame)
         {
-            Error($"{Path.GetFileName(nonGame)} is blocked from automatic recording. Choose a game executable.");
+            Error($"{Path.GetFileName(nonGame)} is a launcher or other non-game executable. Select the executable that renders the game itself.");
             return;
         }
         if (paths.Any(CatalogPaths.IsJavaRuntime) && !ModalDialog.ConfirmAction(owner,
@@ -667,7 +667,7 @@ public partial class GamesSettingsView : UserControl
         if (row.Issue == DetectionIssue.MinecraftJava)
         {
             if (!ModalDialog.ConfirmAction(Window.GetWindow(this),
-                "Launch Minecraft Java from its launcher. The Xbox placeholder cannot start recording. If your installation uses a dedicated Java executable, select that exact file. For a shared runtime, use manual recording on an allowed display. Minecraft for Windows (Bedrock) is a separate game.",
+                "Start Minecraft Java and enter the game. In Task Manager (Details), find the game’s javaw.exe and choose Open file location. Select that exact javaw.exe, not MinecraftLauncher.exe or the Xbox placeholder. Only register a runtime dedicated to Minecraft; for shared Java use manual display recording. Bedrock is a separate game.",
                 "Fix Minecraft Java detection", "Locate dedicated executable", "Close", destructive: false)) return;
             initial = null;
         }

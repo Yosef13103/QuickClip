@@ -82,11 +82,11 @@ public partial class SettingsView
             var device = EndpointAudio.FindEndpoint(track, endpoints);
             string caption = string.IsNullOrWhiteSpace(track.Label) ? FlowName(track.Flow) : track.Label;
             var row = new DockPanel { Margin = new Thickness(0, 8, 0, 0), LastChildFill = true };
-            var actions = new StackPanel { Orientation = Orientation.Horizontal };
+            var actions = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Top, Margin = new Thickness(4, 0, 0, 0) };
             DockPanel.SetDock(actions, Dock.Right);
-            actions.Children.Add(EndpointButton("Up", $"Move {caption} up", index > 0, () => MoveEndpoint(index, -1)));
-            actions.Children.Add(EndpointButton("Down", $"Move {caption} down", index + 1 < tracks.Count, () => MoveEndpoint(index, 1)));
-            actions.Children.Add(EndpointButton("Remove", $"Remove {caption}", true, () =>
+            actions.Children.Add(EndpointButton("\uE70E", $"Move {caption} up", index > 0, () => MoveEndpoint(index, -1)));
+            actions.Children.Add(EndpointButton("\uE70D", $"Move {caption} down", index + 1 < tracks.Count, () => MoveEndpoint(index, 1)));
+            actions.Children.Add(EndpointButton("\uE711", $"Remove {caption}", true, () =>
             {
                 var remaining = AppSettings.Current.EndpointTracks.ToList();
                 remaining.RemoveAt(index);
@@ -103,7 +103,7 @@ public partial class SettingsView
             row.Children.Add(enabled);
 
             var fields = new StackPanel { Margin = new Thickness(8, 0, 4, 0) };
-            var label = new TextBox { Text = track.Label, ToolTip = "Name of this track in saved clips" };
+            var label = new TextBox { Text = track.Label, ToolTip = "Name of this track in saved clips", Padding = new Thickness(5, 4, 5, 4) };
             AutomationProperties.SetName(label, $"Name of {FlowName(track.Flow)} track {i + 1}");
             label.LostKeyboardFocus += (_, _) => UpdateEndpoint(track, t => t with { Label = label.Text });
             label.KeyDown += (_, e) =>
@@ -153,7 +153,7 @@ public partial class SettingsView
 
     private Button EndpointButton(string caption, string accessibleName, bool enabled, Action run)
     {
-        var button = new Button { Content = caption, IsEnabled = enabled, Focusable = true, Style = (Style)FindResource("TextButton") };
+        var button = new Button { Content = caption, IsEnabled = enabled, Focusable = true, ToolTip = accessibleName, Style = (Style)FindResource("IconButton"), MinWidth = 32, MinHeight = 32 };
         AutomationProperties.SetName(button, accessibleName);
         button.Click += (_, _) => run();
         return button;
@@ -230,11 +230,8 @@ public partial class SettingsView
         var plan = EndpointAudio.Plan(AppSettings.Current);
         if (plan == null) return;
         int missing = _endpointsLoaded ? plan.Count(track => EndpointAudio.FindEndpoint(track, _endpoints) == null) : 0;
-        int playback = plan.Count(t => t.Flow == EndpointFlow.Playback);
         var notices = new List<string>();
         if (missing > 0) notices.Add($"{missing} enabled device(s) missing. QuickClip keeps those selections and retries the same devices without substituting a default.");
-        if (playback > 1) notices.Add("Multiple playback devices may carry the same audio, such as a headset and a virtual output feeding it.");
-        if (playback > 0) notices.Add("Playback loopback includes QuickClip previews played through a selected device.");
         if (_endpointsLoaded && _endpoints.Count == 0 && missing == 0) notices.Add("No active devices found.");
         EndpointNotice.Text = string.Join(" ", notices);
     }

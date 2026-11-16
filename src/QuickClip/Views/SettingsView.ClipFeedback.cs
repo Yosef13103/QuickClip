@@ -133,7 +133,6 @@ public partial class SettingsView
         IdleSaveNotificationCheck.IsChecked = settings.ShowInactiveSaveNotifications;
         ImageOnlyCheck.IsChecked = options.WantsImage;
         HideSavedBannerFromCaptureCheck.IsChecked = options.HideSavedBannerFromCapture;
-        HideImageFromCaptureCheck.IsChecked = options.HideImageFromCapture;
         DetailedSavedCheck.IsChecked = options.Style == OverlayStyle.Detailed;
         OverlayShowResolution.IsChecked = options.ShowResolution;
         OverlayShowFps.IsChecked = options.ShowFps;
@@ -258,7 +257,7 @@ public partial class SettingsView
             Style = DetailedSavedCheck.IsChecked == true ? OverlayStyle.Detailed : OverlayStyle.Compact,
             ImageOnly = imageOnly,
             HideSavedBannerFromCapture = HideSavedBannerFromCaptureCheck.IsChecked == true,
-            HideImageFromCapture = HideImageFromCaptureCheck.IsChecked == true,
+            HideImageFromCapture = false,
             ImageFit = Value(OverlayImageFitCombo, old.ImageFit),
             ShowResolution = OverlayShowResolution.IsChecked == true,
             ShowFps = OverlayShowFps.IsChecked == true,
@@ -372,7 +371,7 @@ public partial class SettingsView
         settings.ClipOverlay = new()
         {
             Enabled = old.Enabled, ImageOnly = old.WantsImage, ImagePath = old.ImagePath, ImageAppearance = new(),
-            HideSavedBannerFromCapture = old.HideSavedBannerFromCapture, HideImageFromCapture = old.HideImageFromCapture,
+            HideSavedBannerFromCapture = old.HideSavedBannerFromCapture, HideImageFromCapture = false,
         };
         settings.Save();
         bool wasLoading = _loading;

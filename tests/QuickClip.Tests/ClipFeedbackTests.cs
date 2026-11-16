@@ -218,7 +218,7 @@ public sealed class ClipFeedbackTests
     [InlineData(true, false)]
     [InlineData(false, true)]
     [InlineData(true, true)]
-    public void Saved_banner_and_image_exclusion_are_independent_and_persist(bool hideBanner, bool hideImage)
+    public void Only_saved_banner_exclusion_is_effective_even_with_legacy_image_flag(bool hideBanner, bool hideImage)
     {
         var legacy = AppSettings.Parse("{}").ClipOverlay;
         Assert.False(legacy.HideSavedBannerFromCapture);
@@ -233,7 +233,7 @@ public sealed class ClipFeedbackTests
         };
         var options = AppSettings.Parse(settings.ToJson()).ClipOverlay;
         Assert.Equal(hideBanner, options.ForEvent(ClipEvent.Saved)!.ExcludeFromCapture(saved: true));
-        Assert.Equal(hideImage, (options with { ImageOnly = true }).ForEvent(ClipEvent.Saved)!.ExcludeFromCapture(saved: true));
+        Assert.False((options with { ImageOnly = true }).ForEvent(ClipEvent.Saved)!.ExcludeFromCapture(saved: true));
         Assert.False(options.ForEvent(ClipEvent.GameStarted)!.ExcludeFromCapture(saved: false));
     }
 

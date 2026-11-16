@@ -143,10 +143,10 @@
                                                         Width="3" Height="25" HorizontalAlignment="Left" VerticalAlignment="Center"
                                                         CornerRadius="2" Visibility="Collapsed" />
                                                 <Border BorderBrush="{DynamicResource WarningBrush}" BorderThickness="1"
-                                                        CornerRadius="7" HorizontalAlignment="Right" VerticalAlignment="Top" Padding="3,0"
+                                                        CornerRadius="11" MinWidth="22" Height="22" HorizontalAlignment="Right" VerticalAlignment="Top" Padding="3,0"
                                                         Visibility="{Binding DataContext.Visibility, RelativeSource={RelativeSource TemplatedParent}, FallbackValue=Collapsed}">
                                                     <TextBlock Text="{Binding DataContext.Count, RelativeSource={RelativeSource TemplatedParent}}"
-                                                               Foreground="{DynamicResource WarningBrush}" FontSize="{DynamicResource QuickClipText12}" />
+                                                               Foreground="{DynamicResource WarningBrush}" FontSize="{DynamicResource QuickClipText12}" HorizontalAlignment="Center" VerticalAlignment="Center" FontWeight="SemiBold" />
                                                 </Border>
                                                 <StackPanel x:Name="ItemContent" HorizontalAlignment="Center" VerticalAlignment="Center">
                                                     <TextBlock x:Name="SectionGlyph" Text="{TemplateBinding Tag}"
@@ -524,9 +524,8 @@
             <Border x:Name="AudioCard" Style="{StaticResource Card}">
                 <StackPanel>
                     <TextBlock Text="Audio" Style="{StaticResource CardTitle}" />
-                    <TextBlock x:Name="BasicAudioHint" Style="{StaticResource Hint}" TextWrapping="Wrap" Visibility="Collapsed"
-                        Text="Computer audio includes what you hear, including voice chat. To record separate playback devices or disable computer audio, choose specific Windows audio devices below. Separate game/chat audio requires separately routed devices." />
-                    <CheckBox Style="{StaticResource SwitchCheckBox}" x:Name="EndpointModeCheck" Content="Record selected Windows audio devices"
+                    <TextBlock x:Name="BasicAudioHint" Style="{StaticResource Hint}" TextWrapping="Wrap" Visibility="Collapsed" />
+                    <CheckBox Style="{StaticResource SwitchCheckBox}" x:Name="EndpointModeCheck" Content="Choose specific audio devices"
                               Margin="0,8,0,0" Checked="EndpointMode_Changed" Unchecked="EndpointMode_Changed" />
                     <StackPanel x:Name="EndpointPanel" Visibility="Collapsed" Margin="0,8,0,0">
                         <TextBlock x:Name="EndpointDetailHint" Style="{StaticResource Hint}" TextWrapping="Wrap"
@@ -664,8 +663,8 @@
                                           SelectionChanged="Scale_Changed" ItemStringFormat="{}{0}%" />
                             </StackPanel>
                             <StackPanel Margin="0,0,12,6">
-                                <TextBlock Text="Control size" Style="{StaticResource FieldLabel}" />
-                                <ComboBox x:Name="ControlScale" AutomationProperties.Name="Control size" MinWidth="120"
+                                <TextBlock Text="Buttons and controls size" Style="{StaticResource FieldLabel}" />
+                                <ComboBox x:Name="ControlScale" AutomationProperties.Name="Buttons and controls size" MinWidth="120"
                                           SelectionChanged="Scale_Changed" ItemStringFormat="{}{0}%" />
                             </StackPanel>
                             <Button Content="Reset scale" Click="ResetScale_Click" VerticalAlignment="Bottom" Margin="0,0,0,6" />
@@ -752,11 +751,8 @@
                                     <CheckBox x:Name="HideSavedBannerFromCaptureCheck" Style="{StaticResource SwitchCheckBox}" Margin="0,6,0,0" Click="ClipFeedback_Changed">
                                         <TextBlock Text="Hide saved-clip banner from recordings" TextWrapping="Wrap" />
                                     </CheckBox>
-                                    <CheckBox x:Name="HideImageFromCaptureCheck" Style="{StaticResource SwitchCheckBox}" Margin="0,6,0,0" Click="ClipFeedback_Changed">
-                                        <TextBlock Text="Hide custom notification image from recordings" TextWrapping="Wrap" />
-                                    </CheckBox>
                                     <TextBlock Style="{StaticResource Hint}" Margin="0,4,0,0"
-                                               Text="If Windows requires a solid background, image playback continues without window effects. QuickClip warns you if Windows rejects exclusion and the notification may appear in recordings." />
+                                               Text="Custom images remain visible in recordings. If Windows rejects banner exclusion, QuickClip warns you." />
                                     <StackPanel x:Name="ImageAppearancePanel" Visibility="Collapsed">
                             <WrapPanel Margin="0,8,0,0">
                                 <Button Content="Choose image / WebM animation…" Margin="0,0,8,0" Click="ChooseOverlayImage_Click" />

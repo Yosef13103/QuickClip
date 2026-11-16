@@ -121,7 +121,8 @@ internal sealed record ClipOverlayOptions
             Seconds = image.Seconds, Animation = image.Animation }).Normalize();
     }
 
-    internal bool ExcludeFromCapture(bool saved) => WantsImage ? HideImageFromCapture : saved && HideSavedBannerFromCapture;
+    // Retain the old serialized field for compatibility, but never exclude custom images.
+    internal bool ExcludeFromCapture(bool saved) => !WantsImage && saved && HideSavedBannerFromCapture;
 
     internal ClipOverlayOptions? ForEvent(ClipEvent kind)
     {

@@ -75,9 +75,9 @@ public sealed class RecordingSettingsViewTests
     }
 
     [Theory]
-    [InlineData(0, "00")]
-    [InlineData(9.7, "09")]
-    [InlineData(59.999, "59")]
+    [InlineData(0, "0s")]
+    [InlineData(9.7, "9s")]
+    [InlineData(59.999, "59s")]
     [InlineData(60, "01:00")]
     [InlineData(60.6, "01:00")]
     [InlineData(125.25, "02:05")]

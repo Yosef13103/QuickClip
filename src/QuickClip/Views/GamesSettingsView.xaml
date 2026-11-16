@@ -11,11 +11,33 @@
                 <Setter Property="Background" Value="Transparent" />
                 <Setter Property="HorizontalContentAlignment" Value="Stretch" />
                 <Setter Property="Padding" Value="10,7" />
+                <Setter Property="Foreground" Value="{DynamicResource PrimaryTextBrush}" />
+                <Setter Property="Template">
+                    <Setter.Value>
+                        <ControlTemplate TargetType="ToggleButton">
+                            <Border x:Name="HeadingSurface" Background="{DynamicResource PanelBrush}" BorderBrush="{DynamicResource DividerBrush}"
+                                    BorderThickness="1" CornerRadius="7" Padding="{TemplateBinding Padding}">
+                                <ContentPresenter HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}" VerticalAlignment="Center" />
+                            </Border>
+                            <ControlTemplate.Triggers>
+                                <Trigger Property="IsMouseOver" Value="True">
+                                    <Setter TargetName="HeadingSurface" Property="Background" Value="{DynamicResource ElevatedSurfaceBrush}" />
+                                </Trigger>
+                                <Trigger Property="IsChecked" Value="True">
+                                    <Setter TargetName="HeadingSurface" Property="Background" Value="{DynamicResource ElevatedSurfaceBrush}" />
+                                </Trigger>
+                                <Trigger Property="IsKeyboardFocused" Value="True">
+                                    <Setter TargetName="HeadingSurface" Property="BorderBrush" Value="{DynamicResource AccentBrush}" />
+                                </Trigger>
+                            </ControlTemplate.Triggers>
+                        </ControlTemplate>
+                    </Setter.Value>
+                </Setter>
             </Style>
             <BooleanToVisibilityConverter x:Key="ShowManualActions" />
         </ResourceDictionary>
     </UserControl.Resources>
-    <ListBox x:Name="Games" Margin="28,16,14,12" MaxWidth="1340"
+    <ListBox x:Name="Games" Margin="0" Padding="20,16,14,12" HorizontalContentAlignment="Stretch"
              Background="Transparent" BorderThickness="0" AutomationProperties.Name="Games catalog"
              ScrollViewer.CanContentScroll="True" ScrollViewer.HorizontalScrollBarVisibility="Disabled"
              VirtualizingPanel.IsVirtualizing="True" VirtualizingPanel.VirtualizationMode="Recycling"
@@ -119,13 +141,30 @@
             </CompositeCollection>
         </ListBox.ItemsSource>
             <ListBox.ItemContainerStyle>
-                <Style TargetType="ListBoxItem" BasedOn="{StaticResource {x:Type ListBoxItem}}">
+                <Style TargetType="ListBoxItem">
                     <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                    <Setter Property="MaxWidth" Value="1340" />
+                    <Setter Property="Foreground" Value="{DynamicResource PrimaryTextBrush}" />
+                    <Setter Property="Template">
+                        <Setter.Value>
+                            <ControlTemplate TargetType="ListBoxItem">
+                                <Border Background="Transparent" Padding="0" BorderThickness="1" BorderBrush="Transparent" x:Name="RowFocus" CornerRadius="8">
+                                    <ContentPresenter HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}" />
+                                </Border>
+                                <ControlTemplate.Triggers>
+                                    <Trigger Property="IsKeyboardFocused" Value="True">
+                                        <Setter TargetName="RowFocus" Property="BorderBrush" Value="{DynamicResource AccentBrush}" />
+                                    </Trigger>
+                                </ControlTemplate.Triggers>
+                            </ControlTemplate>
+                        </Setter.Value>
+                    </Setter>
                 </Style>
             </ListBox.ItemContainerStyle>
             <ListBox.ItemTemplate>
                 <DataTemplate>
-                    <StackPanel Margin="2,3">
+                    <Border Margin="2,4" Padding="8" Background="{DynamicResource PanelBrush}" BorderBrush="{DynamicResource DividerBrush}" BorderThickness="1" CornerRadius="9">
+                    <StackPanel>
                         <DockPanel>
                             <CheckBox DockPanel.Dock="Right" Style="{StaticResource SwitchCheckBox}" Click="Capture_Click"
                                       IsChecked="{Binding CaptureEnabled, Mode=OneWay}"
@@ -185,7 +224,7 @@
                                         <TextBlock Text="Game files" FontWeight="SemiBold" />
                                         <TextBlock Text="Game files can start recording. Launcher and blocked files cannot." Style="{StaticResource Hint}" Margin="0,6,0,4" />
                                         <ComboBox x:Name="ExecutableList" ItemsSource="{Binding Executables}" SelectedValuePath="Path"
-                                                  AutomationProperties.Name="Game files">
+                                                  AutomationProperties.Name="Game files" Background="{DynamicResource SurfaceBrush}" Foreground="{DynamicResource PrimaryTextBrush}" BorderBrush="{DynamicResource BorderBrush}">
                                             <ComboBox.ItemTemplate>
                                                 <DataTemplate>
                                                     <TextBlock Text="{Binding Label}" TextTrimming="CharacterEllipsis" ToolTip="{Binding Label}" />
@@ -224,6 +263,7 @@
                             </StackPanel>
                         </controls:AnimatedReveal>
                     </StackPanel>
+                    </Border>
                 </DataTemplate>
             </ListBox.ItemTemplate>
     </ListBox>
