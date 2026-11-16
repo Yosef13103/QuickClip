@@ -30,7 +30,9 @@
         "review": "pending",
         "hardware": "not_applicable"
       },
-      "evidence": ["2026-11-15: strict Personal baseline build and focused suite, 153 passed, 1 opted-out symlink test. See private W2-A evidence and checkpoint. Idle/armed measurement deferred; no app launch."],
+      "evidence": [
+        "2026-11-15: strict Personal baseline build and focused suite, 153 passed, 1 opted-out symlink test. See private W2-A evidence and checkpoint. Idle/armed measurement deferred; no app launch."
+      ],
       "blocker": null,
       "next_action": "Use the released SHA for future matched measurements."
     },
@@ -64,7 +66,9 @@
         "review": "pending",
         "hardware": "pending"
       },
-      "evidence": ["Milestone 2 fixtures verify multiple install-named x64/DX12 variants, Unreal Shipping, exact EXE approvals, helper and launcher vetoes, ambiguous alternates and denied capture paths. See private W2-milestone2."],
+      "evidence": [
+        "Milestone 2 fixtures verify multiple install-named x64/DX12 variants, Unreal Shipping, exact EXE approvals, helper and launcher vetoes, ambiguous alternates and denied capture paths. See private W2-milestone2."
+      ],
       "blocker": null,
       "next_action": "Carry forward to independent review and supervised D5 activation checks."
     },
@@ -97,7 +101,9 @@
         "review": "pending",
         "hardware": "pending"
       },
-      "evidence": ["Milestone 2 re-ran the game handoff, Discord focus, replay epoch, relaunch, unplug, excluded display and catalog revocation fixtures. A source-removal fixture drives a running lifecycle to standby. See private W2-milestone2."],
+      "evidence": [
+        "Milestone 2 re-ran the game handoff, Discord focus, replay epoch, relaunch, unplug, excluded display and catalog revocation fixtures. A source-removal fixture drives a running lifecycle to standby. See private W2-milestone2."
+      ],
       "blocker": null,
       "next_action": "Verify actual games, source loss and monitor transitions in a supervised scratch-profile session."
     },
@@ -129,7 +135,9 @@
         "review": "pending",
         "hardware": "pending"
       },
-      "evidence": ["Two-root probe passes. Scope mutation, stale publication rejection, unaffected cursor continuation, overlapping folder/provider claims, legacy migration and failed-source retention covered. Existing profile JSON stores the claims. See private W2-milestone2."],
+      "evidence": [
+        "Two-root probe passes. Scope mutation, stale publication rejection, unaffected cursor continuation, overlapping folder/provider claims, legacy migration and failed-source retention covered. Existing profile JSON stores the claims. See private W2-milestone2."
+      ],
       "blocker": null,
       "next_action": "Review claim projection, migration and denial precedence; validate on a scratch profile with an offline library. Automatic Steam refresh still processes its resolved library set as one provider."
     },
@@ -162,7 +170,9 @@
         "review": "pending",
         "hardware": "not_applicable"
       },
-      "evidence": ["Owner scope clarification on PR #77. See the current implementation decisions in .ai/RESEARCH.md. Uses direct metadata contracts informed by pinned GameFinder, PlayniteExtensions, RiotGamesLibrary and itch client code. No new packages."],
+      "evidence": [
+        "Owner scope clarification on PR #77. See the current implementation decisions in .ai/RESEARCH.md. Uses direct metadata contracts informed by pinned GameFinder, PlayniteExtensions, RiotGamesLibrary and itch client code. No new packages."
+      ],
       "blocker": null,
       "next_action": "Review implementation against the recorded formats and collect real launcher evidence."
     },
@@ -203,7 +213,9 @@
         "review": "pending",
         "hardware": "pending"
       },
-      "evidence": ["Added opt-in local readers and deterministic fixtures for Xbox gaming roots, EA App, Riot, Battle.net, Ubisoft Connect, Rockstar, Heroic, Origin, Amazon and itch.io. GOG remains integrated. Personal full suite includes 15 passing launcher fixture cases. See .ai/RESEARCH.md for source limits."],
+      "evidence": [
+        "Added opt-in local readers and deterministic fixtures for Xbox gaming roots, EA App, Riot, Battle.net, Ubisoft Connect, Rockstar, Heroic, Origin, Amazon and itch.io. GOG remains integrated. Personal full suite includes 15 passing launcher fixture cases. See .ai/RESEARCH.md for source limits."
+      ],
       "blocker": "Other Microsoft Store installs lack a local game-specific classification and supported renderer path in this candidate.",
       "next_action": "Verify both Windows profiles and representative real launcher installs, denials and offline sources."
     },
@@ -291,7 +303,9 @@
         "review": "pending",
         "hardware": "not_applicable"
       },
-      "evidence": ["Reconciled the earlier display/replay ordering and delayed recorder feedback against PR #78. Reproduced layered HUD affinity error and custom theme return failure in disposable WPF tests. Discovery regressions remain covered by prior W2-G6 fixtures. See private W2-FRONTEND and docs/owner-field-polish.md."],
+      "evidence": [
+        "Reconciled the earlier display/replay ordering and delayed recorder feedback against PR #78. Reproduced layered HUD affinity error and custom theme return failure in disposable WPF tests. Discovery regressions remain covered by prior W2-G6 fixtures. See private W2-FRONTEND and docs/owner-field-polish.md."
+      ],
       "blocker": null,
       "next_action": "Continue hardware-only game migration, audio, recovery, save latency and editor/gallery lifecycle reconciliation using approved disposable owner scenarios."
     },
@@ -316,7 +330,7 @@
         "Matched idle/armed/game/editor/scan/save comparisons and metrics; no invented FPS/memory claims. Baseline measurements are evidence, not optimization approval."
       ],
       "effort": "high",
-      "status": "not_started",
+      "status": "in_progress",
       "candidate": null,
       "gates": {
         "local": "pending",
@@ -324,7 +338,9 @@
         "review": "pending",
         "hardware": "pending"
       },
-      "evidence": [],
+      "evidence": [
+        "PR #80 adds process sampler and three-way baseline protocol; original e9bccdc, stable 6de4ad6, combined branch pending measurements."
+      ],
       "blocker": null,
       "next_action": null
     },
@@ -361,7 +377,9 @@
         "review": "pending",
         "hardware": "pending"
       },
-      "evidence": ["Combined PR #78/#79 adds serialized capture grants and publication, video-ready HUD notifications, abandoned setup verification protection, and corrected WPF theme transitions. Native and strict Release builds passed. Personal 821 passed/21 skipped, Upstream workflow filter 33 passed/14 skipped. Focused retry 215 passed/3 skipped, opt-in WPF probe 2 passed. See private W2-FRONTEND."],
+      "evidence": [
+        "Combined PR #78/#79 adds serialized capture grants and publication, video-ready HUD notifications, abandoned setup verification protection, and corrected WPF theme transitions. Native and strict Release builds passed. Personal 821 passed/21 skipped, Upstream workflow filter 33 passed/14 skipped. Focused retry 215 passed/3 skipped, opt-in WPF probe 2 passed. See private W2-FRONTEND."
+      ],
       "blocker": "Supervised real capture, HUD exclusion in a DDA replay, physical microphone playback and full theme restart remain pending.",
       "next_action": "Verify the final strict Windows candidate and complete the supervised checklist in docs/owner-field-polish.md."
     },
@@ -402,8 +420,8 @@
         "hardware": "pending"
       },
       "evidence": [],
-      "blocker": null,
-      "next_action": null
+      "blocker": "Explicit owner deferral: live ring resizing is not required in Wave 2. Existing duration-change behavior retained.",
+      "next_action": "Backlog; no implementation or verification claimed."
     },
     {
       "id": "W2-L",
@@ -436,17 +454,19 @@
         "Off path only cheap guard/essential failures; no optional allocation/formatting/worker/timer/queue/disk; enabled bounded batched UI and safe export, categories/severity/search; separate timing toggle. OFF/ON benchmark incl allocations, CPU, IO/FPS."
       ],
       "effort": "high",
-      "status": "not_started",
-      "candidate": null,
+      "status": "implemented",
+      "candidate": "2f291929a04170c50bd38cd1e81298e3cf606f5c",
       "gates": {
-        "local": "pending",
+        "local": "pass",
         "ci": "pending",
         "review": "pending",
         "hardware": "pending"
       },
-      "evidence": [],
+      "evidence": [
+        "PR #81 local strict Personal 806 passed/20 skipped, Upstream 40 passed/15 skipped; synthetic benchmark 8 passed. Viewer and categorized integration wired in combined branch; exact combined verification pending."
+      ],
       "blocker": null,
-      "next_action": null
+      "next_action": "Combined CI, review and supervised owner acceptance."
     },
     {
       "id": "W2-U",
@@ -475,17 +495,19 @@
         "Existing verified feed reused. Wrong asset/profile, missing/mismatched digest, interruption, staging/traversal/reparse, wait process exit, active capture/export, installer and portable rollback/recovery tests; scratch/actual authorized upgrade. No nightly channel or unsolicited install."
       ],
       "effort": "high",
-      "status": "not_started",
-      "candidate": null,
+      "status": "implemented",
+      "candidate": "46e277f97b9ce106420a06a629a56f9881f44553",
       "gates": {
-        "local": "pending",
-        "ci": "pending",
+        "local": "pass",
+        "ci": "pass",
         "review": "pending",
         "hardware": "pending"
       },
-      "evidence": [],
+      "evidence": [
+        "PR #82 local strict Personal 818 passed/19 skipped, Upstream 74 passed/14 skipped, 41 updater cases, CI 43776808207 passed including disposable SUBST installer handoff. Legacy manual upgrade and portable manual downloads remain."
+      ],
       "blocker": null,
-      "next_action": null
+      "next_action": "Combined CI, review and supervised owner acceptance."
     },
     {
       "id": "W2-Z",
@@ -506,10 +528,6 @@
         },
         {
           "task": "W2-R2",
-          "gate": "local"
-        },
-        {
-          "task": "W2-D",
           "gate": "local"
         },
         {
@@ -541,7 +559,9 @@
         "review": "pending",
         "hardware": "pending"
       },
-      "evidence": [],
+      "evidence": [
+        "Owner explicitly deferred W2-D. Combined integration initiated, not accepted."
+      ],
       "blocker": null,
       "next_action": null
     }

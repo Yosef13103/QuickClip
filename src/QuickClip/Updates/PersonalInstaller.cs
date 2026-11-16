@@ -158,7 +158,7 @@ internal static class PersonalInstaller
                 if (!_committed && !worker.HasExited) worker.Kill();
             }
             catch (InvalidOperationException) { }
-            catch (Win32Exception ex) { Log.Write("Could not stop the update worker: " + ex.Message); }
+            catch (Win32Exception ex) { Log.Failure(DiagnosticCategory.Updater, "Could not stop the update worker", ex); }
             finally { worker.Dispose(); }
         }
     }

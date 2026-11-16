@@ -10,6 +10,7 @@ public partial class SettingsView
     {
         using var timeout = new CancellationTokenSource(TimeSpan.FromMinutes(10));
         string package = await Updater.DownloadPersonalAsync(release, progress, timeout.Token);
+        Log.Event(DiagnosticCategory.Updater, "Personal package downloaded and verified");
         if (!PersonalInstaller.CanApply || !PersonalInstaller.SupportsHandoff(package, release.Version))
         {
             var explorer = new ProcessStartInfo(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Windows), "explorer.exe"))
@@ -31,6 +32,7 @@ public partial class SettingsView
         UpdateStatusText.Text = "Preparing verified setup…";
         UpdateProgress.IsIndeterminate = true;
         using var handoff = await PersonalInstaller.PrepareAsync(release, package, timeout.Token);
+        Log.Event(DiagnosticCategory.Updater, "Verified installer handoff prepared");
         return await app.QuitForPersonalUpdateAsync(handoff) ? null : "Installation canceled. QuickClip is still open.";
     }
 }

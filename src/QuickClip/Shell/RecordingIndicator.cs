@@ -59,7 +59,7 @@ internal sealed class RecordingIndicator : IDisposable
         if (_overlay.IndicatorFailure is { } failure && failure != _failureReported)
         {
             _failureReported = failure;
-            Log.Write("Recording HUD unavailable: " + failure);
+            Log.Event(DiagnosticCategory.Capture, "Recording HUD unavailable", DiagnosticSeverity.Warning);
         }
         else if (_overlay.IsVisible) _failureReported = null;
         if (!_overlay.IsVisible || microphone is MicrophoneIndicatorState.Hidden or MicrophoneIndicatorState.Active)

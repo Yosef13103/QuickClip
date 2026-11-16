@@ -191,7 +191,7 @@ public partial class SettingsView : UserControl
         }
         catch (Exception ex)
         {
-            Log.Write("Update failed: " + ex);
+            Log.Essential(DiagnosticCategory.Updater, "Update installation failed", ex);
             _installing = false;
             UpdateProgress.IsIndeterminate = false;
             UpdateProgress.Visibility = Visibility.Collapsed;
@@ -635,7 +635,8 @@ public partial class SettingsView : UserControl
         try
         {
             CaptureEngine.Initialize();
-            CaptureDiagnostics.Text = (Recorder.Instance.IsRunning ? CaptureEngine.VideoDiagnostics() : "Recorder off") + "\n\n" + Monitors.Diagnostics();
+            CaptureDiagnostics.Text = (Recorder.Instance.IsRunning ? CaptureEngine.VideoDiagnostics() : "Recorder off") + "\n\n" + Monitors.Diagnostics() +
+                (Recorder.Instance.LastSaveTiming is { } timing ? "\n\nLatest replay save: " + timing : "");
         }
         catch (Exception ex) { CaptureDiagnostics.Text = ex.Message; }
     }

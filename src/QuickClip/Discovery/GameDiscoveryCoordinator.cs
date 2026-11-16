@@ -238,6 +238,7 @@ internal sealed class GameDiscoveryCoordinator : IDisposable
             bool keep = false;
             try
             {
+                if (work.Scan == null) Log.Event(DiagnosticCategory.GameDetection, "Game source scan started");
                 work.Scan ??= _create(work.Plan.Request);
                 while (true)
                 {
@@ -255,6 +256,7 @@ internal sealed class GameDiscoveryCoordinator : IDisposable
                             _results[scope.Key] = result;
                             var updated = CatalogClaims.Apply(_read(), scope, result, preview: false);
                             Publish(updated, _pending.Count == 0, persist: true);
+                            Log.Event(DiagnosticCategory.GameDetection, "Game source scan completed");
                             break;
                         }
                         if (!pause && work.Scan.HasCatalogChanges)
@@ -282,7 +284,10 @@ internal sealed class GameDiscoveryCoordinator : IDisposable
                     await Task.Delay(TimeSpan.FromMilliseconds(250), _clock, token);
                 }
             }
-            catch (OperationCanceledException) when (token.IsCancellationRequested) { }
+            catch (OperationCanceledException) when (token.IsCancellationRequested)
+            {
+                Log.Event(DiagnosticCategory.GameDetection, "Game source scan canceled");
+            }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException or System.Security.SecurityException)
             {
                 lock (_gate)
@@ -295,7 +300,7 @@ internal sealed class GameDiscoveryCoordinator : IDisposable
                             0, false, _clock.GetUtcNow());
                         _results[scope.Key] = result;
                         Publish(CatalogClaims.Apply(_read(), scope, result, preview: false), _pending.Count == 0, persist: true);
-                        Log.Write("Game scan failed: " + ex.GetType().Name);
+                        Log.Failure(DiagnosticCategory.GameDetection, "Game source scan failed", ex);
                     }
                 }
             }

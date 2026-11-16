@@ -76,13 +76,14 @@ internal static class Updater
             string json = await GetReleasesJsonAsync(cts.Token);
             Available = AppProfile.IsPersonal ? PickPersonalUpdate(json, AppVersion.Current) : PickUpdate(json, AppVersion.Current, Channel == Nightly);
             LastError = null;
-            Log.Write(Available != null ? $"Update available: {Available.Version}" : "No update available");
+            if (Available != null) Log.Event(DiagnosticCategory.Updater, "Stable update available");
+            else Log.Event(DiagnosticCategory.Updater, "No update available");
         }
         catch (Exception ex)
         {
             Available = null;
             LastError = ex is OperationCanceledException or HttpRequestException ? "couldn't reach GitHub" : ex.Message;
-            Log.Write("Update check failed: " + ex.Message);
+            Log.Failure(DiagnosticCategory.Updater, "Update check failed", ex);
         }
         finally
         {
