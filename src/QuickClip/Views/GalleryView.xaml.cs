@@ -212,7 +212,7 @@ public partial class GalleryView : UserControl
 
     internal async Task RefreshVisibleAsync()
     {
-        if (_released || _loading || !await FlushAnnotationsAsync() || !IsVisible) return;
+        if (_released || _loading || _editingAnnotations || !await FlushAnnotationsAsync() || !IsVisible) return;
         await ReloadAsync(rereadIndex: true);
     }
 
