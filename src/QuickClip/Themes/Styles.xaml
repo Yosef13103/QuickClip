@@ -99,13 +99,14 @@
     <Style x:Key="ThemedComboBoxItem" TargetType="ComboBoxItem" BasedOn="{StaticResource {x:Type ComboBoxItem}}">
         <Setter Property="Foreground" Value="{DynamicResource PrimaryTextBrush}" />
         <Setter Property="Background" Value="{DynamicResource ElevatedSurfaceBrush}" />
-        <Setter Property="Padding" Value="9,7" />
+        <Setter Property="Padding" Value="9,8" />
+        <Setter Property="MinHeight" Value="{DynamicResource QuickClipVisual32}" />
         <Setter Property="Template">
             <Setter.Value>
                 <ControlTemplate TargetType="ComboBoxItem">
                     <Border x:Name="ItemBg" Background="{TemplateBinding Background}" CornerRadius="4"
                             Padding="{TemplateBinding Padding}" Margin="2,1">
-                        <ContentPresenter HorizontalAlignment="Stretch" VerticalAlignment="Center" />
+                        <ContentPresenter HorizontalAlignment="Stretch" VerticalAlignment="Center" RecognizesAccessKey="True" />
                     </Border>
                     <ControlTemplate.Triggers>
                         <Trigger Property="IsHighlighted" Value="True">

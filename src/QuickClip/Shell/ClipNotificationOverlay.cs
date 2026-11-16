@@ -481,7 +481,7 @@ internal sealed class ClipNotificationOverlay : IDisposable
         _card.Padding = new Thickness(0);
         _card.BorderThickness = new Thickness(0);
         var icons = new StackPanel { Orientation = Orientation.Horizontal };
-        var camera = StatusGlyph("M3,7 A5.5,5.5 0 0 1 12,4 M10,1.5 L13,4 L10,5.5 M13,9 A5.5,5.5 0 0 1 4,12 M6,14.5 L3,12 L6,10.5", out _);
+        var camera = StatusGlyph("M2,5 H5 L6.5,3 H9.5 L11,5 H14 V13 H2 Z M10.5,9 A2.5,2.5 0 1 1 5.5,9 A2.5,2.5 0 1 1 10.5,9", out _);
         if ((int)anchor % 3 == 0 || !hasMicrophone) icons.Children.Add(camera);
         if (hasMicrophone)
         {
@@ -499,8 +499,9 @@ internal sealed class ClipNotificationOverlay : IDisposable
             GetDpiForMonitor(display.Handle, 0, out uint dpi, out _);
             double scale = dpi == 0 ? 1 : dpi / 96d;
             var size = new Size(Math.Round(_window.Width * scale), Math.Round(_window.Height * scale));
-            var bounds = BannerBounds(display.Bounds, workArea, anchor, scale, size.Height);
-            Point p = ClipOverlayOptions.Place(bounds, size, 4, anchor);
+            // HUD follows the physical screen corner, not the taskbar work area.
+            Point p = ClipOverlayOptions.Place(display.Bounds, size, 4, anchor);
+            if (_indicatorOpaque) ApplyIndicatorRegion((int)size.Width, (int)size.Height, hasMicrophone, scale);
             if (!SetWindowPos(_handle, new IntPtr(-1), (int)Math.Round(p.X), (int)Math.Round(p.Y), (int)size.Width, (int)size.Height, 0x0210))
             {
                 IndicatorFailure = $"Could not position the recording icons (Win32 {Marshal.GetLastWin32Error()}).";
@@ -524,6 +525,27 @@ internal sealed class ClipNotificationOverlay : IDisposable
             _indicatorPlacement = placement;
         }
         finally { if (prior != IntPtr.Zero) SetThreadDpiAwarenessContext(prior); }
+    }
+
+    // A non-layered window can be excluded reliably on the owner's Windows 10 system,
+    // but cannot use per-pixel alpha. Clip its HWND to the icon silhouettes instead.
+    private void ApplyIndicatorRegion(int width, int height, bool two, double scale)
+    {
+        int gap = Math.Max(1, (int)Math.Round(scale));
+        int radius = Math.Max(2, (int)Math.Round(10 * scale));
+        int middle = width / (two ? 2 : 1);
+        IntPtr region = CreateRoundRectRgn(gap, gap, middle - gap, height - gap, radius, radius);
+        if (region == IntPtr.Zero) return;
+        if (two)
+        {
+            IntPtr right = CreateRoundRectRgn(middle + gap, gap, width - gap, height - gap, radius, radius);
+            if (right == IntPtr.Zero) { DeleteObject(region); return; }
+            int combined = CombineRgn(region, region, right, 2); // RGN_OR
+            DeleteObject(right);
+            if (combined == 0) { DeleteObject(region); return; }
+        }
+        // Windows owns the region only on success.
+        if (SetWindowRgn(_handle, region, true) == 0) DeleteObject(region);
     }
 
     private bool TryExcludeIndicator(out int error)
@@ -553,7 +575,7 @@ internal sealed class ClipNotificationOverlay : IDisposable
         cell.Children.Add(new Border
         {
             Margin = new Thickness(1), CornerRadius = new CornerRadius(5),
-            Background = new SolidColorBrush(Color.FromArgb(150, 24, 26, 32)),
+            Background = new SolidColorBrush(Color.FromArgb(112, 24, 26, 32)),
             BorderBrush = new SolidColorBrush(Color.FromArgb(95, 210, 210, 220)), BorderThickness = new Thickness(1),
         });
         var canvas = new Grid { Width = 16, Height = 16, Opacity = .85 };
@@ -634,6 +656,10 @@ internal sealed class ClipNotificationOverlay : IDisposable
     [DllImport("user32.dll", EntryPoint = "GetWindowLongW")] private static extern int GetWindowLong(IntPtr window, int index);
     [DllImport("user32.dll", EntryPoint = "SetWindowLongW")] private static extern int SetWindowLong(IntPtr window, int index, int value);
     [DllImport("user32.dll", SetLastError = true)] private static extern bool SetWindowPos(IntPtr window, IntPtr order, int x, int y, int width, int height, uint flags);
+    [DllImport("gdi32.dll")] private static extern IntPtr CreateRoundRectRgn(int left, int top, int right, int bottom, int width, int height);
+    [DllImport("gdi32.dll")] private static extern int CombineRgn(IntPtr destination, IntPtr source1, IntPtr source2, int mode);
+    [DllImport("gdi32.dll")] private static extern bool DeleteObject(IntPtr obj);
+    [DllImport("user32.dll")] private static extern int SetWindowRgn(IntPtr window, IntPtr region, bool redraw);
     [DllImport("user32.dll", SetLastError = true)] private static extern bool SetWindowDisplayAffinity(IntPtr window, uint affinity);
     [DllImport("user32.dll", SetLastError = true)] private static extern bool GetWindowDisplayAffinity(IntPtr window, out uint affinity);
 }

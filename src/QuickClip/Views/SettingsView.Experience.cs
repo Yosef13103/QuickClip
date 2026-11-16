@@ -123,6 +123,8 @@ public partial class SettingsView
         RecordingCheck.Visibility = _guideActive ? hidden : visible;
         CapturePermissionCard.Visibility = !_guideActive || step == 6 ? visible : hidden;
         RecordingQualityControls.Visibility = !_guideActive || step == 4 ? visible : hidden;
+        SetupQualityPresets.Visibility = _guideActive && step == 4 ? visible : hidden;
+        UpdateSetupPresetStatus();
         GeneralPreferences.Visibility = _guideActive ? hidden : visible;
         ManualDesktopButton.Visibility = _guideActive ? hidden : visible;
         if (_guideActive)
@@ -185,7 +187,7 @@ public partial class SettingsView
         GuideTitle.Text = GuideSteps[step].Title;
         GuideHint.Text = GuideSteps[step].Hint;
         GuideSummaryViewport.Visibility = step == 8 ? Visibility.Visible : Visibility.Collapsed;
-        GuideSummary.Text = step == 8 ? SetupSummary() : "";
+        GuideSummaryViewport.ItemsSource = step == 8 ? SetupSummary() : null;
         GuideBack.IsEnabled = step > 0 && !_loading && !_finishingGuide;
         GuideNext.IsEnabled = !_loading && !_finishingGuide;
         GuideSkip.IsEnabled = !_finishingGuide;
@@ -198,7 +200,9 @@ public partial class SettingsView
     internal static bool HasAuthorizedDisplay(AppSettings settings, IEnumerable<MonitorInfo> monitors) =>
         monitors.Any(monitor => monitor.CaptureIdentity is { } id && CaptureSourcePolicy.AllowsRecordingDisplay(settings, id));
 
-    private string SetupSummary()
+    private sealed record GuideReviewItem(string Label, string Value);
+
+    private GuideReviewItem[] SetupSummary()
     {
         var settings = AppSettings.Current;
         var shortcut = RecordingHotkeys.Read(settings, RecordingCommand.SaveClip);
@@ -212,10 +216,62 @@ public partial class SettingsView
             "No permitted connected display. Go back to display permissions to enable recording.";
         string encoder = (settings.RecordEncoder.Length == 0 ? RecordingPresets.DefaultEncoder(_encoders)?.Id :
             settings.RecordEncoder) is { } id && _encoders.Contains(id) ? "Recording hardware ready" : "Recording hardware needs checking";
-        return $"Save location: {settings.ClipsFolder}\nClip length: {RecordingPresets.DurationLabel(settings.BufferSeconds)}\n" +
-            $"Quality: {resolution} · {settings.RecordFps} FPS · {RecordingPresets.Label(settings.RecordQuality)}\n" +
-            $"Save shortcut: {hotkey}\nMicrophones selected: {micCount}\n{GamesPage.BasicReadiness}\n{display}\n{encoder}\n" +
-            $"Recording is {(settings.RecordingEnabled ? "enabled" : "off")}. While playing a game QuickClip can record, press the shortcut above or use Save Clip in the app.";
+        return
+        [
+            new("Save location", settings.ClipsFolder),
+            new("Clip length", RecordingPresets.DurationLabel(settings.BufferSeconds)),
+            new("Video", $"{resolution} · {settings.RecordFps} FPS · {RecordingPresets.Label(settings.RecordQuality)}"),
+            new("Save shortcut", hotkey),
+            new("Audio", $"{micCount} microphone(s) selected"),
+            new("Games", GamesPage.BasicReadiness),
+            new("Displays", display),
+            new("Hardware", encoder),
+            new("Recording", settings.RecordingEnabled ? "Enabled" : "Off until you enable it"),
+            new("Your first clip", "Play a game that QuickClip can record, then press your save shortcut or use Save Clip in the app."),
+        ];
+    }
+
+    private sealed record SetupVideoPreset(string Name, int Resolution, int Fps, RecordingQuality Quality, CaptureEngine.NvencSpeed Speed);
+    private static readonly SetupVideoPreset[] SetupPresets =
+    [
+        new("Performance", 720, 30, RecordingQuality.Medium, CaptureEngine.NvencSpeed.FastestP2),
+        new("Balanced", 1080, 60, RecordingQuality.High, CaptureEngine.NvencSpeed.FastestP2),
+        new("Quality", 0, 60, RecordingQuality.Ultra, CaptureEngine.NvencSpeed.BalancedP4),
+    ];
+
+    private void UpdateSetupPresetStatus()
+    {
+        if (SetupPresetStatus == null || SetupPresetRecommendation == null || !_guideActive || GuideStep != 4) return;
+        var settings = AppSettings.Current;
+        string? preferred = settings.RecordEncoder.Length == 0 ? RecordingPresets.DefaultEncoder(_encoders)?.Id : settings.RecordEncoder;
+        bool direct = preferred != null && _encoders.Contains(preferred) && !preferred.EndsWith("_mf", StringComparison.Ordinal);
+        SetupPresetRecommendation.Text = _loading ? "Checking hardware…" : preferred == null || !_encoders.Contains(preferred)
+            ? "No encoder confirmed yet. Check Advanced settings before enabling recording."
+            : direct ? "Balanced is a starting point for a confirmed hardware encoder. Choose Performance for lower overhead."
+            : "Performance is a conservative starting point for Windows compatibility encoding.";
+        var active = SetupPresets.FirstOrDefault(p => p.Resolution == settings.RecordResolution && p.Fps == settings.RecordFps &&
+            p.Quality == settings.RecordQuality && (!string.IsNullOrEmpty(preferred) && preferred.EndsWith("_nvenc", StringComparison.Ordinal)
+                ? p.Speed == settings.NvencPreset : true));
+        SetupPresetStatus.Text = active == null ? "Selected: Custom" : "Selected: " + active.Name;
+    }
+
+    private void SetupPreset_Click(object sender, RoutedEventArgs e)
+    {
+        if (!_guideActive || GuideStep != 4 || _loading || _finishingGuide ||
+            sender is not Button { Tag: string name } || SetupPresets.FirstOrDefault(p => p.Name == name) is not { } preset) return;
+        var settings = AppSettings.Current;
+        var previous = (settings.RecordResolution, settings.RecordFps, settings.RecordQuality, settings.NvencPreset);
+        (settings.RecordResolution, settings.RecordFps, settings.RecordQuality, settings.NvencPreset) =
+            (preset.Resolution, preset.Fps, preset.Quality, preset.Speed);
+        if (!settings.TrySave())
+        {
+            (settings.RecordResolution, settings.RecordFps, settings.RecordQuality, settings.NvencPreset) = previous;
+            GuideError.Text = "Could not save recording preset.";
+            return;
+        }
+        GuideError.Text = "";
+        Refresh();
+        ScheduleRecorderRestart();
     }
 
     private void MoveGuide(int next)
