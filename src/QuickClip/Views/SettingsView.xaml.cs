@@ -351,6 +351,7 @@ public partial class SettingsView : UserControl
         {
             var settings = AppSettings.Current;
             DisplayPermissionCheck.Visibility = DisplayPermissionHint.Visibility = Visibility.Visible;
+            DefaultDisplayPermissionsButton.Visibility = settings.AllowRecordingDisplaysByDefault ? Visibility.Collapsed : Visibility.Visible;
             ManualDesktopButton.Visibility = _guideActive ? Visibility.Collapsed : Visibility.Visible;
             var identity = SelectedMonitor?.CaptureIdentity;
             DisplayPermissionCheck.IsEnabled = identity != null;
@@ -478,6 +479,14 @@ public partial class SettingsView : UserControl
             await ApplyDisplayPermissionAsync(settings => CaptureSourcePolicy.SetDisplayPermission(settings, identity, allow));
         }
         else ShowGameWindowState();
+    }
+
+    private async void DefaultDisplayPermissions_Click(object sender, RoutedEventArgs e)
+    {
+        if (!ModalDialog.ConfirmAction(Window.GetWindow(this),
+            "Allow connected and newly connected displays by default? QuickClip records everything visible on an allowed display when a game triggers recording. Explicitly blocked displays remain blocked. You can turn off any display with the switch.",
+            "Display permissions", "Use defaults", "Cancel", destructive: false)) return;
+        await ApplyDisplayPermissionAsync(settings => settings.AllowRecordingDisplaysByDefault = true);
     }
 
     private async Task ApplyDisplayPermissionAsync(Action<AppSettings> update)

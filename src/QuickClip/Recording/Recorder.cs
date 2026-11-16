@@ -195,10 +195,10 @@ internal sealed class Recorder
 
     internal static bool TryUpdateDisplayPermission(AppSettings settings, Action<AppSettings> update, Func<AppSettings, bool> save)
     {
-        var previous = (settings.AllowedRecordingDisplays, settings.ExcludedGameDisplays);
+        var previous = (settings.AllowedRecordingDisplays, settings.ExcludedGameDisplays, settings.AllowRecordingDisplaysByDefault);
         update(settings);
         if (save(settings)) return true;
-        (settings.AllowedRecordingDisplays, settings.ExcludedGameDisplays) = previous;
+        (settings.AllowedRecordingDisplays, settings.ExcludedGameDisplays, settings.AllowRecordingDisplaysByDefault) = previous;
         return false;
     }
 

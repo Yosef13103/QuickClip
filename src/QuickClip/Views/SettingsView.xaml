@@ -329,6 +329,7 @@
                                           AutomationProperties.Name="Allow capture on selected display" />
                             </Grid>
                             <TextBlock x:Name="DisplayPermissionHint" Style="{StaticResource Hint}" TextWrapping="Wrap" Margin="0,5,0,0" Visibility="Collapsed" />
+                            <Button x:Name="DefaultDisplayPermissionsButton" Content="Use default display permissions" Click="DefaultDisplayPermissions_Click" HorizontalAlignment="Left" Visibility="Collapsed" Margin="0,6,0,0" />
                         </StackPanel>
                     </Border>
 

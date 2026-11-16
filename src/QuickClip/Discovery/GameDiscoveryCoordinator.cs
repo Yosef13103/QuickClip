@@ -236,6 +236,8 @@ internal sealed class GameDiscoveryCoordinator : IDisposable
             var scope = work.Plan.Scope;
             var token = work.Cancellation.Token;
             bool keep = false;
+            long lastProgress = _clock.GetTimestamp();
+            long lastDiagnostic = lastProgress;
             try
             {
                 if (work.Scan == null) Log.Event(DiagnosticCategory.GameDetection, "Game source scan started");
@@ -263,6 +265,19 @@ internal sealed class GameDiscoveryCoordinator : IDisposable
                         {
                             var updated = CatalogClaims.Apply(_read(), scope, result, preview: true);
                             Publish(updated, false, persist: false);
+                        }
+                        // A source may check many irrelevant entries without changing the catalog.
+                        // Report bounded progress rather than publishing an unchanged catalog again.
+                        if (_clock.GetElapsedTime(lastProgress) >= TimeSpan.FromSeconds(2))
+                        {
+                            lastProgress = _clock.GetTimestamp();
+                            Status = $"Scanning {LocalLaunchers.Name(scope.Kind)} · {result.VisitedEntries:N0} items checked · {_pending.Count:N0} source(s) remaining";
+                            Changed?.Invoke();
+                        }
+                        if (Log.Enabled && _clock.GetElapsedTime(lastDiagnostic) >= TimeSpan.FromSeconds(10))
+                        {
+                            lastDiagnostic = _clock.GetTimestamp();
+                            Log.Event(DiagnosticCategory.GameDetection, "Game source scan progress (items checked)", code: result.VisitedEntries);
                         }
                     }
 

@@ -75,7 +75,12 @@ internal static class CaptureSourcePolicy
             settings.ExcludedGameDisplays = [.. (settings.ExcludedGameDisplays ?? [])
                 .Where(blocked => !string.Equals(blocked, identity, StringComparison.OrdinalIgnoreCase))];
         }
-        else displays.Remove(identity);
+        else
+        {
+            displays.Remove(identity);
+            settings.ExcludedGameDisplays = [.. (settings.ExcludedGameDisplays ?? [])
+                .Append(identity).Distinct(StringComparer.OrdinalIgnoreCase)];
+        }
         settings.AllowedRecordingDisplays = [.. displays];
     }
 
@@ -94,7 +99,8 @@ internal static class CaptureSourcePolicy
 
     internal static bool AllowsRecordingDisplay(AppSettings settings, string identity) =>
         !string.IsNullOrWhiteSpace(identity) && !IsDisplayExcluded(settings, identity) &&
-        (settings.AllowedRecordingDisplays ?? []).Contains(identity, StringComparer.OrdinalIgnoreCase);
+        (settings.AllowRecordingDisplaysByDefault ||
+            (settings.AllowedRecordingDisplays ?? []).Contains(identity, StringComparer.OrdinalIgnoreCase));
 
     internal static MonitorInfo? SelectMonitor(IReadOnlyList<MonitorInfo> monitors, string device, bool requireSelected)
     {

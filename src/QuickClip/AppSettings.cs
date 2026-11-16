@@ -55,6 +55,9 @@ internal sealed class AppSettings
     public bool CaptureCursor { get; set; } = true;
     public bool PreferGameWindow { get; set; } = AppProfile.IsPersonal;
     // Preserve the original physical-display grant without broadening it on upgrade.
+    // Fresh Personal profiles permit identifiable displays until the user blocks one.
+    // Legacy whitelist profiles retain their grants until a deliberate migration.
+    public bool AllowRecordingDisplaysByDefault { get; set; } = AppProfile.IsPersonal;
     public string[] AllowedRecordingDisplays { get; set; } = [];
     public string[] ExcludedGameDisplays { get; set; } = [];
     public bool SplitChatAudio { get; set; } = true;
@@ -171,6 +174,8 @@ internal sealed class AppSettings
                 if (!root.TryGetProperty(nameof(BasicSettings), out _)) settings.BasicSettings = false;
                 if (!root.TryGetProperty(nameof(GuidedSetupStep), out _)) settings.GuidedSetupStep = null;
                 if (settings.GuidedSetupStep is < 0 or > 8) settings.GuidedSetupStep = 0;
+                if (!root.TryGetProperty(nameof(AllowRecordingDisplaysByDefault), out _))
+                    settings.AllowRecordingDisplaysByDefault = false;
                 // Only the old exact physical identity is safe to migrate. The former
                 // global toggle does not identify which monitors the owner had used.
                 if (AppProfile.IsPersonal && !root.TryGetProperty(nameof(AllowedRecordingDisplays), out _) &&
