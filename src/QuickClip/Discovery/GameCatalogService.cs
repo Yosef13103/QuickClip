@@ -70,6 +70,7 @@ internal static partial class GameCatalogService
         private readonly Func<CancellationToken, IEnumerable<GogRegistryEntry>> _gogProducts;
         private readonly Func<CatalogSource, IEnumerable<LauncherInstall?>>? _localInstalls;
         private readonly List<CatalogEntry> _verifiedInstalls = [];
+        private ImmutableArray<CatalogEntry> _verifiedSnapshot = [];
         private int _installFailures;
         private readonly string[] _excluded;
         private readonly Dictionary<string, Candidate> _games = new(StringComparer.Ordinal);
@@ -84,7 +85,7 @@ internal static partial class GameCatalogService
         private readonly HashSet<string> _steamRoots = new(Paths);
         private bool _initialized;
         private string? _epicManifestDirectory;
-        private int _visited, _candidateExecutablesVisited, _manifestBytes, _batch, _reportedGames = -1, _relevantSteps;
+        private int _visited, _inspectedEntries, _candidateExecutablesVisited, _manifestBytes, _batch, _reportedGames = -1, _relevantSteps;
         private bool _limitReached, _hasMoreIssues, _hasUnreportedFailures;
         private bool _sourceUnavailable;
         private CatalogResult? _lastResult;
@@ -170,7 +171,8 @@ internal static partial class GameCatalogService
                 Stopwatch.GetElapsedTime(_lastSnapshotAt) < TimeSpan.FromSeconds(1))
             {
                 HasCatalogChanges = false;
-                return prior with { VisitedEntries = _visited, CandidateExecutablesVisited = _candidateExecutablesVisited };
+                return prior with { VisitedEntries = _visited, InspectedEntries = _inspectedEntries,
+                    CandidateExecutablesVisited = _candidateExecutablesVisited };
             }
             return Snapshot(pending);
         }
@@ -199,6 +201,8 @@ internal static partial class GameCatalogService
                 .OrderBy(game => game.DisplayName, Paths).ThenBy(game => game.Id, StringComparer.Ordinal)
                 .ToImmutableArray();
             _cancel.ThrowIfCancellationRequested();
+            if (_verifiedSnapshot.Length != _verifiedInstalls.Count)
+                _verifiedSnapshot = [.. _verifiedInstalls];
             var result = new CatalogResult(entries, [.. _issues], _visited, _limitReached, pending ? default : DateTimeOffset.UtcNow)
             {
                 SteamLibraries = [.. _steamRoots.Order(Paths)],
@@ -208,9 +212,11 @@ internal static partial class GameCatalogService
                 HasUnreportedFailures = _hasUnreportedFailures,
                 SourceUnavailable = _sourceUnavailable,
                 CandidateExecutablesVisited = _candidateExecutablesVisited,
-                VerifiedInstalls = pending || (_installFailures == 0 && !_sourceUnavailable && !_limitReached) ? [] : [.. _verifiedInstalls],
+                InspectedEntries = _inspectedEntries,
+                VerifiedInstalls = _verifiedSnapshot,
             };
             HasCatalogChanges = _lastResult == null || !_lastResult.Entries.SequenceEqual(entries) ||
+                _lastResult.VerifiedInstalls != result.VerifiedInstalls ||
                 !_lastResult.Issues.SequenceEqual(result.Issues) || _lastResult.HasMoreIssues != _hasMoreIssues ||
                 _lastResult.HasUnreportedFailures != _hasUnreportedFailures;
             _lastResult = result;
@@ -488,8 +494,16 @@ internal static partial class GameCatalogService
                 yield return new(() => IdentifyRenderer(FolderCandidate(path), path, looseExecutables, null));
         }
 
-        private static bool IsBinaryDirectory(string path) => Path.GetFileName(path).ToUpperInvariant()
-            is "BIN" or "BINARIES" or "WIN64" or "WIN32" or "X64" or "X86" or "CURRENT";
+        private static bool IsBinaryDirectory(string path)
+        {
+            string name = Path.GetFileName(path);
+            if (name.ToUpperInvariant() is "BIN" or "BINARIES" or "WIN64" or "WIN32" or "X64" or "X86" or "CURRENT")
+                return true;
+            var version = name.AsSpan();
+            if (version.StartsWith("app-", StringComparison.OrdinalIgnoreCase)) version = version[4..];
+            else if (version.StartsWith("v", StringComparison.OrdinalIgnoreCase)) version = version[1..];
+            return Version.TryParse(version, out _);
+        }
 
         private IEnumerable<ScanStep> ScanFolder(string path, int depth = 0)
         {
@@ -509,10 +523,10 @@ internal static partial class GameCatalogService
             if (launchExecutable != null) game.Executables.Add(launchExecutable);
             yield return new(() => ScanExecutables(install, depth, game, executables,
                 catalogAll: launchExecutable == null, onIncomplete: () => incomplete = true));
-            if (!incomplete)
+            if (!incomplete && failuresBefore == _installFailures)
                 yield return new(() => IdentifyRenderer(game, install, executables, launchExecutable, allowFolderFallback,
                     requireInstallNamedFallback));
-            if (!incomplete && failuresBefore == _installFailures && game.Source != CatalogSource.Folder)
+            if (!incomplete && failuresBefore == _installFailures && game.Executables.Count > 0)
             {
                 bool InInstall(string path) => CatalogPaths.IsWithin(path, install);
                 var entry = game.ToEntry(new());
@@ -573,18 +587,20 @@ internal static partial class GameCatalogService
             string? preferred = null;
             var exactInstallVariants = new List<string>();
             var scopedExecutables = new List<string>();
+            var engineExecutables = new List<string>();
             int best = 0;
             bool unrealBootstrap = false;
             foreach (string executable in executables)
             {
                 _cancel.ThrowIfCancellationRequested();
                 if (game.DetectedLaunchers.Contains(executable)) { yield return default; continue; }
-                int score = RendererScore(install, executable);
-                if (allowFolderFallback && IsInInstallBinaryLocation(install, executable) &&
-                    !ManualGameInput.IsSupportFile(executable, install) &&
-                    !Paths.Equals(Path.GetFileName(executable), "javaw.exe") &&
-                    !Paths.Equals(Path.GetFileName(executable), "java.exe") &&
-                    QuickClip.Recording.GameDetector.ApplyProcessRole(executable, new(CatalogMatchKind.Unknown)).Kind == CatalogMatchKind.Unknown)
+                bool inBinaryLocation = allowFolderFallback && IsInInstallBinaryLocation(install, executable);
+                bool support = ManualGameInput.IsSupportFile(executable, install) || CatalogPaths.IsJavaRuntime(executable) ||
+                    QuickClip.Recording.GameDetector.ApplyProcessRole(executable, new(CatalogMatchKind.Unknown)).Kind != CatalogMatchKind.Unknown;
+                bool folderScope = game.Source == CatalogSource.Folder && inBinaryLocation;
+                bool shipping = !Paths.Equals(RendererStem(executable), Path.GetFileNameWithoutExtension(executable));
+                int score = support ? 0 : folderScope && !shipping ? ScopedFolderExecutable : RendererScore(install, executable);
+                if (inBinaryLocation && !support)
                 {
                     bool named = Paths.Equals(VariantStem(executable), Path.GetFileName(install));
                     if (named)
@@ -599,6 +615,7 @@ internal static partial class GameCatalogService
                         Paths.Equals(RendererStem(executable), Path.GetFileName(install)))) continue;
                     unrealBootstrap |= bootstrap;
                 }
+                if (score == EngineRenderer && game.Source == CatalogSource.Folder) engineExecutables.Add(executable);
                 if (score > best) (best, preferred) = (score, executable);
                 else if (score == best) preferred = null;
                 yield return default; // Respect bounded scan slices during renderer verification.
@@ -617,17 +634,14 @@ internal static partial class GameCatalogService
                 if (best < EngineRenderer) yield break;
             }
 
-            if (best == ScopedFolderExecutable && (_hasUnreportedFailures || _issues.Any(issue =>
-                issue.Kind != CatalogIssueKind.ReparsePoint &&
-                (CatalogPaths.IsWithin(issue.Location, install) || CatalogPaths.IsWithin(install, issue.Location)))))
-                yield break;
-
             // A user-selected game install is positive scope evidence, even
             // without a unique name match or engine signature. Keep known
             // helpers, shared Java runtimes and incomplete sources excluded.
-            if (game.Source == CatalogSource.Folder && launchExecutable == null &&
-                best == ScopedFolderExecutable && exactInstallVariants.Count == 0)
+            if (game.Source == CatalogSource.Folder && launchExecutable == null)
+            {
                 game.Renderers.UnionWith(scopedExecutables);
+                game.Renderers.UnionWith(engineExecutables);
+            }
             if (exactInstallVariants.Count > 0)
                 game.Renderers.UnionWith(exactInstallVariants);
 
@@ -635,8 +649,21 @@ internal static partial class GameCatalogService
             {
                 game.Renderers.Add(preferred);
                 game.Executables.Add(preferred);
-                if (launchExecutable == null && best >= EngineRenderer)
-                    game.DetectedLaunchers.UnionWith(executables.Where(path => SharesRendererName(path, preferred)));
+            }
+
+            if (game.Source == CatalogSource.Folder && engineExecutables.Count > 0)
+            {
+                var shippingNames = engineExecutables.Select(path => Path.GetFileNameWithoutExtension(path)!)
+                    .Where(name => name.EndsWith("-Win64-Shipping", StringComparison.OrdinalIgnoreCase) ||
+                        name.EndsWith("-Win32-Shipping", StringComparison.OrdinalIgnoreCase))
+                    .Select(RendererStem).ToHashSet(Paths);
+                foreach (var path in scopedExecutables)
+                    if (Paths.Equals(Path.GetDirectoryName(path), install) &&
+                        shippingNames.Contains(Path.GetFileNameWithoutExtension(path)))
+                    {
+                        game.DetectedLaunchers.Add(path);
+                        game.Renderers.Remove(path);
+                    }
             }
         }
 
@@ -656,7 +683,10 @@ internal static partial class GameCatalogService
             {
                 if (Paths.Equals(directory, install)) return true;
                 if (!IsBinaryDirectory(directory)) break;
-                directory = Path.GetDirectoryName(directory)!;
+                string parent = Path.GetDirectoryName(directory)!;
+                if (Paths.Equals(Path.GetFileName(directory), "Binaries") &&
+                    Paths.Equals(Path.GetDirectoryName(parent), install)) return true;
+                directory = parent;
             }
             return false;
         }
@@ -841,6 +871,7 @@ internal static partial class GameCatalogService
                     validatedBatch = _batch;
                 }
                 if (!MoveNext(entries, directory)) yield break;
+                _inspectedEntries++;
                 var (path, attributes) = entries.Current;
                 bool isDirectory = attributes.HasFlag(FileAttributes.Directory);
                 string leaf = Path.GetFileName(path);

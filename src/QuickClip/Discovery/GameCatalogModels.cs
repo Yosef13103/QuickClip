@@ -88,7 +88,8 @@ internal sealed record CatalogResult(
     public bool HasUnreportedFailures { get; init; }
     public bool SourceUnavailable { get; init; }
     public int CandidateExecutablesVisited { get; init; }
-    // Positive evidence from fully inspected installs in a scan with unrelated failures.
+    public int InspectedEntries { get; init; }
+    // Positive evidence from completed installs, even while their source has more work.
     [System.Text.Json.Serialization.JsonIgnore]
     public ImmutableArray<CatalogEntry> VerifiedInstalls { get; init; } = [];
 }

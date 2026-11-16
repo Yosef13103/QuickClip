@@ -52,6 +52,8 @@ internal sealed class GameDiscoveryCoordinator : IDisposable
     public bool IsRunning { get; private set; }
     public string Status { get; private set; } = "";
     public bool IsPaused => _paused && _pending.Count > 0;
+    public string? ActiveSourceKey { get; private set; }
+    public int ActiveSourceVisited { get; private set; }
 
     public void Start()
     {
@@ -92,6 +94,8 @@ internal sealed class GameDiscoveryCoordinator : IDisposable
             }
             bool resume = _paused;
             _paused = false;
+            if (resume && sourceKey != null && _plans.TryGetValue(sourceKey, out var requested))
+                Queue(requested);
             if (!resume)
             {
                 _results.Clear();
@@ -132,11 +136,24 @@ internal sealed class GameDiscoveryCoordinator : IDisposable
             var state = _read();
             bool changed = SyncPlans(state, scheduleChanges: _started);
             var pruned = CatalogClaims.Reconfigure(state);
-            if (pruned.SourceClaims != null && (changed || !ReferenceEquals(pruned, state)))
-                Publish(pruned with { ScanPreview = null }, _pending.Count == 0, persist: true);
+            bool previewCanceled = pruned.ScanPreview != null && !IsPreviewCurrent(pruned.ScanPreview);
+            if (pruned.SourceClaims != null && (changed || !ReferenceEquals(pruned, state) || previewCanceled))
+            {
+                Publish(pruned with { ScanPreview = previewCanceled ? null : pruned.ScanPreview },
+                    _pending.Count == 0, persist: true);
+                if (previewCanceled && _pending.Count == 0)
+                {
+                    Status = "Scan canceled";
+                    Changed?.Invoke();
+                }
+            }
             return _paused ? Task.CompletedTask : StartWork();
         }
     }
+
+    private bool IsPreviewCurrent(CatalogSourceClaim? preview) => preview != null &&
+        _pending.ContainsKey(preview.Scope.Key) && _plans.TryGetValue(preview.Scope.Key, out var plan) &&
+        plan.Signature == preview.Signature;
 
     private static IEnumerable<SourcePlan> Plans(GameCatalogSettings settings) =>
         CatalogScope.Enabled(settings).Select(scope =>
@@ -219,6 +236,7 @@ internal sealed class GameDiscoveryCoordinator : IDisposable
                 if (_disposed || _paused || _pending.Count == 0)
                 {
                     IsRunning = false;
+                    if (!_paused) ActiveSourceKey = null;
                     if (_paused && _read().Snapshot is { } snapshot) Status = Describe(_read(), "Paused", snapshot);
                     else if (_canceled && !_disposed && Status.StartsWith("Scanning", StringComparison.Ordinal))
                     {
@@ -231,6 +249,8 @@ internal sealed class GameDiscoveryCoordinator : IDisposable
                     return;
                 }
                 _active = work = _pending.Values.First();
+                if (ActiveSourceKey != work.Plan.Scope.Key) ActiveSourceVisited = 0;
+                ActiveSourceKey = work.Plan.Scope.Key;
             }
 
             var scope = work.Plan.Scope;
@@ -245,18 +265,20 @@ internal sealed class GameDiscoveryCoordinator : IDisposable
                 while (true)
                 {
                     var result = await work.Scan.ContinueAsync(_segmentsPerSlice, TimeSpan.FromMilliseconds(250), token, throttleSnapshots: true);
-                    activity.Report($"Discovering games · {LocalLaunchers.Name(scope.Kind)} · {result.VisitedEntries:N0} items checked");
+                    activity.Report($"Discovering games · {LocalLaunchers.Name(scope.Kind)} · {result.InspectedEntries:N0} items checked");
                     bool pause;
                     lock (_gate)
                     {
                         if (!IsCurrent(work)) break;
                         pause = _paused;
+                        ActiveSourceVisited = result.InspectedEntries;
                         if (!result.InProgress)
                         {
                             _pending.Remove(scope.Key);
                             _completed[scope.Key] = _clock.GetTimestamp();
                             _results[scope.Key] = result;
                             var updated = CatalogClaims.Apply(_read(), scope, result, preview: false);
+                            ActiveSourceKey = null;
                             Publish(updated, _pending.Count == 0, persist: true);
                             Log.Event(DiagnosticCategory.GameDetection, "Game source scan completed");
                             break;
@@ -271,13 +293,13 @@ internal sealed class GameDiscoveryCoordinator : IDisposable
                         if (_clock.GetElapsedTime(lastProgress) >= TimeSpan.FromSeconds(2))
                         {
                             lastProgress = _clock.GetTimestamp();
-                            Status = $"Scanning {LocalLaunchers.Name(scope.Kind)} · {result.VisitedEntries:N0} items checked · {_pending.Count:N0} source(s) remaining";
+                            Status = $"Scanning {LocalLaunchers.Name(scope.Kind)} · {result.InspectedEntries:N0} items checked · {_pending.Count:N0} source(s) remaining";
                             Changed?.Invoke();
                         }
                         if (Log.Enabled && _clock.GetElapsedTime(lastDiagnostic) >= TimeSpan.FromSeconds(10))
                         {
                             lastDiagnostic = _clock.GetTimestamp();
-                            Log.Event(DiagnosticCategory.GameDetection, "Game source scan progress (items checked)", code: result.VisitedEntries);
+                            Log.Event(DiagnosticCategory.GameDetection, "Game source scan progress (items checked)", code: result.InspectedEntries);
                         }
                     }
 
@@ -296,7 +318,7 @@ internal sealed class GameDiscoveryCoordinator : IDisposable
                             }
                         }
                     }
-                    await Task.Delay(TimeSpan.FromMilliseconds(250), _clock, token);
+                    await Task.Delay(TimeSpan.FromMilliseconds(50), _clock, token);
                 }
             }
             catch (OperationCanceledException) when (token.IsCancellationRequested)
@@ -337,7 +359,11 @@ internal sealed class GameDiscoveryCoordinator : IDisposable
 
     private bool IsCurrent(Work work) => !_disposed && !work.Cancellation.IsCancellationRequested &&
         _pending.TryGetValue(work.Plan.Scope.Key, out var pending) && ReferenceEquals(work, pending) &&
-        Plans(_read()).Any(plan => plan.Scope.Key == work.Plan.Scope.Key && plan.Signature == work.Plan.Signature);
+        MatchesCurrentSettings(work.Plan, _read());
+
+    private static bool MatchesCurrentSettings(SourcePlan planned, GameCatalogSettings settings) =>
+        CatalogScope.Enabled(settings).FirstOrDefault(scope => scope.Key == planned.Scope.Key) is { } scope &&
+        CatalogScope.Signature(scope.Request(settings.Request)) == planned.Signature;
 
     private void Publish(GameCatalogSettings state, bool finished, bool persist)
     {
@@ -359,6 +385,7 @@ internal sealed class GameDiscoveryCoordinator : IDisposable
             HasUnreportedFailures = results.Any(result => result.HasUnreportedFailures),
             SourceUnavailable = results.Any(result => result.SourceUnavailable),
             CandidateExecutablesVisited = results.Sum(result => result.CandidateExecutablesVisited),
+            InspectedEntries = results.Sum(result => result.InspectedEntries),
         };
         var updated = CatalogClaims.Summarize(state, summary, finished, _results.Keys.ToHashSet(StringComparer.Ordinal));
         _publish(updated, persist);
@@ -372,8 +399,11 @@ internal sealed class GameDiscoveryCoordinator : IDisposable
         Changed?.Invoke();
     }
 
-    internal static string Describe(GameCatalogSettings state, string label, CatalogResult result) =>
-        $"{label} · {result.CandidateExecutablesVisited:N0} candidate executable visits · {state.DiscoveredCount ?? 0:N0} discovered this scan";
+    internal static string Describe(GameCatalogSettings state, string label, CatalogResult result)
+    {
+        int found = state.DiscoveredCount ?? 0;
+        return $"{label} · {result.InspectedEntries:N0} items checked · {found:N0} {(found == 1 ? "game" : "games")} found";
+    }
 
     public void Dispose()
     {

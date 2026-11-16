@@ -19,9 +19,12 @@ internal sealed record CatalogScope(CatalogSource Kind, string? Root = null, boo
         return scopes.DistinctBy(scope => scope.Key);
     }
 
-    public static IEnumerable<CatalogScope> Enabled(GameCatalogSettings settings) =>
-        Configured(settings).Where(scope => !settings.DisabledSourceKeys.Contains(scope.Key, StringComparer.Ordinal) &&
-            (scope.Root == null || !Exclusions(settings.Request).Any(path => CatalogPaths.IsWithin(scope.Root, path))));
+    public static IEnumerable<CatalogScope> Enabled(GameCatalogSettings settings)
+    {
+        var exclusions = Exclusions(settings.Request).ToArray();
+        return Configured(settings).Where(scope => !settings.DisabledSourceKeys.Contains(scope.Key, StringComparer.Ordinal) &&
+            (scope.Root == null || !exclusions.Any(path => CatalogPaths.IsWithin(scope.Root, path))));
+    }
 
     public CatalogRequest Request(CatalogRequest settings) => new()
     {
@@ -86,7 +89,7 @@ internal static class CatalogClaims
         var previous = settings.SourceClaims!.Value.FirstOrDefault(claim => claim.Scope.Key == scope.Key);
         bool complete = Complete(result);
         if (preview)
-            return settings with { ScanPreview = new(scope, result, false, signature) };
+            return settings with { ScanPreview = new(scope, result, false, signature) { VerifiedInstalls = result.VerifiedInstalls } };
 
         var verifiedInstalls = complete ? result.Entries : result.VerifiedInstalls;
         int discoveredCount = result.Entries.Length;
@@ -141,6 +144,7 @@ internal static class CatalogClaims
         var claims = settings.SourceClaims!.Value.Where(claim => enabled.Contains(claim.Scope.Key)).ToArray();
         var discovered = claims.Where(claim => refreshed.Contains(claim.Scope.Key))
             .SelectMany(claim => claim.Verified ? claim.Result.Entries : claim.VerifiedInstalls)
+            .Concat(settings.ScanPreview is { } preview && enabled.Contains(preview.Scope.Key) ? preview.VerifiedInstalls : [])
             .Select(entry => entry.Id).ToHashSet(StringComparer.Ordinal);
         return settings with
         {
@@ -163,12 +167,13 @@ internal static class CatalogClaims
     {
         var scopes = CatalogScope.Enabled(settings).ToDictionary(scope => scope.Key, StringComparer.Ordinal);
         var exclusions = CatalogScope.Exclusions(settings.Request).ToArray();
-        bool Allowed(string path) => CatalogPaths.LocalPath(path) != null && !exclusions.Any(root => CatalogPaths.IsWithin(path, root));
+        IEnumerable<string> AllowedPaths(IEnumerable<string> paths) => paths.Select(CatalogPaths.LocalPath)
+            .OfType<string>().Where(path => !exclusions.Any(root => CatalogPaths.IsWithin(path, root)));
         var contributions = new List<Contribution>();
         foreach (var claim in settings.SourceClaims!.Value.Concat(settings.ScanPreview is { } preview ? [preview] : []))
         {
             if (!scopes.TryGetValue(claim.Scope.Key, out var scope)) continue;
-            if (claim.Result.EpicManifestDirectory is { } epic && !Allowed(epic)) continue;
+            if (claim.Result.EpicManifestDirectory is { } epic && !AllowedPaths([epic]).Any()) continue;
             bool current = claim.Signature == CatalogScope.Signature(scope.Request(settings.Request));
             bool verified = claim.Verified && current;
             var live = current ? claim.VerifiedInstalls : [];
@@ -176,28 +181,28 @@ internal static class CatalogClaims
                 .Concat(live.Select(entry => (entry, true))))
             {
                 if (entry.Source != scope.Kind) continue;
-                var installs = entry.InstallDirectories.Where(path => Allowed(path) &&
-                    (scope.Root == null || CatalogPaths.IsWithin(path, scope.Root))).ToImmutableArray();
+                var installs = AllowedPaths(entry.InstallDirectories).Where(path =>
+                    scope.Root == null || CatalogPaths.IsWithin(path, scope.Root)).ToImmutableArray();
                 if (installs.IsEmpty) continue;
-                bool InInstall(string path) => Allowed(path) && installs.Any(root => CatalogPaths.IsWithin(path, root));
+                bool InInstall(string path) => installs.Any(root => CatalogPaths.IsWithin(path, root));
                 contributions.Add(new(entry with
                 {
                     InstallDirectories = installs,
-                    Executables = [.. entry.Executables.Where(InInstall)],
-                    RendererExecutables = entry.RendererExecutables is { } renderers ? [.. renderers.Where(InInstall)] : null,
-                    DetectedLaunchers = [.. entry.DetectedLaunchers.Where(InInstall)],
+                    Executables = [.. AllowedPaths(entry.Executables).Where(InInstall)],
+                    RendererExecutables = entry.RendererExecutables is { } renderers ? [.. AllowedPaths(renderers).Where(InInstall)] : null,
+                    DetectedLaunchers = [.. AllowedPaths(entry.DetectedLaunchers).Where(InInstall)],
                 }, isVerified));
             }
         }
         foreach (var entry in settings.LegacyEntries.Where(entry => entry.Source != CatalogSource.Manual))
         {
-            var installs = entry.InstallDirectories.Where(path => Allowed(path) && scopes.Values.Any(scope =>
+            var installs = AllowedPaths(entry.InstallDirectories).Where(path => scopes.Values.Any(scope =>
                 scope.Kind == entry.Source && (scope.Root == null || CatalogPaths.IsWithin(path, scope.Root)))).ToImmutableArray();
             if (!installs.IsEmpty)
                 contributions.Add(new(entry with
                 {
                     InstallDirectories = installs,
-                    Executables = [.. entry.Executables.Where(path => Allowed(path) && installs.Any(root => CatalogPaths.IsWithin(path, root)))],
+                    Executables = [.. AllowedPaths(entry.Executables).Where(path => installs.Any(root => CatalogPaths.IsWithin(path, root)))],
                 }, false));
         }
 
@@ -246,7 +251,7 @@ internal static class CatalogClaims
         {
             string id = "manual:" + entry.Id.ToString("N");
             return new CatalogEntry(id, entry.DisplayName, CatalogSource.Manual, [],
-                [.. entry.Executables.Where(Allowed)], rules.GetValueOrDefault(id) ?? new());
+                [.. AllowedPaths(entry.Executables)], rules.GetValueOrDefault(id) ?? new());
         });
         return [.. rows.Concat(manual).OrderBy(row => row.DisplayName, Paths).ThenBy(row => row.Id, StringComparer.Ordinal)];
     }
@@ -311,7 +316,7 @@ internal static class CatalogClaims
             IsUnverified = live.Length == 0 || (livePaths.Count == 0 && !executables.IsEmpty),
             RendererExecutables = [.. live.SelectMany<CatalogEntry, string>(entry => entry.Source == CatalogSource.Steam ? entry.Executables :
                 entry.RendererExecutables ?? (entry.Source == CatalogSource.Epic ? entry.Executables : [])).Distinct(Paths)],
-            DetectedLaunchers = [.. all.SelectMany(entry => entry.DetectedLaunchers).Distinct(Paths)],
+            DetectedLaunchers = [.. live.SelectMany(entry => entry.DetectedLaunchers).Distinct(Paths)],
         };
     }
 

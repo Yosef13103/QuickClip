@@ -15,8 +15,15 @@
             <BooleanToVisibilityConverter x:Key="ShowManualActions" />
         </ResourceDictionary>
     </UserControl.Resources>
-    <ScrollViewer x:Name="GamesPageScroller" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
-      <StackPanel Margin="28,22,14,28" MaxWidth="1340">
+    <ListBox x:Name="Games" Margin="28,16,14,12" MaxWidth="1340"
+             Background="Transparent" BorderThickness="0" AutomationProperties.Name="Games catalog"
+             ScrollViewer.CanContentScroll="True" ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+             VirtualizingPanel.IsVirtualizing="True" VirtualizingPanel.VirtualizationMode="Recycling"
+             VirtualizingPanel.ScrollUnit="Pixel">
+        <ListBox.ItemsSource>
+            <CompositeCollection>
+                <ListBoxItem Focusable="False" HorizontalContentAlignment="Stretch" Padding="0" Background="Transparent">
+                  <StackPanel Margin="0,6,12,0">
         <TextBlock Text="Games" FontSize="{DynamicResource QuickClipText24}" FontWeight="SemiBold" Margin="0,0,0,16" />
         <Border Background="{DynamicResource PanelBrush}" CornerRadius="8" Padding="20,8,20,18" Margin="0,0,14,14">
         <StackPanel>
@@ -51,14 +58,17 @@
                         <ListBox.ItemContainerStyle><Style TargetType="ListBoxItem" BasedOn="{StaticResource {x:Type ListBoxItem}}"><Setter Property="HorizontalContentAlignment" Value="Stretch" /></Style></ListBox.ItemContainerStyle>
                         <ListBox.ItemTemplate><DataTemplate><DockPanel Margin="2">
                             <CheckBox DockPanel.Dock="Right" Style="{StaticResource SwitchCheckBox}" IsChecked="{Binding Enabled, Mode=OneWay}" IsEnabled="{Binding CanToggle}" Click="RootEnabled_Click" VerticalAlignment="Center" AutomationProperties.Name="Enable game folder" />
+                            <WrapPanel DockPanel.Dock="Right">
+                                <Button Content="Refresh" Click="RefreshSource_Click" IsEnabled="{Binding CanRefresh}" Margin="0,0,4,0" />
+                                <Button Content="{Binding RemoveLabel}" Click="RemoveRoot_Click" Margin="0,0,4,0" />
+                            </WrapPanel>
                             <TextBlock Text="{Binding Label}" TextWrapping="Wrap" VerticalAlignment="Center" Margin="0,0,8,0" />
                         </DockPanel></DataTemplate></ListBox.ItemTemplate>
                     </ListBox>
                     <WrapPanel Margin="0,5,0,0">
                         <Button Content="Add game collection…" Click="Collection_Click" Margin="0,0,6,0" />
-                        <Button Content="Refresh selected" Click="RefreshSource_Click" Margin="0,0,6,0" />
-                        <Button Content="Remove or restore source" Click="RemoveRoot_Click" />
                     </WrapPanel>
+                    <TextBlock x:Name="SourceError" Style="{StaticResource Hint}" Foreground="{DynamicResource DangerBrush}" TextWrapping="Wrap" />
 
                 </StackPanel>
             </Expander>
@@ -70,6 +80,7 @@
                         <Button Content="Block executables…" Click="BlockFile_Click" Margin="0,0,6,4" />
                         <Button Content="Restore selected executable" Click="RestoreFile_Click" Margin="0,0,0,4" />
                     </WrapPanel>
+                    <TextBlock x:Name="BlockedError" Style="{StaticResource Hint}" Foreground="{DynamicResource DangerBrush}" TextWrapping="Wrap" />
                 </StackPanel>
             </Expander>
                 </StackPanel>
@@ -78,6 +89,8 @@
                 <Button x:Name="CancelButton" Content="Pause scan" Click="Cancel_Click" IsEnabled="False" Margin="0,0,6,0" />
                 <Button Content="Add Game…" Click="Add_Click" Margin="0,0,6,0" />
             </WrapPanel>
+            <TextBlock x:Name="AddError" Style="{StaticResource Hint}" Foreground="{DynamicResource DangerBrush}"
+                       TextWrapping="Wrap" Visibility="Collapsed" AutomationProperties.LiveSetting="Assertive" />
             <TextBlock x:Name="Status" Style="{StaticResource Hint}" Margin="0,6,0,0" TextWrapping="Wrap"
                        AutomationProperties.LiveSetting="Polite" />
             <TextBlock x:Name="TargetingHelp" TextWrapping="Wrap" Style="{StaticResource Hint}" Visibility="Collapsed" />
@@ -93,10 +106,13 @@
             <TextBlock x:Name="Count" FontWeight="SemiBold" TextWrapping="Wrap" Margin="0,10,0,0" />
             <TextBox x:Name="Search" Margin="0,4,0,6" AutomationProperties.Name="Search catalog by name or executable"
                      TextChanged="Search_Changed" />
-        <ListBox x:Name="Games" MaxHeight="720" MinHeight="240" Background="{DynamicResource PanelBrush}" BorderThickness="0" AutomationProperties.Name="Games catalog"
-                 ScrollViewer.CanContentScroll="True" ScrollViewer.HorizontalScrollBarVisibility="Disabled"
-                 VirtualizingPanel.IsVirtualizing="True" VirtualizingPanel.VirtualizationMode="Recycling"
-                 VirtualizingPanel.ScrollUnit="Pixel">
+                        </StackPanel>
+                        </Border>
+                  </StackPanel>
+                </ListBoxItem>
+                <CollectionContainer x:Name="GameItems" />
+            </CompositeCollection>
+        </ListBox.ItemsSource>
             <ListBox.ItemContainerStyle>
                 <Style TargetType="ListBoxItem" BasedOn="{StaticResource {x:Type ListBoxItem}}">
                     <Setter Property="HorizontalContentAlignment" Value="Stretch" />
@@ -133,19 +149,22 @@
                                     <Button Content="Remove manual entry" Click="Remove_Click" Margin="0,0,6,4"
                                             Visibility="{Binding IsManual, Converter={StaticResource ShowManualActions}}" />
                                 </WrapPanel>
+                                <TextBlock Text="{Binding ActionError}" Style="{StaticResource Hint}" Foreground="{DynamicResource DangerBrush}"
+                                           TextWrapping="Wrap" AutomationProperties.LiveSetting="Assertive" />
                                 <TextBlock Text="{Binding Inheritance}" Style="{StaticResource Hint}" Margin="0,4" />
-                                <Expander Header="Classification and executables" IsExpanded="{Binding IsAdvancedExpanded}"
-                                          Visibility="{Binding ShowAdvanced, Converter={StaticResource ShowManualActions}}">
-                                    <StackPanel Margin="0,4,0,2">
-                                        <TextBlock Text="{Binding Diagnostics}" Style="{StaticResource Hint}" />
+                                <StackPanel Margin="0,4,0,2"
+                                            Visibility="{Binding ShowAdvanced, Converter={StaticResource ShowManualActions}}">
+                                        <TextBlock Text="Game files" FontWeight="SemiBold" />
                                         <TextBlock Text="Game files can start recording. Launcher and blocked files cannot." Style="{StaticResource Hint}" Margin="0,6,0,4" />
-                                        <ListBox x:Name="ExecutableList" ItemsSource="{Binding Executables}" DisplayMemberPath="Label" SelectedValuePath="Path"
-                                                 MaxHeight="105" AutomationProperties.Name="Associated executables" />
+                                        <ComboBox x:Name="ExecutableList" ItemsSource="{Binding Executables}" SelectedValuePath="Path"
+                                                  AutomationProperties.Name="Game files">
+                                            <ComboBox.ItemTemplate>
+                                                <DataTemplate>
+                                                    <TextBlock Text="{Binding Label}" TextTrimming="CharacterEllipsis" ToolTip="{Binding Label}" />
+                                                </DataTemplate>
+                                            </ComboBox.ItemTemplate>
+                                        </ComboBox>
                                         <WrapPanel>
-                                            <Button Content="Use this game executable" Click="ApproveExecutable_Click"
-                                                    CommandParameter="{Binding SelectedValue, ElementName=ExecutableList}"
-                                                    IsEnabled="{Binding SelectedItem.CanUse, ElementName=ExecutableList, FallbackValue=False, TargetNullValue=False}"
-                                                    Margin="0,4,6,0" />
                                             <Button Content="Toggle launcher role" Click="Launcher_Click"
                                                 CommandParameter="{Binding SelectedValue, ElementName=ExecutableList}"
                                                 HorizontalAlignment="Left" Margin="0,4,6,0">
@@ -173,16 +192,11 @@
                                             </Button.Style>
                                         </Button>
                                         </WrapPanel>
-                                    </StackPanel>
-                                </Expander>
+                                </StackPanel>
                             </StackPanel>
                         </controls:AnimatedReveal>
                     </StackPanel>
                 </DataTemplate>
             </ListBox.ItemTemplate>
-        </ListBox>
-        </StackPanel>
-        </Border>
-      </StackPanel>
-    </ScrollViewer>
+    </ListBox>
 </UserControl>
