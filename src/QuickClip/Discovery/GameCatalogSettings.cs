@@ -23,6 +23,46 @@ internal sealed record GameCatalogSettings
     internal CatalogSourceClaim? ScanPreview { get; init; }
 }
 
+internal sealed class GameCatalogIndexCache
+{
+    private GameCatalogSettings? _settings;
+    private GameCatalogIndex? _index;
+
+    public GameCatalogIndex Get(GameCatalogSettings state)
+    {
+        if (ReferenceEquals(state, _settings)) return _index!;
+        if (_settings != null && HasSameCaptureInputs(_settings, state))
+        {
+            _settings = state;
+            return _index!;
+        }
+
+        var verified = state.ScanPreview;
+        var input = CatalogClaims.Start(state) with
+        {
+            ScanPreview = verified is { VerifiedInstalls.IsEmpty: false }
+                ? verified with { Result = verified.Result with { Entries = [] } } : null,
+        };
+        var rows = CatalogClaims.Rows(input);
+        var index = new GameCatalogIndex(new(rows, [], 0, false, default), CatalogClaims.BlockedExecutables(input));
+        _settings = state;
+        return _index = index;
+    }
+
+    private static bool HasSameCaptureInputs(GameCatalogSettings prior, GameCatalogSettings current) =>
+        prior.Request == current.Request && prior.AutoScan == current.AutoScan &&
+        prior.DiscoverSteam == current.DiscoverSteam && prior.DiscoverEpic == current.DiscoverEpic &&
+        prior.DiscoverGog == current.DiscoverGog && prior.EnabledLaunchers == current.EnabledLaunchers &&
+        prior.DisabledSourceKeys == current.DisabledSourceKeys && prior.BlockedExecutables == current.BlockedExecutables &&
+        prior.SourceClaims == current.SourceClaims && prior.LegacyEntries == current.LegacyEntries &&
+        prior.InstallAliases == current.InstallAliases &&
+        (current.SourceClaims != null || ReferenceEquals(prior.Snapshot, current.Snapshot)) &&
+        PreviewEvidence(prior.ScanPreview) == PreviewEvidence(current.ScanPreview);
+
+    private static (CatalogScope?, string?, ImmutableArray<CatalogEntry>) PreviewEvidence(CatalogSourceClaim? preview) =>
+        preview is { VerifiedInstalls.IsEmpty: false } ? (preview.Scope, preview.Signature, preview.VerifiedInstalls) : default;
+}
+
 internal static class GameCatalogRuntime
 {
     internal static GameCatalogSettings RestoreSavedScan(GameCatalogSettings settings)
@@ -43,8 +83,7 @@ internal static class GameCatalogRuntime
         });
 
     private static readonly object Gate = new();
-    private static GameCatalogSettings? _settings;
-    private static GameCatalogIndex? _index;
+    private static readonly GameCatalogIndexCache Index = new();
 
     public static CatalogMatch Match(string path, bool foreground)
     {
@@ -56,13 +95,7 @@ internal static class GameCatalogRuntime
             return new(CatalogMatchKind.Ignored);
         lock (Gate)
         {
-            if (!ReferenceEquals(settings, _settings))
-            {
-                var rows = CatalogClaims.Rows(CatalogClaims.Start(settings));
-                _index = new(new(rows, [], 0, false, default), CatalogClaims.BlockedExecutables(settings));
-                _settings = settings;
-            }
-            return _index!.Match(path, foreground);
+            return Index.Get(settings).Match(path, foreground);
         }
     }
 

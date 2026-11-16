@@ -39,6 +39,8 @@ internal sealed record ClipOverlayOptions
     public bool ShowFps { get; init; } = true;
     public bool ShowHotkey { get; init; }
     public bool ImageOnly { get; init; }
+    public bool HideSavedBannerFromCapture { get; init; }
+    public bool HideImageFromCapture { get; init; }
     public ClipImageAppearance? ImageAppearance { get; init; }
     internal bool WantsImage => ImageOnly || Style == OverlayStyle.ImageOnly;
     public OverlayImageFit ImageFit { get; init; } = OverlayImageFit.Contain;
@@ -118,6 +120,8 @@ internal sealed record ClipOverlayOptions
             Display = image.Display, Anchor = image.Anchor, Size = image.Size, Opacity = image.Opacity,
             Seconds = image.Seconds, Animation = image.Animation }).Normalize();
     }
+
+    internal bool ExcludeFromCapture(bool saved) => WantsImage ? HideImageFromCapture : saved && HideSavedBannerFromCapture;
 
     internal ClipOverlayOptions? ForEvent(ClipEvent kind)
     {

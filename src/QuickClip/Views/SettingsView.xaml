@@ -743,6 +743,14 @@
                                     <TextBlock Text="Clip saved" FontWeight="SemiBold" FontSize="{DynamicResource QuickClipText16}" />
                                     <TextBlock Style="{StaticResource Hint}" Text="Choose a celebration for successful saves only. Other events always use compact text banners when on-screen banners are enabled." Margin="0,4,0,8" />
                                     <CheckBox x:Name="ImageOnlyCheck" Style="{StaticResource SwitchCheckBox}" Content="Show an image or animation when a clip is saved" Click="ClipFeedback_Changed" />
+                                    <CheckBox x:Name="HideSavedBannerFromCaptureCheck" Style="{StaticResource SwitchCheckBox}" Margin="0,6,0,0" Click="ClipFeedback_Changed">
+                                        <TextBlock Text="Hide saved-clip banner from recordings" TextWrapping="Wrap" />
+                                    </CheckBox>
+                                    <CheckBox x:Name="HideImageFromCaptureCheck" Style="{StaticResource SwitchCheckBox}" Margin="0,6,0,0" Click="ClipFeedback_Changed">
+                                        <TextBlock Text="Hide custom notification image from recordings" TextWrapping="Wrap" />
+                                    </CheckBox>
+                                    <TextBlock Style="{StaticResource Hint}" Margin="0,4,0,0"
+                                               Text="If Windows requires a solid background, image playback continues without window effects. QuickClip warns you if Windows rejects exclusion and the notification may appear in recordings." />
                                     <StackPanel x:Name="ImageAppearancePanel" Visibility="Collapsed">
                             <WrapPanel Margin="0,8,0,0">
                                 <Button Content="Choose image / WebM animation…" Margin="0,0,8,0" Click="ChooseOverlayImage_Click" />

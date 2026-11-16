@@ -44,7 +44,7 @@ public sealed class GameCatalogIndexTests
             manual with { Rules = new() }).Match(path, true).Kind);
         Assert.Equal(CatalogMatchKind.Companion, BuildIndex(found, manual with { Rules = new(Classification: AppClassification.Companion) }).Match(path, true).Kind);
         Assert.Equal(CatalogMatchKind.Application, BuildIndex(found, manual with { Rules = new(Classification: AppClassification.Application) }).Match(path, true).Kind);
-        Assert.Equal(CatalogMatchKind.Ambiguous, BuildIndex(manual, found, manual with { Id = "manual:b" }).Match(path, true).Kind);
+        Assert.Equal(CatalogMatchKind.Ambiguous, BuildIndex(manual with { Rules = new() }, found, manual with { Id = "manual:b", Rules = new() }).Match(path, true).Kind);
     }
 
     [Fact]

@@ -323,13 +323,13 @@ public sealed class LibraryIndexTests : IDisposable
         using (var connection = new LibraryDatabase(Db).Open())
         {
             LibraryDatabase.Execute(connection, null,
-                "DROP TABLE bookmarks; DROP TABLE clip_tags; DROP TABLE tags; PRAGMA user_version=1;");
+                "DROP TABLE edit_drafts; DROP TABLE bookmarks; DROP TABLE clip_tags; DROP TABLE tags; PRAGMA user_version=1;");
         }
         Assert.True((await index.GetAnnotationsAsync(id)).Favorite);
         await index.SetTagsAsync(id, ["Preserved"]);
         using (var connection = new LibraryDatabase(Db).Open())
         {
-            Assert.Equal(2L, LibraryDatabase.Scalar(connection, null, "PRAGMA user_version;"));
+            Assert.Equal((long)LibraryDatabase.SchemaVersion, LibraryDatabase.Scalar(connection, null, "PRAGMA user_version;"));
             Assert.Equal("wal", LibraryDatabase.Scalar(connection, null, "PRAGMA journal_mode;"));
             Assert.Equal(1L, LibraryDatabase.Scalar(connection, null, "PRAGMA foreign_keys;"));
         }

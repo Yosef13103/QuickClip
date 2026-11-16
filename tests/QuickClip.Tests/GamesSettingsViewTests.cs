@@ -12,7 +12,7 @@ namespace QuickClip.Tests;
 public sealed class GamesSettingsViewTests
 {
     [Fact]
-    public void Collection_candidate_explains_missing_evidence_and_accepts_only_its_selected_renderer()
+    public void Game_files_show_ready_and_blocked_using_the_runtime_match()
     {
         const string renderer = @"C:\Collection\osu!lazer\osu!.exe";
         const string helper = @"C:\Collection\osu!lazer\chrome.exe";
@@ -20,24 +20,34 @@ public sealed class GamesSettingsViewTests
             [renderer, helper], new()) { RendererExecutables = [] };
         var row = new GamesSettingsView.GameRow(entry);
         Assert.Contains("Not ready to record", row.Executables.First().Label);
-        Assert.NotNull(row.RulesAfterApproval([renderer]));
-        Assert.Null(row.RulesAfterApproval([helper]));
         var approved = entry with { Rules = new() { ApprovedExecutables = [renderer] } };
         row.Update(approved, false, [], new(new([approved], [], 0, false, default)));
-        Assert.Contains("Game · Enabled", row.Summary);
+        Assert.Contains("Ready to record", row.Summary);
         Assert.Contains("Ready to record", row.Executables.First().Label);
-        Assert.Null(row.RulesAfterApproval([renderer]));
+        Assert.Contains("Blocked", row.Executables.Last().Label);
         row.Update(approved, true, [], new(new([approved], [], 0, false, default)));
         Assert.Contains("scan incomplete", row.Executables.First().Label);
     }
 
-    [Fact]
-    public Task Games_page_loads_at_a_typical_scaled_desktop_size() => OnSta(() =>
+    [Theory]
+    [InlineData(1050, 660, 1.0)]
+    [InlineData(780, 480, 1.25)]
+    public Task Games_page_loads_at_nonmaximized_sizes(int width, int height, double scale) => OnSta(() =>
     {
         var page = new GamesSettingsView();
-        Arrange(page);
+        page.LayoutTransform = new ScaleTransform(scale, scale);
+        Arrange(page, width, height);
         Assert.True(page.Games.ActualHeight > 0);
+        Assert.True(page.Search.ActualWidth > 0);
         Assert.True(page.AutoScan.IsChecked == true);
+        page.RenderRows(Fixture(200));
+        Arrange(page, width, height);
+        var scroll = Descendants<ScrollViewer>(page.Games).First();
+        Assert.True(scroll.ScrollableHeight > 0);
+        Assert.Null(page.Games.ItemContainerGenerator.ContainerFromIndex(200));
+        page.Games.ScrollIntoView(page.Games.Items[200]);
+        Arrange(page, width, height);
+        Assert.NotNull(page.Games.ItemContainerGenerator.ContainerFromIndex(200));
         Assert.False(page.CancelButton.IsEnabled);
     });
 
@@ -51,11 +61,11 @@ public sealed class GamesSettingsViewTests
         var state = Fixture(count);
         page.RenderRows(state);
         Arrange(page);
-        Assert.Equal(count, page.Games.Items.Count);
-        var first = Assert.IsType<GamesSettingsView.GameRow>(page.Games.Items[0]);
-        var second = Assert.IsType<GamesSettingsView.GameRow>(page.Games.Items[1]);
-        Assert.Equal("Manual · Game · Enabled", first.Summary);
-        var container = Assert.IsType<ListBoxItem>(page.Games.ItemContainerGenerator.ContainerFromIndex(0));
+        Assert.Equal(count + 1, page.Games.Items.Count);
+        var first = Assert.IsType<GamesSettingsView.GameRow>(page.Games.Items[1]);
+        var second = Assert.IsType<GamesSettingsView.GameRow>(page.Games.Items[2]);
+        Assert.Equal("Manual · Ready to record", first.Summary);
+        var container = Assert.IsType<ListBoxItem>(page.Games.ItemContainerGenerator.ContainerFromIndex(1));
         double collapsedHeight = container.ActualHeight;
         var capture = Descendants<CheckBox>(container).Single(button =>
             AutomationProperties.GetName(button).StartsWith("Disable automatic targeting", StringComparison.Ordinal));
@@ -65,12 +75,12 @@ public sealed class GamesSettingsViewTests
         Arrange(page);
         Assert.True(container.ActualHeight > collapsedHeight);
         Assert.False(second.IsExpanded);
-        if (count == 200) Assert.Null(page.Games.ItemContainerGenerator.ContainerFromIndex(count - 1));
+        if (count == 200) Assert.Null(page.Games.ItemContainerGenerator.ContainerFromIndex(count));
 
         page.Search.Text = second.Entry.Executables[0];
-        Assert.Same(second, Assert.Single(page.Games.Items));
+        Assert.Same(second, Assert.Single(page.Games.Items.OfType<GamesSettingsView.GameRow>()));
         page.Search.Clear();
-        Assert.Same(first, page.Games.Items[0]);
+        Assert.Same(first, page.Games.Items[1]);
         Assert.True(first.IsExpanded);
         Assert.True(page.ToggleDetails(second));
         Assert.False(first.IsExpanded);
@@ -83,7 +93,7 @@ public sealed class GamesSettingsViewTests
         var page = new GamesSettingsView();
         var state = Fixture(8);
         page.RenderRows(state);
-        var row = Assert.IsType<GamesSettingsView.GameRow>(page.Games.Items[0]);
+        var row = Assert.IsType<GamesSettingsView.GameRow>(page.Games.Items[1]);
         string enabledIcon = row.CaptureIcon;
         state = state with
         {
@@ -94,7 +104,7 @@ public sealed class GamesSettingsViewTests
             OfflineIds = [row.Entry.Id],
         };
         page.RenderRows(AppSettings.Parse(new AppSettings { Games = state }.ToJson()).Games);
-        Assert.Same(row, page.Games.Items[0]);
+        Assert.Same(row, page.Games.Items[1]);
         Assert.NotEqual(enabledIcon, row.CaptureIcon);
         Assert.Contains("Disabled", row.Summary);
         Assert.Contains("games remembered", row.Summary);
@@ -104,7 +114,7 @@ public sealed class GamesSettingsViewTests
     });
 
     [Fact]
-    public void Manual_file_selection_accepts_large_collections_and_companion_apps()
+    public void Manual_file_validation_accepts_large_collections_and_saved_non_games_show_blocked()
     {
         var collection = Enumerable.Range(0, 128)
             .Select(i => $@"C:\TestLibrary\Game{i:000}.exe").ToArray();
@@ -112,8 +122,8 @@ public sealed class GamesSettingsViewTests
         Assert.Null(GamesSettingsView.ValidateManualGameExecutables([@"C:\Apps\Discord.exe"]));
         var discord = new GamesSettingsView.GameRow(new("manual:discord", "Discord", CatalogSource.Manual,
             [], [@"C:\Apps\Discord.exe"], new()));
-        Assert.Contains("Not a game", discord.Summary);
-        Assert.EndsWith(" · Not a game", Assert.Single(discord.Executables).Label);
+        Assert.Contains("Blocked", discord.Summary);
+        Assert.EndsWith(" · Blocked", Assert.Single(discord.Executables).Label);
         Assert.NotNull(GamesSettingsView.ValidateManualGameExecutables([@"C:\Apps\not-video.txt"]));
     }
 
@@ -140,7 +150,7 @@ public sealed class GamesSettingsViewTests
         Assert.Equal("1 entries with cached paths · 1 awaiting verification", page.DiscoveryCountDetail.Text);
         page.Search.Text = "Retained";
         Assert.EndsWith(" · 1 shown", page.Count.Text);
-        Assert.Single(page.Games.Items);
+        Assert.Single(page.Games.Items.OfType<GamesSettingsView.GameRow>());
     });
 
     private static GameCatalogSettings Fixture(int count) => new()
@@ -152,9 +162,9 @@ public sealed class GamesSettingsViewTests
         },
     };
 
-    private static void Arrange(FrameworkElement element)
+    private static void Arrange(FrameworkElement element, double width = 1050, double height = 660)
     {
-        var size = new Size(1050, 660);
+        var size = new Size(width, height);
         element.InvalidateMeasure();
         element.InvalidateArrange();
         element.Measure(size);

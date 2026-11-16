@@ -7,7 +7,6 @@ internal sealed record CatalogMatch(CatalogMatchKind Kind, CatalogEntry? Entry =
 internal sealed class GameCatalogIndex
 {
     private readonly Dictionary<string, List<CatalogEntry>> _entries = new(StringComparer.OrdinalIgnoreCase);
-    private readonly Dictionary<string, HashSet<string>> _launchers = new(StringComparer.Ordinal);
 
     private readonly HashSet<string> _blocked;
 
@@ -17,16 +16,10 @@ internal sealed class GameCatalogIndex
             StringComparer.OrdinalIgnoreCase);
         foreach (var entry in catalog.Entries)
         {
-            var launchers = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            if (!entry.Rules.LauncherExecutables.IsDefaultOrEmpty)
-                foreach (var raw in entry.Rules.LauncherExecutables)
-                    if (CatalogPaths.LocalPath(raw) is { } path) launchers.Add(path);
-            launchers.UnionWith(entry.DetectedLaunchers);
-            _launchers[entry.Id] = launchers;
-
             foreach (var path in entry.Executables.Select(CatalogPaths.LocalPath).OfType<string>()
                 .Distinct(StringComparer.OrdinalIgnoreCase))
             {
+                if (!CatalogPaths.IsExecutable(path)) continue;
                 if (!_entries.TryGetValue(path, out var matches)) _entries.Add(path, matches = []);
                 matches.Add(entry);
             }
@@ -35,21 +28,33 @@ internal sealed class GameCatalogIndex
 
     public CatalogMatch Match(string? executable, bool isForeground)
     {
+        if (executable != null && _entries.TryGetValue(executable, out var exact))
+            return MatchKnown(executable, exact, isForeground);
         string? path = CatalogPaths.LocalPath(executable);
         if (path == null || !CatalogPaths.IsExecutable(path)) return new(CatalogMatchKind.Unknown);
-        if (_blocked.Contains(path)) return new(CatalogMatchKind.Ignored);
-        if (!_entries.TryGetValue(path, out var candidates)) return new(CatalogPaths.DefaultRole(path));
+        if (_entries.TryGetValue(path, out var candidates)) return MatchKnown(path, candidates, isForeground);
+        return new(_blocked.Contains(path) ? CatalogMatchKind.Ignored : CatalogPaths.DefaultRole(path));
+    }
 
-        // Explicit entries outrank discovered paths. Multiple entries of the same precedence
-        // require user resolution before the path can drive capture.
+    private CatalogMatch MatchKnown(string path, List<CatalogEntry> candidates, bool isForeground)
+    {
+        if (_blocked.Contains(path)) return new(CatalogMatchKind.Ignored);
+
+        // An exact selection wins. For overlapping folder claims, prefer the
+        // deepest verified install, while equal claims remain ambiguous.
         CatalogEntry? match = null;
         bool ambiguous = false;
-        int precedence = -1;
+        (int Evidence, int Specificity) precedence = (-1, 0);
         foreach (var candidate in candidates)
         {
-            int rank = candidate.Source == CatalogSource.Manual ? 2 :
-                candidate.UnverifiedExecutables.Contains(path, StringComparer.OrdinalIgnoreCase) ? 0 : 1;
-            if (rank > precedence)
+            bool verified = !candidate.UnverifiedExecutables.Contains(path, StringComparer.OrdinalIgnoreCase);
+            int evidence = candidate.Source == CatalogSource.Manual ? 3 : !verified ? 0 :
+                HasGameEvidence(candidate, path) ? 2 : 1;
+            int specificity = verified && candidate.Source == CatalogSource.Folder
+                ? candidate.InstallDirectories.Where(root => CatalogPaths.IsWithin(path, root)).Select(root => root.Length).DefaultIfEmpty().Max()
+                : 0;
+            var rank = (evidence, specificity);
+            if (rank.CompareTo(precedence) > 0)
             {
                 match = candidate;
                 precedence = rank;
@@ -59,28 +64,39 @@ internal sealed class GameCatalogIndex
                 ambiguous = true;
         }
 
-        if (ambiguous) return new(CatalogMatchKind.Ambiguous);
         var entry = match!;
-        var rules = entry.Rules;
         if (candidates.FirstOrDefault(candidate => candidate.Rules.Inclusion == CatalogInclusion.Exclude) is { } excluded)
             return new(CatalogMatchKind.Ignored, excluded);
-        if (CatalogPaths.IsDiscordProcess(path)) return new(CatalogPaths.DefaultRole(path), entry);
-        if (rules.Classification == AppClassification.Launcher || candidates.Any(candidate => _launchers[candidate.Id].Contains(path)))
-            return new(CatalogMatchKind.Launcher, entry);
-        if (rules.Classification == AppClassification.Application) return new(CatalogMatchKind.Application, entry);
-        if (rules.Classification == AppClassification.Companion) return new(CatalogMatchKind.Companion, entry);
         if (CatalogPaths.DefaultRole(path) is var role && role != CatalogMatchKind.Unknown)
             return new(role, entry);
-        if (precedence == 0) return new(CatalogMatchKind.Inactive, entry);
+        foreach (var candidate in candidates)
+        {
+            if (candidate.Rules.Classification == AppClassification.Launcher ||
+                candidate.Rules.LauncherExecutables.Any(raw => StringComparer.OrdinalIgnoreCase.Equals(CatalogPaths.LocalPath(raw), path)))
+                return new(CatalogMatchKind.Launcher, entry);
+            if (candidate.Rules.Classification == AppClassification.Application) return new(CatalogMatchKind.Application, entry);
+            if (candidate.Rules.Classification == AppClassification.Companion) return new(CatalogMatchKind.Companion, entry);
+        }
+        if (CatalogPaths.IsJavaRuntime(path) && entry.Source != CatalogSource.Manual)
+            return new(CatalogMatchKind.Application, entry);
+        if (ambiguous) return new(CatalogMatchKind.Ambiguous);
+        var rules = entry.Rules;
+        if (entry.Source != CatalogSource.Manual && candidates.Any(candidate =>
+            !candidate.UnverifiedExecutables.Contains(path, StringComparer.OrdinalIgnoreCase) &&
+            candidate.DetectedLaunchers.Contains(path, StringComparer.OrdinalIgnoreCase)))
+            return new(CatalogMatchKind.Launcher, entry);
+        if (precedence.Evidence == 0) return new(CatalogMatchKind.Inactive, entry);
         if (rules.Activation == CatalogActivation.ForegroundOnly && !isForeground) return new(CatalogMatchKind.Inactive, entry);
-        bool game = rules.Classification == AppClassification.Game ||
-            entry.Source == CatalogSource.Manual ||
-            rules.ApprovedExecutables.Contains(path, StringComparer.OrdinalIgnoreCase) ||
+        return new(HasGameEvidence(entry, path) ? CatalogMatchKind.Game : CatalogMatchKind.Candidate, entry);
+    }
+
+    private static bool HasGameEvidence(CatalogEntry entry, string path) =>
+        entry.Rules.Classification == AppClassification.Game ||
+        entry.Source == CatalogSource.Manual ||
+        entry.Rules.ApprovedExecutables.Contains(path, StringComparer.OrdinalIgnoreCase) ||
             (entry.RendererExecutables is { } renderers
                 ? renderers.Contains(path, StringComparer.OrdinalIgnoreCase)
                 : LegacyRenderer(entry, path));
-        return new(game ? CatalogMatchKind.Game : CatalogMatchKind.Candidate, entry);
-    }
 
     private static bool LegacyRenderer(CatalogEntry entry, string path) =>
         // Older Epic snapshots contain only the validated manifest executable.

@@ -11,9 +11,77 @@ namespace QuickClip;
 // Debug-only: renders each page of this window to PNG files (no screen capture) for checking the layout.
 public partial class MainWindow
 {
+    private async Task VerifyEditorDraftAsync(string dir, string? editorFile, string phase)
+    {
+        if (!AppProfile.IsPersonal || AppProfile.UsesDefaultDataRoot || Recorder.Instance.IsRunning ||
+            editorFile == null || !Environment.GetCommandLineArgs().Any(arg => arg.StartsWith("--clips=", StringComparison.Ordinal)) ||
+            !Path.GetFullPath(editorFile).Equals(Path.Combine(AppSettings.Current.ClipsFolder, "fixture-a.mp4"), StringComparison.OrdinalIgnoreCase))
+            throw new InvalidOperationException("Supply the generated fixture-a.mp4 in an explicitly isolated Personal profile and clips folder.");
+
+        static async Task WaitForAsync(Func<bool> ready, string message)
+        {
+            for (int i = 0; i < 100 && !ready(); i++) await Task.Delay(100);
+            if (!ready()) throw new InvalidOperationException(message);
+        }
+
+        await WaitForAsync(() => Gallery.DraftCardForRender(editorFile) != null, "Gallery did not load the fixture.");
+        await OpenInEditorAsync(editorFile);
+        var editor = EditorPage;
+        await WaitForAsync(() => editor.PreviewReadyForRender, "Editor preview did not load.");
+        if (phase == "write")
+        {
+            editor.EditDraftForRender();
+            if (!await ShowPageAsync(Gallery) ||
+                Math.Abs((Gallery.DraftCardForRender(editorFile)?.SelectedDuration ?? 0) - 3.5) > 0.01)
+                throw new InvalidOperationException("Leaving the editor did not save the trim to Gallery.");
+            UpdateLayout();
+            await Gallery.VerifyHoverTrimForRenderAsync(Gallery.DraftCardForRender(editorFile)!);
+            string other = Path.Combine(AppSettings.Current.ClipsFolder, "fixture-b.mp4");
+            await Task.WhenAll(OpenInEditorAsync(other), OpenInEditorAsync(editorFile));
+            await WaitForAsync(() => editor.CurrentFile == editorFile && editor.PreviewReadyForRender, "Rapid switching lost the last clip.");
+            editor.VerifyDraftForRender();
+        }
+        else if (phase is "read" or "replace")
+        {
+            editor.VerifyDraftForRender();
+            if (Gallery.DraftCardForRender(editorFile) is not { } card ||
+                Math.Abs((card.SelectedDuration ?? 0) - 3.5) > 0.01 || card.Title != "Persisted fixture")
+                throw new InvalidOperationException("Gallery trim or metadata did not survive the restart.");
+            if (phase == "read")
+            {
+                string output = Path.Combine(dir, "export.mp4");
+                await editor.ExportDraftForRender(output);
+                var media = await Media.MediaInfo.ProbeAsync(output);
+                if (Math.Abs(media.Duration - 3.5) > 0.15 || media.Audio.Count != 1)
+                    throw new InvalidOperationException("Export did not write the trimmed single-mix video.");
+                editor.VerifyDraftForRender();
+            }
+            else
+            {
+                if (Environment.GetEnvironmentVariable("QUICKCLIP_TEST_RECYCLE_BIN") != "1")
+                    throw new InvalidOperationException("The generated-media replacement test needs Recycle Bin opt-in.");
+                await editor.SaveOverForRender(1);
+                await WaitForAsync(() => editor.PreviewReadyForRender, "Replacement preview did not load.");
+                if (!editor.CanUndo || Math.Abs(editor.TrimEndForRender - 3.5) > 0.15)
+                    throw new InvalidOperationException("Replacement did not start with the edited video and clean trim.");
+                await editor.UndoForRender();
+                await WaitForAsync(() => editor.PreviewReadyForRender, "Restored preview did not load.");
+                editor.VerifyDraftForRender();
+            }
+        }
+        else throw new ArgumentException("Expected write, read or replace.");
+        File.WriteAllText(Path.Combine(dir, "editor-draft-" + phase + ".txt"), "Passed");
+    }
+
     internal async Task RenderPagesAsync(string dir, string? editorFile)
     {
         Directory.CreateDirectory(dir);
+        if (Environment.GetCommandLineArgs().FirstOrDefault(arg => arg.StartsWith("--editor-draft-smoke=", StringComparison.Ordinal))
+            is { } draftSmoke)
+        {
+            await VerifyEditorDraftAsync(dir, editorFile, draftSmoke["--editor-draft-smoke=".Length..]);
+            return;
+        }
         if (Environment.GetCommandLineArgs().Contains("--editor-lifecycle-smoke-only"))
         {
             if (string.IsNullOrWhiteSpace(editorFile))

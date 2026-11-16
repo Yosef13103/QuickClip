@@ -132,6 +132,8 @@ public partial class SettingsView
         SaveFailedNotice.IsChecked = events.Failed;
         IdleSaveNotificationCheck.IsChecked = settings.ShowInactiveSaveNotifications;
         ImageOnlyCheck.IsChecked = options.WantsImage;
+        HideSavedBannerFromCaptureCheck.IsChecked = options.HideSavedBannerFromCapture;
+        HideImageFromCaptureCheck.IsChecked = options.HideImageFromCapture;
         DetailedSavedCheck.IsChecked = options.Style == OverlayStyle.Detailed;
         OverlayShowResolution.IsChecked = options.ShowResolution;
         OverlayShowFps.IsChecked = options.ShowFps;
@@ -255,6 +257,8 @@ public partial class SettingsView
             Enabled = mode is ClipNotificationMode.Overlay or ClipNotificationMode.Both,
             Style = DetailedSavedCheck.IsChecked == true ? OverlayStyle.Detailed : OverlayStyle.Compact,
             ImageOnly = imageOnly,
+            HideSavedBannerFromCapture = HideSavedBannerFromCaptureCheck.IsChecked == true,
+            HideImageFromCapture = HideImageFromCaptureCheck.IsChecked == true,
             ImageFit = Value(OverlayImageFitCombo, old.ImageFit),
             ShowResolution = OverlayShowResolution.IsChecked == true,
             ShowFps = OverlayShowFps.IsChecked == true,
@@ -365,7 +369,11 @@ public partial class SettingsView
     {
         var settings = AppSettings.Current;
         var old = (settings.ClipOverlay ?? new()).Migrate();
-        settings.ClipOverlay = new() { Enabled = old.Enabled, ImageOnly = old.WantsImage, ImagePath = old.ImagePath, ImageAppearance = new() };
+        settings.ClipOverlay = new()
+        {
+            Enabled = old.Enabled, ImageOnly = old.WantsImage, ImagePath = old.ImagePath, ImageAppearance = new(),
+            HideSavedBannerFromCapture = old.HideSavedBannerFromCapture, HideImageFromCapture = old.HideImageFromCapture,
+        };
         settings.Save();
         bool wasLoading = _loading;
         _loading = true;

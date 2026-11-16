@@ -1,3 +1,6 @@
+using QuickClip.Library;
+using QuickClip.Views;
+
 namespace QuickClip.Gallery;
 
 internal readonly record struct ClipMediaStamp(long Length, DateTime Modified, DateTime Created)
@@ -7,7 +10,15 @@ internal readonly record struct ClipMediaStamp(long Length, DateTime Modified, D
 
 internal sealed record ClipAnnotationTarget(string Path, ClipMediaStamp Stamp, ClipDetails Details)
 {
-    public static ClipAnnotationTarget For(ClipItem clip) => new(clip.Path, ClipMediaStamp.Read(clip.File), clip.Details);
+    internal FileStamp? Source { get; init; }
+
+    public static ClipAnnotationTarget For(ClipItem clip) => new(clip.Path, ClipMediaStamp.Read(clip.File), clip.Details)
+    {
+        Source = ReadSource(clip.Path),
+    };
+
+    internal static FileStamp? ReadSource(string path) =>
+        EditorSource.Check(path, null, out var stamp) == EditorSourceState.Ready ? stamp : null;
 }
 
 internal sealed record ClipAnnotationResult(string Path, ClipDetails? Details, string? Error);
@@ -28,7 +39,7 @@ internal sealed class LegacyClipAnnotationActions : IClipAnnotationActions
     public Task<ClipAnnotationResult> SaveDraftAsync(ClipAnnotationTarget target, ClipDetails draft, CancellationToken token)
     {
         token.ThrowIfCancellationRequested();
-        return Task.FromResult(SaveDraft(target, draft));
+        return Task.Run(() => SaveDraft(target, draft), token);
     }
 
     public Task<IReadOnlyList<ClipAnnotationResult>> ApplyAsync(IReadOnlyList<ClipAnnotationTarget> targets,
@@ -72,9 +83,12 @@ internal sealed class LegacyClipAnnotationActions : IClipAnnotationActions
             {
                 if (!AppProfile.IsPersonal || ClipLibrary.IsMomentsPath(target.Path))
                     throw new AnnotationEditException("Annotations are unavailable for this clip.");
-                var file = new FileInfo(target.Path);
-                if (!file.Exists || ClipMediaStamp.Read(file) != target.Stamp)
+                using var lease = LibraryFiles.OpenMedia(target.Path);
+                var live = LibraryFiles.ReadStamp(lease);
+                if (live.Bytes != target.Stamp.Length || live.Created != target.Stamp.Created.Ticks ||
+                    live.Modified != target.Stamp.Modified.Ticks || (target.Source is { } expected && live != expected))
                     throw new AnnotationEditException("The media file changed or is unavailable.");
+                var file = new FileInfo(target.Path);
                 var current = ClipDetailsStore.Read(file, target.Details.Game, target.Details.CapturedAt);
                 var updated = edit(current).Normalize();
                 if (!SameDetails(current, updated)) ClipDetailsStore.Write(target.Path, updated);

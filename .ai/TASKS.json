@@ -59,18 +59,20 @@
       ],
       "effort": "high",
       "status": "implemented",
-      "candidate": "1493d7431d07e96f2594a07d0eaf83e6080b9faa",
+      "candidate": "8ef491f1dfc622da72998b2c06f0bfaaac4e5d24",
       "gates": {
         "local": "pass",
-        "ci": "pending",
+        "ci": "pass",
         "review": "pending",
         "hardware": "pending"
       },
       "evidence": [
-        "Milestone 2 fixtures verify multiple install-named x64/DX12 variants, Unreal Shipping, exact EXE approvals, helper and launcher vetoes, ambiguous alternates and denied capture paths. See private W2-milestone2."
+        "Milestone 2 fixtures verify multiple install-named x64/DX12 variants, Unreal Shipping, exact EXE approvals, helper and launcher vetoes, ambiguous alternates and denied capture paths. See private W2-milestone2.",
+        "Owner-acceptance fixtures cover current/versioned installs, multiple binaries, overlapping exact entries, explicit vetoes, and foreground-to-lifecycle activation with display permission.",
+        "PR #86 exact-head Windows quality 43812254014 passed; combined checks pending."
       ],
       "blocker": null,
-      "next_action": "Carry forward to independent review and supervised D5 activation checks."
+      "next_action": "Repeat the real osu!lazer, 007 and Simpsons Hit & Run launches with the approved and excluded display cases."
     },
     {
       "id": "W2-G2",
@@ -128,18 +130,20 @@
       ],
       "effort": "high",
       "status": "implemented",
-      "candidate": "1493d7431d07e96f2594a07d0eaf83e6080b9faa",
+      "candidate": "8ef491f1dfc622da72998b2c06f0bfaaac4e5d24",
       "gates": {
         "local": "pass",
-        "ci": "pending",
+        "ci": "pass",
         "review": "pending",
         "hardware": "pending"
       },
       "evidence": [
-        "Two-root probe passes. Scope mutation, stale publication rejection, unaffected cursor continuation, overlapping folder/provider claims, legacy migration and failed-source retention covered. Existing profile JSON stores the claims. See private W2-milestone2."
+        "Two-root probe passes. Scope mutation, stale publication rejection, unaffected cursor continuation, overlapping folder/provider claims, legacy migration and failed-source retention covered. Existing profile JSON stores the claims. See private W2-milestone2.",
+        "Owner-acceptance fixtures verify install-level publication during a scan, cancellation/continuation, cached overlap denial and stable recorder index across progress-only updates.",
+        "PR #86 exact-head Windows quality 43812254014 passed; combined checks pending."
       ],
       "blocker": null,
-      "next_action": "Review claim projection, migration and denial precedence; validate on a scratch profile with an offline library. Automatic Steam refresh still processes its resolved library set as one provider."
+      "next_action": "Validate refresh and removal of an offline source and resume a large collection on the owner profile."
     },
     {
       "id": "W2-G4",
@@ -257,20 +261,22 @@
       ],
       "effort": "high",
       "status": "in_progress",
-      "candidate": "6b85607444abbf2ef98c565991e4d31d6a1d0805",
+      "candidate": "8ef491f1dfc622da72998b2c06f0bfaaac4e5d24",
       "gates": {
         "local": "pass",
-        "ci": "pending",
+        "ci": "pass",
         "review": "pending",
         "hardware": "pending"
       },
       "evidence": [
         "2026-11-15: PR #77 head verified. Windows quality 43750826370 tested an identical merge tree: Personal 785 passed/19 skipped, Upstream 33 passed/14 skipped. Actual Personal installer passed fresh install on a SUBST drive in run 43750826361.",
         "Baseline local strict Personal focused suite passed (276 passed/5 skipped). Baseline full suite had 784 passed/19 skipped and one sandbox-denied registry fixture. See private W2-G6/VERIFICATION.md for baseline and maintenance findings.",
-        "2026-11-16: native compilation and both strict Windows Release builds passed. Exact tested candidate Personal 800 passed/19 skipped, Upstream CI profile filter 33 passed/14 skipped, zero failures. Includes malformed-record eligibility, disabled-source denial and cancellation fixtures. See private W2-G6 verification and broad-discovery TRX files."
+        "2026-11-16: native compilation and both strict Windows Release builds passed. Exact tested candidate Personal 800 passed/19 skipped, Upstream CI profile filter 33 passed/14 skipped, zero failures. Includes malformed-record eligibility, disabled-source denial and cancellation fixtures. See private W2-G6 verification and broad-discovery TRX files.",
+        "Owner-acceptance code: strict Windows Personal 853 passed/22 skipped with one registry fixture left to CI, and Upstream CI filter 74 passed/14 skipped. Games layout and virtualization passed at 780×480 with 125% scaling.",
+        "PR #86 exact-head Windows quality 43812254014 passed; combined checks pending."
       ],
       "blocker": "Supervised game, display, and installer upgrade checks remain pending.",
-      "next_action": "Use the combined PR #78 for owner acceptance. Recorder readiness and revocation work is tracked in W2-R2."
+      "next_action": "Review the Wave 2 game-detection draft and verify native recording starts on the owner hardware."
     },
     {
       "id": "W2-R1",
@@ -564,6 +570,38 @@
       ],
       "blocker": null,
       "next_action": null
+    },
+    {
+      "id": "W2-R2-EDIT",
+      "title": "Persist non-destructive clip edits and autosave details",
+      "kind": "implementation",
+      "depends_on": [],
+      "read": [
+        "PRODUCT Editor, Gallery and storage",
+        "QUALITY Q2/Q5"
+      ],
+      "scope": [
+        "Personal editor sessions, clip annotations, Gallery trim previews and display-title renaming."
+      ],
+      "acceptance": [
+        "Restore generated clip edits across restart, flush across navigation and export, and preserve staged replacement and Undo."
+      ],
+      "effort": "high",
+      "status": "implemented",
+      "candidate": "63e1db77e9d2437cd84816b83ac50ab1431fad8b",
+      "gates": {
+        "local": "pass",
+        "ci": "pass",
+        "review": "pending",
+        "hardware": "pending"
+      },
+      "evidence": [
+        "Strict Release with native capture required: Personal 855 passed / 22 opt-in skips, Upstream workflow filter 74 passed / 14 opt-in skips.",
+        "Isolated generated three-track media: full restart, rapid clip switching, trim-limited hover, single-mix export and staged Recycle Bin Undo. Exact head and test evidence in the draft PR.",
+        "PR #85 exact-head Windows quality 43810103745 passed; combined checks pending."
+      ],
+      "blocker": null,
+      "next_action": "Review the draft PR and exercise the owner flow on the integration candidate."
     }
   ]
 }

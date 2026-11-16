@@ -22,7 +22,9 @@ public partial class MainWindow : Window
     private EditorView? _editor;
     private PlayerView? _player;
     private SettingsView? _settings;
-    private bool _closeReady;
+    private bool _closeReady, _closing, _settingNavigation;
+    private long _pageRequest;
+    private Task<bool>? _navigationFlush;
     private WindowState _stateBeforeFullScreen;
     private bool _windowFullScreen;
 
@@ -41,10 +43,9 @@ public partial class MainWindow : Window
         Height = Math.Min(Height, SystemParameters.WorkArea.Height * 0.95);
 
         Gallery.OpenRequested += path => _ = OpenInEditorAsync(path);
-        Gallery.PlayRequested += (clips, index) =>
+        Gallery.PlayRequested += async (clips, index) =>
         {
-            ShowPage(PlayerPage);
-            PlayerPage.Play(clips, index);
+            if (await ShowPageAsync(PlayerPage)) PlayerPage.Play(clips, index);
         };
         Recorder.Instance.StateChanged += OnRecorderState;
         Updater.Changed += OnUpdaterChanged;
@@ -95,11 +96,10 @@ public partial class MainWindow : Window
 
     public async Task OpenInEditorAsync(string path)
     {
-        ShowPage(EditorPage);
-        await EditorPage.OpenAsync(path);
+        if (await ShowPageAsync(EditorPage)) await EditorPage.OpenAsync(path);
     }
 
-    public void ShowSettings() => ShowPage(SettingsPage);
+    public void ShowSettings() => _ = ShowPageAsync(SettingsPage);
 
     private EditorView EditorPage
     {
@@ -108,8 +108,9 @@ public partial class MainWindow : Window
             if (_editor != null) return _editor;
             _editor = new EditorView { Visibility = Visibility.Collapsed };
             _editor.TitleChanged += UpdateTitle;
-            _editor.BackRequested += () => ShowPage(Gallery);
+            _editor.BackRequested += () => _ = ShowPageAsync(Gallery);
             _editor.ClipDetailsSaved += Gallery.ApplyClipDetails;
+            _editor.EditDraftSaved += Gallery.ApplyEditDraft;
             _editor.KnownTags = () => Gallery.KnownTags;
             _editor.AnnotationActions = Library.PersonalLibrary.Current;
             _editor.FullscreenRequested += on =>
@@ -128,7 +129,7 @@ public partial class MainWindow : Window
         {
             if (_player != null) return _player;
             _player = new PlayerView { Visibility = Visibility.Collapsed };
-            _player.BackRequested += () => ShowPage(Gallery);
+            _player.BackRequested += () => _ = ShowPageAsync(Gallery);
             _player.EditRequested += path => _ = OpenInEditorAsync(path);
             _player.FullScreenRequested += SetFullScreen;
             _player.TitleChanged += UpdateTitle;
@@ -151,14 +152,13 @@ public partial class MainWindow : Window
 
     private void Nav_Checked(object sender, RoutedEventArgs e)
     {
-        if (!IsInitialized) return;
-        if (sender == GalleryNav) ShowPage(Gallery);
-        else if (sender == EditorNav) ShowPage(EditorPage);
-        else if (sender == SettingsNav) ShowPage(SettingsPage);
+        if (!IsInitialized || _settingNavigation) return;
+        // Gallery uses its Click handler because Player shares its navigation button.
+        if (sender == EditorNav) _ = ShowPageAsync(EditorPage);
+        else if (sender == SettingsNav) _ = ShowPageAsync(SettingsPage);
     }
 
-    // Clicking Gallery while the player (part of the gallery) is open goes back to the clips.
-    private void GalleryNav_Click(object sender, RoutedEventArgs e) => ShowPage(Gallery);
+    private void GalleryNav_Click(object sender, RoutedEventArgs e) => _ = ShowPageAsync(Gallery);
 
     private bool _renderOffscreenForEditor() =>
 #if DEBUG
@@ -166,6 +166,41 @@ public partial class MainWindow : Window
 #else
         false;
 #endif
+
+    private async Task<bool> ShowPageAsync(UIElement page)
+    {
+        if (_closing) return false;
+        long request = ++_pageRequest;
+        var current = Pages.Children.OfType<UIElement>().FirstOrDefault(child => child.Visibility == Visibility.Visible);
+        if (current != null) SetNavigation(current);
+        bool saved = true;
+        if (current != page)
+        {
+            var flush = _navigationFlush is { IsCompleted: false } pending ? pending : current switch
+            {
+                EditorView editor => editor.FlushForNavigationAsync(),
+                GalleryView gallery => gallery.FlushAnnotationsAsync(),
+                _ => Task.FromResult(true),
+            };
+            _navigationFlush = flush;
+            saved = await flush;
+        }
+        if (!saved || _closing || request != _pageRequest) return false;
+        ShowPage(page);
+        return true;
+    }
+
+    private void SetNavigation(UIElement page)
+    {
+        _settingNavigation = true;
+        try
+        {
+            GalleryNav.IsChecked = page == Gallery || page == _player;
+            EditorNav.IsChecked = page == _editor;
+            SettingsNav.IsChecked = page == _settings;
+        }
+        finally { _settingNavigation = false; }
+    }
 
     private void ShowPage(UIElement page)
     {
@@ -177,9 +212,7 @@ public partial class MainWindow : Window
         }
         foreach (UIElement child in Pages.Children)
             child.Visibility = child == page ? Visibility.Visible : Visibility.Collapsed;
-        GalleryNav.IsChecked = page == Gallery || page == _player;
-        EditorNav.IsChecked = page == _editor;
-        SettingsNav.IsChecked = page == _settings;
+        SetNavigation(page);
         if (page == _editor)
         {
             _editor.RefreshTheme();
@@ -426,6 +459,7 @@ public partial class MainWindow : Window
     /// <summary>Closes the window; false if the user kept it open (e.g. to let an export finish).</summary>
     public Task<bool> RequestCloseAsync()
     {
+        if (_closing && _closeResult != null) return _closeResult.Task;
         _closeResult = new TaskCompletionSource<bool>();
         Close();
         return _closeResult.Task;
@@ -441,8 +475,15 @@ public partial class MainWindow : Window
             return;
         }
         e.Cancel = true;
-        if (_editor != null && !await _editor.CloseAsync())
+        if (_closing) return;
+        _closing = true;
+        if (_navigationFlush is { IsCompleted: false } navigation) await navigation;
+        if ((!await Gallery.FlushAnnotationsAsync() &&
+                !ModalDialog.ConfirmAction(this, "Some Gallery changes could not be saved. Discard them and close?",
+                    "Unsaved details", "Discard changes", "Keep open", destructive: true)) ||
+            (_editor != null && !await _editor.CloseAsync()))
         {
+            _closing = false;
             _closeResult?.TrySetResult(false);
             return;
         }

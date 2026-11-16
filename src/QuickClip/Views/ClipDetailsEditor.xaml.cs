@@ -5,6 +5,8 @@ using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Threading;
 using QuickClip.Gallery;
+using FileStamp = QuickClip.Library.FileStamp;
+using PersonalLibrary = QuickClip.Library.PersonalLibrary;
 
 namespace QuickClip.Views;
 
@@ -13,12 +15,14 @@ public partial class ClipDetailsEditor : UserControl
     private string? _path;
     private ClipDetails? _details;
     private ClipMediaStamp _fileStamp;
+    private FileStamp? _sourceStamp;
     private double? _duration;
     private readonly List<string> _tags = [];
     private readonly Dictionary<double, Button> _bookmarkButtons = [];
     private DispatcherTimer? _autoSaveTimer;
     private bool _settingFields, _autoSaveEnabled;
     private long _draftRevision;
+    private Task<bool>? _pendingSave;
 
     public ClipDetailsEditor()
     {
@@ -31,7 +35,7 @@ public partial class ClipDetailsEditor : UserControl
             }, Dispatcher) { IsEnabled = false };
     }
 
-    /// <summary>Only Gallery opts in; Editor retains explicit save/cancel draft semantics.</summary>
+    internal bool CloseButtonVisible { set => CancelButton.Visibility = value ? Visibility.Visible : Visibility.Collapsed; }
     internal bool AutoSaveEnabled
     {
         get => _autoSaveEnabled;
@@ -39,7 +43,8 @@ public partial class ClipDetailsEditor : UserControl
         {
             _autoSaveEnabled = value;
             if (!value) _autoSaveTimer?.Stop();
-            SaveButton.Content = value ? "Save now" : "Save details";
+            SaveButton.Content = value ? "Retry save" : "Save details";
+            SaveButton.Visibility = value ? Visibility.Collapsed : Visibility.Visible;
             CancelButton.Content = value ? "Close" : "Cancel";
             AutoSaveHint.Visibility = value ? Visibility.Visible : Visibility.Collapsed;
         }
@@ -54,18 +59,33 @@ public partial class ClipDetailsEditor : UserControl
     internal IClipAnnotationActions AnnotationActions { get; set; } = LegacyClipAnnotationActions.Instance;
     internal bool IsSaving { get; private set; }
     internal ClipAnnotationTarget? AnnotationTarget => _path != null && _details != null
-        ? new(_path, _fileStamp, _details) : null;
-    internal void ShowSaveReminder(string message = "Save or cancel your clip details before exporting.")
-    {
-        Feedback.Text = message;
-        Feedback.BringIntoView();
-    }
-    internal bool HasDraft => _details is { } details &&
-        (TitleBox.Text.Trim() != (details.Title ?? "") || GameBox.Text.Trim() != details.Game ||
-         FavoriteBox.IsChecked != details.IsFavorite || !string.IsNullOrWhiteSpace(TagBox.Text) ||
-         !_tags.SequenceEqual(details.Tags));
+        ? new(_path, _fileStamp, _details) { Source = _sourceStamp } : null;
+    internal void ShowSaveReminder() => Feedback.BringIntoView();
 
-    internal void Open(string path, ClipDetails details, bool focus = false, double? duration = null)
+    internal bool ToggleFavorite()
+    {
+        bool favorite = FavoriteBox.IsChecked != true;
+        FavoriteBox.IsChecked = favorite;
+        return favorite;
+    }
+
+    internal async Task<bool> FlushAsync()
+    {
+        _autoSaveTimer?.Stop();
+        if (_pendingSave is { } pending) await pending;
+        while (HasDraft)
+        {
+            if (!AddTag() || !await PersistDraftAsync(automatic: true)) return false;
+        }
+        return true;
+    }
+    internal bool HasDraft => HasCommittedDraft || _details != null && !string.IsNullOrWhiteSpace(TagBox.Text);
+
+    private bool HasCommittedDraft => _details is { } details &&
+        (TitleBox.Text.Trim() != (details.Title ?? "") || GameBox.Text.Trim() != details.Game ||
+         FavoriteBox.IsChecked != details.IsFavorite || !_tags.SequenceEqual(details.Tags));
+
+    internal void Open(string path, ClipDetails details, bool focus = false, double? duration = null, FileStamp? source = null)
     {
         _autoSaveTimer?.Stop();
         _draftRevision++;
@@ -76,6 +96,7 @@ public partial class ClipDetailsEditor : UserControl
         _details = details;
         var file = new FileInfo(path);
         _fileStamp = file.Exists ? ClipMediaStamp.Read(file) : default;
+        _sourceStamp = source ?? ClipAnnotationTarget.ReadSource(path);
         _duration = duration;
         CaptureDate.Text = $"Captured {details.CapturedAt.LocalDateTime:g}";
         string length = duration is { } seconds && double.IsFinite(seconds) && seconds >= 0 ? Fmt.Time(seconds) : "Unknown duration";
@@ -91,6 +112,7 @@ public partial class ClipDetailsEditor : UserControl
         UpdateTagChips();
         ShowBookmarks(details.Bookmarks);
         Feedback.Text = "";
+        if (AutoSaveEnabled) SaveButton.Visibility = RevertDetailsButton.Visibility = Visibility.Collapsed;
         if (focus) TitleBox.Focus();
         }
         finally { _settingFields = false; }
@@ -107,6 +129,7 @@ public partial class ClipDetailsEditor : UserControl
         _path = null;
         _details = null;
         _fileStamp = default;
+        _sourceStamp = null;
         _duration = null;
         CaptureDate.Text = "";
         MediaSummary.Text = "";
@@ -120,6 +143,7 @@ public partial class ClipDetailsEditor : UserControl
         UpdateTagChips();
         ShowBookmarks([]);
         Feedback.Text = "";
+        if (AutoSaveEnabled) SaveButton.Visibility = RevertDetailsButton.Visibility = Visibility.Collapsed;
         }
         finally { _settingFields = false; }
     }
@@ -271,21 +295,28 @@ public partial class ClipDetailsEditor : UserControl
         _autoSaveTimer?.Stop();
         // Text typed into the tag input isn't yet a committed tag. Don't accidentally
         // persist half-entered values; Add tag / Enter explicitly commits it.
-        if (HasDraft && string.IsNullOrWhiteSpace(TagBox.Text))
+        if (HasCommittedDraft)
+        {
+            if (!IsSaving) Feedback.Text = "Changes pending";
             _autoSaveTimer?.Start();
+        }
     }
 
-    private async Task<bool> PersistDraftAsync(bool automatic)
+    private Task<bool> PersistDraftAsync(bool automatic)
+    {
+        if (_pendingSave is { IsCompleted: false } pending) return pending;
+        return _pendingSave = PersistCoreAsync(automatic);
+    }
+
+    private async Task<bool> PersistCoreAsync(bool automatic)
     {
         _autoSaveTimer?.Stop();
         if (IsSaving || AnnotationTarget is not { } target || (automatic && !AutoSaveEnabled))
             return false;
-        if (automatic && !string.IsNullOrWhiteSpace(TagBox.Text)) return false;
         if (!automatic && !AddTag()) return false;
-        if (!HasDraft)
+        if (!HasCommittedDraft)
         {
-            // Explicit Save still closes the Gallery details panel when nothing
-            // remains to write (including when autosave already completed).
+            // An explicit save can complete without a write when all fields are unchanged.
             if (!automatic) Saved?.Invoke(target.Path, target.Details);
             return true;
         }
@@ -302,13 +333,15 @@ public partial class ClipDetailsEditor : UserControl
         };
 
         IsSaving = true;
+        Feedback.Text = "Saving…";
+        if (AutoSaveEnabled) SaveButton.Visibility = RevertDetailsButton.Visibility = Visibility.Collapsed;
         if (!automatic) IsEnabled = false;
         try
         {
             var result = await AnnotationActions.SaveDraftAsync(target, draft, CancellationToken.None);
             if (result.Details is not { } saved)
             {
-                if (_path == target.Path) Feedback.Text = result.Error ?? "Couldn't save clip details.";
+                if (_path == target.Path && ReferenceEquals(_details, target.Details)) ShowSaveFailure(result.Error);
                 return false;
             }
             if (_path == target.Path && ReferenceEquals(_details, target.Details))
@@ -327,11 +360,11 @@ public partial class ClipDetailsEditor : UserControl
                         try { GameBox.Text = saved.Game; }
                         finally { _settingFields = false; }
                     }
-                    Feedback.Text = "Saved automatically";
+                    Feedback.Text = revision == _draftRevision ? "Saved" : "Changes pending";
                 }
                 else
                 {
-                    Open(target.Path, saved, duration: _duration);
+                    Open(target.Path, saved, duration: _duration, source: _sourceStamp);
                     Feedback.Text = "Details saved";
                 }
             }
@@ -341,7 +374,7 @@ public partial class ClipDetailsEditor : UserControl
         }
         catch (Exception ex)
         {
-            if (_path == target.Path) Feedback.Text = "Couldn't save clip details.";
+            if (_path == target.Path && ReferenceEquals(_details, target.Details)) ShowSaveFailure();
             Log.Failure(DiagnosticCategory.Library, "Could not save clip details", ex);
             return false;
         }
@@ -356,22 +389,46 @@ public partial class ClipDetailsEditor : UserControl
         }
     }
 
-    private async void Save_Click(object sender, RoutedEventArgs e) =>
-        await PersistDraftAsync(automatic: false);
+    private void ShowSaveFailure(string? message = null)
+    {
+        Feedback.Text = message == null ? "Could not save details." : $"Could not save details. {message}";
+        if (AutoSaveEnabled) SaveButton.Visibility = RevertDetailsButton.Visibility = Visibility.Visible;
+    }
+
+    private async void RevertDetails_Click(object sender, RoutedEventArgs e)
+    {
+        if (IsSaving || AnnotationTarget is not { } target) return;
+        if (!ModalDialog.ConfirmAction(Window.GetWindow(this), "Discard the unsaved detail changes?",
+            "Revert details", "Discard changes", "Keep editing", destructive: true)) return;
+        _autoSaveTimer?.Stop();
+        IsEnabled = false;
+        try
+        {
+            var saved = await PersonalLibrary.Current.ReadAsync(target.Path);
+            if (AnnotationTarget != target) return;
+            if (saved == null && target.Source is { } stamp &&
+                EditorSource.Check(target.Path, stamp, out _) == EditorSourceState.Ready)
+                saved = ClipDetailsStore.Read(new FileInfo(target.Path), target.Details.Game, target.Details.CapturedAt);
+            Open(target.Path, saved ?? target.Details, duration: _duration, source: target.Source);
+            if (saved != null) AutoSaved?.Invoke(target.Path, saved);
+        }
+        finally { IsEnabled = true; }
+    }
+
+    private async void Save_Click(object sender, RoutedEventArgs e)
+    {
+        if (AutoSaveEnabled) await FlushAsync();
+        else await PersistDraftAsync(automatic: false);
+    }
 
     private async void Cancel_Click(object sender, RoutedEventArgs e)
     {
         if (AutoSaveEnabled)
         {
-            if (IsSaving)
-            {
-                Feedback.Text = "Saving your changes…";
-                return;
-            }
-            if (!AddTag() || !await PersistDraftAsync(automatic: true)) return;
+            if (!await FlushAsync()) return;
         }
         else if (_path != null && _details != null)
-            Open(_path, _details, duration: _duration);
+            Open(_path, _details, duration: _duration, source: _sourceStamp);
         Cancelled?.Invoke();
     }
 }

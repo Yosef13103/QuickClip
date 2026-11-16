@@ -292,7 +292,7 @@ internal sealed class AppHost : IDisposable
             var options = settings.ClipOverlay.ForEvent(kind);
             if (options != null) _ = ShowOverlayAsync(options, feedback.Title, feedback.Success, details,
                 details == null ? feedback.Message : null,
-                settings.ClipOverlay.Enabled ? settings.ClipOverlay.Banner() : null);
+                settings.ClipOverlay.Enabled ? settings.ClipOverlay.Banner() : null, saved: kind == ClipEvent.Saved);
         }
     }
 
@@ -304,14 +304,26 @@ internal sealed class AppHost : IDisposable
         var appearance = banner ? options.Banner() : (options with { Enabled = true }).ForEvent(ClipEvent.Saved);
         if (appearance != null) _ = ShowOverlayAsync(appearance, banner ? "Instant replay enabled" : "Clip saved", true,
             banner ? null : new("Terraria", "Example clip", "Game · Entire display", "30 s", "1920 × 1080", "60 FPS", "Alt+F10"),
-            banner ? "Waiting for an eligible game." : null, options.Banner());
+            banner ? "Waiting for an eligible game." : null, options.Banner(), saved: !banner);
     }
 
     private async Task ShowOverlayAsync(ClipOverlayOptions options, string title, bool success,
-        ClipNotificationDetails? details, string? message = null, ClipOverlayOptions? missingImageFallback = null)
+        ClipNotificationDetails? details, string? message = null, ClipOverlayOptions? missingImageFallback = null,
+        bool saved = false)
     {
-        try { await _clipOverlay.ShowAsync(options, title, success, details, message, missingImageFallback); }
+        try
+        {
+            await _clipOverlay.ShowAsync(options, title, success, details, message, missingImageFallback,
+                saved, WarnNotificationExclusionUnavailable);
+        }
         catch (Exception ex) { Log.Failure(DiagnosticCategory.General, "Clip overlay unavailable", ex); }
+    }
+
+    private void WarnNotificationExclusionUnavailable(bool image, int error)
+    {
+        Log.Failure(DiagnosticCategory.General, "Windows rejected notification capture exclusion", new System.ComponentModel.Win32Exception(error));
+        string notification = image ? "The clip notification image" : "The saved-clip banner";
+        Notify("Notification capture exclusion unavailable", $"{notification} may appear in recordings (Win32 {error}).", warning: true);
     }
 
     private void UpdateTooltip()

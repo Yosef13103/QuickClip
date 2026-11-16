@@ -213,6 +213,30 @@ public sealed class ClipFeedbackTests
         Assert.Equal(42, AppSettings.Parse(new AppSettings { ClipSoundVolume = 42 }.ToJson()).ClipSoundVolume);
     }
 
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    [InlineData(true, true)]
+    public void Saved_banner_and_image_exclusion_are_independent_and_persist(bool hideBanner, bool hideImage)
+    {
+        var legacy = AppSettings.Parse("{}").ClipOverlay;
+        Assert.False(legacy.HideSavedBannerFromCapture);
+        Assert.False(legacy.HideImageFromCapture);
+        var settings = new AppSettings
+        {
+            ClipOverlay = new()
+            {
+                Enabled = true, ImagePath = "fixture.gif",
+                HideSavedBannerFromCapture = hideBanner, HideImageFromCapture = hideImage,
+            },
+        };
+        var options = AppSettings.Parse(settings.ToJson()).ClipOverlay;
+        Assert.Equal(hideBanner, options.ForEvent(ClipEvent.Saved)!.ExcludeFromCapture(saved: true));
+        Assert.Equal(hideImage, (options with { ImageOnly = true }).ForEvent(ClipEvent.Saved)!.ExcludeFromCapture(saved: true));
+        Assert.False(options.ForEvent(ClipEvent.GameStarted)!.ExcludeFromCapture(saved: false));
+    }
+
     private static byte[] GifFixture() => Convert.FromHexString(
         "47494638396101000100800000FF00000000FF" +
         "21F904000A0000002C0000000001000100000202440100" +
@@ -254,6 +278,12 @@ public sealed class ClipFeedbackTests
                         overlay.Hide();
                         await pending;
                         Assert.False(overlay.IsVisible);
+                        await overlay.ShowAsync(options with { HideImageFromCapture = true }, "Excluded image", true, saved: true);
+                        Assert.True(overlay.IsVisible);
+                        Assert.Equal(SystemParameters.ClientAreaAnimation, overlay.IsAnimatingImage);
+                        await overlay.ShowAsync(new ClipOverlayOptions { HideSavedBannerFromCapture = true }, "Excluded banner", true, saved: true);
+                        Assert.True(overlay.IsVisible);
+                        Assert.False(overlay.IsAnimatingImage);
                         await overlay.ShowAsync(options, "Expires", true);
                         Assert.Equal(SystemParameters.ClientAreaAnimation, overlay.IsAnimatingImage);
                         await Task.Delay(900);
