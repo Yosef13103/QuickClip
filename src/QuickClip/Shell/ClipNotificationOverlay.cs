@@ -225,7 +225,7 @@ internal sealed class ClipNotificationOverlay : IDisposable
         // scaling a hidden icon inside a clipped content column.
         // An opaque HWND cannot animate its silhouette or fade into the desktop.
         // GIF/WebM playback still uses the usual frame animation below.
-        bool animateWindow = !opaque && MotionEnabled(SystemParameters.ClientAreaAnimation, options.Animation);
+        bool animateWindow = !exclude && !opaque && MotionEnabled(SystemParameters.ClientAreaAnimation, options.Animation);
         bool ripple = animateWindow && options.Animation == OverlayAnimation.Ripple;
         double waveSpace = ripple ? 14 : 0;
         _card.Margin = new Thickness(waveSpace);
