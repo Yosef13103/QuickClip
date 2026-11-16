@@ -15,43 +15,9 @@ public partial class EditorView
     private long _previewEntry;
     private DispatcherTimer? _previewProgressTimer;
 
-    private (string Path, System.Windows.Media.ImageSource Image)? _openingPoster;
-
-    internal void SetOpeningPoster(string path, System.Windows.Media.ImageSource? image)
-    {
-        _openingPoster = image != null && !string.Equals(CurrentFile, path, StringComparison.OrdinalIgnoreCase)
-            ? (path, image) : null;
-    }
-
-    private void ClearLoadingPoster()
-    {
-        LoadingPoster.BeginAnimation(OpacityProperty, null);
-        LoadingPoster.RenderTransform = System.Windows.Media.Transform.Identity;
-        LoadingPoster.Source = null;
-        LoadingPoster.Visibility = Visibility.Collapsed;
-    }
-
-    private void ShowPreviewLoading(string? path = null)
+    private void ShowPreviewLoading()
     {
         Video.Visibility = Visibility.Hidden;
-        ClearLoadingPoster();
-        if (_openingPoster is { } poster && string.Equals(path, poster.Path, StringComparison.OrdinalIgnoreCase))
-        {
-            LoadingPoster.Source = poster.Image;
-            LoadingPoster.Visibility = Visibility.Visible;
-            if (SystemParameters.ClientAreaAnimation)
-            {
-                var scale = new System.Windows.Media.ScaleTransform(.84, .84);
-                LoadingPoster.RenderTransform = scale;
-                var expand = new System.Windows.Media.Animation.DoubleAnimation(.84, 1, TimeSpan.FromMilliseconds(180))
-                {
-                    EasingFunction = new System.Windows.Media.Animation.CubicEase { EasingMode = System.Windows.Media.Animation.EasingMode.EaseOut }
-                };
-                scale.BeginAnimation(System.Windows.Media.ScaleTransform.ScaleXProperty, expand);
-                scale.BeginAnimation(System.Windows.Media.ScaleTransform.ScaleYProperty, expand);
-            }
-        }
-        _openingPoster = null;
         EmptySourceHint.Text = "Loading preview…";
         EmptySourceHint.Visibility = Visibility.Visible;
         if (!SystemParameters.ClientAreaAnimation) return;
@@ -68,7 +34,6 @@ public partial class EditorView
     private void HidePreviewProgress()
     {
         _previewProgressTimer?.Stop();
-        ClearLoadingPoster();
         PreviewProgress.IsIndeterminate = false;
         PreviewProgress.Visibility = Visibility.Collapsed;
     }

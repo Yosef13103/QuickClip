@@ -427,7 +427,14 @@ public partial class GamesSettingsView : UserControl
 
     private void BlockSelected_Click(object sender, RoutedEventArgs e)
     {
-        if (sender is Button { CommandParameter: string path, DataContext: GameRow row }) BlockExecutables([path], row);
+        if (sender is not Button { CommandParameter: string path, DataContext: GameRow row }) return;
+        if (State.BlockedExecutables.Contains(path, StringComparer.OrdinalIgnoreCase))
+        {
+            SetState(State with { BlockedExecutables = State.BlockedExecutables.RemoveAll(value =>
+                string.Equals(value, path, StringComparison.OrdinalIgnoreCase)) });
+            Status.Text = "Executable restored to its catalog rules.";
+        }
+        else BlockExecutables([path], row);
     }
 
     private void BlockExecutables(IReadOnlyList<string> paths, GameRow? row = null)

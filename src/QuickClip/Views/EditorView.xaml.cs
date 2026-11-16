@@ -297,7 +297,7 @@ public partial class EditorView : UserControl
     {
         var text = (sender as Button)?.ToolTip is TextBlock help
             ? new TextRange(help.ContentStart, help.ContentEnd).Text.Trim() : "Space plays or pauses.";
-        ModalDialog.Show(OwnerWindow, text + "\nF11 — fullscreen · Shift+F11 — view mode · Esc — exit",
+        ModalDialog.Show(OwnerWindow, text + (AppProfile.IsPersonal ? "\nF11 — fullscreen · Esc — exit" : "\nF11 — fullscreen · Shift+F11 — view mode · Esc — exit"),
             "Keyboard shortcuts");
     }
 
@@ -307,7 +307,9 @@ public partial class EditorView : UserControl
         Inspector.Visibility = TracksArea.Visibility = EditControls.Visibility =
             InspectorDivider.Visibility = TimelineDivider.Visibility = editing ? Visibility.Visible : Visibility.Collapsed;
         EditorHeader.Visibility = _fullscreen ? Visibility.Collapsed : Visibility.Visible;
-        ExitFullscreenButton.Visibility = _fullscreen ? Visibility.Visible : Visibility.Collapsed;
+        FullscreenButton.Content = _fullscreen ? "\uE73F" : "\uE740";
+        FullscreenButton.ToolTip = _fullscreen ? "Exit fullscreen (Esc / F11)" : "Fullscreen (F11)";
+        System.Windows.Automation.AutomationProperties.SetName(FullscreenButton, _fullscreen ? "Exit fullscreen" : "Fullscreen");
         Transport.Visibility = Visibility.Visible;
         ViewSeek.Visibility = _viewMode || _fullscreen ? Visibility.Visible : Visibility.Collapsed;
         InspectorGap.Width = new GridLength(editing ? 8 : 0);
@@ -341,6 +343,11 @@ public partial class EditorView : UserControl
         InitializeComponent();
         MetadataEditor.AutoSaveEnabled = AppProfile.IsPersonal;
         MetadataEditor.CloseButtonVisible = false;
+        if (AppProfile.IsPersonal)
+        {
+            MetadataEditor.FavoriteBox.Visibility = Visibility.Collapsed;
+            ModeButton.Visibility = Visibility.Collapsed;
+        }
         MetadataEditor.AutoSaved += OnDetailsSaved;
         MetadataEditor.Saved += OnDetailsSaved;
         _draftTimer = new DispatcherTimer(TimeSpan.FromMilliseconds(700), DispatcherPriority.Background,
@@ -635,7 +642,7 @@ public partial class EditorView : UserControl
             _openingSource = opening;
             var token = opening.Token;
             _probingSource = true;
-            ShowPreviewLoading(path);
+            ShowPreviewLoading();
             var previousTitle = FileNameText.Text;
             var previousWindowTitle = FileTitle;
             FileTitle = null;
@@ -1385,7 +1392,8 @@ public partial class EditorView : UserControl
         bool handled = true;
         switch (e.Key)
         {
-            case Key.F11 when shift && !e.IsRepeat: ToggleMode_Click(this, e); break;
+            case Key.F11 when shift && !e.IsRepeat && !AppProfile.IsPersonal: ToggleMode_Click(this, e); break;
+            case Key.F11 when shift: handled = false; break;
             case Key.F11 when !e.IsRepeat: ToggleFullscreen_Click(this, e); break;
             case Key.Escape when _fullscreen: ExitFullscreen(); break;
             case Key.Escape when _viewMode: ToggleMode_Click(this, e); break;

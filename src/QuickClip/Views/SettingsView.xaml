@@ -142,11 +142,11 @@
                                                 <Border x:Name="SelectedAccent" Background="{DynamicResource AccentBrush}"
                                                         Width="3" Height="25" HorizontalAlignment="Left" VerticalAlignment="Center"
                                                         CornerRadius="2" Visibility="Collapsed" />
-                                                <Border BorderBrush="{DynamicResource WarningBrush}" BorderThickness="1"
+                                                <Border Background="{DynamicResource WarningBrush}"
                                                         CornerRadius="11" MinWidth="22" Height="22" HorizontalAlignment="Right" VerticalAlignment="Top" Padding="3,0"
                                                         Visibility="{Binding DataContext.Visibility, RelativeSource={RelativeSource TemplatedParent}, FallbackValue=Collapsed}">
                                                     <TextBlock Text="{Binding DataContext.Count, RelativeSource={RelativeSource TemplatedParent}}"
-                                                               Foreground="{DynamicResource WarningBrush}" FontSize="{DynamicResource QuickClipText12}" HorizontalAlignment="Center" VerticalAlignment="Center" FontWeight="SemiBold" />
+                                                               Foreground="{DynamicResource OnWarningBrush}" FontSize="{DynamicResource QuickClipText12}" HorizontalAlignment="Center" VerticalAlignment="Center" FontWeight="SemiBold" />
                                                 </Border>
                                                 <StackPanel x:Name="ItemContent" HorizontalAlignment="Center" VerticalAlignment="Center">
                                                     <TextBlock x:Name="SectionGlyph" Text="{TemplateBinding Tag}"

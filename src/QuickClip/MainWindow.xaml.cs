@@ -105,12 +105,7 @@ public partial class MainWindow : Window
 
     public async Task OpenInEditorAsync(string path)
     {
-        var poster = Gallery.IsVisible ? Gallery.OpeningThumbnail(path) : null;
-        if (await ShowPageAsync(EditorPage))
-        {
-            EditorPage.SetOpeningPoster(path, poster);
-            await EditorPage.OpenAsync(path);
-        }
+        if (await ShowPageAsync(EditorPage)) await EditorPage.OpenAsync(path);
     }
 
     private bool _refreshing;

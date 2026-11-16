@@ -689,9 +689,6 @@ public partial class GalleryView : UserControl
         return false;
     }
 
-    internal ImageSource? OpeningThumbnail(string path) =>
-        _visibleClips.FirstOrDefault(item => string.Equals(item.Path, path, StringComparison.OrdinalIgnoreCase))?.Thumbnail;
-
     private void OpenClip(ClipItem item)
     {
         if (IsAvailable(item)) OpenRequested?.Invoke(item.Path);

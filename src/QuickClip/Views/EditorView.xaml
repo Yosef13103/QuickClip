@@ -13,6 +13,35 @@
             </ResourceDictionary.MergedDictionaries>
             <GridLength x:Key="TrackHeaderWidth">224</GridLength>
             <BooleanToVisibilityConverter x:Key="ShowIf" />
+            <Style x:Key="CompactTrackVolume" TargetType="Slider" BasedOn="{StaticResource {x:Type Slider}}">
+                <Setter Property="MinHeight" Value="0" />
+                <Setter Property="Height" Value="16" />
+                <Setter Property="Margin" Value="0" />
+                <Setter Property="Template">
+                    <Setter.Value>
+                        <ControlTemplate TargetType="Slider">
+                            <Grid Background="Transparent">
+                                <Border Height="4" CornerRadius="2" Margin="6,0" VerticalAlignment="Center" Background="{DynamicResource BorderBrush}" />
+                                <Track x:Name="PART_Track" VerticalAlignment="Center">
+                                    <Track.DecreaseRepeatButton>
+                                        <RepeatButton Command="{x:Static Slider.DecreaseLarge}" Focusable="False">
+                                            <RepeatButton.Template><ControlTemplate TargetType="RepeatButton"><Border Background="Transparent"><Border Background="{DynamicResource AccentBrush}" Height="4" CornerRadius="2" VerticalAlignment="Center" /></Border></ControlTemplate></RepeatButton.Template>
+                                        </RepeatButton>
+                                    </Track.DecreaseRepeatButton>
+                                    <Track.Thumb>
+                                        <Thumb Width="12" Height="12" Focusable="False">
+                                            <Thumb.Template><ControlTemplate TargetType="Thumb"><Ellipse Fill="{DynamicResource AccentBrush}" Stroke="{DynamicResource PanelBrush}" StrokeThickness="1" /></ControlTemplate></Thumb.Template>
+                                        </Thumb>
+                                    </Track.Thumb>
+                                    <Track.IncreaseRepeatButton>
+                                        <RepeatButton Command="{x:Static Slider.IncreaseLarge}" Focusable="False"><RepeatButton.Template><ControlTemplate TargetType="RepeatButton"><Border Background="Transparent" /></ControlTemplate></RepeatButton.Template></RepeatButton>
+                                    </Track.IncreaseRepeatButton>
+                                </Track>
+                            </Grid>
+                        </ControlTemplate>
+                    </Setter.Value>
+                </Setter>
+            </Style>
             <Style x:Key="OptionsGroup" TargetType="Expander" BasedOn="{StaticResource {x:Type Expander}}">
                 <Setter Property="IsExpanded" Value="False" />
                 <Setter Property="Margin" Value="0,6,0,0" />
@@ -78,10 +107,22 @@
                 </StackPanel>
             </Button>
             <Button x:Name="ModeButton" DockPanel.Dock="Right" Content="View mode" Click="ToggleMode_Click" Style="{StaticResource TextButton}" />
-            <Button x:Name="FullscreenButton" DockPanel.Dock="Right" Content="Fullscreen" Click="ToggleFullscreen_Click"
-                    Style="{StaticResource TextButton}" ToolTip="Fullscreen (F11)" />
             <Button x:Name="DeleteMediaButton" DockPanel.Dock="Right" Content="Delete…" Click="DeleteMedia_Click" Style="{StaticResource DangerButtonStyle}" />
-            <Button x:Name="FavoriteButton" DockPanel.Dock="Right" Click="Favorite_Click" VerticalAlignment="Center" Style="{StaticResource FavoriteButtonStyle}" />
+            <Button x:Name="FavoriteButton" DockPanel.Dock="Right" Click="Favorite_Click" VerticalAlignment="Center" Style="{StaticResource FavoriteButtonStyle}">
+                <Button.ContentTemplate>
+                    <DataTemplate>
+                        <Path x:Name="Star" Width="18" Height="18" Stretch="Uniform" StrokeThickness="1.6" StrokeLineJoin="Round"
+                              Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}" Fill="Transparent"
+                              Data="M12,2 L15,8.5 L22,9.3 L17,14.2 L18.3,21 L12,17.6 L5.7,21 L7,14.2 L2,9.3 L9,8.5 Z"/>
+                        <DataTemplate.Triggers>
+                            <DataTrigger Binding="{Binding Tag, RelativeSource={RelativeSource AncestorType=Button}}" Value="True">
+                                <Setter TargetName="Star" Property="Fill" Value="{DynamicResource AccentBrush}" />
+                                <Setter TargetName="Star" Property="Stroke" Value="{DynamicResource AccentBrush}" />
+                            </DataTrigger>
+                        </DataTemplate.Triggers>
+                    </DataTemplate>
+                </Button.ContentTemplate>
+            </Button>
             <Button DockPanel.Dock="Left" Style="{StaticResource TextButton}" Click="Open_Click" ToolTip="Open a file (Ctrl+O)">
                 <StackPanel Orientation="Horizontal">
                     <TextBlock FontFamily="{StaticResource IconFont}" Text="&#xE8E5;" VerticalAlignment="Center" Margin="0,0,8,0" />
@@ -90,6 +131,12 @@
             </Button>
             <Button DockPanel.Dock="Right" Style="{StaticResource IconButton}" Content="&#xE765;" Margin="4,0" VerticalAlignment="Center"
                     Click="Shortcuts_Click" AutomationProperties.Name="Keyboard shortcuts">
+                <Button.ContentTemplate>
+                    <DataTemplate>
+                        <Path Width="19" Height="14" Stretch="Uniform" Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}" StrokeThickness="1.5" StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round"
+                              Data="M2,3 L22,3 L22,17 L2,17 Z M5,7 L6,7 M9,7 L10,7 M13,7 L14,7 M17,7 L19,7 M5,10 L6,10 M9,10 L10,10 M13,10 L14,10 M17,10 L19,10 M7,14 L17,14" />
+                    </DataTemplate>
+                </Button.ContentTemplate>
                 <Button.ToolTip>
                     <TextBlock LineHeight="20">
                         <Bold>Keyboard shortcuts</Bold><LineBreak />
@@ -118,9 +165,6 @@
         <Border Grid.Row="1" Grid.Column="0" Background="{DynamicResource BackgroundBrush}">
             <Grid>
                 <controls:VideoHost x:Name="Video" />
-                <Image x:Name="LoadingPoster" Visibility="Collapsed" IsHitTestVisible="False" Stretch="Uniform"
-                       HorizontalAlignment="Center" VerticalAlignment="Center" MaxWidth="640" MaxHeight="360"
-                       Margin="20" Opacity=".36" RenderTransformOrigin=".5,.5" />
                 <!-- WPF-owned placeholder: mpv keeps its native last-frame surface alive while idle,
                      so a cleared/deleted source must not expose that stale frame. -->
                 <TextBlock x:Name="EmptySourceHint" Text="Open a video or drop it here"
@@ -161,9 +205,9 @@
                 <TextBlock x:Name="TimeText" Margin="10,0,0,0" VerticalAlignment="Center" FontFamily="Consolas" FontSize="{DynamicResource QuickClipText15}" Text="0:00.000" />
                 <TextBlock x:Name="DurationText" VerticalAlignment="Center" FontFamily="Consolas" FontSize="{DynamicResource QuickClipText13}" Foreground="{DynamicResource SubtleText}" Text=" / 0:00.000" />
                 <controls:AppVolumeControl x:Name="Volume" Margin="14,0,0,0" VerticalAlignment="Center" />
+                <Button x:Name="FullscreenButton" Style="{StaticResource IconButton}" Content="&#xE740;" Click="ToggleFullscreen_Click" Margin="8,0,0,0"
+                        ToolTip="Fullscreen (F11)" AutomationProperties.Name="Fullscreen" />
             </StackPanel>
-            <Button x:Name="ExitFullscreenButton" Grid.Column="1" Content="Exit fullscreen" Click="ToggleFullscreen_Click"
-                    Style="{StaticResource TextButton}" Visibility="Collapsed" />
             <StackPanel x:Name="EditControls" Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center" HorizontalAlignment="Right">
                 <Button Style="{StaticResource TextButton}" Click="SetIn_Click" Content="Set in" ToolTip="Start the clip at the playhead (I)" />
                 <Button Style="{StaticResource TextButton}" Click="SetOut_Click" Content="Set out" ToolTip="End the clip at the playhead (O)" />
@@ -253,8 +297,7 @@
                         <TextBlock Text="Add sound" FontSize="{DynamicResource QuickClipText12}" />
                     </StackPanel>
                 </Button>
-                <CheckBox Style="{StaticResource SwitchCheckBox}" Content="Taller tracks" IsChecked="{Binding ExpandedTracks, RelativeSource={RelativeSource AncestorType=views:EditorView}}"
-                          Margin="10,0,0,0" VerticalAlignment="Center" ToolTip="Show more waveform detail" />
+
             </DockPanel>
 
             <ScrollViewer Grid.Row="2" Grid.ColumnSpan="3" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled"
@@ -307,7 +350,7 @@
                                                 <ColumnDefinition Width="82" />
                                             </Grid.ColumnDefinitions>
                                             <Slider Minimum="0" Maximum="200" Value="{Binding VolumePercent}" SmallChange="1" LargeChange="10"
-                                                    Focusable="False" VerticalAlignment="Center" IsMoveToPointEnabled="True"
+                                                    Style="{StaticResource CompactTrackVolume}" Focusable="False" VerticalAlignment="Center" IsMoveToPointEnabled="True"
                                                     MouseDoubleClick="VolumeSlider_DoubleClick" ToolTip="Volume (double-click for 100%)" />
                                             <TextBlock Grid.Column="1" Text="{Binding VolumeText}" FontSize="{DynamicResource QuickClipText11}" Foreground="{DynamicResource SubtleText}"
                                                        VerticalAlignment="Center" TextAlignment="Right" />

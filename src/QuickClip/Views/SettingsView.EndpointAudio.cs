@@ -84,14 +84,14 @@ public partial class SettingsView
             var row = new DockPanel { Margin = new Thickness(0, 8, 0, 0), LastChildFill = true };
             var actions = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Top, Margin = new Thickness(4, 0, 0, 0) };
             DockPanel.SetDock(actions, Dock.Right);
-            actions.Children.Add(EndpointButton("\uE70E", $"Move {caption} up", index > 0, () => MoveEndpoint(index, -1)));
-            actions.Children.Add(EndpointButton("\uE70D", $"Move {caption} down", index + 1 < tracks.Count, () => MoveEndpoint(index, 1)));
+            actions.Children.Add(EndpointButton("\uE70E", $"Move {caption} up", index > 0, () => MoveEndpoint(index, -1), icon: true));
+            actions.Children.Add(EndpointButton("\uE70D", $"Move {caption} down", index + 1 < tracks.Count, () => MoveEndpoint(index, 1), icon: true));
             actions.Children.Add(EndpointButton("\uE711", $"Remove {caption}", true, () =>
             {
                 var remaining = AppSettings.Current.EndpointTracks.ToList();
                 remaining.RemoveAt(index);
                 CommitEndpoints(settings => settings.EndpointTracks = remaining, rebuild: true);
-            }));
+            }, icon: true));
             _advancedEndpointControls.Add(actions);
             row.Children.Add(actions);
 
@@ -151,9 +151,11 @@ public partial class SettingsView
         }
     }
 
-    private Button EndpointButton(string caption, string accessibleName, bool enabled, Action run)
+    private Button EndpointButton(string caption, string accessibleName, bool enabled, Action run, bool icon = false)
     {
-        var button = new Button { Content = caption, IsEnabled = enabled, Focusable = true, ToolTip = accessibleName, Style = (Style)FindResource("IconButton"), MinWidth = 32, MinHeight = 32 };
+        var button = new Button { Content = caption, IsEnabled = enabled, Focusable = true, ToolTip = accessibleName,
+            Style = (Style)FindResource(icon ? "IconButton" : "TextButton") };
+        if (icon) { button.MinWidth = 32; button.MinHeight = 32; }
         AutomationProperties.SetName(button, accessibleName);
         button.Click += (_, _) => run();
         return button;

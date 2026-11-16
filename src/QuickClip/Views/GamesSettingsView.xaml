@@ -246,7 +246,7 @@
                                                 </Style>
                                             </Button.Style>
                                         </Button>
-                                        <Button Content="Block selected executable" Click="BlockSelected_Click"
+                                        <Button Content="{Binding SelectedItem.BlockAction, ElementName=ExecutableList, FallbackValue=Block selected executable, TargetNullValue=Block selected executable}" Click="BlockSelected_Click"
                                                 CommandParameter="{Binding SelectedValue, ElementName=ExecutableList}"
                                                 Margin="0,4,0,0">
                                             <Button.Style>
