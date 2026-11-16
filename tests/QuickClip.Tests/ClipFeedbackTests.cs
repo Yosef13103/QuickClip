@@ -233,7 +233,7 @@ public sealed class ClipFeedbackTests
         };
         var options = AppSettings.Parse(settings.ToJson()).ClipOverlay;
         Assert.Equal(hideBanner, options.ForEvent(ClipEvent.Saved)!.ExcludeFromCapture(saved: true));
-        Assert.False((options with { ImageOnly = true }).ForEvent(ClipEvent.Saved)!.ExcludeFromCapture(saved: true));
+        Assert.False((options with { ImageOnly = true }).ImageForEvent(ClipEvent.Saved)!.ExcludeFromCapture(saved: true));
         Assert.False(options.ForEvent(ClipEvent.GameStarted)!.ExcludeFromCapture(saved: false));
     }
 
@@ -411,15 +411,58 @@ public sealed class ClipFeedbackTests
         var settings = new AppSettings { ClipNotificationsEnabled = true, ClipWindowsNotification = !banners,
             ClipOverlay = new() { Enabled = banners, Style = OverlayStyle.Detailed, ImageOnly = image,
                 ImagePath = "test.gif", Seconds = 1.5, ImageAppearance = new() { Seconds = 6 } } };
-        var routed = settings.ClipOverlay.ForEvent(ClipEvent.Saved);
-        Assert.Equal(expected, routed != null);
-        Assert.Equal(AppProfile.IsPersonal && expected, ClipFeedback.From(settings, ClipEvent.Saved, "saved").Overlay);
-        if (routed != null)
+        var banner = settings.ClipOverlay.ForEvent(ClipEvent.Saved);
+        var celebration = settings.ClipOverlay.ImageForEvent(ClipEvent.Saved);
+        Assert.Equal(banners, banner != null);
+        Assert.Equal(image, celebration != null);
+        var feedback = ClipFeedback.From(settings, ClipEvent.Saved, "saved");
+        Assert.Equal(AppProfile.IsPersonal && expected, feedback.Overlay);
+        Assert.Equal(AppProfile.IsPersonal && banners, feedback.BannerOverlay != null);
+        Assert.Equal(AppProfile.IsPersonal && image, feedback.ImageOverlay != null);
+        if (banner != null)
         {
-            Assert.Equal(image ? OverlayStyle.ImageOnly : OverlayStyle.Detailed, routed.Style);
-            Assert.Equal(image ? 6 : 1.5, routed.Seconds);
-            Assert.Equal(image ? "test.gif" : null, routed.ImagePath);
-            if (image) Assert.Equal(OverlayAnchor.TopRight, routed.Anchor);
+            Assert.Equal(OverlayStyle.Detailed, banner.Style);
+            Assert.Equal(1.5, banner.Seconds);
+            Assert.Null(banner.ImagePath);
+        }
+        if (celebration != null)
+        {
+            Assert.Equal(OverlayStyle.ImageOnly, celebration.Style);
+            Assert.Equal(6, celebration.Seconds);
+            Assert.Equal("test.gif", celebration.ImagePath);
+            Assert.Equal(OverlayAnchor.TopRight, celebration.Anchor);
+        }
+    }
+
+    [Fact]
+    public void Save_sound_image_and_text_preferences_are_independent()
+    {
+        foreach (bool master in new[] { false, true })
+        foreach (bool text in new[] { false, true })
+        foreach (bool image in new[] { false, true })
+        foreach (bool sound in new[] { false, true })
+        {
+            var settings = AppSettings.Parse(new AppSettings
+            {
+                ClipNotificationsEnabled = master,
+                ClipEvents = new(Saved: text),
+                ClipSound = sound,
+                ClipWindowsNotification = true,
+                ClipOverlay = new() { Enabled = true, ImageOnly = image, ImagePath = "fixture.gif",
+                    Style = OverlayStyle.Detailed, HideSavedBannerFromCapture = true, ImageAppearance = new() },
+            }.ToJson());
+            var saved = ClipFeedback.From(settings, ClipEvent.Saved, "Fixture");
+            Assert.Equal(sound, saved.Sound);
+            Assert.Equal(!AppProfile.IsPersonal || master && text, saved.Windows);
+            Assert.Equal(AppProfile.IsPersonal && master && text, saved.BannerOverlay != null);
+            Assert.Equal(AppProfile.IsPersonal && master && image, saved.ImageOverlay != null);
+            Assert.Equal(saved.BannerOverlay != null || saved.ImageOverlay != null, saved.Overlay);
+            if (saved.BannerOverlay is { } banner) Assert.True(banner.ExcludeFromCapture(true));
+            if (saved.ImageOverlay is { } celebration) Assert.False(celebration.ExcludeFromCapture(true));
+            var started = ClipFeedback.From(settings, ClipEvent.GameStarted, "Fixture");
+            Assert.False(started.Sound);
+            Assert.Null(started.ImageOverlay);
+            Assert.Equal(AppProfile.IsPersonal && master, started.BannerOverlay != null);
         }
     }
 
@@ -429,7 +472,7 @@ public sealed class ClipFeedbackTests
         var settings = AppSettings.Parse("""
             {"ClipOverlay":{"Enabled":true,"Style":"ImageOnly","ImagePath":"sample.gif","Seconds":6,"Anchor":"TopLeft","Size":48}}
             """);
-        var saved = settings.ClipOverlay.ForEvent(ClipEvent.Saved)!;
+        var saved = settings.ClipOverlay.ImageForEvent(ClipEvent.Saved)!;
         var status = settings.ClipOverlay.ForEvent(ClipEvent.DesktopStarted)!;
         Assert.Equal(6, saved.Seconds);
         Assert.Equal(OverlayAnchor.TopLeft, saved.Anchor);
@@ -446,17 +489,18 @@ public sealed class ClipFeedbackTests
         var options = new ClipOverlayOptions { Enabled = false, ImageOnly = true, ImageAppearance = new() };
         if (ClipOverlayImage.HasDefault)
         {
-            Assert.Equal(OverlayStyle.ImageOnly, options.ForEvent(ClipEvent.Saved)!.Style);
-            Assert.Null(options.ForEvent(ClipEvent.Saved)!.ImagePath);
-            Assert.Equal(OverlayStyle.ImageOnly, (options with { Enabled = true }).ForEvent(ClipEvent.Saved)!.Style);
+            Assert.Equal(OverlayStyle.ImageOnly, options.ImageForEvent(ClipEvent.Saved)!.Style);
+            Assert.Null(options.ImageForEvent(ClipEvent.Saved)!.ImagePath);
+            Assert.Equal(OverlayStyle.ImageOnly, (options with { Enabled = true }).ImageForEvent(ClipEvent.Saved)!.Style);
         }
         else
         {
-            Assert.Null(options.ForEvent(ClipEvent.Saved));
-            Assert.Equal(OverlayStyle.Compact, (options with { Enabled = true }).ForEvent(ClipEvent.Saved)!.Style);
+            Assert.Null(options.ImageForEvent(ClipEvent.Saved));
         }
-        Assert.Null(options.ForEvent(ClipEvent.DesktopStarted));
-        Assert.Null((options with { ImageOnly = false }).ForEvent(ClipEvent.Saved));
+        Assert.Null(options.ForEvent(ClipEvent.Saved));
+        Assert.Equal(OverlayStyle.Compact, (options with { Enabled = true }).ForEvent(ClipEvent.Saved)!.Style);
+        Assert.Null(options.ImageForEvent(ClipEvent.DesktopStarted));
+        Assert.Null((options with { ImageOnly = false }).ImageForEvent(ClipEvent.Saved));
     }
 
     [Fact]

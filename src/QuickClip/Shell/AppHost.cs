@@ -32,6 +32,7 @@ internal sealed class AppHost : IDisposable
     private bool _updateBalloonShown;   // the last notification was about an update
     private AppVersion? _notifiedVersion;
     private readonly ClipNotificationOverlay _clipOverlay = new();
+    private ClipNotificationOverlay? _clipImageOverlay;
     private readonly RecordingIndicator _recordingIndicator = new();
     private readonly CaptureAlertPolicy _captureAlerts = new();
     private DispatcherTimer? _captureAlertTimer;
@@ -294,39 +295,62 @@ internal sealed class AppHost : IDisposable
         if (kind == ClipEvent.Saved)
         {
             Log.Event(DiagnosticCategory.General, "Saved notification evaluated");
-            if (feedback.Overlay) Log.Event(DiagnosticCategory.General, "Saved notification overlay selected");
-            else Log.Event(DiagnosticCategory.General, "Saved notification overlay not selected");
+            if (feedback.BannerOverlay != null) Log.Event(DiagnosticCategory.General, "Saved notification banner selected");
+            else Log.Event(DiagnosticCategory.General, "Saved notification banner not selected");
+            if (feedback.ImageOverlay != null) Log.Event(DiagnosticCategory.General, "Saved notification image selected");
+            else Log.Event(DiagnosticCategory.General, "Saved notification image not selected");
+            if (feedback.Sound) Log.Event(DiagnosticCategory.General, "Saved notification sound selected");
             if (feedback.Windows) Log.Event(DiagnosticCategory.General, "Saved notification Windows channel selected");
         }
         if (feedback.Sound) _ = ClipSound.PlayAsync(settings.ClipSoundOutputId, settings.ClipSoundVolume, settings.ClipSoundFilePath);
         if (feedback.Windows) Notify(feedback.Title, feedback.Message);
-        if (feedback.Overlay)
-        {
-            var options = settings.ClipOverlay.ForEvent(kind);
-            if (options != null) _ = ShowOverlayAsync(options, feedback.Title, feedback.Success, details,
-                details == null ? feedback.Message : null,
-                settings.ClipOverlay.Enabled ? settings.ClipOverlay.Banner() : null, saved: kind == ClipEvent.Saved);
-        }
+        if (feedback.BannerOverlay is { } banner)
+            _ = ShowOverlayAsync(banner, feedback.Title, feedback.Success, details,
+                details == null ? feedback.Message : null, saved: kind == ClipEvent.Saved);
+        if (feedback.ImageOverlay is { } image)
+            _ = ShowOverlayAsync(image, feedback.Title, feedback.Success, details,
+                saved: true, imageChannel: true);
     }
 
-    internal void HideClipOverlay() => _clipOverlay.Hide();
-
-    internal void TestClipOverlay(bool banner = false)
+    internal void HideClipOverlay()
     {
-        var options = AppSettings.Current.ClipOverlay ?? new();
-        var appearance = banner ? options.Banner() : (options with { Enabled = true }).ForEvent(ClipEvent.Saved);
-        if (appearance != null) _ = ShowOverlayAsync(appearance, banner ? "Instant replay enabled" : "Clip saved", true,
-            banner ? null : new("Terraria", "Example clip", "Game · Entire display", "30 s", "1920 × 1080", "60 FPS", "Alt+F10"),
-            banner ? "Waiting for an eligible game." : null, options.Banner(), saved: !banner);
+        _clipOverlay.Hide();
+        _clipImageOverlay?.Hide();
+    }
+
+    internal void TestClipOverlay(bool banner = false, bool image = false, bool savedBanner = false)
+    {
+        var options = (AppSettings.Current.ClipOverlay ?? new()).Migrate();
+        var details = new ClipNotificationDetails("Terraria", "Example clip", "Game · Entire display", "30 s", "1920 × 1080", "60 FPS", "Alt+F10");
+        if (banner)
+        {
+            _ = ShowOverlayAsync(options.Banner(), "Instant replay enabled", true, null, "Waiting for an eligible game.");
+            return;
+        }
+        if (savedBanner || image)
+        {
+            if (savedBanner)
+                _ = ShowOverlayAsync(options.Banner(options.Style == OverlayStyle.Detailed), "Clip saved", true, details, saved: true);
+            if (image)
+                _ = ShowOverlayAsync(options.Image(), "Clip saved", true, details, saved: true, imageChannel: true);
+            return;
+        }
+        var feedback = ClipFeedback.From(AppSettings.Current, ClipEvent.Saved, "Example clip");
+        if (feedback.BannerOverlay is { } saved)
+            _ = ShowOverlayAsync(saved, "Clip saved", true, details, saved: true);
+        if (feedback.ImageOverlay is { } celebration)
+            _ = ShowOverlayAsync(celebration, "Clip saved", true, details, saved: true, imageChannel: true);
+        if (feedback.Windows) Notify("Clip saved", "Example clip");
     }
 
     private async Task ShowOverlayAsync(ClipOverlayOptions options, string title, bool success,
         ClipNotificationDetails? details, string? message = null, ClipOverlayOptions? missingImageFallback = null,
-        bool saved = false)
+        bool saved = false, bool imageChannel = false)
     {
         try
         {
-            await _clipOverlay.ShowAsync(options, title, success, details, message, missingImageFallback,
+            var overlay = imageChannel ? (_clipImageOverlay ??= new ClipNotificationOverlay()) : _clipOverlay;
+            await overlay.ShowAsync(options, title, success, details, message, missingImageFallback,
                 saved, WarnNotificationExclusionUnavailable);
         }
         catch (Exception ex) { Log.Failure(DiagnosticCategory.General, "Clip overlay unavailable", ex); }
@@ -568,6 +592,8 @@ internal sealed class AppHost : IDisposable
         Recorder.Instance.StateChanged -= OnRecorderState;
         _recordingIndicator.Dispose();
         _clipOverlay.Dispose();
+        _clipImageOverlay?.Dispose();
+        _clipImageOverlay = null;
         if (_window == null) return;
         _captureHotkey = null;
         foreach (var (command, status) in _hotkeys)

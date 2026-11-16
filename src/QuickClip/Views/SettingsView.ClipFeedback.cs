@@ -115,7 +115,7 @@ public partial class SettingsView
         SoundVolumeSlider.Value = Math.Clamp(settings.ClipSoundVolume, 0, 100);
         var options = (settings.ClipOverlay ?? new()).Migrate().Normalize();
         WindowsClipNotificationCheck.Visibility = Visibility.Collapsed;
-        ClipNotificationsCheck.IsChecked = settings.ClipNotificationsEnabled && (settings.ClipWindowsNotification || options.Enabled || options.WantsImage);
+        ClipNotificationsCheck.IsChecked = settings.ClipNotificationsEnabled;
         SetChoices(ClipNotificationModeCombo,
             [new("Windows notification", ClipNotificationMode.Windows), new("QuickClip overlay", ClipNotificationMode.Overlay),
              new("Windows and QuickClip overlay", ClipNotificationMode.Both)],
@@ -233,7 +233,7 @@ public partial class SettingsView
         bool imageOnly = ImageOnlyCheck.IsChecked == true;
         if (imageOnly && string.IsNullOrWhiteSpace(old.ImagePath) && !ClipOverlayImage.HasDefault)
         {
-            OverlayImageError.Text = "Choose a local image or animation. Until then, an enabled banner or Windows notification is used.";
+            OverlayImageError.Text = "Choose a local image or animation. Other enabled notifications remain independent.";
             OverlayImageError.Visibility = Visibility.Visible;
         }
         else if (OverlayImageError.Text.StartsWith("Choose a local image", StringComparison.Ordinal))
@@ -300,8 +300,10 @@ public partial class SettingsView
         ClipOverlayOptions.Visibility = enabled ? Visibility.Visible : Visibility.Collapsed;
         BannerAppearancePanel.Visibility = banners && !IsBasicExperience ? Visibility.Visible : Visibility.Collapsed;
         ImageAppearancePanel.Visibility = image && !IsBasicExperience ? Visibility.Visible : Visibility.Collapsed;
-        SavedBannerPanel.Visibility = banners && !image ? Visibility.Visible : Visibility.Collapsed;
-        OverlayDetailsPanel.Visibility = banners && !image && !IsBasicExperience ? Visibility.Visible : Visibility.Collapsed;
+        bool savedBanner = banners && ClipSavedNotice.IsChecked == true;
+        HideSavedBannerFromCaptureCheck.IsEnabled = savedBanner;
+        SavedBannerPanel.Visibility = savedBanner ? Visibility.Visible : Visibility.Collapsed;
+        OverlayDetailsPanel.Visibility = savedBanner && !IsBasicExperience ? Visibility.Visible : Visibility.Collapsed;
     }
 
     private async void ChooseOverlayImage_Click(object sender, RoutedEventArgs e)
@@ -329,7 +331,7 @@ public partial class SettingsView
                     QuickClip.Shell.ClipOverlayOptions.MinSeconds, QuickClip.Shell.ClipOverlayOptions.MaxSeconds)
                     .ToString("0.##", CultureInfo.CurrentCulture);
             SaveOverlayImage(dialog.FileName);
-            App.Host?.TestClipOverlay();
+            App.Host?.TestClipOverlay(image: true);
         }
         finally { button.IsEnabled = true; }
     }
@@ -343,7 +345,7 @@ public partial class SettingsView
         try { LoadClipFeedback(settings); }
         finally { _loading = wasLoading; }
         settings.Save();
-        App.Host?.TestClipOverlay();
+        App.Host?.TestClipOverlay(image: true);
     }
 
     private void SaveOverlayImage(string? path)
@@ -382,6 +384,8 @@ public partial class SettingsView
     }
 
     private void TestClipOverlay_Click(object sender, RoutedEventArgs e) => App.Host?.TestClipOverlay();
+    private void TestClipImage_Click(object sender, RoutedEventArgs e) => App.Host?.TestClipOverlay(image: true);
+    private void TestSavedBanner_Click(object sender, RoutedEventArgs e) => App.Host?.TestClipOverlay(savedBanner: true);
     private void PreviewRecordingIndicator_Click(object sender, RoutedEventArgs e) =>
         GameIndicatorStatus.Text = App.Host?.PreviewRecordingIndicator() ?? "Recording icons are unavailable.";
 

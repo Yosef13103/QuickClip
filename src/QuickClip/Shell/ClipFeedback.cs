@@ -127,10 +127,17 @@ internal sealed record ClipOverlayOptions
     internal ClipOverlayOptions? ForEvent(ClipEvent kind)
     {
         var options = Migrate();
-        if (kind == ClipEvent.Saved && options.WantsImage && (!string.IsNullOrWhiteSpace(options.ImagePath) || ClipOverlayImage.HasDefault))
-            return options.Image();
         if (!options.Enabled) return null;
-        return options.Banner(kind == ClipEvent.Saved && !options.WantsImage && options.Style == OverlayStyle.Detailed);
+        return options.Banner(kind == ClipEvent.Saved && options.Style == OverlayStyle.Detailed);
+    }
+
+    // ImageOnly is a legacy serialized name; it now enables the independent image channel.
+    internal ClipOverlayOptions? ImageForEvent(ClipEvent kind)
+    {
+        var options = Migrate();
+        return kind == ClipEvent.Saved && options.WantsImage &&
+            (!string.IsNullOrWhiteSpace(options.ImagePath) || ClipOverlayImage.HasDefault)
+            ? options.Image() : null;
     }
 
     internal static Point Place(Rect display, double size, double margin, OverlayAnchor anchor)
@@ -162,6 +169,9 @@ internal sealed record ClipNotificationDetails(string? Game, string? Title, stri
 
 internal sealed record ClipFeedback(bool Success, bool Sound, bool Windows, bool Overlay, string Title, string Message)
 {
+    internal ClipOverlayOptions? BannerOverlay { get; init; }
+    internal ClipOverlayOptions? ImageOverlay { get; init; }
+
     internal static ClipFeedback From(AppSettings settings, bool success, string message) =>
         From(settings, success ? ClipEvent.Saved : ClipEvent.Failed, message);
 
@@ -169,11 +179,14 @@ internal sealed record ClipFeedback(bool Success, bool Sound, bool Windows, bool
     {
         bool allowed = !AppProfile.IsPersonal ||
             (settings.ClipEvents ?? new()).Allows(kind, settings.ShowInactiveSaveNotifications);
-        bool visuals = allowed && (!AppProfile.IsPersonal || settings.ClipNotificationsEnabled);
+        bool visualMaster = !AppProfile.IsPersonal || settings.ClipNotificationsEnabled;
+        bool status = allowed && visualMaster;
+        var banner = AppProfile.IsPersonal && status ? settings.ClipOverlay?.ForEvent(kind) : null;
+        var image = AppProfile.IsPersonal && visualMaster ? settings.ClipOverlay?.ImageForEvent(kind) : null;
         return new(kind is not (ClipEvent.Failed or ClipEvent.Inactive),
-            allowed && kind == ClipEvent.Saved && settings.ClipSound,
-            visuals && settings.ClipWindowsNotification,
-            AppProfile.IsPersonal && visuals && settings.ClipOverlay?.ForEvent(kind) != null,
+            kind == ClipEvent.Saved && settings.ClipSound,
+            status && settings.ClipWindowsNotification,
+            banner != null || image != null,
             kind switch
             {
                 ClipEvent.ReplayEnabled => "Instant replay enabled",
@@ -183,6 +196,6 @@ internal sealed record ClipFeedback(bool Success, bool Sound, bool Windows, bool
                 ClipEvent.Saved => "Clip saved",
                 ClipEvent.Inactive => "No active recording",
                 _ => "Clip not saved",
-            }, message);
+            }, message) { BannerOverlay = banner, ImageOverlay = image };
     }
 }
