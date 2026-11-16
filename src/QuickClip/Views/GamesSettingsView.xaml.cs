@@ -53,6 +53,19 @@ public partial class GamesSettingsView : UserControl
         };
     }
 
+    // Even a ListBox with its scrollbar disabled owns an internal ScrollViewer
+    // that consumes wheel events. Forward only these unbounded source lists;
+    // the bounded virtualized game catalog retains its own scrolling.
+    private void SourceList_PreviewMouseWheel(object sender, System.Windows.Input.MouseWheelEventArgs e)
+    {
+        if (e.Handled || e.Delta == 0) return;
+        e.Handled = true;
+        GamesPageScroller.RaiseEvent(new System.Windows.Input.MouseWheelEventArgs(e.MouseDevice, e.Timestamp, e.Delta)
+        {
+            RoutedEvent = System.Windows.Input.Mouse.MouseWheelEvent
+        });
+    }
+
     private void ShowDiscoveryStatus()
     {
         if (!ReferenceEquals(_renderedState, AppSettings.Current.Games)) Render();

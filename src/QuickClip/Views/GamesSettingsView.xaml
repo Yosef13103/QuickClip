@@ -15,7 +15,7 @@
             <BooleanToVisibilityConverter x:Key="ShowManualActions" />
         </ResourceDictionary>
     </UserControl.Resources>
-    <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+    <ScrollViewer x:Name="GamesPageScroller" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
       <StackPanel Margin="28,22,14,28" MaxWidth="1340">
         <TextBlock Text="Games" FontSize="{DynamicResource QuickClipText24}" FontWeight="SemiBold" Margin="0,0,0,16" />
         <Border Background="{DynamicResource PanelBrush}" CornerRadius="8" Padding="20,8,20,18" Margin="0,0,14,14">
@@ -26,7 +26,7 @@
             <Expander Header="Game libraries and folders" Margin="0,6,0,6">
                 <StackPanel>
                     <Button Content="Enable all supported game stores" Click="EnableStores_Click" HorizontalAlignment="Left" Margin="0,4,0,6" />
-                    <ListBox x:Name="Launchers" Background="Transparent" BorderThickness="0" ScrollViewer.VerticalScrollBarVisibility="Disabled" AutomationProperties.Name="Game launchers">
+                    <ListBox x:Name="Launchers" PreviewMouseWheel="SourceList_PreviewMouseWheel" Background="Transparent" BorderThickness="0" ScrollViewer.VerticalScrollBarVisibility="Disabled" AutomationProperties.Name="Game launchers">
                         <ListBox.ItemContainerStyle>
                             <Style TargetType="ListBoxItem" BasedOn="{StaticResource {x:Type ListBoxItem}}">
                                 <Setter Property="HorizontalContentAlignment" Value="Stretch" />
@@ -47,7 +47,7 @@
                         </ListBox.ItemTemplate>
                     </ListBox>
                     <TextBlock Text="Game folders" FontWeight="SemiBold" Margin="0,12,0,4" />
-                    <ListBox x:Name="Roots" Background="Transparent" BorderThickness="0" ScrollViewer.VerticalScrollBarVisibility="Disabled" AutomationProperties.Name="Game folders">
+                    <ListBox x:Name="Roots" PreviewMouseWheel="SourceList_PreviewMouseWheel" Background="Transparent" BorderThickness="0" ScrollViewer.VerticalScrollBarVisibility="Disabled" AutomationProperties.Name="Game folders">
                         <ListBox.ItemContainerStyle><Style TargetType="ListBoxItem" BasedOn="{StaticResource {x:Type ListBoxItem}}"><Setter Property="HorizontalContentAlignment" Value="Stretch" /></Style></ListBox.ItemContainerStyle>
                         <ListBox.ItemTemplate><DataTemplate><DockPanel Margin="2">
                             <CheckBox DockPanel.Dock="Right" Style="{StaticResource SwitchCheckBox}" IsChecked="{Binding Enabled, Mode=OneWay}" IsEnabled="{Binding CanToggle}" Click="RootEnabled_Click" VerticalAlignment="Center" AutomationProperties.Name="Enable game folder" />
@@ -65,7 +65,7 @@
             <Expander x:Name="IgnoredExecutables" Header="Blocked executables" Margin="0,0,0,6">
                 <StackPanel>
                     <TextBlock Text="Block an exact executable path from automatic game detection. Restore it here to apply its usual catalog rules." Style="{StaticResource Hint}" />
-                    <ListBox x:Name="BlockedFiles" ScrollViewer.VerticalScrollBarVisibility="Disabled" AutomationProperties.Name="Blocked executables" />
+                    <ListBox x:Name="BlockedFiles" PreviewMouseWheel="SourceList_PreviewMouseWheel" ScrollViewer.VerticalScrollBarVisibility="Disabled" AutomationProperties.Name="Blocked executables" />
                     <WrapPanel Margin="0,4,0,0">
                         <Button Content="Block executables…" Click="BlockFile_Click" Margin="0,0,6,4" />
                         <Button Content="Restore selected executable" Click="RestoreFile_Click" Margin="0,0,0,4" />
@@ -84,7 +84,7 @@
             <Expander x:Name="ScanDetails" Header="Scan details and recording scope" Margin="0,2,0,2">
                 <StackPanel>
                     <TextBlock x:Name="LastScan" Style="{StaticResource Hint}" />
-                    <ListBox x:Name="ScanIssues" ScrollViewer.VerticalScrollBarVisibility="Disabled" Background="Transparent" BorderThickness="0" AutomationProperties.Name="Last scan issues" />
+                    <ListBox x:Name="ScanIssues" PreviewMouseWheel="SourceList_PreviewMouseWheel" ScrollViewer.VerticalScrollBarVisibility="Disabled" Background="Transparent" BorderThickness="0" AutomationProperties.Name="Last scan issues" />
                     <TextBlock Text="Targeting rules apply to game detection. Manual entire-display capture includes anything visible on the approved display, including games disabled here." Style="{StaticResource Hint}" />
                     <TextBlock x:Name="DiscoveryCountDetail" Style="{StaticResource Hint}" TextWrapping="Wrap"
                                ToolTip="A retained game may also be awaiting verification." />
