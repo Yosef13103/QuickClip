@@ -635,7 +635,7 @@ public partial class EditorView : UserControl
             _openingSource = opening;
             var token = opening.Token;
             _probingSource = true;
-            ShowPreviewLoading();
+            ShowPreviewLoading(path);
             var previousTitle = FileNameText.Text;
             var previousWindowTitle = FileTitle;
             FileTitle = null;

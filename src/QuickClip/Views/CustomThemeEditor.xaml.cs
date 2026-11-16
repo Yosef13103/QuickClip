@@ -15,6 +15,9 @@ public partial class CustomThemeEditor : UserControl
     private readonly int[] _customSwatches = new int[16];
     private bool _updating;
     private bool _initialized;
+    private bool _updatingPreviewScale;
+    private readonly ThemeResources _previewResources = new();
+    internal ThemeDocument? InitialTheme { get; init; }
     internal event Action? Saved;
 
     public CustomThemeEditor()
@@ -26,7 +29,15 @@ public partial class CustomThemeEditor : UserControl
             _initialized = true;
             ColorPicker.ItemsSource = ThemePalette.Colors;
             ColorPicker.SelectedIndex = 0;
-            LoadDraft(ThemeResources.ReadSaved(AppSettings.Current.CustomThemeJson) ?? DefaultTheme());
+            var scale = (AppSettings.Current.InterfaceScale ?? new()).Normalize();
+            _updatingPreviewScale = true;
+            foreach (var picker in new[] { PreviewInterfaceScale, PreviewTextScale, PreviewControlScale })
+                picker.ItemsSource = new[] { 90, 100, 110, 115, 125 };
+            PreviewTextScale.SelectedItem = scale.Text;
+            PreviewControlScale.SelectedItem = scale.Controls;
+            PreviewInterfaceScale.SelectedItem = scale.Text == scale.Controls ? scale.Text : null;
+            _updatingPreviewScale = false;
+            LoadDraft(InitialTheme ?? ThemeResources.ReadSaved(AppSettings.Current.CustomThemeJson) ?? DefaultTheme());
         };
     }
 
@@ -71,13 +82,8 @@ public partial class CustomThemeEditor : UserControl
         var color = (ThemeColor)ColorPicker.SelectedItem;
         Swatch.BorderBrush = ThemeResources.Frozen(_draft[color]);
         Swatch.BorderThickness = new Thickness(3);
-        Preview.Background = ThemeResources.Frozen(_draft[ThemeColor.Surface]);
-        PreviewPrimary.Foreground = ThemeResources.Frozen(_draft[ThemeColor.PrimaryText]);
-        PreviewSecondary.Foreground = ThemeResources.Frozen(_draft[ThemeColor.SecondaryText]);
-        var accent = _draft[ThemeColor.Accent];
-        PreviewAccent.Background = ThemeResources.Frozen(accent);
-        PreviewAccentText.Foreground = ThemePalette.Contrast(accent, Colors.Black) >= ThemePalette.Contrast(accent, Colors.White)
-            ? Brushes.Black : Brushes.White;
+        _previewResources.Apply(Preview.Resources, ThemeChoice.Custom, _draft, overrideFluent: !SystemParameters.HighContrast);
+        ApplyPreviewScale();
 
         string? invalid = null;
         try { Draft.Validate(); }
@@ -87,6 +93,34 @@ public partial class CustomThemeEditor : UserControl
         Feedback.Text = invalid ?? (warnings.Length == 0 ? "" : string.Join(" ", warnings.Take(3)));
         SaveButton.IsEnabled = invalid == null && warnings.Length == 0;
         ExportButton.IsEnabled = invalid == null;
+    }
+
+    private void PreviewSelect_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is Button { Tag: string key } && Enum.TryParse<ThemeColor>(key, out var color))
+            ColorPicker.SelectedItem = color;
+    }
+
+    private void PreviewScale_Changed(object sender, SelectionChangedEventArgs e)
+    {
+        if (!_initialized || _updatingPreviewScale || PreviewControlScale == null) return;
+        _updatingPreviewScale = true;
+        try
+        {
+            if (sender == PreviewInterfaceScale && PreviewInterfaceScale.SelectedItem is int both)
+                PreviewTextScale.SelectedItem = PreviewControlScale.SelectedItem = both;
+            else
+                PreviewInterfaceScale.SelectedItem = Equals(PreviewTextScale.SelectedItem, PreviewControlScale.SelectedItem)
+                    ? PreviewTextScale.SelectedItem : null;
+            ApplyPreviewScale();
+        }
+        finally { _updatingPreviewScale = false; }
+    }
+
+    private void ApplyPreviewScale()
+    {
+        if (PreviewTextScale?.SelectedItem is int text && PreviewControlScale?.SelectedItem is int controls)
+            new InterfaceScale(text, controls).Apply(Preview.Resources);
     }
 
     private void ResetColor_Click(object sender, RoutedEventArgs e) =>

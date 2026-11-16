@@ -118,6 +118,9 @@
         <Border Grid.Row="1" Grid.Column="0" Background="{DynamicResource BackgroundBrush}">
             <Grid>
                 <controls:VideoHost x:Name="Video" />
+                <Image x:Name="LoadingPoster" Visibility="Collapsed" IsHitTestVisible="False" Stretch="Uniform"
+                       HorizontalAlignment="Center" VerticalAlignment="Center" MaxWidth="640" MaxHeight="360"
+                       Margin="20" Opacity=".36" RenderTransformOrigin=".5,.5" />
                 <!-- WPF-owned placeholder: mpv keeps its native last-frame surface alive while idle,
                      so a cleared/deleted source must not expose that stale frame. -->
                 <TextBlock x:Name="EmptySourceHint" Text="Open a video or drop it here"

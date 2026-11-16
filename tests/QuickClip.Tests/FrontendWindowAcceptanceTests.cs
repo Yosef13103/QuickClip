@@ -46,7 +46,19 @@ public sealed class FrontendWindowAcceptanceTests(ITestOutputHelper output)
             {
                 string path = Path.Combine(fixture.FullName, name + ".json");
                 using (var file = File.Create(path)) new ThemeDocument(name, ThemePalette.Get(choice)).Write(file);
-                view.CustomEditor.ImportTheme(path);
+                var designer = view.CreateThemeDesigner(window);
+                designer.ShowActivated = false;
+                designer.WindowStartupLocation = WindowStartupLocation.Manual;
+                designer.Left = designer.Top = -16000;
+                try
+                {
+                    designer.Show();
+                    await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
+                    var editor = Assert.IsType<CustomThemeEditor>(Assert.IsType<ScrollViewer>(designer.Content).Content);
+                    editor.ImportTheme(path);
+                }
+                finally { designer.Close(); }
+                Assert.Null(designer.Content);
                 File.Delete(path);
             }
             Assert.Equal(2, profile.SavedCustomThemes.Length);

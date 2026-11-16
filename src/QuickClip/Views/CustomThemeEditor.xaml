@@ -14,15 +14,57 @@
                      AutomationProperties.Name="Hexadecimal color, number sign followed by six digits" />
             <Button Margin="0,0,0,6" Content="Reset color" Click="ResetColor_Click" />
         </WrapPanel>
-        <Border x:Name="Preview" Padding="12" CornerRadius="6" BorderThickness="1"
-                BorderBrush="{DynamicResource BorderBrush}" Margin="0,4,0,0">
-            <StackPanel>
-                <TextBlock x:Name="PreviewPrimary" Text="QuickClip Personal" FontWeight="SemiBold" />
-                <TextBlock x:Name="PreviewSecondary" Text="Waiting for a game" Margin="0,4,0,8" />
-                <Border x:Name="PreviewAccent" HorizontalAlignment="Left" CornerRadius="4" Padding="10,5">
-                    <TextBlock x:Name="PreviewAccentText" Text="Save clip" />
-                </Border>
+        <TextBlock Text="Live preview" FontSize="{DynamicResource QuickClipText18}" FontWeight="SemiBold" Margin="0,12,0,3" />
+        <TextBlock Text="Click a sample component to select its palette color. Changes stay in this preview until you save." TextWrapping="Wrap" Margin="0,0,0,8" />
+        <WrapPanel Margin="0,0,0,6">
+            <StackPanel Margin="0,0,10,6">
+                <TextBlock Text="Interface size" />
+                <ComboBox x:Name="PreviewInterfaceScale" MinWidth="100" ItemStringFormat="{}{0}%" SelectionChanged="PreviewScale_Changed" />
             </StackPanel>
+            <StackPanel Margin="0,0,10,6">
+                <TextBlock Text="Text size" />
+                <ComboBox x:Name="PreviewTextScale" MinWidth="100" ItemStringFormat="{}{0}%" SelectionChanged="PreviewScale_Changed" />
+            </StackPanel>
+            <StackPanel Margin="0,0,10,6">
+                <TextBlock Text="Buttons and controls size" />
+                <ComboBox x:Name="PreviewControlScale" MinWidth="100" ItemStringFormat="{}{0}%" SelectionChanged="PreviewScale_Changed" />
+            </StackPanel>
+        </WrapPanel>
+        <Border x:Name="Preview" Background="{DynamicResource BackgroundBrush}" Padding="12" CornerRadius="8"
+                BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1">
+            <Grid>
+                <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                <Border Grid.Column="0" Background="{DynamicResource SidebarBrush}" Padding="8" CornerRadius="6" Margin="0,0,10,0">
+                    <StackPanel>
+                        <Button Content="QuickClip" Tag="Sidebar" Click="PreviewSelect_Click" Background="{DynamicResource SidebarBrush}" Foreground="{DynamicResource PrimaryTextBrush}" FontSize="{DynamicResource QuickClipText14}" MinHeight="{DynamicResource QuickClipVisual32}" Margin="0,0,0,6"/>
+                        <Button Content="Gallery" Tag="Selection" Click="PreviewSelect_Click" Background="{DynamicResource SelectionBrush}" Foreground="{DynamicResource PrimaryTextBrush}" FontSize="{DynamicResource QuickClipText13}" MinHeight="{DynamicResource QuickClipVisual32}" Margin="0,0,0,6"/>
+                        <Button Content="Settings" Tag="Sidebar" Click="PreviewSelect_Click" Background="{DynamicResource SidebarBrush}" Foreground="{DynamicResource SecondaryTextBrush}" FontSize="{DynamicResource QuickClipText13}" MinHeight="{DynamicResource QuickClipVisual32}"/>
+                    </StackPanel>
+                </Border>
+                <StackPanel Grid.Column="1">
+                    <Button Content="Gallery background" Tag="Background" Click="PreviewSelect_Click" Background="{DynamicResource BackgroundBrush}" Foreground="{DynamicResource PrimaryTextBrush}" HorizontalAlignment="Left" FontSize="{DynamicResource QuickClipText18}" Margin="0,0,0,8"/>
+                    <Border Background="{DynamicResource SurfaceBrush}" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" Padding="10" CornerRadius="7">
+                        <StackPanel>
+                            <Button Content="Clip card" Tag="Surface" Click="PreviewSelect_Click" HorizontalAlignment="Left" Background="{DynamicResource SurfaceBrush}" Foreground="{DynamicResource PrimaryTextBrush}" FontSize="{DynamicResource QuickClipText16}" Margin="0,0,0,5"/>
+                            <Button Content="Primary text" Tag="PrimaryText" Click="PreviewSelect_Click" HorizontalAlignment="Left" Background="{DynamicResource SurfaceBrush}" Foreground="{DynamicResource PrimaryTextBrush}" FontSize="{DynamicResource QuickClipText14}" Margin="0,0,0,4"/>
+                            <Button Content="Waiting for a game" Tag="SecondaryText" Click="PreviewSelect_Click" HorizontalAlignment="Left" Background="{DynamicResource SurfaceBrush}" Foreground="{DynamicResource SecondaryTextBrush}" FontSize="{DynamicResource QuickClipText12}" Margin="0,0,0,8"/>
+                            <WrapPanel>
+                                <Button Content="Save clip" Tag="Accent" Click="PreviewSelect_Click" Background="{DynamicResource AccentBrush}" Foreground="{DynamicResource OnAccentBrush}" FontSize="{DynamicResource QuickClipText14}" MinHeight="{DynamicResource QuickClipVisual32}" Margin="0,0,6,4"/>
+                                <Button Content="Options" Tag="ElevatedSurface" Click="PreviewSelect_Click" Background="{DynamicResource ElevatedSurfaceBrush}" Foreground="{DynamicResource PrimaryTextBrush}" FontSize="{DynamicResource QuickClipText14}" MinHeight="{DynamicResource QuickClipVisual32}" Margin="0,0,6,4"/>
+                                <Button Content="Outline" Tag="Border" Click="PreviewSelect_Click" BorderBrush="{DynamicResource BorderBrush}" Background="{DynamicResource SurfaceBrush}" Foreground="{DynamicResource PrimaryTextBrush}" FontSize="{DynamicResource QuickClipText14}" MinHeight="{DynamicResource QuickClipVisual32}" Margin="0,0,6,4"/>
+                            </WrapPanel>
+                            <WrapPanel Margin="0,4,0,0">
+                                <Button Content="Ready" Tag="Success" Click="PreviewSelect_Click" Foreground="{DynamicResource SuccessBrush}" Background="{DynamicResource SurfaceBrush}" Margin="0,0,5,4"/>
+                                <Button Content="Needs attention" Tag="Warning" Click="PreviewSelect_Click" Foreground="{DynamicResource WarningBrush}" Background="{DynamicResource SurfaceBrush}" Margin="0,0,5,4"/>
+                                <Button Content="Error" Tag="Danger" Click="PreviewSelect_Click" Foreground="{DynamicResource DangerBrush}" Background="{DynamicResource SurfaceBrush}" Margin="0,0,5,4"/>
+                                <Button Content="Disabled text" Tag="Disabled" Click="PreviewSelect_Click" Foreground="{DynamicResource DisabledBrush}" Background="{DynamicResource SurfaceBrush}" Margin="0,0,5,4"/>
+                                <Button Content="Hover accent" Tag="AccentHover" Click="PreviewSelect_Click" Background="{DynamicResource AccentHoverBrush}" Foreground="{DynamicResource OnAccentHoverBrush}" Margin="0,0,5,4"/>
+                            </WrapPanel>
+                            <Button Content="Notification background" Tag="OverlayBackground" Click="PreviewSelect_Click" HorizontalAlignment="Left" Background="{DynamicResource OverlayBackgroundBrush}" Foreground="{DynamicResource PrimaryTextBrush}" FontSize="{DynamicResource QuickClipText13}" Margin="0,5,0,0"/>
+                        </StackPanel>
+                    </Border>
+                </StackPanel>
+            </Grid>
         </Border>
         <TextBlock x:Name="Feedback" TextWrapping="Wrap" Margin="0,7,0,0" AutomationProperties.LiveSetting="Polite" />
         <WrapPanel Margin="0,8,0,0">

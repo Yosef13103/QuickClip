@@ -16,8 +16,6 @@
             <Button x:Name="RemoveThemeButton" Content="Remove selected saved theme" IsEnabled="False" Click="RemoveTheme_Click" />
         </WrapPanel>
         <TextBlock Text="Imported themes are saved in QuickClip. Select any saved theme above, even after deleting or moving the original JSON file." TextWrapping="Wrap" Foreground="{DynamicResource SecondaryTextBrush}" Margin="0,6,0,0" />
-        <Expander Header="Custom palette" Margin="0,10,0,0">
-            <views:CustomThemeEditor x:Name="CustomEditor" Margin="0,8,0,0" />
-        </Expander>
+        <Button Content="Open theme designer…" Click="OpenDesigner_Click" HorizontalAlignment="Left" Margin="0,10,0,0" />
     </StackPanel>
 </UserControl>
