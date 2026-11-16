@@ -62,7 +62,7 @@ internal sealed class DevelopmentDiagnostics
             if (batch?.Dropped > 0) Append($"{session} events dropped={batch.Dropped}");
             if (batch != null)
                 foreach (var entry in batch.Entries) Append($"{session} {entry.ToLine()}");
-            file?.Flush(flushToDisk: true);
+            file?.Flush(); // Reach the OS cache before returning to the timer.
         }
         finally { file?.Dispose(); }
 
@@ -76,7 +76,7 @@ internal sealed class DevelopmentDiagnostics
             }
             if (length + bytes.Length > FileLimit)
             {
-                file.Flush(flushToDisk: true);
+                file.Flush();
                 file.Dispose();
                 file = null;
                 File.Move(path, path + ".old", overwrite: true);

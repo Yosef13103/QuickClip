@@ -10,11 +10,11 @@ public sealed class DevelopmentDiagnosticsTests
         {
             using var buffer = new DiagnosticBuffer();
             buffer.SetEnabled(true);
-            var writer = new DevelopmentDiagnostics(buffer, scratch.FullName);
             string path = Path.Combine(scratch.FullName, "development.log");
-            string payload = new('x', 750);
-            for (int i = 0; i < 2000; i++)
-                buffer.Publish(DiagnosticCategory.Editor, DiagnosticSeverity.Information, $"fixture {i} {payload}");
+            using (var seededLog = File.Create(path)) seededLog.SetLength(DevelopmentDiagnostics.FileLimit - 32);
+            var writer = new DevelopmentDiagnostics(buffer, scratch.FullName);
+            for (int i = 0; i < 12; i++)
+                buffer.Publish(DiagnosticCategory.Editor, DiagnosticSeverity.Information, $"fixture {i}");
             await writer.StopAsync().WaitAsync(TimeSpan.FromSeconds(10));
             Assert.Equal(2, scratch.GetFiles().Length);
             Assert.All(scratch.GetFiles(), file => Assert.InRange(file.Length, 1, DevelopmentDiagnostics.FileLimit));
