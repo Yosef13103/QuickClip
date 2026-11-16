@@ -24,6 +24,7 @@ public sealed class ClipItem : INotifyPropertyChanged
         Details = details;
         Header = header;
         Created = details.CapturedAt.LocalDateTime;
+        FileCreatedAt = file.CreationTimeUtc;
         Size = file.Length;
         Duration = header.Duration;
         File = file;
@@ -36,6 +37,8 @@ public sealed class ClipItem : INotifyPropertyChanged
     public bool IsFavorite => Details.IsFavorite;
     public string TagText => string.Join("  ·  ", Details.Tags);
     public DateTime Created { get; }
+    public DateTime FileCreatedAt { get; }
+    public string DateTooltip => $"Footage captured: {Created:F}\nFile created: {FileCreatedAt.ToLocalTime():F}\nRelative age uses the local file creation time.";
     public long Size { get; }
     public double? Duration { get; }
     internal FileInfo File { get; }
@@ -67,7 +70,7 @@ public sealed class ClipItem : INotifyPropertyChanged
     public string Ago
     {
         get => _ago;
-        private set { _ago = value; OnChanged(); }
+        private set { if (_ago == value) return; _ago = value; OnChanged(); }
     }
 
     public ImageSource? Thumbnail
@@ -91,7 +94,7 @@ public sealed class ClipItem : INotifyPropertyChanged
 
     public event Action<ClipItem>? SelectionChanged;
 
-    public void RefreshAgo() => Ago = TimeAgo.Format(Created, DateTime.Now);
+    public void RefreshAgo() => Ago = TimeAgo.Format(FileCreatedAt, DateTime.UtcNow);
 
     public event PropertyChangedEventHandler? PropertyChanged;
     private void OnChanged([CallerMemberName] string? name = null) => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));

@@ -8,6 +8,17 @@ public sealed class GalleryDayFeedTests : IDisposable
     private static readonly DateTimeOffset First = new(2026, 11, 11, 12, 0, 0, TimeSpan.Zero);
 
     [Fact]
+    public void Newly_saved_replay_age_uses_file_creation_not_first_retained_frame()
+    {
+        var clip = Clip(99, DateTimeOffset.UtcNow.AddMinutes(-2), "Desktop");
+        Assert.Equal("just now", clip.Ago);
+        Assert.True(clip.Created < DateTime.Now.AddMinutes(-1));
+        Assert.Equal("just now", TimeAgo.Format(clip.FileCreatedAt, clip.FileCreatedAt.AddSeconds(59)));
+        Assert.Equal("1 minute ago", TimeAgo.Format(clip.FileCreatedAt, clip.FileCreatedAt.AddMinutes(1)));
+        Assert.Equal("2 minutes ago", TimeAgo.Format(clip.FileCreatedAt, clip.FileCreatedAt.AddMinutes(2)));
+    }
+
+    [Fact]
     public void Groups_by_local_midnight_across_source_offsets_and_uses_corrected_games()
     {
         var zone = TimeZoneInfo.CreateCustomTimeZone("fixture+03", TimeSpan.FromHours(3), "fixture", "fixture");

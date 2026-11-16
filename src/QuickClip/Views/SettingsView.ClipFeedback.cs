@@ -145,7 +145,6 @@ public partial class SettingsView
         SetChoices(OverlayImageFitCombo,
             [new("Fit whole image", OverlayImageFit.Contain),
              new("Fill area (crop edges)", OverlayImageFit.Cover)], options.ImageFit);
-        UpdateFeedbackVisibility();
         var displays = new List<Choice> { new("Main display", "") };
         displays.AddRange(ClipNotificationOverlay.Displays().Select(d => new Choice(d.Label, d.Device)));
         if (!string.IsNullOrWhiteSpace(options.Display) && !displays.Any(d => Equals(d.Value, options.Display)))
@@ -172,6 +171,7 @@ public partial class SettingsView
         ImageOverlaySizeError.Text = "";
         OverlayImageError.Text = "";
         OverlayImageError.Visibility = Visibility.Collapsed;
+        UpdateFeedbackVisibility();
     }
 
     private static Choice[] OverlayAnimationChoices(OverlayAnchor anchor)
@@ -302,6 +302,13 @@ public partial class SettingsView
         ImageAppearancePanel.Visibility = image && !IsBasicExperience ? Visibility.Visible : Visibility.Collapsed;
         bool savedBanner = banners && ClipSavedNotice.IsChecked == true;
         HideSavedBannerFromCaptureCheck.IsEnabled = savedBanner;
+        bool excluded = savedBanner && HideSavedBannerFromCaptureCheck.IsChecked == true;
+        OverlayAnimationCombo.IsEnabled = !excluded;
+        ExcludedBannerAnimationHint.Visibility = excluded ? Visibility.Visible : Visibility.Collapsed;
+        var options = (AppSettings.Current.ClipOverlay ?? new()).Migrate();
+        bool overlap = savedBanner && image && QuickClip.Shell.ClipOverlayOptions.SamePlacement(
+            options.Banner(), options.Image(), ClipNotificationOverlay.Displays());
+        OverlayOverlapWarning.Visibility = overlap ? Visibility.Visible : Visibility.Collapsed;
         SavedBannerPanel.Visibility = savedBanner ? Visibility.Visible : Visibility.Collapsed;
         OverlayDetailsPanel.Visibility = savedBanner && !IsBasicExperience ? Visibility.Visible : Visibility.Collapsed;
     }

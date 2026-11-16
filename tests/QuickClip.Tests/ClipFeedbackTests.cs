@@ -435,6 +435,32 @@ public sealed class ClipFeedbackTests
     }
 
     [Fact]
+    public void Exclusion_disables_saved_banner_motion_only()
+    {
+        var options = new ClipOverlayOptions { Enabled = true, ImageOnly = true, ImagePath = "sample.gif",
+            Animation = OverlayAnimation.Slide, HideSavedBannerFromCapture = true,
+            ImageAppearance = new() { Animation = OverlayAnimation.Fade } };
+        Assert.Equal(OverlayAnimation.None, options.ForEvent(ClipEvent.Saved)!.Animation);
+        Assert.Equal(OverlayAnimation.Slide, options.ForEvent(ClipEvent.GameStarted)!.Animation);
+        Assert.Equal(OverlayAnimation.Fade, options.ImageForEvent(ClipEvent.Saved)!.Animation);
+        Assert.Equal(OverlayAnimation.Slide, (options with { HideSavedBannerFromCapture = false }).ForEvent(ClipEvent.Saved)!.Animation);
+    }
+
+    [Fact]
+    public void Same_notification_placement_resolves_primary_alias_and_disconnected_fallback()
+    {
+        var main = new ClipNotificationOverlay.Display((IntPtr)1, "Display1", new Rect(0, 0, 1920, 1080), true);
+        var other = new ClipNotificationOverlay.Display((IntPtr)2, "Display2", new Rect(-1280, 0, 1280, 720), false);
+        var banner = new ClipOverlayOptions { Anchor = OverlayAnchor.BottomRight };
+        var image = banner with { Display = "display1" };
+        Assert.True(ClipOverlayOptions.SamePlacement(banner, image, [main, other]));
+        Assert.False(ClipOverlayOptions.SamePlacement(banner, image with { Display = "Display2" }, [main, other]));
+        Assert.True(ClipOverlayOptions.SamePlacement(banner, image with { Display = "Disconnected" }, [main, other]));
+        Assert.False(ClipOverlayOptions.SamePlacement(banner, image with { Anchor = OverlayAnchor.TopRight }, [main, other]));
+        Assert.False(ClipOverlayOptions.SamePlacement(banner, image, []));
+    }
+
+    [Fact]
     public void Save_sound_image_and_text_preferences_are_independent()
     {
         foreach (bool master in new[] { false, true })

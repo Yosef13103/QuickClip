@@ -96,7 +96,7 @@
                                     </TextBlock.Style>
                                 </TextBlock>
                                 <TextBlock Margin="0,2,0,0" FontSize="{DynamicResource QuickClipText12}" Foreground="{DynamicResource SubtleText}"
-                                           TextTrimming="CharacterEllipsis" ToolTip="{Binding Created, StringFormat=F}">
+                                           TextTrimming="CharacterEllipsis" ToolTip="{Binding DateTooltip}">
                                     <Run Text="{Binding Created, Mode=OneWay, StringFormat=t}" /><Run Text="  ·  " />
                                     <Run Text="{Binding Ago, Mode=OneWay}" /><Run Text="  ·  " /><Run Text="{Binding SizeText, Mode=OneWay}" />
                                 </TextBlock>

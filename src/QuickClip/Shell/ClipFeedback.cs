@@ -128,7 +128,21 @@ internal sealed record ClipOverlayOptions
     {
         var options = Migrate();
         if (!options.Enabled) return null;
-        return options.Banner(kind == ClipEvent.Saved && options.Style == OverlayStyle.Detailed);
+        var banner = options.Banner(kind == ClipEvent.Saved && options.Style == OverlayStyle.Detailed);
+        // The non-layered exclusion fallback cannot animate its silhouette.
+        // Keep the stored animation for ordinary status banners and future non-excluded saves.
+        return kind == ClipEvent.Saved && options.HideSavedBannerFromCapture
+            ? banner with { Animation = OverlayAnimation.None } : banner;
+    }
+
+    internal static bool SamePlacement(ClipOverlayOptions banner, ClipOverlayOptions image,
+        IReadOnlyList<ClipNotificationOverlay.Display> displays)
+    {
+        if (banner.Anchor != image.Anchor) return false;
+        var first = ClipNotificationOverlay.SelectDisplay(displays, banner.Display);
+        var second = ClipNotificationOverlay.SelectDisplay(displays, image.Display);
+        return first != null && second != null &&
+            StringComparer.OrdinalIgnoreCase.Equals(first.Device, second.Device);
     }
 
     // ImageOnly is a legacy serialized name; it now enables the independent image channel.
