@@ -32,7 +32,11 @@ namespace qc
         return c.QuadPart / freq * 1000000 + c.QuadPart % freq * 1000000 / freq;
     }
 
-    void Log(const char* format, ...);
+    // Values shared with the managed diagnostics bridge.
+    enum class LogCategory : int { Capture = 1, Audio = 4 };
+    enum class LogSeverity : int { Information, Warning, Error };
+    // Source-controlled literal messages only. Keep paths, process identities and device IDs out.
+    void Log(LogCategory category, const char* message, LogSeverity severity = LogSeverity::Information, int code = 0);
 
     std::string AvError(int err);
     std::string Narrow(const std::wstring& s);

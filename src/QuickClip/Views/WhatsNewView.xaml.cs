@@ -88,7 +88,7 @@ public partial class WhatsNewView : UserControl
     private static void Open(string url)
     {
         try { Process.Start(new ProcessStartInfo(url) { UseShellExecute = true }); }
-        catch (Exception ex) { Log.Write("Opening a link failed: " + ex.Message); }
+        catch (Exception ex) { Log.Failure(DiagnosticCategory.General, "Opening a link failed", ex); }
     }
 
     private void Page_Click(object sender, RoutedEventArgs e) => Open(_page);

@@ -70,7 +70,7 @@ internal static class ClipSoundCustom
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or
             ArgumentException or NotSupportedException or OperationCanceledException)
         {
-            Log.Write("Custom notification sound could not be loaded: " + ex.GetType().Name);
+            Log.Failure(DiagnosticCategory.General, "Custom notification sound could not be loaded", ex);
             return null;
         }
     }
@@ -92,7 +92,7 @@ internal static class ClipSoundCustom
         {
             if (!process.Start()) return null;
             using var stop = timeout.Token.Register(() => Proc.KillQuietly(process));
-            Task<string> errors = process.StandardError.ReadToEndAsync(timeout.Token);
+            var drainErrors = process.StandardError.BaseStream.CopyToAsync(Stream.Null, timeout.Token);
             using var pcm = new MemoryStream();
             var buffer = new byte[8192];
             while (true)
@@ -105,8 +105,8 @@ internal static class ClipSoundCustom
             await process.WaitForExitAsync(timeout.Token);
             if (process.ExitCode != 0)
             {
-                Log.Write("Custom notification sound failed FFmpeg decoding: " +
-                    (await errors).Split('\n').FirstOrDefault());
+                await drainErrors;
+                Log.Event(DiagnosticCategory.Audio, "Custom notification sound decoding failed", DiagnosticSeverity.Error, process.ExitCode);
                 return null;
             }
             return pcm.Length >= 2 && (pcm.Length & 1) == 0 ? CanonicalWav(pcm.ToArray()) : null;
@@ -114,7 +114,7 @@ internal static class ClipSoundCustom
         catch (Exception ex) when (ex is IOException or Win32Exception or
             InvalidOperationException or OperationCanceledException)
         {
-            Log.Write("Custom notification decode failed: " + ex.GetType().Name);
+            Log.Failure(DiagnosticCategory.General, "Custom notification decode failed", ex);
             return null;
         }
         finally { Proc.KillQuietly(process); }

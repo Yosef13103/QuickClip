@@ -3,36 +3,12 @@
 #include <algorithm>
 #include <cmath>
 
-#include <condition_variable>
-#include <cstdarg>
-#include <cstdio>
 #include <shared_mutex>
 
 namespace
 {
-    typedef void(__stdcall* LogCallback)(const char* message);
+    typedef void(__stdcall* LogCallback)(qc::LogCategory, qc::LogSeverity, const char*, int);
     std::atomic<LogCallback> g_log{ nullptr };
-
-    // Messages go to the app from one thread of their own, so capture and audio threads never wait on it.
-    std::mutex g_logLock;
-    std::condition_variable g_logReady;
-    std::deque<std::string> g_logQueue;
-    bool g_logThreadStarted = false;
-
-    void LogThread()
-    {
-        while (true)
-        {
-            std::string message;
-            {
-                std::unique_lock lock(g_logLock);
-                g_logReady.wait(lock, [] { return !g_logQueue.empty(); });
-                message = std::move(g_logQueue.front());
-                g_logQueue.pop_front();
-            }
-            if (auto callback = g_log.load()) callback(message.c_str());
-        }
-    }
 
     std::shared_mutex g_engineLock;   // Save holds it shared; start/stop exclusively
     std::unique_ptr<qc::Engine> g_engine;
@@ -121,35 +97,13 @@ namespace
         }
         return 0;
     }
-
-    void FfmpegLog(void* avcl, int level, const char* format, va_list args)
-    {
-        if (level > AV_LOG_WARNING || !g_log) return;
-        char line[1024];
-        int prefix = 1;
-        av_log_format_line(avcl, level, format, args, line, sizeof line, &prefix);
-        size_t n = strlen(line);
-        while (n > 0 && (line[n - 1] == '\n' || line[n - 1] == '\r')) line[--n] = 0;
-        if (n > 0) qc::Log("ffmpeg: %s", line);
-    }
 }
 
 namespace qc
 {
-    void Log(const char* format, ...)
+    void Log(LogCategory category, const char* message, LogSeverity severity, int code)
     {
-        if (!g_log) return;
-        char buffer[2048];
-        va_list args;
-        va_start(args, format);
-        vsnprintf(buffer, sizeof buffer, format, args);
-        va_end(args);
-        {
-            std::lock_guard lock(g_logLock);
-            if (g_logQueue.size() >= 1000) return; // something is flooding the log; drop rather than grow
-            g_logQueue.emplace_back(buffer);
-        }
-        g_logReady.notify_one();
+        if (auto callback = g_log.load(std::memory_order_relaxed)) callback(category, severity, message, code);
     }
 
     std::string AvError(int err)
@@ -180,18 +134,13 @@ namespace qc
 
 extern "C"
 {
-    __declspec(dllexport) void qc_set_log(LogCallback callback)
+    __declspec(dllexport) void qc_set_diagnostic_log(LogCallback callback)
     {
-        g_log = callback;
-        {
-            std::lock_guard lock(g_logLock);
-            if (callback && !g_logThreadStarted)
-            {
-                g_logThreadStarted = true;
-                std::thread(LogThread).detach();
-            }
-        }
-        av_log_set_callback(callback ? FfmpegLog : av_log_default_callback);
+        // FFmpeg text can include paths and may be generated on individual frames. Native operations
+        // report failures through their existing result/status APIs and curated events instead.
+        static std::once_flag quietFfmpeg;
+        std::call_once(quietFfmpeg, [] { av_log_set_level(AV_LOG_QUIET); });
+        g_log.store(callback, std::memory_order_relaxed);
     }
 
     __declspec(dllexport) int qc_enum_outputs(QcOutput* outputs, int max)

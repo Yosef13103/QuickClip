@@ -79,15 +79,24 @@ internal static partial class CaptureEngine
     }
 
     [UnmanagedFunctionPointer(CallingConvention.StdCall)]
-    private delegate void LogCallback(IntPtr message);
+    private delegate void LogCallback(DiagnosticCategory category, DiagnosticSeverity severity, IntPtr message, int code);
 
     [UnmanagedFunctionPointer(CallingConvention.StdCall, CharSet = CharSet.Unicode)]
     private delegate void EndpointCallback(int flow, [MarshalAs(UnmanagedType.LPWStr)] string id,
         [MarshalAs(UnmanagedType.LPWStr)] string name, int isDefault);
 
-    private static readonly LogCallback LogDelegate = message => Log.Write("[capture] " + Marshal.PtrToStringUTF8(message));
+    private static class DiagnosticCallback
+    {
+        internal static readonly LogCallback Handle = (category, severity, message, code) =>
+        {
+            if (!Log.Enabled) return;
+            if (Marshal.PtrToStringUTF8(message) is { } summary)
+                Log.Native(category, severity, summary, code == 0 ? null : code);
+        };
+    }
     private static readonly object InitializationGate = new();
     private static bool _initialized;
+    private static bool _diagnosticLogging;
 
     public static bool IsAvailable => File.Exists(Path.Combine(AppContext.BaseDirectory, Dll));
 
@@ -98,8 +107,20 @@ internal static partial class CaptureEngine
         {
             if (_initialized) return;
             SetDllDirectory(Path.Combine(AppContext.BaseDirectory, "ffmpeg"));
-            qc_set_log(LogDelegate);
+            _diagnosticLogging = Log.Enabled;
+            qc_set_diagnostic_log(_diagnosticLogging ? DiagnosticCallback.Handle : null);
             Volatile.Write(ref _initialized, true);
+        }
+    }
+
+    internal static void UpdateDiagnosticLogging()
+    {
+        lock (InitializationGate)
+        {
+            bool enabled = Log.Enabled;
+            if (!_initialized || _diagnosticLogging == enabled) return;
+            qc_set_diagnostic_log(enabled ? DiagnosticCallback.Handle : null);
+            _diagnosticLogging = enabled;
         }
     }
 
@@ -282,7 +303,7 @@ internal static partial class CaptureEngine
     }
 
     [DllImport("kernel32.dll", CharSet = CharSet.Unicode)] private static extern bool SetDllDirectory(string path);
-    [DllImport(Dll)] private static extern void qc_set_log(LogCallback callback);
+    [DllImport(Dll)] private static extern void qc_set_diagnostic_log(LogCallback? callback);
     [DllImport(Dll)] private static extern int qc_enum_outputs([Out] Output[] outputs, int max);
     [DllImport(Dll)] private static extern int qc_enum_microphones([Out] AudioDevice[] devices, int max);
     [DllImport(Dll)] private static extern void qc_enum_audio_endpoints(EndpointCallback callback);

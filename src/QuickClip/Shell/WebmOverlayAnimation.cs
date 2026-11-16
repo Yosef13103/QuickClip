@@ -101,7 +101,7 @@ internal static class WebmOverlayAnimation
             {
             if (!process.Start()) return null;
             using var stop = timeout.Token.Register(() => Proc.KillQuietly(process));
-            Task<string> stderr = process.StandardError.ReadToEndAsync(timeout.Token);
+            var drainErrors = process.StandardError.BaseStream.CopyToAsync(Stream.Null, timeout.Token);
             var frames = new List<ClipOverlayImage.Frame>(MaxFrames);
             var stream = process.StandardOutput.BaseStream;
             int frameBytes = plan.FrameBytes;
@@ -125,7 +125,8 @@ internal static class WebmOverlayAnimation
             await process.WaitForExitAsync(timeout.Token);
             if (process.ExitCode != 0 || frames.Count == 0)
             {
-                Log.Write("WebM overlay decode failed: " + (await stderr).Split('\n').FirstOrDefault());
+                await drainErrors;
+                Log.Event(DiagnosticCategory.General, "WebM overlay decoding failed", DiagnosticSeverity.Error, process.ExitCode);
                 return null;
             }
             return new([.. frames]);
@@ -135,7 +136,7 @@ internal static class WebmOverlayAnimation
         catch (Exception ex) when (ex is OperationCanceledException or IOException or UnauthorizedAccessException or
             ArgumentException or InvalidOperationException or Win32Exception or OverflowException or JsonException)
         {
-            Log.Write("WebM overlay unavailable: " + ex.GetType().Name);
+            Log.Failure(DiagnosticCategory.General, "WebM overlay unavailable", ex);
             return null;
         }
     }

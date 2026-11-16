@@ -39,7 +39,7 @@ internal sealed class GalleryHoverPreview
         catch (OperationCanceledException) when (pending.IsCancellationRequested) { }
         catch (Exception ex)
         {
-            Log.Write("Gallery hover playback failed: " + ex.GetType().Name);
+            Log.Failure(DiagnosticCategory.Library, "Gallery hover playback failed", ex);
             Stop(poster);
         }
         finally

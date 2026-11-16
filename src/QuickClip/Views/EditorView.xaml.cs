@@ -433,7 +433,7 @@ public partial class EditorView : UserControl
         }
         catch (Exception ex)
         {
-            Log.Write("mpv init failed: " + ex);
+            Log.Failure(DiagnosticCategory.Editor, "mpv init failed", ex);
             if (!_closed)
                 ModalDialog.Show(OwnerWindow, "The video preview could not be started:\n\n" + ex.Message, "QuickClip", MessageBoxButton.OK, MessageBoxImage.Warning);
             return;
@@ -748,7 +748,7 @@ public partial class EditorView : UserControl
         }
         catch (Exception ex)
         {
-            Log.Write("Listing the keyframes failed: " + ex.Message);
+            Log.Failure(DiagnosticCategory.Editor, "Listing the keyframes failed", ex);
         }
     }
 
@@ -771,7 +771,7 @@ public partial class EditorView : UserControl
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
-                Log.Write($"Waveform for track {t.Number} failed: {ex}");
+                Log.Failure(DiagnosticCategory.Editor, "Loading an audio waveform failed", ex);
             }
         });
     }
@@ -847,7 +847,7 @@ public partial class EditorView : UserControl
             track.RemoveRequested += RemoveSound;
             _tracks.Add(track);
             StartWaveform(track, info.Path);
-            Log.Write($"Added the sound {info.Path} at {Fmt.Time(track.Offset)}");
+            Log.Event(DiagnosticCategory.Editor, "Sound added to the editor");
         }
         UpdateTrackHeader();
         UpdateUiState();
@@ -920,7 +920,7 @@ public partial class EditorView : UserControl
         catch (OperationCanceledException) { }
         catch (Exception ex)
         {
-            Log.Write("Placing a sound for the preview failed: " + ex);
+            Log.Failure(DiagnosticCategory.Editor, "Placing a sound for the preview failed", ex);
             StatusText.Text = "A sound couldn't be prepared for the preview. Exporting may still work.";
         }
     }
@@ -1130,7 +1130,7 @@ public partial class EditorView : UserControl
                 case MpvEventId.EndFile when error < 0 && _media != null && SourceReady:
                     if (!VerifySource(_media.Path)) break;
                     ShowMessage("Preview not available for this file\n(export may still work)");
-                    Log.Write("mpv end-file error: " + MpvNative.ErrorString(error));
+                    Log.Event(DiagnosticCategory.Editor, "mpv playback ended with an error", DiagnosticSeverity.Error, error);
                     break;
             }
         });
@@ -1211,7 +1211,7 @@ public partial class EditorView : UserControl
         }
         catch (Exception ex)
         {
-            Log.Write("Could not change clip favorite: " + ex.Message);
+            Log.Failure(DiagnosticCategory.Editor, "Could not change clip favorite", ex);
             StatusText.Text = "Couldn’t change favorite.";
         }
         finally
@@ -1921,8 +1921,11 @@ public partial class EditorView : UserControl
         await RunExportAsync(temp, container, overwrite: true);
     }
 
+    internal bool HasActiveExport => _exportCts != null;
+
     private async Task RunExportAsync(string outputPath, Container container, bool overwrite)
     {
+        if (App.IsQuittingForUpdate) return;
         if (CurrentFile is not { } source || !VerifySource(source) || !SourceReady) return;
         string? staging = null;
         var details = CurrentClipDetails();
@@ -2015,7 +2018,7 @@ public partial class EditorView : UserControl
         catch (Exception ex)
         {
             if (!VerifySource(source)) return;
-            Log.Write("Export failed: " + ex.GetType().Name);
+            Log.Failure(DiagnosticCategory.Editor, "Export failed", ex);
             StatusText.Text = "Export failed.";
             ModalDialog.Show(OwnerWindow, "The export failed:\n\n" + ex.Message, "QuickClip", MessageBoxButton.OK, MessageBoxImage.Error);
         }
@@ -2035,7 +2038,7 @@ public partial class EditorView : UserControl
     private static void RemoveExportStaging(string path)
     {
         try { File.Delete(path); }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { Log.Write("Could not remove an export staging file: " + ex.Message); }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { Log.Failure(DiagnosticCategory.Editor, "Could not remove an export staging file", ex); }
     }
 
     /// <summary>
@@ -2124,13 +2127,13 @@ public partial class EditorView : UserControl
             await RetryAsync(() => { File.Move(parked, clip); return true; });
             parked = null;
             if (AppProfile.IsPersonal) ClipDetailsStore.TryWrite(clip, undo.OriginalDetails);
-            Log.Write($"Undid the edit of {clip}: the original is back, the edited version is in the Recycle Bin");
+            Log.Event(DiagnosticCategory.Editor, "Saved clip edit undone");
             await OpenFileAsync(clip);
             StatusText.Text = "The clip is back as it was before the edit. The edited version is in the Recycle Bin.";
         }
         catch (Exception ex)
         {
-            Log.Write("Undoing the edit failed: " + ex);
+            Log.Failure(DiagnosticCategory.Editor, "Undoing the edit failed", ex);
             string message = "The edit couldn't be undone:\n\n" + ex.Message;
             if (parked != null && File.Exists(parked))
             {

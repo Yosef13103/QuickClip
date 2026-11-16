@@ -32,8 +32,8 @@ namespace qc
     // TrackMixer
     // ---------------------------------------------------------------------------------------------
 
-    TrackMixer::TrackMixer(int64_t t0Us, bool measureSignal)
-        : ring_(static_cast<size_t>(Capacity * Channels)), measureSignal_(measureSignal), t0Us_(t0Us) {}
+    TrackMixer::TrackMixer(int64_t t0Us, bool measureSignal, bool measureTiming)
+        : ring_(static_cast<size_t>(Capacity * Channels)), measureSignal_(measureSignal), measureTiming_(measureTiming), t0Us_(t0Us) {}
 
     void TrackMixer::Add(Cursor& cursor, const float* data, uint32_t frames, int64_t timeUs)
     {
@@ -51,7 +51,7 @@ namespace qc
         const int64_t inTime = std::clamp(base, pos, end);
         const int64_t start = std::clamp(cursor.writtenThrough, inTime, end);
         const int64_t finish = std::clamp(base + Capacity, start, end);
-        if (measureSignal_)
+        if (measureTiming_)
         {
             lateFrames_.fetch_add(inTime - pos, std::memory_order_relaxed);
             overlapFrames_.fetch_add(start - inTime, std::memory_order_relaxed);
@@ -89,7 +89,7 @@ namespace qc
         {
             const float peak = AudioPacketPeak(out.data(), out.size());
             if (peak > 0) nonzeroBlocks_.fetch_add(1, std::memory_order_relaxed);
-            if (peak > maxPeak_.load(std::memory_order_relaxed))
+            if (measureTiming_ && peak > maxPeak_.load(std::memory_order_relaxed))
                 maxPeak_.store(peak, std::memory_order_relaxed);
         }
     }
@@ -105,7 +105,7 @@ namespace qc
         if (swr_alloc_set_opts2(&swr_, &stereo, AV_SAMPLE_FMT_FLT, SampleRate, &stereo, AV_SAMPLE_FMT_FLT, rate_, 0, nullptr) < 0
             || swr_init(swr_) < 0)
         {
-            Log("converting %d Hz audio to %d Hz isn't available; that audio is left out", rate_, SampleRate);
+            Log(LogCategory::Audio, "Audio sample rate conversion unavailable", LogSeverity::Warning);
             swr_free(&swr_);
         }
     }
@@ -335,8 +335,7 @@ namespace qc
         if (!ref.waitLogged && nowUs - ref.sinceUs > 5'000'000)
         {
             ref.waitLogged = true;
-            Log("desktop: still looking for process %lu's sound after 5 s (%.1f s of it held, %.1f s of everything)", ref.pid,
-                static_cast<double>(app.End() - app.base) / rate_, static_cast<double>(everything_.End() - everything_.base) / rate_);
+            Log(LogCategory::Audio, "Waiting for a loopback audio match", LogSeverity::Warning);
         }
         if (app.anchorIndex < 0 || everything_.anchorIndex < 0) return;
         // The latest second of the app's sound that everything's capture has caught up with, give or take 100 ms around
@@ -365,12 +364,11 @@ namespace qc
             ref.nextCheckUs = nowUs + 2'000'000;
             ref.failureLogged = ref.waitLogged = false;
             ref.sinceUs = 0;
-            Log("desktop: found process %lu's sound in it (%.2f ms from the timestamps), taking it out", ref.pid,
-                (best - guess) * 1000.0 / rate_);
+            Log(LogCategory::Audio, "Loopback audio match found");
         }
         else if (!ref.failureLogged)
         {
-            Log("desktop: process %lu's sound isn't matched in it yet (%.2f)", ref.pid, match);
+            Log(LogCategory::Audio, "Loopback audio does not match yet", LogSeverity::Warning);
             ref.failureLogged = true;
         }
     }
@@ -392,12 +390,12 @@ namespace qc
             double m = Match(app, j0, j1, d);
             if (m > 0.8 && m < 1.2)
             {
-                Log("desktop: process %lu's sound moved %lld frames; following it", ref.pid, static_cast<long long>(d - ref.offset));
+                Log(LogCategory::Audio, "Loopback audio match realigned");
                 ref.offset = d;
                 return;
             }
         }
-        Log("desktop: lost process %lu's sound in it (%.2f); finding it again", ref.pid, match);
+        Log(LogCategory::Audio, "Loopback audio match lost", LogSeverity::Warning);
         ref.locked = false;
         ref.nextSearchUs = nowUs;
     }
@@ -681,7 +679,7 @@ namespace qc
         if (FAILED(init))
         {
             error_ = init;
-            Log("could not initialize COM for audio capture: 0x%08lx", static_cast<unsigned long>(init));
+            Log(LogCategory::Audio, "Audio capture COM initialization failed", LogSeverity::Error, init);
             testFinished_ = true;
             return;
         }
@@ -703,13 +701,11 @@ namespace qc
                 break;
             }
             if (FAILED(hr) && hr != lastError && track_ >= 0)
-                Log("audio track %d (%s) failed at stage %d: 0x%08lx", track_ + 1,
-                    kind_ == SourceKind::Microphone ? "microphone input" : "playback loopback",
-                    static_cast<int>(stage_.load()), static_cast<unsigned long>(hr));
+                Log(LogCategory::Audio, "Endpoint audio capture failed", LogSeverity::Error, hr);
             else if (FAILED(hr) && hr != lastError && kind_ == SourceKind::Microphone)
-                Log("microphone input failed at stage %d: 0x%08lx", static_cast<int>(stage_.load()), static_cast<unsigned long>(hr));
+                Log(LogCategory::Audio, "Microphone capture failed", LogSeverity::Error, hr);
             else if (FAILED(hr) && hr != lastError)
-                Log("audio source (kind %d, pid %lu) stopped: 0x%08lx", static_cast<int>(kind_), pid_, static_cast<unsigned long>(hr));
+                Log(LogCategory::Audio, "Audio capture source stopped", LogSeverity::Error, hr);
             lastError = hr;
             retryMs = SUCCEEDED(hr) ? 2000 : std::min<DWORD>(retryMs * 2, 30000);
             if (WaitForSingleObject(stop_, retryMs) == WAIT_OBJECT_0) break;
@@ -755,7 +751,7 @@ namespace qc
             {
                 if (!endpointFallbackLogged_)
                 {
-                    Log("per-app audio capture unavailable (0x%08lx); recording all system audio", static_cast<unsigned long>(hr));
+                    Log(LogCategory::Audio, "Per-app audio capture unavailable; using system audio", LogSeverity::Warning, hr);
                     endpointFallbackLogged_ = true;
                 }
                 hr = ActivateEndpoint(eRender, L"", client);
@@ -831,14 +827,8 @@ namespace qc
         // not including endpoint negotiation/initialization. Telemetry-only tests
         // retain their existing total-time deadline.
         if (deadline && sink_) deadline = GetTickCount64() + testDurationMs_;
-        int64_t sampleStarted = logSignal_ ? NowUs() : 0;
         int64_t nextMeterUs = 0;
-        int samplePackets = 0;
-        float samplePeak = 0;
-        if (logSignal_)
-            Log("audio track %d (%s) started; endpoint mix %d Hz/%d ch, capture %d Hz/%d ch", track_ + 1,
-                kind_ == SourceKind::Microphone ? "microphone input" : "playback loopback",
-                info.mixRate, info.mixChannels, rate_, Channels);
+        if (track_ >= 0) Log(LogCategory::Audio, "Endpoint audio capture started");
         bool first = true; // a new stream, which doesn't follow on from the last
 
         HANDLE waits[] = { stop_, ready };
@@ -884,11 +874,6 @@ namespace qc
                         signal_.recentPeak = levels.peak;
                         recentPeakUs_ = now;
                     }
-                    if (logSignal_)
-                    {
-                        samplePeak = std::max(samplePeak, levels.peak);
-                        ++samplePackets;
-                    }
                 }
                 if (sink_) sink_->Push(samples, frames, timeUs, first || discontinuity);
                 first = false;
@@ -906,17 +891,6 @@ namespace qc
                 signal_.maxWindowsPeak = std::max(signal_.maxWindowsPeak, signal_.windowsPeak);
                 signal_.meterError = meterResult;
                 nextMeterUs = now + 100'000;
-            }
-            if (logSignal_)
-            {
-                if (now - sampleStarted >= 5'000'000)
-                {
-                    Log("audio track %d (%s): %d packets, peak %.4f", track_ + 1,
-                        kind_ == SourceKind::Microphone ? "microphone input" : "playback loopback", samplePackets, samplePeak);
-                    sampleStarted = now;
-                    samplePackets = 0;
-                    samplePeak = 0;
-                }
             }
         }
         client->Stop();

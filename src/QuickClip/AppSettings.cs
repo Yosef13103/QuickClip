@@ -147,7 +147,7 @@ internal sealed class AppSettings
         }
         catch (Exception ex)
         {
-            Log.Write("Could not read settings: " + ex.Message);
+            Log.Essential(DiagnosticCategory.Settings, "Could not read settings", ex);
         }
         return new AppSettings();
     }
@@ -234,7 +234,7 @@ internal sealed class AppSettings
         }
         catch (Exception ex)
         {
-            Log.Write("Could not save settings: " + ex.GetType().Name);
+            Log.Essential(DiagnosticCategory.Settings, "Could not save settings", ex);
             return false;
         }
         finally

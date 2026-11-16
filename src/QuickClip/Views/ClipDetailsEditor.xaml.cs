@@ -342,7 +342,7 @@ public partial class ClipDetailsEditor : UserControl
         catch (Exception ex)
         {
             if (_path == target.Path) Feedback.Text = "Couldn't save clip details.";
-            Log.Write("Could not save clip details: " + ex.Message);
+            Log.Failure(DiagnosticCategory.Library, "Could not save clip details", ex);
             return false;
         }
         finally

@@ -30,6 +30,7 @@
     <PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.14" />
     <EmbeddedResource Include="Assets\clip-saved.wav" LogicalName="QuickClip.clip-saved.wav" />
     <EmbeddedResource Include="Assets\clip-saved.gif" LogicalName="QuickClip.clip-saved.gif" Condition="'$(QuickClipProfile)' == 'Personal' And Exists('Assets\clip-saved.gif')" />
+    <EmbeddedResource Include="Updates\PersonalInstall.ps1" LogicalName="QuickClip.PersonalInstall.ps1" />
     <InternalsVisibleTo Include="QuickClip.Tests" />
   </ItemGroup>
 

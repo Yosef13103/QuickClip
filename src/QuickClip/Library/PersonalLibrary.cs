@@ -74,7 +74,7 @@ internal sealed class PersonalLibrary : IClipAnnotationActions, ILibraryInventor
         }
         catch (Exception ex)
         {
-            Log.Write("Could not read indexed clip details: " + ex.GetType().Name);
+            Log.Failure(DiagnosticCategory.Library, "Could not read indexed clip details", ex);
             return null;
         }
     }
@@ -96,7 +96,7 @@ internal sealed class PersonalLibrary : IClipAnnotationActions, ILibraryInventor
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            Log.Write("Could not save indexed clip details: " + ex.GetType().Name);
+            Log.Failure(DiagnosticCategory.Library, "Could not save indexed clip details", ex);
             return new(target.Path, null, ex is LibraryConflictException or ArgumentException ? ex.Message :
                 "Couldn’t save clip details to the index.");
         }

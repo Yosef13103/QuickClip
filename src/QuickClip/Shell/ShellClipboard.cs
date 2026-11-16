@@ -48,7 +48,7 @@ internal static class ShellClipboard
         }
         catch (Exception ex)
         {
-            Log.Write("Leaving the shared clip on the clipboard failed: " + ex.Message);
+            Log.Failure(DiagnosticCategory.General, "Leaving the shared clip on the clipboard failed", ex);
         }
         _current = null;
     }

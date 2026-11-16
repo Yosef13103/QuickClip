@@ -67,7 +67,6 @@ internal sealed class MpvPlayer : IDisposable
                 SetOption(name, value);
 
         Check(mpv_initialize(_ctx), "mpv_initialize");
-        mpv_request_log_messages(_ctx, "warn");
 
         Observe("time-pos", MpvFormat.Double);
         Observe("duration", MpvFormat.Double);
@@ -106,14 +105,14 @@ internal sealed class MpvPlayer : IDisposable
     public void SetOption(string name, string value)
     {
         int r = mpv_set_option_string(_ctx, name, value);
-        if (r < 0) Log.Write($"mpv option {name}={value} failed: {ErrorString(r)}");
+        if (r < 0) Log.Event(DiagnosticCategory.Editor, "mpv option failed", DiagnosticSeverity.Error, r);
     }
 
     public bool SetProperty(string name, string value)
     {
         if (_ctx == IntPtr.Zero) return false;
         int r = mpv_set_property_string(_ctx, name, value);
-        if (r < 0) Log.Write($"mpv set {name}={Truncate(value)} failed: {ErrorString(r)}");
+        if (r < 0) Log.Event(DiagnosticCategory.Editor, "mpv property update failed", DiagnosticSeverity.Error, r);
         return r >= 0;
     }
 
@@ -161,7 +160,7 @@ internal sealed class MpvPlayer : IDisposable
             for (int i = 0; i < args.Length; i++)
                 ptrs[i] = Marshal.StringToCoTaskMemUTF8(args[i]);
             int r = async ? mpv_command_async(_ctx, 0, ptrs) : mpv_command(_ctx, ptrs);
-            if (r < 0 && logFailure) Log.Write($"mpv command '{args[0]}' failed: {ErrorString(r)}");
+            if (r < 0 && logFailure) Log.Event(DiagnosticCategory.Editor, "mpv command failed", DiagnosticSeverity.Error, r);
             return r >= 0;
         }
         finally
@@ -191,16 +190,12 @@ internal sealed class MpvPlayer : IDisposable
                     case MpvEventId.PropertyChange:
                         HandlePropertyChange(ev);
                         break;
-                    case MpvEventId.LogMessage:
-                        var msg = Marshal.PtrToStructure<MpvEventLogMessage>(ev.Data);
-                        Log.Write($"mpv [{Marshal.PtrToStringUTF8(msg.Prefix)}] {Marshal.PtrToStringUTF8(msg.Text)?.TrimEnd()}");
-                        break;
                     case MpvEventId.EndFile:
                         var end = Marshal.PtrToStructure<MpvEventEndFile>(ev.Data);
                         EventReceived?.Invoke(ev.EventId, end.Reason == 4 ? end.Error : 0); // 4 = MPV_END_FILE_REASON_ERROR
                         break;
                     case MpvEventId.CommandReply:
-                        if (ev.Error < 0) Log.Write($"mpv async command failed: {ErrorString(ev.Error)}");
+                        if (ev.Error < 0) Log.Event(DiagnosticCategory.Editor, "mpv async command failed", DiagnosticSeverity.Error, ev.Error);
                         break;
                     default:
                         EventReceived?.Invoke(ev.EventId, ev.Error);
@@ -209,7 +204,7 @@ internal sealed class MpvPlayer : IDisposable
             }
             catch (Exception ex)
             {
-                Log.Write("mpv event handler failed: " + ex);
+                Log.Failure(DiagnosticCategory.Editor, "mpv event handler failed", ex);
             }
         }
     }
@@ -233,8 +228,6 @@ internal sealed class MpvPlayer : IDisposable
     {
         if (r < 0) throw new InvalidOperationException($"{what} failed: {ErrorString(r)}");
     }
-
-    private static string Truncate(string s) => s.Length > 200 ? s[..200] + "..." : s;
 
     /// <summary>
     /// Shuts mpv down. Call this off the UI thread: mpv destroys its child window during teardown,

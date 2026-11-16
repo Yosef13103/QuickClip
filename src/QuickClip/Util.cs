@@ -1,4 +1,3 @@
-using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Globalization;
 using System.Text;
@@ -30,86 +29,6 @@ internal static class Deps
             catch (ArgumentException) { }
         }
         return null;
-    }
-}
-
-/// <summary>
-/// The profile's log file. Write only queues the line; a background thread writes it,
-/// so a slow or locked file can never hold up the caller (the recorder's threads log too).
-/// </summary>
-internal static class Log
-{
-    private static readonly BlockingCollection<string> Pending = new(boundedCapacity: 10_000);
-    private static readonly ManualResetEventSlim Idle = new(true);
-    private static bool _failureReported;
-
-    public static string FilePath { get; } = Path.Combine(AppProfile.LocalDirectory, "quickclip.log");
-
-    static Log()
-    {
-        try
-        {
-            Directory.CreateDirectory(Path.GetDirectoryName(FilePath)!);
-            var fi = new FileInfo(FilePath);
-            if (fi.Exists && fi.Length > 2_000_000) File.Move(FilePath, FilePath + ".old", overwrite: true);
-        }
-        catch { }
-        new Thread(WriteLoop) { IsBackground = true, Name = "Log writer" }.Start();
-    }
-
-    public static void Write(string message)
-    {
-        Debug.WriteLine(message);
-        Idle.Reset();
-        if (!Pending.TryAdd($"{DateTime.Now:yyyy-MM-dd HH:mm:ss.fff} [{Environment.CurrentManagedThreadId}] {message}"))
-            Idle.Set(); // full: something is flooding the log
-    }
-
-    /// <summary>Waits (briefly) for queued lines to reach the file, e.g. before exiting.</summary>
-    public static void Flush(int timeoutMs = 1000) => Idle.Wait(timeoutMs);
-
-    private static void WriteLoop()
-    {
-        var batch = new StringBuilder();
-        foreach (var line in Pending.GetConsumingEnumerable())
-        {
-            batch.Clear().AppendLine(line);
-            while (batch.Length < 64 * 1024 && Pending.TryTake(out var more)) batch.AppendLine(more);
-            for (int attempt = 1; ; attempt++)
-            {
-                try
-                {
-                    // Shared for writing too, so the app, its tests and a second copy can all append.
-                    using var file = new FileStream(FilePath, FileMode.Append, FileAccess.Write, FileShare.ReadWrite | FileShare.Delete);
-                    file.Write(Encoding.UTF8.GetBytes(batch.ToString()));
-                    break;
-                }
-                catch (IOException) when (attempt < 10)
-                {
-                    Thread.Sleep(200); // briefly locked (a virus scan, say)
-                }
-                catch (Exception ex)
-                {
-                    ReportFailure(ex);
-                    break;
-                }
-            }
-            if (Pending.Count == 0) Idle.Set();
-        }
-    }
-
-    // A log that can't be written hides every other problem; leave a note about why somewhere else, once.
-    private static void ReportFailure(Exception ex)
-    {
-        if (_failureReported) return;
-        _failureReported = true;
-        try
-        {
-            Directory.CreateDirectory(AppProfile.TempDirectory);
-            File.WriteAllText(Path.Combine(AppProfile.TempDirectory, "log error.txt"),
-                $"{DateTime.Now:yyyy-MM-dd HH:mm:ss} QuickClip couldn't write {FilePath}:{Environment.NewLine}{ex}{Environment.NewLine}");
-        }
-        catch { }
     }
 }
 
@@ -146,8 +65,6 @@ internal static class Proc
         try { if (!p.HasExited) p.Kill(entireProcessTree: true); } catch { }
     }
 
-    public static string Quote(IEnumerable<string> args) =>
-        string.Join(' ', args.Select(a => a.Length == 0 || a.Any(c => c is ' ' or '"' or ';' or '|') ? "\"" + a.Replace("\"", "\\\"") + "\"" : a));
 }
 
 internal static class Fmt

@@ -1,6 +1,6 @@
 # Recording performance and display diagnostics
 
-QuickClip Personal keeps the original C++ capture engine, encoded replay ring and fast MP4 mux/save path. Settings → Recording → **Capture performance and diagnostics** shows the backend actually running, cropped source and encoded dimensions, encoder, preset, target bitrate/FPS and memory path. **Refresh diagnostics** updates it. Timing sampling is off by default; enabling it restarts the replay and adds a five-second sample to diagnostics and the local log.
+QuickClip Personal keeps the original C++ capture engine, encoded replay ring and fast MP4 mux/save path. Settings → Recording → **Capture performance and diagnostics** shows the backend actually running, cropped source and encoded dimensions, encoder, preset, target bitrate/FPS and memory path. **Refresh diagnostics** updates it. Timing sampling defaults off. Enabling it restarts the replay and adds a five-second sample to the performance panel. The sample is independent of [diagnostic event logging](diagnostics.md).
 
 For window capture, diagnostics label measured physical client geometry separately from configured requests and encoded output. Client geometry can differ from the exact WGC item extent when nonclient borders are included.
 
@@ -65,7 +65,7 @@ These 60 fps samples reported zero missing slots in their first five-second timi
 
 No global display, VRR, NVIDIA, audio or Windows settings are changed. No objective flicker reproduction or driver root cause is established. Candidate interactions include DDA acquisition/release, WGC composition, GPU blits, encoder scheduling, VRR and decode/encode contention. Native monitor capture previously changed API solely for scaling/high FPS; that is now explicit and diagnosable. Flat-picture recovery and watchdog restarts remain upstream behavior; correlate their log events with any visible flicker before changing them.
 
-For each experiment use the same harmless text document, typing sequence, local non-private 60 fps video, monitor/refresh and app layout. Compare recorder off, DDA native P4, DDA native P3, DDA scaled P3, WGC, then Moments manually. Run only one recorder. Observe both displays and video cadence; note time and whether a capture restart appears in the local log. Repeat twice with the order reversed. Record 3D/Copy/Video Encode/Video Decode graphs separately. Do not toggle global VRR/HDR/driver settings to make a result disappear. Report observable darkening/stutter separately from counter differences.
+For each experiment use the same harmless text document, typing sequence, local non-private 60 fps video, monitor/refresh and app layout. Compare recorder off, DDA native P4, DDA native P3, DDA scaled P3, WGC, then Moments manually. Run only one recorder. Observe both displays and video cadence. When event logging is enabled, correlate the time with capture restart events. Repeat twice with the order reversed. Record 3D/Copy/Video Encode/Video Decode graphs separately. Do not toggle global VRR/HDR/driver settings to make a result disappear. Report observable darkening/stutter separately from counter differences.
 
 ## Acceptance still requiring supervised use
 

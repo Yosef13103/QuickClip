@@ -419,7 +419,7 @@ internal static class ExportRunner
     public static async Task RunAsync(IReadOnlyList<string> args, string outputPath, double duration, IProgress<double> progress, CancellationToken ct)
     {
         if (Deps.FFmpeg == null) throw new ExportException("ffmpeg.exe was not found.");
-        Log.Write("ffmpeg " + Proc.Quote(args.Select(a => a.StartsWith("title=", StringComparison.Ordinal) ? "title=<redacted>" : a)));
+        Log.Event(DiagnosticCategory.Editor, "FFmpeg export started");
 
         var errors = new StringBuilder();
         using var p = new Process { StartInfo = Proc.StartInfo(Deps.FFmpeg, args) };
@@ -447,7 +447,7 @@ internal static class ExportRunner
             {
                 string msg;
                 lock (errors) msg = errors.ToString().Trim();
-                Log.Write("ffmpeg failed: " + msg);
+                Log.Event(DiagnosticCategory.Editor, "FFmpeg export failed", DiagnosticSeverity.Error, p.ExitCode);
                 throw new ExportException(string.IsNullOrEmpty(msg) ? $"FFmpeg exited with code {p.ExitCode}." : LastLines(msg, 8));
             }
             ok = true;

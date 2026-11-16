@@ -117,7 +117,7 @@ public partial class ProjectView : UserControl
         }
         catch (Exception ex)
         {
-            Log.Write("mpv init failed: " + ex);
+            Log.Failure(DiagnosticCategory.Editor, "mpv init failed", ex);
             return;
         }
         _childWindowTimer.Start();
@@ -202,7 +202,7 @@ public partial class ProjectView : UserControl
         }
         catch (Exception ex)
         {
-            Log.Write($"Probing {path} failed: {ex.Message}");
+            Log.Failure(DiagnosticCategory.Editor, "Probing project media failed", ex);
             return null;
         }
     }
@@ -216,7 +216,7 @@ public partial class ProjectView : UserControl
         }
         catch (Exception ex)
         {
-            Log.Write("Loading thumbnail failed: " + ex.Message);
+            Log.Failure(DiagnosticCategory.Editor, "Loading thumbnail failed", ex);
         }
     }
 
@@ -526,7 +526,7 @@ public partial class ProjectView : UserControl
         }
         catch (Exception ex)
         {
-            Log.Write("Setting the music failed: " + ex);
+            Log.Failure(DiagnosticCategory.Editor, "Setting the music failed", ex);
             ModalDialog.Show(Window.GetWindow(this), "Couldn't add the music:\n\n" + ex.Message, "QuickClip", MessageBoxButton.OK, MessageBoxImage.Warning);
         }
         _music = _project.Music != null ? await ProbeAsync(_project.Music) : null;
@@ -539,7 +539,7 @@ public partial class ProjectView : UserControl
 
     private async void Export_Click(object sender, RoutedEventArgs e)
     {
-        if (_project == null || _clips.Count == 0 || _exportCts != null) return;
+        if (App.IsQuittingForUpdate || _project == null || _clips.Count == 0 || _exportCts != null) return;
         var missing = _clips.FirstOrDefault(c => c.Info == null);
         if (missing != null)
         {
@@ -574,7 +574,7 @@ public partial class ProjectView : UserControl
         }
         catch (Exception ex)
         {
-            Log.Write("Montage export failed: " + ex);
+            Log.Failure(DiagnosticCategory.Editor, "Montage export failed", ex);
             ModalDialog.Show(Window.GetWindow(this), "The montage couldn't be made:\n\n" + ex.Message, "QuickClip", MessageBoxButton.OK, MessageBoxImage.Error);
         }
         finally
@@ -585,6 +585,8 @@ public partial class ProjectView : UserControl
             ExportButton.IsEnabled = _clips.Count > 0;
         }
     }
+
+    internal bool Exporting => _exportCts != null;
 
     private void CancelExport_Click(object sender, RoutedEventArgs e) => _exportCts?.Cancel();
 
@@ -601,7 +603,7 @@ public partial class ProjectView : UserControl
         }
         catch (Exception ex)
         {
-            Log.Write("Saving the project failed: " + ex.Message);
+            Log.Failure(DiagnosticCategory.Editor, "Saving the project failed", ex);
         }
     }
 
@@ -619,6 +621,5 @@ public partial class ProjectView : UserControl
         CommitOrder();
     }
     internal void ExportForRender() => Export_Click(this, new RoutedEventArgs());
-    internal bool Exporting => _exportCts != null;
 #endif
 }

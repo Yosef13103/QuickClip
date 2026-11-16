@@ -83,7 +83,7 @@ internal sealed class LegacyClipAnnotationActions : IClipAnnotationActions
             catch (AnnotationEditException ex) { return new(target.Path, null, ex.Message); }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {
-                Log.Write("Could not save clip annotations: " + ex.Message);
+                Log.Failure(DiagnosticCategory.Library, "Could not save clip annotations", ex);
                 return new(target.Path, null, "Couldn’t save clip annotations.");
             }
         }

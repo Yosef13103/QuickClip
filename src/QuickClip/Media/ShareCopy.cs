@@ -83,8 +83,7 @@ internal static class ShareCopy
         for (int attempt = 1; ; attempt++)
         {
             int a = attempt;
-            Log.Write($"Sharing {clip.Path}: {(request.VideoMode == VideoMode.Copy ? "video copied" : $"{request.TargetSizeMB:0.#} MB, short side {request.MaxShortSide}")}" +
-                      $", fps {request.Fps}{(request.MotionBlur && request.Fps > 0 ? " with motion blur" : "")}, {request.Tracks.Count} audio tracks merged, attempt {attempt}");
+            Log.Event(DiagnosticCategory.Editor, "Share export attempt started");
             await ExportRunner.RunAsync(ExportBuilder.BuildArgs(request), output, request.Duration,
                 new Progress<double>(p => progress.Report((a, p))), ct);
             long size = new FileInfo(output).Length;

@@ -88,7 +88,7 @@ internal static class ClipSoundOutput
         }
         catch (Exception ex) when (ex is COMException or InvalidCastException)
         {
-            Log.Write("Clip sound output unavailable: " + ex.GetType().Name);
+            Log.Failure(DiagnosticCategory.General, "Clip sound output unavailable", ex);
             return false;
         }
     }

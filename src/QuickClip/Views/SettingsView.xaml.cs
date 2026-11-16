@@ -41,7 +41,7 @@ public partial class SettingsView : UserControl
             PersonalProfileHint.Text = $"{AppProfile.Name} {AppVersion.Current.Display} · Stable releases only; Explorer integration is disabled.";
             PersonalProfileHint.Visibility = Visibility.Visible;
             ShellCheck.Visibility = Visibility.Collapsed;
-            InstallUpdateLabel.Text = "Download verified update";
+            InstallUpdateLabel.Text = PersonalInstaller.CanApply ? "Download update" : "Download verified update";
             StartupHint.Visibility = ReplayAtStartupCheck.Visibility = ReplayAtStartupHint.Visibility = Visibility.Visible;
             ApplySettingsSection(RecordingSection);
             UpdateSettingsExperience();
@@ -140,7 +140,7 @@ public partial class SettingsView : UserControl
         await Updater.CheckAsync(); // what's on offer depends on the channel
     }
 
-    private void ShowChannelHint() => ChannelHint.Text = AppProfile.IsPersonal ? "Only approved Personal releases. Nightly is not published. Downloads require manual installation." : Updater.Channel == Updater.Nightly
+    private void ShowChannelHint() => ChannelHint.Text = AppProfile.IsPersonal ? "Stable Personal releases." : Updater.Channel == Updater.Nightly
         ? "New features as they're made, before they're released. They may have bugs."
         : "Tested releases. A nightly build you're on now stays until a newer stable release comes out.";
 
@@ -173,14 +173,14 @@ public partial class SettingsView : UserControl
             });
             if (AppProfile.IsPersonal)
             {
-                string package = await Updater.DownloadPersonalAsync(release, progress, CancellationToken.None);
-                _installing = false;
-                UpdateProgress.Visibility = Visibility.Collapsed;
-                ShowUpdateState();
-                UpdateStatusText.Text = "Verified download ready. Quit QuickClip before running the installer or extracting the portable ZIP.";
-                var explorer = new System.Diagnostics.ProcessStartInfo("explorer.exe") { UseShellExecute = true };
-                explorer.ArgumentList.Add("/select," + package);
-                System.Diagnostics.Process.Start(explorer);
+                if (await DownloadAndApplyPersonalAsync(release, progress) is { } status)
+                {
+                    _installing = false;
+                    UpdateProgress.IsIndeterminate = false;
+                    UpdateProgress.Visibility = Visibility.Collapsed;
+                    ShowUpdateState();
+                    UpdateStatusText.Text = status;
+                }
                 return;
             }
             bool windowHidden = !(Window.GetWindow(this)?.IsVisible ?? false);
@@ -193,9 +193,10 @@ public partial class SettingsView : UserControl
         {
             Log.Write("Update failed: " + ex);
             _installing = false;
+            UpdateProgress.IsIndeterminate = false;
             UpdateProgress.Visibility = Visibility.Collapsed;
             ShowUpdateState();
-            UpdateStatusText.Text = "The update didn't install: " + ex.Message;
+            UpdateStatusText.Text = ex is OperationCanceledException ? "The update timed out." : "The update didn't install: " + ex.Message;
         }
     }
 

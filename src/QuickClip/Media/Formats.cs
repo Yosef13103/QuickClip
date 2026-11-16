@@ -163,10 +163,9 @@ internal static class VideoEncoders
                 // and recording mustn't wait on it.
                 using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
                 int code;
-                string error;
                 try
                 {
-                    (code, _, error) = await Proc.RunAsync(Deps.FFmpeg,
+                    (code, _, _) = await Proc.RunAsync(Deps.FFmpeg,
                     [
                         "-hide_banner", "-v", "error", "-f", "lavfi", "-i", "color=c=black:s=640x360:r=30:d=0.2",
                         "-frames:v", "3", "-pix_fmt", windows ? "nv12" : "yuv420p", "-c:v", e.Id,
@@ -175,12 +174,11 @@ internal static class VideoEncoders
                 }
                 catch (OperationCanceledException)
                 {
-                    Log.Write($"Video encoder {e.Id} doesn't work here: its test didn't finish within 10 s");
+                    Log.Event(DiagnosticCategory.Capture, "Video encoder probe timed out", DiagnosticSeverity.Warning);
                     return (e.Id, false);
                 }
                 if (code != 0)
-                    Log.Write($"Video encoder {e.Id} doesn't work here: " +
-                              (error.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).FirstOrDefault() ?? $"exit code {code}"));
+                    Log.Event(DiagnosticCategory.Capture, "Video encoder probe failed", DiagnosticSeverity.Warning, code);
                 return (e.Id, code == 0);
             });
             foreach (var (id, ok) in await Task.WhenAll(tests))

@@ -349,7 +349,7 @@ public partial class MainWindow : Window
         }
         catch (Exception ex)
         {
-            Log.Write("Loading the release notes failed: " + ex.Message);
+            Log.Failure(DiagnosticCategory.General, "Loading the release notes failed", ex);
             error = ex is OperationCanceledException or System.Net.Http.HttpRequestException ? "couldn't reach GitHub" : ex.Message;
         }
         if (onlyIfAny && notes.Count == 0 && error == null)
@@ -403,7 +403,7 @@ public partial class MainWindow : Window
 
     private async void SaveClip_Click(object sender, RoutedEventArgs e)
     {
-        if (_savingClip) return;
+        if (_savingClip || App.IsQuittingForUpdate) return;
         _savingClip = true;
         SaveClipButton.IsEnabled = false;
         SaveClipText.Text = "Saving…";
@@ -418,6 +418,10 @@ public partial class MainWindow : Window
             UpdateStatus();
         }
     }
+
+    internal bool HasActiveEditorExport => _editor?.HasActiveExport == true;
+    internal bool HasActiveMontageExport => Gallery.HasActiveMontageExport;
+    internal bool IsSavingClip => _savingClip;
 
     /// <summary>Closes the window; false if the user kept it open (e.g. to let an export finish).</summary>
     public Task<bool> RequestCloseAsync()

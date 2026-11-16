@@ -1,7 +1,7 @@
 name: Windows quality
 on:
   pull_request:
-    branches: [custom/main, integration/p0-capture-games, integration/nov12-field-test, integration/v1-owner-preview-20261113, integration/v1-full-acceptance-20261113, integration/wave2-discovery-maintenance, feat/recording-status-hud]
+    branches: [custom/main, integration/p0-capture-games, integration/nov12-field-test, integration/v1-owner-preview-20261113, integration/v1-full-acceptance-20261113, integration/wave2-discovery-maintenance, feat/recording-status-hud, integration/wave2-full-acceptance]
   push:
     branches: [custom/main, integration/v1-owner-preview-20261113]
 permissions:
@@ -61,9 +61,12 @@ jobs:
             '--logger','trx;LogFileName=results.trx','--results-directory','TestResults',
             '--blame-hang-timeout','3m',"-p:QuickClipProfile=$env:PROFILE")
           if ($env:PROFILE -eq 'Upstream') {
-            $testArgs += @('--filter','FullyQualifiedName~ProfileTests|FullyQualifiedName~RecordingDefaultsTests|FullyQualifiedName~MenuPackageTests|FullyQualifiedName~CaptureEngineTests|FullyQualifiedName~NativeAudioTimelineTests')
+            $testArgs += @('--filter','FullyQualifiedName~ProfileTests|FullyQualifiedName~RecordingDefaultsTests|FullyQualifiedName~MenuPackageTests|FullyQualifiedName~CaptureEngineTests|FullyQualifiedName~NativeAudioTimelineTests|FullyQualifiedName~UpdaterTests')
           }
           dotnet @testArgs
+      - name: Exercise the Personal installer handoff on an alternate drive
+        if: matrix.profile == 'Personal' && github.base_ref == 'integration/wave2-discovery-maintenance'
+        run: ./scripts/test-personal-upgrade.ps1
       - name: Report results
         if: always()
         run: ./scripts/summarize-ci-tests.ps1 -Path TestResults/results.trx

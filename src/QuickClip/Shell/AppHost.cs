@@ -311,7 +311,7 @@ internal sealed class AppHost : IDisposable
         ClipNotificationDetails? details, string? message = null, ClipOverlayOptions? missingImageFallback = null)
     {
         try { await _clipOverlay.ShowAsync(options, title, success, details, message, missingImageFallback); }
-        catch (Exception ex) { Log.Write("Clip overlay unavailable: " + ex.GetType().Name); }
+        catch (Exception ex) { Log.Failure(DiagnosticCategory.General, "Clip overlay unavailable", ex); }
     }
 
     private void UpdateTooltip()
@@ -445,6 +445,7 @@ internal sealed class AppHost : IDisposable
 
     private void RunRecordingCommand(RecordingCommand command)
     {
+        if (App.IsQuittingForUpdate) return;
         var recorder = Recorder.Instance;
         var settings = AppSettings.Current;
         switch (command)

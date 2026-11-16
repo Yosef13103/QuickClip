@@ -617,21 +617,23 @@ public sealed class CaptureEngineTests(MediaFixture media, Xunit.Abstractions.IT
     [OptInFact("QUICKCLIP_TEST_CAPTURE")]
     public async Task A_flat_picture_starts_capture_again()
     {
-        long logStart = new FileInfo(Log.FilePath).Length;
-        if (await RecordAsync(async () =>
+        Log.SetEnabled(true);
+        try
         {
-            await Task.Delay(1000);
-            CaptureEngine.TestFlatBelow(int.MaxValue); // every keyframe now looks like a black screen
-            await Task.Delay(7500);
-        }, saveSeconds: 6) is not var (frames, error)) return;
-        Assert.Null(error);
-        Assert.True(LargestGap(frames) < 1.5, $"gap of {LargestGap(frames):0.00} s");
+            if (await RecordAsync(async () =>
+            {
+                await Task.Delay(1000);
+                CaptureEngine.TestFlatBelow(int.MaxValue); // every keyframe now looks like a black screen
+                await Task.Delay(7500);
+            }, saveSeconds: 6) is not var (frames, error)) return;
+            Assert.Null(error);
+            Assert.True(LargestGap(frames) < 1.5, $"gap of {LargestGap(frames):0.00} s");
 
-        await Task.Delay(500); // the engine's log lines reach the file through two queues
-        Log.Flush(3000);
-        using var reader = new StreamReader(new FileStream(Log.FilePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete));
-        reader.BaseStream.Position = logStart;
-        Assert.Contains("the picture has been a flat color for 5 s; starting capture again", reader.ReadToEnd());
+            DiagnosticCursor cursor = default;
+            Assert.Contains(Log.Read(ref cursor)!.Entries, entry => entry.Category == DiagnosticCategory.Capture &&
+                entry.Severity == DiagnosticSeverity.Warning && entry.Message == "Flat picture detected; restarting capture");
+        }
+        finally { Log.SetEnabled(false); }
     }
 
     /// <summary>

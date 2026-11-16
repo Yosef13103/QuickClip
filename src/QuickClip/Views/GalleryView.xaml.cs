@@ -158,6 +158,8 @@ public partial class GalleryView : UserControl
     }
 
     /// <summary>Stops watching the folder, closes the project preview and drops the thumbnails (the window is closing).</summary>
+    internal bool HasActiveMontageExport => ProjectPane.Exporting;
+
     public async Task CloseAsync()
     {
         _released = true;
@@ -265,7 +267,7 @@ public partial class GalleryView : UserControl
                         catch (Exception ex) when (ex is not OperationCanceledException)
                         {
                             incomplete = true;
-                            Log.Write("Could not refresh an indexed clips folder: " + ex.GetType().Name);
+                            Log.Failure(DiagnosticCategory.Library, "Could not refresh an indexed clips folder", ex);
                         }
                     }
                     if (scopes != null)
@@ -315,7 +317,7 @@ public partial class GalleryView : UserControl
             {
                 _scanRoot = true;
                 ShowStatus("Couldn’t refresh the clips folder. Check its availability and library settings.");
-                Log.Write("Loading clips failed: " + ex.GetType().Name);
+                Log.Failure(DiagnosticCategory.Library, "Loading clips failed", ex);
             }
         }
         finally
@@ -390,7 +392,7 @@ public partial class GalleryView : UserControl
         }
         catch (Exception ex)
         {
-            Log.Write("Can't watch a clips folder: " + ex.GetType().Name);
+            Log.Failure(DiagnosticCategory.Library, "Can't watch a clips folder", ex);
         }
     }
 
@@ -627,7 +629,7 @@ public partial class GalleryView : UserControl
         catch (OperationCanceledException) when (_released) { }
         catch (Exception ex)
         {
-            Log.Write("Loading thumbnail failed: " + ex.GetType().Name);
+            Log.Failure(DiagnosticCategory.Library, "Loading thumbnail failed", ex);
         }
     }
 
@@ -791,7 +793,7 @@ public partial class GalleryView : UserControl
         }
         catch (Exception ex)
         {
-            Log.Write("Could not update gallery annotations: " + ex.Message);
+            Log.Failure(DiagnosticCategory.Library, "Could not update gallery annotations", ex);
             if (!_released) ShowStatus("Couldn’t update clip annotations.");
         }
         finally
@@ -1099,7 +1101,7 @@ public partial class GalleryView : UserControl
         }
         catch (Exception ex)
         {
-            Log.Write("Adding clips to a project failed: " + ex);
+            Log.Failure(DiagnosticCategory.Library, "Adding clips to a project failed", ex);
             ModalDialog.Show(Window.GetWindow(this), "Couldn't add the clips to the project:\n\n" + ex.Message, "QuickClip",
                 MessageBoxButton.OK, MessageBoxImage.Warning);
         }
@@ -1124,7 +1126,7 @@ public partial class GalleryView : UserControl
         }
         catch (Exception ex)
         {
-            Log.Write("Copying clips failed: " + ex);
+            Log.Failure(DiagnosticCategory.Library, "Copying clips failed", ex);
             ModalDialog.Show(Window.GetWindow(this), "Couldn't copy the clips:\n\n" + ex.Message, "QuickClip", MessageBoxButton.OK, MessageBoxImage.Warning);
         }
     }
@@ -1185,7 +1187,7 @@ public partial class GalleryView : UserControl
         }
         catch (Exception ex)
         {
-            Log.Write("Opening a project failed: " + ex);
+            Log.Failure(DiagnosticCategory.Library, "Opening a project failed", ex);
         }
     }
 
@@ -1212,7 +1214,7 @@ public partial class GalleryView : UserControl
         }
         catch (Exception ex)
         {
-            Log.Write("Creating a project failed: " + ex);
+            Log.Failure(DiagnosticCategory.Library, "Creating a project failed", ex);
             ModalDialog.Show(Window.GetWindow(this), "Couldn't create the project:\n\n" + ex.Message, "QuickClip", MessageBoxButton.OK, MessageBoxImage.Warning);
             return null;
         }

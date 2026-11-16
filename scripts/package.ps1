@@ -48,6 +48,14 @@ Write-Host 'Packing the portable zip...'
 tar -a -c -f $zip -C $out $name
 if ($LASTEXITCODE -ne 0) { throw 'Creating the zip failed.' }
 
+if ($Personal) {
+    # This inventory lets a subsequent updater back up the installed application files
+    # without walking unrelated directories or including portable user data.
+    Get-ChildItem -LiteralPath $app -File -Recurse | ForEach-Object {
+        $_.FullName.Substring($app.Length + 1)
+    } | Sort-Object | Set-Content -LiteralPath (Join-Path $app 'quickclip-install-files.txt') -Encoding utf8
+}
+
 Write-Host 'Building the installer...'
 & $iscc /Q "/DAppVersion=$version" "/DNumericVersion=$numeric" "/DDisplayVersion=$display" "/DSourceDir=$app" "/DOutputDir=$out" (Join-Path (Join-Path $root 'installer') $installer)
 if ($LASTEXITCODE -ne 0) { throw 'Building the installer failed.' }

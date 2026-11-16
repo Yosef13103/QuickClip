@@ -106,7 +106,7 @@ public partial class SettingsView
         }
         catch (Exception ex)
         {
-            Log.Write("Could not read storage estimate: " + ex.GetType().Name);
+            Log.Failure(DiagnosticCategory.Library, "Could not read storage estimate", ex);
         }
     }
 
