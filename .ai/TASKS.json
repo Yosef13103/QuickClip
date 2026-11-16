@@ -717,7 +717,7 @@
       ],
       "effort": "medium",
       "status": "implemented",
-      "candidate": "3b72a7762b924a52523e0dc94bb62fba6c4239bb",
+      "candidate": "33d7a612eed6fe7dcc01bde088bd6c1cbc94641e",
       "gates": {
         "local": "pass",
         "ci": "pending",
@@ -725,7 +725,7 @@
         "hardware": "pending"
       },
       "evidence": [
-        "Generated-media WPF source switching passed; owner timing and GPU behavior remain pending.",
+        "Generated-media WPF source switching includes a superseded media probe; owner timing and GPU behavior remain pending.",
         "docs/owner-field-polish.md#local-regression-evidence"
       ],
       "blocker": null,
