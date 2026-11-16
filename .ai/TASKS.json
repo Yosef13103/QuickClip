@@ -59,7 +59,7 @@
       ],
       "effort": "high",
       "status": "implemented",
-      "candidate": "1493d7431d07e96f2594a07d0eaf83e6080b9faa",
+      "candidate": "1820b0825144201bb512bcc9cc0a9353c739fc36",
       "gates": {
         "local": "pass",
         "ci": "pending",
@@ -67,10 +67,11 @@
         "hardware": "pending"
       },
       "evidence": [
-        "Milestone 2 fixtures verify multiple install-named x64/DX12 variants, Unreal Shipping, exact EXE approvals, helper and launcher vetoes, ambiguous alternates and denied capture paths. See private W2-milestone2."
+        "Milestone 2 fixtures verify multiple install-named x64/DX12 variants, Unreal Shipping, exact EXE approvals, helper and launcher vetoes, ambiguous alternates and denied capture paths. See private W2-milestone2.",
+        "Owner-acceptance fixtures cover current/versioned installs, multiple binaries, overlapping exact entries, explicit vetoes, and foreground-to-lifecycle activation with display permission."
       ],
       "blocker": null,
-      "next_action": "Carry forward to independent review and supervised D5 activation checks."
+      "next_action": "Repeat the real osu!lazer, 007 and Simpsons Hit & Run launches with the approved and excluded display cases."
     },
     {
       "id": "W2-G2",
@@ -128,7 +129,7 @@
       ],
       "effort": "high",
       "status": "implemented",
-      "candidate": "1493d7431d07e96f2594a07d0eaf83e6080b9faa",
+      "candidate": "1820b0825144201bb512bcc9cc0a9353c739fc36",
       "gates": {
         "local": "pass",
         "ci": "pending",
@@ -136,10 +137,11 @@
         "hardware": "pending"
       },
       "evidence": [
-        "Two-root probe passes. Scope mutation, stale publication rejection, unaffected cursor continuation, overlapping folder/provider claims, legacy migration and failed-source retention covered. Existing profile JSON stores the claims. See private W2-milestone2."
+        "Two-root probe passes. Scope mutation, stale publication rejection, unaffected cursor continuation, overlapping folder/provider claims, legacy migration and failed-source retention covered. Existing profile JSON stores the claims. See private W2-milestone2.",
+        "Owner-acceptance fixtures verify install-level publication during a scan, cancellation/continuation, cached overlap denial and stable recorder index across progress-only updates."
       ],
       "blocker": null,
-      "next_action": "Review claim projection, migration and denial precedence; validate on a scratch profile with an offline library. Automatic Steam refresh still processes its resolved library set as one provider."
+      "next_action": "Validate refresh and removal of an offline source and resume a large collection on the owner profile."
     },
     {
       "id": "W2-G4",
@@ -257,7 +259,7 @@
       ],
       "effort": "high",
       "status": "in_progress",
-      "candidate": "6b85607444abbf2ef98c565991e4d31d6a1d0805",
+      "candidate": "1820b0825144201bb512bcc9cc0a9353c739fc36",
       "gates": {
         "local": "pass",
         "ci": "pending",
@@ -267,10 +269,11 @@
       "evidence": [
         "2026-11-15: PR #77 head verified. Windows quality 43750826370 tested an identical merge tree: Personal 785 passed/19 skipped, Upstream 33 passed/14 skipped. Actual Personal installer passed fresh install on a SUBST drive in run 43750826361.",
         "Baseline local strict Personal focused suite passed (276 passed/5 skipped). Baseline full suite had 784 passed/19 skipped and one sandbox-denied registry fixture. See private W2-G6/VERIFICATION.md for baseline and maintenance findings.",
-        "2026-11-16: native compilation and both strict Windows Release builds passed. Exact tested candidate Personal 800 passed/19 skipped, Upstream CI profile filter 33 passed/14 skipped, zero failures. Includes malformed-record eligibility, disabled-source denial and cancellation fixtures. See private W2-G6 verification and broad-discovery TRX files."
+        "2026-11-16: native compilation and both strict Windows Release builds passed. Exact tested candidate Personal 800 passed/19 skipped, Upstream CI profile filter 33 passed/14 skipped, zero failures. Includes malformed-record eligibility, disabled-source denial and cancellation fixtures. See private W2-G6 verification and broad-discovery TRX files.",
+        "Owner-acceptance code: strict Windows Personal 853 passed/22 skipped with one registry fixture left to CI, and Upstream CI filter 74 passed/14 skipped. Games layout and virtualization passed at 780×480 with 125% scaling."
       ],
       "blocker": "Supervised game, display, and installer upgrade checks remain pending.",
-      "next_action": "Use the combined PR #78 for owner acceptance. Recorder readiness and revocation work is tracked in W2-R2."
+      "next_action": "Review the Wave 2 game-detection draft and verify native recording starts on the owner hardware."
     },
     {
       "id": "W2-R1",
