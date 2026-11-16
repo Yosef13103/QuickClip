@@ -34,6 +34,7 @@ public partial class EditorView : UserControl
     private const int MessageOverlayId = 2;
 
     private string? _pendingFile;
+    private CancellationTokenSource? _openingSource;
     private readonly AppSettings _settings = AppSettings.Current;
     private readonly TimelineState _timeline = new();
     private readonly CropController _crop = new();
@@ -120,7 +121,7 @@ public partial class EditorView : UserControl
         // Recycle Bin deletion is still running. Never silently drop the newer request.
         if (_loading || _deletingMedia || _exportPreparing || _resettingDraft)
         {
-            _pendingFile = path;
+            QueueSource(path);
             return;
         }
         if (string.Equals(CurrentFile, path, StringComparison.OrdinalIgnoreCase))
@@ -141,6 +142,12 @@ public partial class EditorView : UserControl
             return;
         }
         if (CanOpenAnother()) await OpenFileAsync(path);
+    }
+
+    private void QueueSource(string path)
+    {
+        _pendingFile = path;
+        if (!_replacingSource) _openingSource?.Cancel();
     }
 
     private async Task OpenPendingFileAsync()
@@ -611,7 +618,7 @@ public partial class EditorView : UserControl
     {
         if (_loading || _deletingMedia || _exportPreparing || _resettingDraft)
         {
-            _pendingFile = path;
+            QueueSource(path);
             return;
         }
         _loading = true;
@@ -623,6 +630,10 @@ public partial class EditorView : UserControl
                 !await TryLeaveClipAsync()) return;
             if (_pendingFile != null && !_replacingSource) return;
             path = Path.GetFullPath(path);
+            using var operation = Log.Begin(DiagnosticCategory.Editor, "Editor source probe");
+            using var opening = new CancellationTokenSource();
+            _openingSource = opening;
+            var token = opening.Token;
             _probingSource = true;
             ShowPreviewLoading();
             var previousTitle = FileNameText.Text;
@@ -642,15 +653,19 @@ public partial class EditorView : UserControl
                 {
                     var state = EditorSource.Check(path, null, out var opened);
                     return (state, opened);
-                });
+                }, token);
+                token.ThrowIfCancellationRequested();
                 var source = checkedSource.state;
                 stamp = checkedSource.opened;
                 if (source != EditorSourceState.Ready) throw new IOException(EditorSource.Message(source));
                 Mouse.OverrideCursor = Cursors.AppStarting;
-                info = await MediaInfo.ProbeAsync(path);
-                details = await ReadMetadataAsync(path, stamp, embeddedCreationTime: info.EmbeddedCreationTime)
+                info = await MediaInfo.ProbeAsync(path, token);
+                token.ThrowIfCancellationRequested();
+                details = await ReadMetadataAsync(path, stamp, token, info.EmbeddedCreationTime)
                     ?? throw new IOException("The recording changed while opening it.");
+                token.ThrowIfCancellationRequested();
                 storedDraft = await ReadEditDraftAsync(path, stamp);
+                token.ThrowIfCancellationRequested();
                 if (AppProfile.IsPersonal)
                 {
                     try { recovery = await Task.Run(() => EditorRecovery.Read(stamp)); }
@@ -659,10 +674,21 @@ public partial class EditorView : UserControl
                         Log.Failure(DiagnosticCategory.Editor, "Could not read editor recovery", ex);
                     }
                 }
-                source = await Task.Run(() => EditorSource.Check(path, stamp, out _));
+                source = await Task.Run(() => EditorSource.Check(path, stamp, out _), token);
+                token.ThrowIfCancellationRequested();
                 if (source != EditorSourceState.Ready) throw new IOException(EditorSource.Message(source));
-                if (_pendingFile != null && !_replacingSource) return;
+                if (_pendingFile != null && !_replacingSource)
+                {
+                    operation?.Cancel();
+                    return;
+                }
                 opened = true;
+                operation?.Complete();
+            }
+            catch (OperationCanceledException) when (token.IsCancellationRequested)
+            {
+                operation?.Cancel();
+                return;
             }
             catch (Exception ex)
             {
@@ -673,6 +699,7 @@ public partial class EditorView : UserControl
             finally
             {
                 Mouse.OverrideCursor = null;
+                _openingSource = null;
                 _probingSource = false;
                 if (!opened)
                 {
@@ -2273,6 +2300,7 @@ public partial class EditorView : UserControl
     }
     internal string FpsChoicesForRender => string.Join(", ", FpsCombo.Items.OfType<Choice>().Select(c => c.Label));
     internal string StatusForRender => StatusText.Text;
+    internal bool ProbingSourceForRender => _probingSource;
     internal void SetTitleForRender(string title) => MetadataEditor.TitleBox.Text = title;
     internal void EditDraftForRender()
     {

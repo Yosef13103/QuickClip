@@ -60,7 +60,9 @@ public partial class MainWindow
             UpdateLayout();
             await Gallery.VerifyHoverTrimForRenderAsync(Gallery.DraftCardForRender(editorFile)!);
             string other = Path.Combine(AppSettings.Current.ClipsFolder, "fixture-b.mp4");
-            await Task.WhenAll(OpenInEditorAsync(other), OpenInEditorAsync(editorFile));
+            var opening = OpenInEditorAsync(other);
+            await WaitForAsync(() => editor.ProbingSourceForRender || opening.IsCompleted, "The next preview probe did not start.");
+            await Task.WhenAll(opening, OpenInEditorAsync(editorFile));
             await WaitForAsync(() => editor.CurrentFile == editorFile && editor.PreviewReadyForRender, "Rapid switching lost the last clip.");
             editor.VerifyDraftForRender();
         }
