@@ -34,6 +34,8 @@ public sealed class RecordingSettingsViewTests
                 Assert.Single(view.PlaybackPicker.Items);
                 Assert.Empty(view.MicrophonePicker.Items);
                 var track = Assert.IsType<DockPanel>(Assert.Single(view.EndpointRows.Children));
+                var reorder = Assert.IsType<StackPanel>(track.Children[0]);
+                Assert.All(reorder.Children.OfType<Button>(), button => Assert.Same(view.FindResource("IconButton"), button.Style));
                 var fields = Assert.IsType<StackPanel>(track.Children[2]);
                 Assert.Equal(saved.Label, Assert.IsType<TextBox>(fields.Children[0]).Text);
                 Assert.Contains("Missing device (selection kept)", Assert.IsType<TextBlock>(fields.Children[1]).Text);
@@ -42,6 +44,7 @@ public sealed class RecordingSettingsViewTests
                     var meter = Assert.IsType<StackPanel>(fields.Children[2]);
                     Assert.Equal("microphone Saved mic activity", AutomationProperties.GetName(meter.Children[0]));
                     var actions = Assert.IsType<WrapPanel>(meter.Children[2]);
+                    Assert.All(actions.Children.OfType<Button>(), button => Assert.Same(view.FindResource("TextButton"), button.Style));
                     Assert.Equal("Test microphone", Assert.IsType<Button>(actions.Children[0]).Content);
                     Assert.Equal("Record 5 seconds", Assert.IsType<Button>(actions.Children[1]).Content);
                     Assert.False(Assert.IsType<Button>(actions.Children[2]).IsEnabled);

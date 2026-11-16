@@ -284,9 +284,20 @@ internal sealed class AppHost : IDisposable
 
     private void ShowClipFeedback(ClipEvent kind, string message, ClipNotificationDetails? details = null)
     {
-        if (_window == null) return;
+        if (_window == null)
+        {
+            if (kind == ClipEvent.Saved) Log.Event(DiagnosticCategory.General, "Saved notification skipped: host window unavailable");
+            return;
+        }
         var settings = AppSettings.Current;
         var feedback = ClipFeedback.From(settings, kind, message);
+        if (kind == ClipEvent.Saved)
+        {
+            Log.Event(DiagnosticCategory.General, "Saved notification evaluated");
+            if (feedback.Overlay) Log.Event(DiagnosticCategory.General, "Saved notification overlay selected");
+            else Log.Event(DiagnosticCategory.General, "Saved notification overlay not selected");
+            if (feedback.Windows) Log.Event(DiagnosticCategory.General, "Saved notification Windows channel selected");
+        }
         if (feedback.Sound) _ = ClipSound.PlayAsync(settings.ClipSoundOutputId, settings.ClipSoundVolume, settings.ClipSoundFilePath);
         if (feedback.Windows) Notify(feedback.Title, feedback.Message);
         if (feedback.Overlay)

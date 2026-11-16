@@ -29,6 +29,23 @@ public sealed class GamesSettingsViewTests
         Assert.Contains("scan incomplete", row.Executables.First().Label);
     }
 
+    [Fact]
+    public void Explicit_blocks_have_a_reversible_action_but_inferred_non_game_roles_do_not()
+    {
+        const string game = @"C:\Collection\Demo\Demo.exe";
+        const string launcher = @"C:\Collection\Demo\Launcher.exe";
+        var entry = new CatalogEntry("folder:demo", "Demo", CatalogSource.Folder,
+            [@"C:\Collection\Demo"], [game, launcher], new()) { RendererExecutables = [game] };
+        var row = new GamesSettingsView.GameRow(entry);
+        row.Update(entry, false, [game], new(new([entry], [], 0, false, default), [game]));
+        Assert.True(row.Executables.Single(item => item.Path == game).ExplicitlyBlocked);
+        Assert.Equal("Unblock selected executable", row.Executables.Single(item => item.Path == game).BlockAction);
+        Assert.False(row.Executables.Single(item => item.Path == launcher).ExplicitlyBlocked);
+        row.Update(entry, false, [], new(new([entry], [], 0, false, default)));
+        Assert.Equal("Block selected executable", row.Executables.Single(item => item.Path == game).BlockAction);
+        Assert.True(row.DetectionReady);
+    }
+
     [Theory]
     [InlineData(1050, 660, 1.0)]
     [InlineData(780, 480, 1.25)]

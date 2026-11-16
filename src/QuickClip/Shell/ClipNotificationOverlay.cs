@@ -75,8 +75,17 @@ internal sealed class ClipNotificationOverlay : IDisposable
         }
         var displays = Displays();
         var display = SelectDisplay(displays, options.Display);
-        if (display == null) return;
+        if (display == null)
+        {
+            if (saved) Log.Event(DiagnosticCategory.General, "Saved overlay skipped: display unavailable");
+            return;
+        }
         bool exclude = options.ExcludeFromCapture(saved);
+        if (saved)
+        {
+            if (imageOnly) Log.Event(DiagnosticCategory.General, "Saved overlay rendering image");
+            else Log.Event(DiagnosticCategory.General, "Saved overlay rendering banner");
+        }
         bool opaque = false;
         int affinityError = 0;
         if (_notificationExclusionRequested != exclude) CloseWindow();
@@ -258,6 +267,7 @@ internal sealed class ClipNotificationOverlay : IDisposable
             }
             _window.Show();
             SetWindowPos(_handle, new IntPtr(-1), x, y, pixelWidth, pixelHeight, 0x0210);
+            if (saved) Log.Event(DiagnosticCategory.General, "Saved overlay show requested");
         }
         finally { if (prior != IntPtr.Zero) SetThreadDpiAwarenessContext(prior); }
         if (exclude && affinityError == 0) TryExcludeWindow(opaque, out affinityError);
