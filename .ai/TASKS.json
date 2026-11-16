@@ -602,6 +602,230 @@
       ],
       "blocker": null,
       "next_action": "Review the draft PR and exercise the owner flow on the integration candidate."
+    },
+    {
+      "id": "W2-F05",
+      "title": "Bound editor saves, navigation and shutdown",
+      "kind": "implementation",
+      "depends_on": [],
+      "read": [
+        "PRODUCT",
+        "QUALITY Q2/Q5",
+        "docs/owner-field-polish.md#wave-2-stabilization-findings"
+      ],
+      "scope": [
+        "Canonical metadata, SQLite write ownership and editor recovery."
+      ],
+      "acceptance": [
+        "Reproduce the two-tag loop and verify bounded cancellation, navigation, retry and close."
+      ],
+      "effort": "high",
+      "status": "implemented",
+      "candidate": "3b72a7762b924a52523e0dc94bb62fba6c4239bb",
+      "gates": {
+        "local": "pass",
+        "ci": "pending",
+        "review": "pending",
+        "hardware": "pending"
+      },
+      "evidence": [
+        "WPF repro failed on the baseline; fixed case, contended SQLite and synthetic close/recovery covered.",
+        "docs/owner-field-polish.md#local-regression-evidence"
+      ],
+      "blocker": null,
+      "next_action": "Repeat the original workflow in the owner preview."
+    },
+    {
+      "id": "W2-F06",
+      "title": "Persist development diagnostics",
+      "kind": "implementation",
+      "depends_on": [],
+      "read": [
+        "PRODUCT",
+        "QUALITY Q2/Q5",
+        "docs/owner-field-polish.md#wave-2-stabilization-findings"
+      ],
+      "scope": [
+        "Existing diagnostic buffer with rotating development files and dispatcher acknowledgements."
+      ],
+      "acceptance": [
+        "Verify process termination, storage failures, restart, rotation and disabling."
+      ],
+      "effort": "high",
+      "status": "implemented",
+      "candidate": "3b72a7762b924a52523e0dc94bb62fba6c4239bb",
+      "gates": {
+        "local": "pass",
+        "ci": "pending",
+        "review": "pending",
+        "hardware": "pending"
+      },
+      "evidence": [
+        "Release tray process retained flushed events after termination; rotation and storage contention have fixtures.",
+        "docs/owner-field-polish.md#local-regression-evidence"
+      ],
+      "blocker": null,
+      "next_action": "Review owner performance with diagnostic logging on and off."
+    },
+    {
+      "id": "W2-F01",
+      "title": "Synchronize committed Gallery and Editor metadata",
+      "kind": "implementation",
+      "depends_on": [],
+      "read": [
+        "PRODUCT",
+        "QUALITY Q2/Q5",
+        "docs/owner-field-polish.md#wave-2-stabilization-findings"
+      ],
+      "scope": [
+        "Live committed revisions, stable clip identity and preservation of local drafts."
+      ],
+      "acceptance": [
+        "Verify both title update directions and preserve trim, replacement and Undo."
+      ],
+      "effort": "medium",
+      "status": "implemented",
+      "candidate": "3b72a7762b924a52523e0dc94bb62fba6c4239bb",
+      "gates": {
+        "local": "pass",
+        "ci": "pending",
+        "review": "pending",
+        "hardware": "pending"
+      },
+      "evidence": [
+        "Generated-media WPF interaction, restart, export, save over original and Undo passed.",
+        "docs/owner-field-polish.md#local-regression-evidence"
+      ],
+      "blocker": null,
+      "next_action": "Verify all fields with an existing owner clip."
+    },
+    {
+      "id": "W2-F02",
+      "title": "Hide stale native preview during source selection",
+      "kind": "implementation",
+      "depends_on": [],
+      "read": [
+        "PRODUCT",
+        "QUALITY Q2/Q5",
+        "docs/owner-field-polish.md#wave-2-stabilization-findings"
+      ],
+      "scope": [
+        "Early loading placeholder and verified libmpv playlist entry."
+      ],
+      "acceptance": [
+        "Verify rapid source changes and the actual frame transition."
+      ],
+      "effort": "medium",
+      "status": "implemented",
+      "candidate": "3b72a7762b924a52523e0dc94bb62fba6c4239bb",
+      "gates": {
+        "local": "pass",
+        "ci": "pending",
+        "review": "pending",
+        "hardware": "pending"
+      },
+      "evidence": [
+        "Generated-media WPF source switching passed; owner timing and GPU behavior remain pending.",
+        "docs/owner-field-polish.md#local-regression-evidence"
+      ],
+      "blocker": null,
+      "next_action": "Test slow and unavailable sources, reduced motion and monitor transitions."
+    },
+    {
+      "id": "W2-F03",
+      "title": "Surface and repair actionable game detection issues",
+      "kind": "implementation",
+      "depends_on": [],
+      "read": [
+        "PRODUCT",
+        "QUALITY Q2/Q5",
+        "docs/owner-field-polish.md#wave-2-stabilization-findings"
+      ],
+      "scope": [
+        "Scoped issue reasons, exact repair actions and durable presentation-only dismissal."
+      ],
+      "acceptance": [
+        "Validate the collection-root executable, ignored issue persistence and Java/Bedrock boundaries."
+      ],
+      "effort": "high",
+      "status": "in_progress",
+      "candidate": "3b72a7762b924a52523e0dc94bb62fba6c4239bb",
+      "gates": {
+        "local": "pass",
+        "ci": "pending",
+        "review": "pending",
+        "hardware": "pending"
+      },
+      "evidence": [
+        "Owner catalog showed a verified collection-root executable without exact gameplay association. Synthetic issue and dismissal tests cover that path.",
+        "docs/owner-field-polish.md#local-regression-evidence"
+      ],
+      "blocker": "Automatic Minecraft Java association still needs verified gameplay-process evidence; Bedrock hardware verification is open.",
+      "next_action": "Validate exact Minesweeper registration and real automatic capture."
+    },
+    {
+      "id": "W2-F04",
+      "title": "Keep saved custom themes visible in the picker",
+      "kind": "implementation",
+      "depends_on": [],
+      "read": [
+        "PRODUCT",
+        "QUALITY Q2/Q5",
+        "docs/owner-field-polish.md#wave-2-stabilization-findings"
+      ],
+      "scope": [
+        "Stable WPF collection and safe changes to named themes."
+      ],
+      "acceptance": [
+        "Verify actual popup, Light/Custom transition, reload and rollback."
+      ],
+      "effort": "medium",
+      "status": "implemented",
+      "candidate": "3b72a7762b924a52523e0dc94bb62fba6c4239bb",
+      "gates": {
+        "local": "pass",
+        "ci": "pending",
+        "review": "pending",
+        "hardware": "pending"
+      },
+      "evidence": [
+        "Isolated WPF popup test passed for imported themes, duplicate rename and locked settings rollback. Owner occurrence remains unconfirmed.",
+        "docs/owner-field-polish.md#local-regression-evidence"
+      ],
+      "blocker": null,
+      "next_action": "Exercise named creation, editing, removal and restart in the owner preview."
+    },
+    {
+      "id": "W2-F07",
+      "title": "Refresh the visible page",
+      "kind": "implementation",
+      "depends_on": [],
+      "read": [
+        "PRODUCT",
+        "QUALITY Q2/Q5",
+        "docs/owner-field-polish.md#wave-2-stabilization-findings"
+      ],
+      "scope": [
+        "Tray command and F5 reuse existing page refresh paths."
+      ],
+      "acceptance": [
+        "Verify refresh preserves the edit draft, recording and active discovery work."
+      ],
+      "effort": "medium",
+      "status": "implemented",
+      "candidate": "3b72a7762b924a52523e0dc94bb62fba6c4239bb",
+      "gates": {
+        "local": "pending",
+        "ci": "pending",
+        "review": "pending",
+        "hardware": "pending"
+      },
+      "evidence": [
+        "Source audit and shared Gallery/Editor regression coverage. Direct owner interaction is pending.",
+        "docs/owner-field-polish.md#local-regression-evidence"
+      ],
+      "blocker": null,
+      "next_action": "Exercise F5 and the tray command during editing, recording and scanning."
     }
   ]
 }
