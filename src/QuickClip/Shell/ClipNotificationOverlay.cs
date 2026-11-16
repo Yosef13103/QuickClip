@@ -33,13 +33,17 @@ internal sealed class ClipNotificationOverlay : IDisposable
     private System.Windows.Shapes.Path? _indicatorMicrophoneGlyph;
 
     private bool _indicatorOpaque;
+    private bool _notificationExclusionRequested;
+    private bool _warnedImageExclusion;
+    private bool _warnedBannerExclusion;
     internal string? IndicatorFailure { get; private set; }
     internal int? IndicatorLayeredError { get; private set; }
     internal bool IndicatorOpaque => _indicatorOpaque;
     internal bool IsVisible => _window?.IsVisible == true;
     internal bool IsAnimatingImage => _frameTimer?.IsEnabled == true;
 
-    internal async Task ShowAsync(ClipOverlayOptions options, string title, bool success, ClipNotificationDetails? details = null, string? error = null, ClipOverlayOptions? missingImageFallback = null)
+    internal async Task ShowAsync(ClipOverlayOptions options, string title, bool success, ClipNotificationDetails? details = null, string? error = null, ClipOverlayOptions? missingImageFallback = null,
+        bool saved = false, Action<bool, int>? exclusionUnavailable = null)
     {
         if (_disposed) return;
         Hide();
@@ -72,7 +76,30 @@ internal sealed class ClipNotificationOverlay : IDisposable
         var displays = Displays();
         var display = SelectDisplay(displays, options.Display);
         if (display == null) return;
+        bool exclude = options.ExcludeFromCapture(saved);
+        bool opaque = false;
+        int affinityError = 0;
+        if (_notificationExclusionRequested != exclude) CloseWindow();
+        _notificationExclusionRequested = exclude;
         EnsureWindow();
+        if (exclude)
+        {
+            opaque = !_window!.AllowsTransparency;
+            if (!TryExcludeWindow(opaque, out affinityError) && !opaque)
+            {
+                CloseWindow();
+                EnsureWindow(false);
+                opaque = true;
+                TryExcludeWindow(opaque, out affinityError);
+            }
+            if (affinityError != 0)
+            {
+                // Keep the enabled local notification, using its ordinary appearance.
+                CloseWindow();
+                EnsureWindow();
+                opaque = false;
+            }
+        }
         GetDpiForMonitor(display.Handle, 0, out uint monitorDpi, out _);
         double monitorScale = monitorDpi == 0 ? 1 : monitorDpi / 96d;
         _surface!.LayoutTransform = Transform.Identity;
@@ -187,7 +214,10 @@ internal sealed class ClipNotificationOverlay : IDisposable
         }
         // Reserve actual transparent space for the expanding wave, rather than
         // scaling a hidden icon inside a clipped content column.
-        bool ripple = MotionEnabled(SystemParameters.ClientAreaAnimation, options.Animation) && options.Animation == OverlayAnimation.Ripple;
+        // An opaque HWND cannot animate its silhouette or fade into the desktop.
+        // GIF/WebM playback still uses the usual frame animation below.
+        bool animateWindow = !opaque && MotionEnabled(SystemParameters.ClientAreaAnimation, options.Animation);
+        bool ripple = animateWindow && options.Animation == OverlayAnimation.Ripple;
         double waveSpace = ripple ? 14 : 0;
         _card.Margin = new Thickness(waveSpace);
         _ring.Margin = new Thickness(waveSpace);
@@ -208,7 +238,6 @@ internal sealed class ClipNotificationOverlay : IDisposable
         _surface.RenderTransform = new TranslateTransform();
         _window!.Width = width;
         _window.Height = height;
-        if (!_window.IsVisible) _window.Show();
         var prior = SetThreadDpiAwarenessContext(new IntPtr(-4));
         try
         {
@@ -219,13 +248,24 @@ internal sealed class ClipNotificationOverlay : IDisposable
             // ripple reserve stays inside the window so the wave cannot be cut off.
             Rect bounds = imageOnly ? display.Bounds : BannerBounds(display.Bounds, display.WorkArea ?? display.Bounds, options.Anchor, scale, pixels.Height);
             Point position = ClipOverlayOptions.Place(bounds, pixels, imageOnly ? 4 : 2, options.Anchor);
-            SetWindowPos(_handle, new IntPtr(-1), (int)Math.Round(position.X), (int)Math.Round(position.Y),
-                (int)pixels.Width, (int)pixels.Height, 0x0210);
+            int pixelWidth = (int)pixels.Width, pixelHeight = (int)pixels.Height;
+            int x = (int)Math.Round(position.X), y = (int)Math.Round(position.Y);
+            if (opaque)
+            {
+                if (imageOnly) SetWindowRgn(_handle, IntPtr.Zero, true);
+                else ApplyRoundedRegion(pixelWidth, pixelHeight, Math.Max(2, (int)Math.Round(24 * scale * fit)));
+                SetWindowPos(_handle, new IntPtr(-1), x, y, pixelWidth, pixelHeight, 0x0210);
+            }
+            _window.Show();
+            SetWindowPos(_handle, new IntPtr(-1), x, y, pixelWidth, pixelHeight, 0x0210);
         }
         finally { if (prior != IntPtr.Zero) SetThreadDpiAwarenessContext(prior); }
-        if (OperatingSystem.IsWindowsVersionAtLeast(10, 0, 19041))
-            SetWindowDisplayAffinity(_handle, 0x11);
-        if (MotionEnabled(SystemParameters.ClientAreaAnimation, options.Animation))
+        if (exclude && affinityError == 0) TryExcludeWindow(opaque, out affinityError);
+        if (affinityError != 0 && !(imageOnly ? _warnedImageExclusion : _warnedBannerExclusion))
+            exclusionUnavailable?.Invoke(imageOnly, affinityError);
+        if (imageOnly) _warnedImageExclusion = affinityError != 0;
+        else if (saved) _warnedBannerExclusion = affinityError != 0;
+        if (animateWindow)
         {
             if (options.Animation == OverlayAnimation.Slide)
             {
@@ -266,7 +306,7 @@ internal sealed class ClipNotificationOverlay : IDisposable
                 _ring.BeginAnimation(UIElement.OpacityProperty, new DoubleAnimation(.85, 0, duration));
             }
         }
-        else _surface.Opacity = options.Opacity;
+        else _surface.Opacity = opaque ? 1 : options.Opacity;
         if (imageOnly && SystemParameters.ClientAreaAnimation && _image?.Frames.Length > 1)
         {
             // GIF/WebM frame playback is independent of the banner entrance effect.
@@ -312,8 +352,6 @@ internal sealed class ClipNotificationOverlay : IDisposable
             Background = allowTransparency ? Brushes.Transparent : new SolidColorBrush(Color.FromRgb(28, 30, 35)), Content = _surface, Width = 72, Height = 72,
         };
         _handle = new WindowInteropHelper(_window).EnsureHandle();
-        if (OperatingSystem.IsWindowsVersionAtLeast(10, 0, 19041))
-            SetWindowDisplayAffinity(_handle, 0x11); // WDA_EXCLUDEFROMCAPTURE, where the capture API supports it
         const int exStyle = -20;
         SetWindowLong(_handle, exStyle, GetWindowLong(_handle, exStyle) | 0x080000A0);
         _timer = new DispatcherTimer(DispatcherPriority.Background);
@@ -418,6 +456,11 @@ internal sealed class ClipNotificationOverlay : IDisposable
         Hide();
         _image = null;
         _imageLoad = null;
+        CloseWindow();
+    }
+
+    private void CloseWindow()
+    {
         _window?.Close();
         _window = null;
     }
@@ -527,8 +570,13 @@ internal sealed class ClipNotificationOverlay : IDisposable
         finally { if (prior != IntPtr.Zero) SetThreadDpiAwarenessContext(prior); }
     }
 
-    // A non-layered window can be excluded reliably on the owner's Windows 10 system,
-    // but cannot use per-pixel alpha. Clip its HWND to the icon silhouettes instead.
+    private void ApplyRoundedRegion(int width, int height, int diameter)
+    {
+        IntPtr region = CreateRoundRectRgn(0, 0, width + 1, height + 1, diameter, diameter);
+        if (region != IntPtr.Zero && SetWindowRgn(_handle, region, true) == 0) DeleteObject(region);
+    }
+
+    // The non-layered HUD uses a native region for the icon silhouettes.
     private void ApplyIndicatorRegion(int width, int height, bool two, double scale)
     {
         int gap = Math.Max(1, (int)Math.Round(scale));
@@ -548,19 +596,28 @@ internal sealed class ClipNotificationOverlay : IDisposable
         if (SetWindowRgn(_handle, region, true) == 0) DeleteObject(region);
     }
 
-    private bool TryExcludeIndicator(out int error)
+    private bool TryExcludeIndicator(out int error) => TryExcludeWindow(_indicatorOpaque, out error);
+
+    private bool TryExcludeWindow(bool opaque, out int error)
     {
+        if (!OperatingSystem.IsWindowsVersionAtLeast(10, 0, 19041))
+        {
+            error = 50; // ERROR_NOT_SUPPORTED
+            return false;
+        }
         const uint excludeFromCapture = 0x11;
         if (!SetWindowDisplayAffinity(_handle, excludeFromCapture))
         {
             error = Marshal.GetLastWin32Error();
+            if (error == 0) error = 31; // ERROR_GEN_FAILURE
             return false;
         }
         // The documented readback only supports layered windows.
-        if (_indicatorOpaque) { error = 0; return true; }
+        if (opaque) { error = 0; return true; }
         if (!GetWindowDisplayAffinity(_handle, out uint actual))
         {
             error = Marshal.GetLastWin32Error();
+            if (error == 0) error = 31; // ERROR_GEN_FAILURE
             return false;
         }
         error = actual == excludeFromCapture ? 0 : 50; // ERROR_NOT_SUPPORTED
