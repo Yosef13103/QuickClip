@@ -55,6 +55,7 @@ internal struct MpvEventEndFile
 {
     public int Reason;
     public int Error;
+    public long PlaylistEntryId;
 }
 
 internal static class MpvNative

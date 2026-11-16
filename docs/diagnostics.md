@@ -1,10 +1,34 @@
 # Diagnostic event logging
 
-QuickClip starts with event logging off. Enabling it is a per-process troubleshooting choice. The buffer keeps the latest 2,048 events and reports events expired by capacity or skipped under native producer contention. The same buffer serves producers and the viewer. It has no worker thread, background writer, or automatic event file. Turning logging off discards the buffer. The visible viewer reads batches once per second and releases its timer and snapshot when hidden or disabled.
+Production starts with event logging off. Enabling it in the Diagnostics page is a per-process troubleshooting choice. The buffer keeps the latest 2,048 events and reports events expired by capacity or skipped under native producer contention. Turning logging off discards the buffer. The viewer reads batches once per second while visible. An ordinary launch never starts a verbose event file writer.
 
 Entries contain UTC timestamps, severity, category, a source-controlled summary and an optional numeric error code. Copy and export use the current filters. Export creates a new file at the selected location. Essential startup, capture, save, settings and crash failures go to the profile's `quickclip-errors.log`, with two-second per-category throttling for routine failures and one rotated file at 128 KiB. Managed crash entries can include up to six QuickClip method names. Existing `quickclip.log` files are outside the viewer and export path.
 
 Recording timing continues to use `AppSettings.RecordingDiagnostics` and the existing capture restart when it changes. Capture sampling keeps one rolling summary, and replay save timing keeps one sample for the current capture session. The recording HUD's trailing FPS and microphone verification's signal measurements continue independently.
+
+## Development sessions
+
+`scripts/dev.ps1` enables persistent event logging for development launches in both Debug and Release. Use `scripts/dev.ps1 -NoDevelopmentDiagnostics` for benchmark launches. If you start the executable directly, set `QUICKCLIP_DEV_DIAGNOSTICS=1` in that PowerShell process before launch. Use `0` or leave it unset to start without a writer. The Diagnostics toggle pauses new verbose events for the current process.
+
+The writer consumes the same bounded buffer as the viewer. It attempts to drain every 500 ms and flushes each batch to disk. `development.log` and `development.log.old` retain at most 1 MiB each. Every event carries a random session ID. Session headers give the build and profile, and paired operation entries report an operation ID and elapsed milliseconds. The dispatcher probe reports a delayed dispatcher acknowledgement separately from a pending save. Excess events or unavailable storage may lose a batch. Essential-error files remain independent.
+
+The default development log directory is `bin/quickclip-personal/profile/local/diagnostics` under the checkout. For `-Watch`, use `watch-profile`. An explicit `QUICKCLIP_PERSONAL_DATA_DIR` puts the logs in that profile's `local/diagnostics`.
+
+```powershell
+$profile = if ($env:QUICKCLIP_PERSONAL_DATA_DIR) { $env:QUICKCLIP_PERSONAL_DATA_DIR } else {
+    Join-Path (Get-Location) 'bin/quickclip-personal/profile'
+}
+$logDirectory = Join-Path $profile 'local/diagnostics'
+$files = @('development.log.old', 'development.log') |
+    ForEach-Object { Join-Path $logDirectory $_ } |
+    Where-Object { Test-Path -LiteralPath $_ }
+Select-String -LiteralPath $files -SimpleMatch 'session start' | Select-Object -Last 12
+$session = Read-Host 'Enter the session ID at the start of the relevant log line'
+Select-String -LiteralPath $files -SimpleMatch "$session " |
+    ForEach-Object Line | Set-Content -LiteralPath (Join-Path $logDirectory "$session.txt")
+```
+
+If a hang returns, leave QuickClip running and note the UTC time. In Task Manager's Details tab, verify the PID for the affected preview before choosing **Create memory dump file**. The dialog provides the local file location. Keep the dump local because process memory can contain clips, paths and credentials. An indefinitely pending async save can leave the dispatcher responsive, so capture the dump while the symptom is present. [Task Manager process dumps](https://learn.microsoft.com/en-us/windows/win32/wer/collecting-user-mode-dumps)
 
 ## Wave 2 integration
 

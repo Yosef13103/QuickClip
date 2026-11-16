@@ -101,11 +101,11 @@
             <Image x:Name="RailIcon" DockPanel.Dock="Top" Source="Assets/QuickClip.ico" Width="30" Height="30" Margin="0,16,0,14" />
             <StackPanel DockPanel.Dock="Top">
                 <RadioButton x:Name="GalleryNav" Style="{StaticResource RailItem}" Tag="&#xE8A9;" Content="Gallery" GroupName="Nav"
-                             IsChecked="True" Checked="Nav_Checked" Click="GalleryNav_Click" ToolTip="Your clips" />
+                             IsChecked="True" Click="Nav_Click" ToolTip="Your clips" />
                 <RadioButton x:Name="EditorNav" Style="{StaticResource RailItem}" Tag="&#xE70F;" Content="Editor" GroupName="Nav"
-                             Checked="Nav_Checked" ToolTip="Trim, crop and export a clip" />
+                             Click="Nav_Click" ToolTip="Trim, crop and export a clip" />
                 <RadioButton x:Name="SettingsNav" Style="{StaticResource RailItem}" Tag="&#xE713;" Content="Settings" GroupName="Nav"
-                             Checked="Nav_Checked" ToolTip="Recording, audio, hotkey and startup" />
+                             Click="Nav_Click" ToolTip="Recording, audio, hotkey and startup" />
             </StackPanel>
             <Grid />
         </DockPanel>

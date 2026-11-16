@@ -39,7 +39,7 @@ internal sealed class LegacyClipAnnotationActions : IClipAnnotationActions
     public Task<ClipAnnotationResult> SaveDraftAsync(ClipAnnotationTarget target, ClipDetails draft, CancellationToken token)
     {
         token.ThrowIfCancellationRequested();
-        return Task.Run(() => SaveDraft(target, draft), token);
+        return Task.Run(() => SaveDraft(target, draft, token), token);
     }
 
     public Task<IReadOnlyList<ClipAnnotationResult>> ApplyAsync(IReadOnlyList<ClipAnnotationTarget> targets,
@@ -63,24 +63,25 @@ internal sealed class LegacyClipAnnotationActions : IClipAnnotationActions
                     }
                 }
                 return current with { Tags = tags, IsFavorite = favorite ?? current.IsFavorite };
-            }));
+            }, token));
         }
         return results;
     }, token);
 
-    internal ClipAnnotationResult SaveDraft(ClipAnnotationTarget target, ClipDetails draft) => Update(target, current =>
+    internal ClipAnnotationResult SaveDraft(ClipAnnotationTarget target, ClipDetails draft, CancellationToken token = default) => Update(target, current =>
     {
         if (!SameDetails(current, target.Details))
             throw new AnnotationEditException("Clip details changed. Cancel this draft and reopen the clip to see the saved details.");
         return draft;
-    });
+    }, token);
 
-    private ClipAnnotationResult Update(ClipAnnotationTarget target, Func<ClipDetails, ClipDetails> edit)
+    private ClipAnnotationResult Update(ClipAnnotationTarget target, Func<ClipDetails, ClipDetails> edit, CancellationToken token)
     {
         lock (_gate)
         {
             try
             {
+                token.ThrowIfCancellationRequested();
                 if (!AppProfile.IsPersonal || ClipLibrary.IsMomentsPath(target.Path))
                     throw new AnnotationEditException("Annotations are unavailable for this clip.");
                 using var lease = LibraryFiles.OpenMedia(target.Path);
@@ -91,7 +92,7 @@ internal sealed class LegacyClipAnnotationActions : IClipAnnotationActions
                 var file = new FileInfo(target.Path);
                 var current = ClipDetailsStore.Read(file, target.Details.Game, target.Details.CapturedAt);
                 var updated = edit(current).Normalize();
-                if (!SameDetails(current, updated)) ClipDetailsStore.Write(target.Path, updated);
+                if (!SameDetails(current, updated)) ClipDetailsStore.Write(target.Path, updated, token);
                 return new(target.Path, updated, null);
             }
             catch (AnnotationEditException ex) { return new(target.Path, null, ex.Message); }

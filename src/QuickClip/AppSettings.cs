@@ -13,6 +13,8 @@ internal sealed class AppSettings
         DiscoverGog = AppProfile.IsPersonal,
         EnabledLaunchers = AppProfile.IsPersonal ? [.. Enum.GetValues<CatalogSource>().Where(LocalLaunchers.IsSupported)] : [],
     };
+    public string[] IgnoredGameIssues { get; set; } = [];
+
     // The editor's encoder, quality, size and frame rate start at "same as original" for every clip.
     public InterfaceScale InterfaceScale { get; set; } = new();
     public string Format { get; set; } = "source";

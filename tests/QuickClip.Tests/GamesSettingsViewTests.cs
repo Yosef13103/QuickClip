@@ -153,6 +153,61 @@ public sealed class GamesSettingsViewTests
         Assert.Single(page.Games.Items.OfType<GamesSettingsView.GameRow>());
     });
 
+    [Fact]
+    public async Task Loose_collection_executable_needs_association_and_dismissal_follows_issue_type()
+    {
+        var scratch = Directory.CreateTempSubdirectory("quickclip-collection-");
+        try
+        {
+            string path = Path.Combine(scratch.FullName, "Fixture.exe");
+            await File.WriteAllBytesAsync(path, [1]);
+            var scan = await GameCatalogService.ScanAsync(new CatalogRequest { GameRoots = [new(scratch.FullName, true)] });
+            var loose = Assert.Single(scan.Entries, entry => entry.Executables.Contains(path, StringComparer.OrdinalIgnoreCase));
+            var row = new GamesSettingsView.GameRow(loose);
+            row.EvaluateIssue([], scanning: false);
+            Assert.Equal(GamesSettingsView.DetectionIssue.UnassociatedExecutable, row.Issue);
+            var ignored = AppSettings.Parse(new AppSettings { IgnoredGameIssues = row.IssueKeys().ToArray() }.ToJson()).IgnoredGameIssues;
+            row.EvaluateIssue(ignored, scanning: false);
+            Assert.True(row.IssueIgnored);
+            Assert.False(row.DetectionReady);
+
+            var approved = loose with { Rules = new() { ApprovedExecutables = [path] } };
+            row.Update(approved, false, [], new(new([approved], [], 0, false, default)));
+            row.EvaluateIssue(ignored, scanning: false);
+            Assert.True(row.DetectionReady);
+            Assert.False(row.HasIssue);
+
+            var offline = loose with { UnverifiedExecutables = [path] };
+            row.Update(offline, true, [], new(new([offline], [], 0, false, default)));
+            row.EvaluateIssue(ignored, scanning: true);
+            Assert.False(row.HasIssue);
+            row.EvaluateIssue(ignored, scanning: false);
+            Assert.Equal(GamesSettingsView.DetectionIssue.SourceUnavailable, row.Issue);
+            Assert.False(row.IssueIgnored);
+        }
+        finally { scratch.Delete(recursive: true); }
+    }
+
+    [Fact]
+    public void Launcher_and_block_rules_stay_out_of_actionable_issues_except_minecraft_proxy()
+    {
+        var proxy = new CatalogEntry("xbox:fixture", "Fixture", CatalogSource.Xbox, [@"C:\Games\Fixture"],
+            [@"C:\Games\Fixture\MCPlaceholderStub.exe"], new());
+        var row = new GamesSettingsView.GameRow(proxy);
+        row.EvaluateIssue([], scanning: false);
+        Assert.Equal(GamesSettingsView.DetectionIssue.MinecraftJava, row.Issue);
+
+        var launcher = proxy with { Executables = [@"C:\Games\Fixture\Launcher.exe"] };
+        row.Update(launcher, false, [], new(new([launcher], [], 0, false, default)));
+        row.EvaluateIssue([], scanning: false);
+        Assert.False(row.HasIssue);
+
+        var disabled = proxy with { Rules = new(Inclusion: CatalogInclusion.Exclude) };
+        row.Update(disabled, false, [], new(new([disabled], [], 0, false, default)));
+        row.EvaluateIssue([], scanning: false);
+        Assert.False(row.HasIssue);
+    }
+
     private static GameCatalogSettings Fixture(int count) => new()
     {
         Request = new()

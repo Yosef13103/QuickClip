@@ -11,7 +11,77 @@ public partial class EditorView
     private FileStamp? _sourceStamp;
     private EditorSourceState _sourceState;
     private bool _sourceSuspended, _recheckingSource, _replacingSource;
-    private bool _previewReady;
+    private bool _previewReady, _probingSource;
+    private long _previewEntry;
+    private DispatcherTimer? _previewProgressTimer;
+
+    private void ShowPreviewLoading()
+    {
+        Video.Visibility = Visibility.Hidden;
+        EmptySourceHint.Text = "Loading preview…";
+        EmptySourceHint.Visibility = Visibility.Visible;
+        if (!SystemParameters.ClientAreaAnimation) return;
+        _previewProgressTimer ??= new DispatcherTimer(TimeSpan.FromMilliseconds(250), DispatcherPriority.Background,
+            (_, _) =>
+            {
+                _previewProgressTimer!.Stop();
+                PreviewProgress.IsIndeterminate = true;
+                PreviewProgress.Visibility = Visibility.Visible;
+            }, Dispatcher);
+        _previewProgressTimer.Start();
+    }
+
+    private void HidePreviewProgress()
+    {
+        _previewProgressTimer?.Stop();
+        PreviewProgress.IsIndeterminate = false;
+        PreviewProgress.Visibility = Visibility.Collapsed;
+    }
+
+    private void LoadNativePreview(string path)
+    {
+        _previewEntry = 0;
+        // loadfile enqueues opening the media. The playlist entry is available even while
+        // demuxing; its ID distinguishes successive loads of the same filename.
+        if (_player?.Command("loadfile", path, "replace") == true &&
+            long.TryParse(_player.GetString("playlist/0/id"), out _previewEntry)) return;
+        HidePreviewProgress();
+        EmptySourceHint.Text = "Preview not available for this file";
+    }
+
+    private void OnMpvPreviewReadyOrFailed(long entryId, int error)
+    {
+        Dispatcher.BeginInvoke(() =>
+        {
+            if (_closed || _probingSource || _pendingFile != null || !SourceReady || _media == null ||
+                entryId == 0 || entryId != _previewEntry) return;
+            HidePreviewProgress();
+            if (error < 0)
+            {
+                _previewReady = false;
+                _previewEntry = 0;
+                PlayButton.IsEnabled = false;
+                Video.Visibility = Visibility.Hidden;
+                EmptySourceHint.Visibility = Visibility.Visible;
+                EmptySourceHint.Text = "Preview not available for this file";
+                Log.Event(DiagnosticCategory.Editor, "mpv playback ended with an error", DiagnosticSeverity.Error, error);
+                return;
+            }
+
+            if (!EditorSource.MatchesLoadedPreview(_player?.GetString("path"), _media.Path)) return;
+            _previewReady = true;
+            _idle = false;
+            Video.Visibility = Visibility.Visible;
+            PlayButton.IsEnabled = true;
+            EmptySourceHint.Visibility = Visibility.Collapsed;
+            Video.DisableChildWindows();
+            DeleteStalePreviews();
+            ApplyPreviewVolumes();
+            ApplyLoop();
+            UpdateOsdGeometry();
+            QueueNativePreviewRepaint();
+        });
+    }
     private bool _restoreRepaintQueued;
     private bool _sourceEventsAttached;
     private Window? _sourceWindow;
@@ -102,7 +172,7 @@ public partial class EditorView
             }), DispatcherPriority.ContextIdle)), DispatcherPriority.Loaded);
     }
 
-    private void StopSourcePreview()
+    private void StopSourcePreview(bool keepLoading = false)
     {
         _waveCts?.Cancel();
         _keyframeCts?.Cancel();
@@ -111,6 +181,8 @@ public partial class EditorView
         _audioSyncTimer.Stop();
         _paused = true;
         _previewReady = false;
+        _previewEntry = 0;
+        if (!keepLoading) HidePreviewProgress();
         PlayButton.IsEnabled = false;
         // libmpv can retain the last rendered frame while idle. Hide its HWND until
         // a FileLoaded event verifies that the requested current clip is playing.
@@ -149,7 +221,7 @@ public partial class EditorView
             MissingSourceOverlayMessage.Text = EditorSource.Message(state) +
                 "\n\nClear editor closes this clip without deleting any recording.";
         }
-        Video.Visibility = ready && _media != null && _previewReady
+        Video.Visibility = ready && _media != null && _previewReady && !_probingSource
             ? Visibility.Visible : Visibility.Hidden;
         EmptySourceHint.Visibility = ready
             ? _previewReady && _media != null ? Visibility.Collapsed : Visibility.Visible
@@ -233,22 +305,76 @@ public partial class EditorView
         Root.Focus();
     }
 
+    internal async Task RefreshDisplayedClipAsync()
+    {
+        if (_leavingClip || _loading || _resettingDraft || _closed || MetadataEditor.IsSaving ||
+            _editWrite is { IsCompleted: false }) return;
+        await RefreshSourceAsync();
+        await RefreshMetadataAsync();
+    }
+
+    internal Task RefreshMetadataOnReturnAsync() => RefreshMetadataAsync();
+
+    private async Task RefreshMetadataAsync()
+    {
+        if (!AppProfile.IsPersonal || !SourceReady || _closed || _loading || CurrentFile is not { } path ||
+            _sourceStamp is not { } stamp || MetadataEditor.HasDraft || MetadataEditor.IsSaving) return;
+        var initial = MetadataEditor.AnnotationTarget?.Details;
+        using var timeout = new CancellationTokenSource(SaveDeadline.Duration);
+        try
+        {
+            var read = ReadMetadataAsync(path, stamp, timeout.Token);
+            var details = await read.WaitAsync(timeout.Token);
+            if (details != null && !_closed && _sourceStamp == stamp &&
+                ReferenceEquals(initial, MetadataEditor.AnnotationTarget?.Details) &&
+                MetadataEditor.ApplyCommittedDetails(details))
+                ShowClipTitle(details);
+        }
+        catch (OperationCanceledException) when (timeout.IsCancellationRequested) { }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            Log.Failure(DiagnosticCategory.Editor, "Could not refresh clip details", ex);
+        }
+    }
+
+    private async Task<ClipDetails?> ReadMetadataAsync(string path, FileStamp stamp, CancellationToken token = default,
+        DateTimeOffset? embeddedCreationTime = null)
+    {
+        var details = await PersonalLibrary.Current.ReadAsync(path, token);
+        var folder = _settings.ClipsFolder;
+        var embedded = embeddedCreationTime ?? (SavedRecordingFolders.Paths.Equals(CurrentFile, path) ? _media?.EmbeddedCreationTime : null);
+        return await Task.Run(() => EditorSource.Check(path, stamp, out _) == EditorSourceState.Ready
+            ? details ?? ClipDetailsStore.Read(new FileInfo(path), ClipLibrary.InitialGame(folder, path), embedded)
+            : null, token);
+    }
+
     private async Task RefreshSourceAsync()
     {
         if (_closed || _loading || _deletingMedia || _replacingSource || _recheckingSource ||
             CurrentFile is not { } path) return;
         var stamp = _sourceStamp;
         bool wasUnavailable = _sourceState != EditorSourceState.Ready;
-        if (!VerifySource(path)) return;
-        if (!wasUnavailable && !_sourceSuspended) return;
         var media = _media;
         _recheckingSource = true;
         RetryMissingSourceButton.IsEnabled = false;
         try
         {
-            if (wasUnavailable) await MediaInfo.ProbeAsync(path);
-            if (_closed || !ReferenceEquals(media, _media) || _sourceStamp != stamp || !VerifySource(path)) return;
-            SetSourceState(EditorSourceState.Ready);
+            var state = await Task.Run(() => EditorSource.Check(path, stamp, out _));
+            if (_closed || _loading || !ReferenceEquals(media, _media) || _sourceStamp != stamp) return;
+            if (state != EditorSourceState.Ready)
+            {
+                SetSourceState(state);
+                return;
+            }
+            if (!wasUnavailable && !_sourceSuspended) return;
+            if (wasUnavailable)
+            {
+                await MediaInfo.ProbeAsync(path);
+                state = await Task.Run(() => EditorSource.Check(path, stamp, out _));
+            }
+            if (_closed || _loading || !ReferenceEquals(media, _media) || _sourceStamp != stamp) return;
+            SetSourceState(state);
+            if (state != EditorSourceState.Ready) return;
             ReloadPreview();
             StartWaveforms();
             if (media != null) _ = LoadKeyframesAsync(media);
@@ -257,8 +383,9 @@ public partial class EditorView
         {
             if (!_closed && ReferenceEquals(media, _media))
             {
-                var state = EditorSource.Check(path, stamp, out _);
-                SetSourceState(state == EditorSourceState.Ready ? EditorSourceState.Unreadable : state);
+                var state = await Task.Run(() => EditorSource.Check(path, stamp, out _));
+                if (!_closed && !_loading && ReferenceEquals(media, _media) && _sourceStamp == stamp)
+                    SetSourceState(state == EditorSourceState.Ready ? EditorSourceState.Unreadable : state);
             }
         }
         finally

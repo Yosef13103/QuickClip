@@ -48,12 +48,12 @@ internal sealed partial class LibraryIndex
             return rows;
         });
 
-    internal Task<long> SaveGalleryDetailsAsync(ClipAnnotationTarget target, ClipDetails draft, CancellationToken token) =>
-        Mutate(target.Details.IndexId ?? Guid.Empty, target.Details.IndexRevision, token, (connection, transaction, id) =>
+    internal Task<long> SaveGalleryDetailsAsync(ClipAnnotationTarget target, ClipDetails draft, CancellationToken token)
+    {
+        FileStamp stamp = default;
+        return Mutate(target.Details.IndexId ?? Guid.Empty, target.Details.IndexRevision, token, (connection, transaction, id) =>
         {
             // Check both the indexed path and current file identity before editing a cached card or draft.
-            using var handle = LibraryFiles.OpenMedia(target.Path);
-            var stamp = LibraryFiles.ReadStamp(handle);
             if (stamp.Bytes != target.Stamp.Length || stamp.Created != target.Stamp.Created.Ticks ||
                 stamp.Modified != target.Stamp.Modified.Ticks || (target.Source is { } expected && stamp != expected) ||
                 Convert.ToInt64(Scalar(connection, transaction, """
@@ -74,7 +74,21 @@ internal sealed partial class LibraryIndex
                 ("$game", game), ("$gameKey", LibraryFiles.TextKey(game)), ("$id", id));
             var ticks = Scalar(connection, transaction, "SELECT duration_ticks FROM clips WHERE id=$id;", ("$id", id));
             WriteGalleryAnnotations(connection, transaction, id, draft.Normalize(), ticks as long?, preserveExisting: true);
+        }, leaseSource: () =>
+        {
+            var handle = LibraryFiles.OpenMedia(target.Path);
+            try
+            {
+                stamp = LibraryFiles.ReadStamp(handle);
+                return handle;
+            }
+            catch
+            {
+                handle.Dispose();
+                throw;
+            }
         });
+    }
 
     private static void WriteGalleryAnnotations(SqliteConnection connection, SqliteTransaction transaction,
         string id, ClipDetails details, long? durationTicks, bool preserveExisting = false)

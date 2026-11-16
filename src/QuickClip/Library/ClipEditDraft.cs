@@ -55,11 +55,12 @@ internal sealed partial class LibraryIndex
             return new(payload, state);
         });
 
-    internal Task SaveEditDraftAsync(string path, FileStamp expected, string? previous, ClipEditDraft? draft) =>
-        Run(default, _ =>
+    internal Task SaveEditDraftAsync(string path, FileStamp expected, string? previous, ClipEditDraft? draft, CancellationToken token = default) =>
+        Run(token, cancellation =>
         {
             // Hold a read lease during the transaction, fencing a concurrent source replacement.
             using var source = OpenDraftSource(path, expected);
+            cancellation.ThrowIfCancellationRequested();
             if (draft is { IsValid: false }) throw new ArgumentException("The edit draft is invalid.");
             using var connection = _database.Open();
             using var transaction = connection.BeginTransaction();
@@ -82,6 +83,7 @@ internal sealed partial class LibraryIndex
                     VALUES($id,$created,$modified,$bytes,$version,$start,$end,$payload)
                     ON CONFLICT DO UPDATE SET version=excluded.version,start=excluded.start,end=excluded.end,payload=excluded.payload;
                     """, [.. key, ("$version", ClipEditDraft.Version), ("$start", draft.Start), ("$end", draft.End), ("$payload", draft.Serialize())]);
+            cancellation.ThrowIfCancellationRequested();
             transaction.Commit();
             return true;
         });

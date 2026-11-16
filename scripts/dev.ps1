@@ -14,6 +14,7 @@ param(
     [switch]$Portable,
     [Parameter(Mandatory = $true, ParameterSetName = 'Watch')]
     [switch]$Watch,
+    [switch]$NoDevelopmentDiagnostics,
     [ValidateSet('Debug', 'Release')][string]$Configuration = 'Release'
 )
 
@@ -179,8 +180,10 @@ if (!$Watch) {
 
 $previousRoot = $env:DOTNET_ROOT
 $previousProfile = $env:QUICKCLIP_PERSONAL_DATA_DIR
+$previousDiagnostics = $env:QUICKCLIP_DEV_DIAGNOSTICS
 try {
     $env:DOTNET_ROOT = Split-Path -Parent $dotnet
+    $env:QUICKCLIP_DEV_DIAGNOSTICS = if ($NoDevelopmentDiagnostics) { '0' } else { '1' }
     if (!$previousProfile) {
         $env:QUICKCLIP_PERSONAL_DATA_DIR = Join-Path $devRoot $(if ($Watch) { 'watch-profile' } else { 'profile' })
     }
@@ -190,4 +193,5 @@ try {
 finally {
     $env:DOTNET_ROOT = $previousRoot
     $env:QUICKCLIP_PERSONAL_DATA_DIR = $previousProfile
+    $env:QUICKCLIP_DEV_DIAGNOSTICS = $previousDiagnostics
 }

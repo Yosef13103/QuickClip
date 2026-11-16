@@ -12,8 +12,10 @@ public partial class EditorView
     private ClipEditDraft? _defaultEditDraft;
     private string? _defaultEditPayload, _storedEditPayload, _draftReadError;
     private Task<bool>? _editWrite;
-    private bool _editChangedDuringWrite;
+    private bool _editChangedDuringWrite, _editSaveTimedOut;
     private bool _resettingDraft, _exportPreparing, _leavingClip;
+    private Task? _recoveryWrite, _recoveryCleanup;
+    private bool _restoredRecovery;
 
     internal event Action<string, ClipDraftRange?>? EditDraftSaved;
 
@@ -21,6 +23,17 @@ public partial class EditorView
     {
         if (string.Equals(CurrentFile, path, StringComparison.OrdinalIgnoreCase)) ShowClipTitle(details);
         ClipDetailsSaved?.Invoke(path, details);
+    }
+
+    internal void ApplyCommittedDetails(string path, ClipDetails details)
+    {
+        if (_closed || !SavedRecordingFolders.Paths.Equals(CurrentFile, path)) return;
+        if (details.IndexId == null && !MetadataEditor.HasDraft && !MetadataEditor.IsSaving)
+        {
+            _ = RefreshMetadataAsync(); // Legacy sidecars have no revision; re-read the verified current file.
+            return;
+        }
+        if (MetadataEditor.ApplyCommittedDetails(details)) ShowClipTitle(details);
     }
 
     private async Task<StoredClipDraft?> ReadEditDraftAsync(string path, FileStamp stamp)
@@ -45,6 +58,7 @@ public partial class EditorView
     private void ClearEditDraft()
     {
         _draftTimer.Stop();
+        _restoredRecovery = false;
         _defaultEditDraft = null;
         _defaultEditPayload = _storedEditPayload = _draftReadError = null;
         DraftStatus.Text = "";
@@ -61,6 +75,85 @@ public partial class EditorView
         DraftStatus.Text = _draftReadError ??
             (restored ? "Edits restored" : draft != null ? "Could not restore saved edits. You can reset them." : "");
         ResetEditsButton.Visibility = AppProfile.IsPersonal ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    private async Task<bool> CheckpointUnsavedAsync()
+    {
+        if (!AppProfile.IsPersonal || _sourceStamp is not { Identity: not null } stamp ||
+            (_recoveryWrite is { IsCompleted: false })) return false;
+        var details = MetadataEditor.CaptureRecovery();
+        var edit = _defaultEditDraft != null ? CaptureEditDraft() : null;
+        string? serialized = edit?.Serialize();
+        if (serialized == _defaultEditPayload) serialized = null;
+        if (serialized == _storedEditPayload) edit = null;
+        if (details == null && edit == null) return false;
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(2));
+        using var operation = Log.Begin(DiagnosticCategory.Editor, "Editor recovery checkpoint");
+        var snapshot = new EditorRecovery(stamp, details, _storedEditPayload, edit);
+        var cleanup = _recoveryCleanup;
+        var token = timeout.Token;
+        _recoveryWrite = Task.Run(async () =>
+        {
+            if (cleanup != null) await cleanup.WaitAsync(token);
+            token.ThrowIfCancellationRequested();
+            snapshot.Write(token);
+        });
+        try
+        {
+            await _recoveryWrite.WaitAsync(timeout.Token);
+            _restoredRecovery = false;
+            operation?.Complete();
+            return true;
+        }
+        catch (OperationCanceledException) when (timeout.IsCancellationRequested)
+        {
+            operation?.Cancel();
+            return false;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidDataException)
+        {
+            operation?.Fail(ex.HResult);
+            return false;
+        }
+    }
+
+    private void OfferRecovery(EditorRecovery? recovery)
+    {
+        _restoredRecovery = false;
+        if (recovery == null) return;
+        bool detailsMatch = recovery.Details == null || MetadataEditor.RestoreRecovery(recovery.Details, apply: false);
+        bool editMatches = recovery.Edit == null || _draftReadError == null &&
+            (_storedEditPayload == recovery.PreviousEdit || _storedEditPayload == recovery.Edit.Serialize());
+        if (!detailsMatch || !editMatches)
+        {
+            DraftStatus.Text = "Recovery is available, but saved changes conflict. The recovery copy was kept.";
+            return;
+        }
+        if (!ModalDialog.ConfirmAction(OwnerWindow, "Restore the unsaved changes from the previous session?",
+            "Recover editor changes", "Restore changes", "Keep saved version", destructive: false)) return;
+
+        if (recovery.Details != null) MetadataEditor.RestoreRecovery(recovery.Details, apply: true);
+        if (recovery.Edit != null && !RestoreEditDraft(recovery.Edit))
+        {
+            DraftStatus.Text = "Could not restore the edit draft. The recovery copy was kept.";
+            return;
+        }
+        _restoredRecovery = true;
+        DraftStatus.Text = "Recovered changes. Review them before leaving this clip.";
+    }
+
+    private void RemoveRestoredRecovery()
+    {
+        if (!_restoredRecovery || _sourceStamp is not { } stamp) return;
+        _restoredRecovery = false;
+        _recoveryCleanup = Task.Run(() =>
+        {
+            try { EditorRecovery.Remove(stamp); }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                Log.Failure(DiagnosticCategory.Editor, "Could not remove old editor recovery", ex);
+            }
+        });
     }
 
     private ClipEditDraft CaptureEditDraft()
@@ -115,7 +208,7 @@ public partial class EditorView
         _draftTimer.Start();
     }
 
-    private Task<bool> SaveEditDraftAsync()
+    private Task<bool> SaveEditDraftAsync(CancellationToken token = default)
     {
         _draftTimer.Stop();
         if (_editWrite != null) return _editWrite;
@@ -133,21 +226,32 @@ public partial class EditorView
         }
 
         // Reuse the same write if a timer and a navigation request overlap.
-        _editWrite = PersistEditDraftAsync(path, stamp, payload == null ? null : state, payload);
+        _editSaveTimedOut = false;
+        _editWrite = PersistEditDraftAsync(path, stamp, payload == null ? null : state, payload, token);
         return _editWrite;
     }
 
-    private async Task<bool> PersistEditDraftAsync(string path, FileStamp stamp, ClipEditDraft? state, string? payload)
+    private async Task<bool> PersistEditDraftAsync(string path, FileStamp stamp, ClipEditDraft? state, string? payload, CancellationToken token)
     {
+        using var operation = Log.Begin(DiagnosticCategory.Editor, "Edit draft save");
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(token);
+        timeout.CancelAfter(SaveDeadline.Duration);
         await Task.Yield();
         DraftStatus.Text = "Saving edits…";
         try
         {
-            await PersonalLibrary.Current.SaveEditDraftAsync(path, stamp, _storedEditPayload, state);
+            await PersonalLibrary.Current.SaveEditDraftAsync(path, stamp, _storedEditPayload, state, timeout.Token);
+            operation?.Complete();
             _storedEditPayload = payload;
             DraftStatus.Text = state == null ? "" : "Edits saved";
             EditDraftSaved?.Invoke(path, state == null ? null : new(stamp, state.Start, state.End));
             return true;
+        }
+        catch (OperationCanceledException) when (timeout.IsCancellationRequested)
+        {
+            operation?.Cancel();
+            DraftStatus.Text = "Storage did not respond in time. Your edits are still here.";
+            return false;
         }
         catch (Exception ex)
         {
@@ -169,8 +273,17 @@ public partial class EditorView
     private async Task<bool> FlushEditDraftAsync()
     {
         _draftTimer.Stop();
-        if (_editWrite is { } pending) await pending;
-        return await SaveEditDraftAsync();
+        if (_editSaveTimedOut && _editWrite is { IsCompleted: false }) return false;
+        using var deadline = new CancellationTokenSource(SaveDeadline.Duration);
+        bool saved = (_editWrite is not { } pending || await SaveDeadline.WaitAsync(pending, deadline.Token)) &&
+            await SaveDeadline.WaitAsync(SaveEditDraftAsync(deadline.Token), deadline.Token);
+        if (deadline.IsCancellationRequested)
+        {
+            _editSaveTimedOut = _editWrite is { IsCompleted: false };
+            Log.WarnSlowSave();
+            DraftStatus.Text = "Storage is taking too long. Your edits are still here.";
+        }
+        return saved;
     }
 
     internal async Task<bool> FlushForNavigationAsync()
@@ -179,10 +292,7 @@ public partial class EditorView
         _leavingClip = true;
         try
         {
-            if (await FlushClipAsync()) return true;
-            return ModalDialog.ConfirmAction(OwnerWindow,
-                "Some changes could not be saved. They will stay open in the editor for this session.",
-                "Could not save changes", "Leave editor", "Keep editing", destructive: false);
+            return await FlushClipAsync();
         }
         finally { _leavingClip = false; }
     }
@@ -193,9 +303,10 @@ public partial class EditorView
         IsEnabled = false;
         try
         {
-            _player?.SetProperty("pause", true);
+            _player?.CommandAsync("set", "pause", "yes");
             bool details = await MetadataEditor.FlushAsync();
             bool draft = await FlushEditDraftAsync();
+            if (details && draft) RemoveRestoredRecovery();
             return details && draft;
         }
         finally { IsEnabled = enabled; }
@@ -212,16 +323,24 @@ public partial class EditorView
         return false;
     }
 
-    private async Task<bool> TryLeaveClipAsync()
+    private async Task<bool> TryLeaveClipAsync(bool closing = false)
     {
         if (_leavingClip) return false;
         _leavingClip = true;
         try
         {
             bool saved = await FlushClipAsync();
+            if (!closing && (MetadataEditor.IsSaving || _editWrite is { IsCompleted: false })) return false;
             bool transient = _tracks.Any(track => track.IsSound) ||
                 (_openedDraft != null && _openedDraft != DraftSignature());
             if (saved && !transient) return true;
+            if (!saved && closing && await CheckpointUnsavedAsync())
+            {
+                if (!transient) return true;
+                return ModalDialog.ConfirmAction(OwnerWindow,
+                    "Pending metadata and timeline edits were kept for recovery. Added sounds are only available for this session. Close anyway?",
+                    "Close editor", "Close editor", "Keep editing", destructive: true);
+            }
             string message = !saved
                 ? "Some changes could not be saved. Discard the unsaved changes?"
                 : "Some edit settings are only available for this session. Discard them?";
@@ -244,15 +363,27 @@ public partial class EditorView
         UpdateUiState();
         try
         {
-            if (_editWrite is { } pending) await pending;
+            using var timeout = new CancellationTokenSource(SaveDeadline.Duration);
+            if (_editWrite is { IsCompleted: false } pending && !await SaveDeadline.WaitAsync(pending, timeout.Token))
+            {
+                DraftStatus.Text = "Could not reset edits while the previous save is settling.";
+                return;
+            }
             if (_draftReadError != null)
             {
                 DraftStatus.Text = _draftReadError;
                 return;
             }
             if (_storedEditPayload != null)
-                await PersonalLibrary.Current.SaveEditDraftAsync(path, stamp, _storedEditPayload, null);
-            _storedEditPayload = null;
+            {
+                _editWrite = PersistEditDraftAsync(path, stamp, null, null, timeout.Token);
+                if (!await SaveDeadline.WaitAsync(_editWrite, timeout.Token))
+                {
+                    _editSaveTimedOut = _editWrite is { IsCompleted: false } && timeout.IsCancellationRequested;
+                    DraftStatus.Text = "Could not reset saved edits.";
+                    return;
+                }
+            }
             foreach (var sound in _tracks.Where(track => track.IsSound).ToArray()) RemoveSound(sound);
             _timeline.Fit();
             RestoreEditDraft(defaults);

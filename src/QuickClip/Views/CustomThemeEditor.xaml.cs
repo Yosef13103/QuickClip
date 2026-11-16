@@ -143,6 +143,7 @@ public partial class CustomThemeEditor : UserControl
         settings.SavedCustomThemes = updated;
         settings.CustomThemeJson = json;
         settings.Theme = nameof(ThemeChoice.Custom);
+        using var operation = Log.Begin(DiagnosticCategory.Settings, "Custom theme persistence");
         if (!settings.TrySave())
         {
             settings.SavedCustomThemes = previousLibrary;
@@ -153,6 +154,7 @@ public partial class CustomThemeEditor : UserControl
         }
         // The owning AppearanceSettings applies and refreshes under its selection
         // guard. A theme switch may recreate the ComboBox's template.
+        operation?.Complete();
         Saved?.Invoke();
         Feedback.Text = "Theme stored in your QuickClip library.";
     }

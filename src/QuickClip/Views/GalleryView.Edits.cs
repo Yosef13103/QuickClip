@@ -45,9 +45,22 @@ public partial class GalleryView
 
     internal async Task<bool> FlushAnnotationsAsync()
     {
-        if (_rename is { } active && !await CommitRenameAsync(active.Box)) return false;
-        if (_renameSave is { IsCompleted: false } pending && !await pending) return false;
+        using var deadline = new CancellationTokenSource(SaveDeadline.Duration);
+        if (_renameSave is { IsCompleted: false } pending && !await SaveDeadline.WaitAsync(pending, deadline.Token))
+            return ShowRenameWaitFailure(deadline.Token);
+        if (_rename is { } active && !await SaveDeadline.WaitAsync(CommitRenameAsync(active.Box), deadline.Token))
+            return ShowRenameWaitFailure(deadline.Token);
         return await GalleryDetailsEditor.FlushAsync();
+    }
+
+    private bool ShowRenameWaitFailure(CancellationToken token)
+    {
+        if (token.IsCancellationRequested)
+        {
+            Log.WarnSlowSave();
+            ShowStatus("Saving the title is taking too long. Wait for storage and try again.");
+        }
+        return false;
     }
 
     private void RenameTitle_Click(object sender, RoutedEventArgs e)
@@ -96,6 +109,7 @@ public partial class GalleryView
 
     private Task<bool> CommitRenameAsync(TextBox box)
     {
+        if (_renameSave is { IsCompleted: false } pending) return pending;
         if (_rename is not { } active || active.Box != box) return Task.FromResult(true);
         string title = box.Text.Trim();
         EndRename(box);
@@ -105,25 +119,33 @@ public partial class GalleryView
 
     private async Task<bool> SaveRenameAsync((TextBox Box, ClipItem Clip, ClipAnnotationTarget Target) active, string title)
     {
+        using var timeout = new CancellationTokenSource(SaveDeadline.Duration);
+        using var operation = Log.Begin(DiagnosticCategory.Editor, "Gallery title save");
         var target = active.Target;
         try
         {
             var draft = target.Details with { Title = title.Length == 0 ? null : title };
-            var result = await AnnotationActions.SaveDraftAsync(target, draft, CancellationToken.None);
+            var result = await AnnotationActions.SaveDraftAsync(target, draft, timeout.Token);
             if (result.Details != null)
             {
+                operation?.Complete();
                 ApplyClipDetails(result.Path, result.Details);
                 ShowStatus("Clip title saved.");
                 return true;
             }
             ShowStatus(result.Error == null ? "Could not rename the clip." : $"Could not rename the clip. {result.Error}");
         }
+        catch (OperationCanceledException) when (timeout.IsCancellationRequested)
+        {
+            operation?.Cancel();
+            ShowStatus("Storage did not respond in time. Retry the title change.");
+        }
         catch (Exception ex)
         {
             ShowStatus("Could not rename the clip.");
             Log.Failure(DiagnosticCategory.Library, "Could not rename clip", ex);
         }
-        if (_rename == null && active.Box.IsLoaded && ReferenceEquals(active.Box.DataContext, active.Clip))
+        if (!_released && _rename == null && active.Box.IsLoaded && ReferenceEquals(active.Box.DataContext, active.Clip))
         {
             _rename = active;
             active.Box.Visibility = Visibility.Visible;

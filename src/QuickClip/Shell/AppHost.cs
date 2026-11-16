@@ -48,6 +48,8 @@ internal sealed class AppHost : IDisposable
     public event Action? UpdateRequested;
     public event Action? RecordingSettingsRequested;
     public event Action? QuitRequested;
+    internal Func<bool>? CanRefresh { get; set; }
+    internal event Action? RefreshRequested;
 
     /// <summary>True if the configured shortcut is registered (false if another app already uses it).</summary>
     public bool HotkeyActive => HotkeyState(RecordingCommand.SaveClip) == HotkeyRegistration.Registered;
@@ -423,6 +425,7 @@ internal sealed class AppHost : IDisposable
         var s = AppSettings.Current;
         var menu = new ContextMenu { Placement = PlacementMode.MousePoint };
         menu.Items.Add(Item("Open " + AppProfile.Name, () => OpenRequested?.Invoke(), bold: true));
+        if (CanRefresh?.Invoke() == true) menu.Items.Add(Item("Refresh visible page", () => RefreshRequested?.Invoke()));
         if (!recorder.IsRunning && SourceGuidance(recorder.Error) is { } guidance)
         {
             var sourceItem = Item("Recording source unavailable · Settings…", () => RecordingSettingsRequested?.Invoke());

@@ -1,5 +1,8 @@
 using System.Windows;
 using System.Windows.Threading;
+using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
+using System.Windows.Media;
 using QuickClip.Shell;
 using QuickClip.Themes;
 using QuickClip.Views;
@@ -10,12 +13,18 @@ namespace QuickClip.Tests;
 [Collection("WPF controls")]
 public sealed class FrontendWindowAcceptanceTests(ITestOutputHelper output)
 {
+    private sealed class ThemeTestApp : App
+    {
+        // WPF queues OnStartup even when a fixture only pumps the dispatcher.
+        // Keep the real tray, single-instance IPC and recorder out of this fixture.
+        protected override void OnStartup(StartupEventArgs e) => ShutdownMode = ShutdownMode.OnExplicitShutdown;
+    }
+
     [OptInFact("QUICKCLIP_TEST_FRONTEND_WINDOWS")]
     public Task Theme_import_switch_and_reopen_preserves_the_saved_picker_library() => OnDispatcher(async () =>
     {
         if (!AppProfile.IsPersonal) return;
-        var app = new App();
-        app.InitializeComponent();
+        var app = new ThemeTestApp();
         app.ShutdownMode = ShutdownMode.OnExplicitShutdown;
         app.Themes.Attach(app);
         var profile = AppSettings.Current;
@@ -40,7 +49,9 @@ public sealed class FrontendWindowAcceptanceTests(ITestOutputHelper output)
                 view.CustomEditor.ImportTheme(path);
                 File.Delete(path);
             }
+            Assert.Equal(2, profile.SavedCustomThemes.Length);
             Assert.Equal(6, view.ThemePicker.Items.Count);
+            await VerifyThemePopupAsync(view.ThemePicker, "Fixture Slate", "Fixture AMOLED");
             view.ThemePicker.SelectionChanged += (_, e) => output.WriteLine($"selection={view.ThemePicker.SelectedIndex}, loaded={view.IsLoaded}, pickerLoaded={view.ThemePicker.IsLoaded}, applied={profile.Theme}, source={e.OriginalSource?.GetType().Name}");
             view.ThemePicker.SelectedIndex = 3; // Light changes the WPF Fluent theme mode.
             await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
@@ -57,6 +68,19 @@ public sealed class FrontendWindowAcceptanceTests(ITestOutputHelper output)
             Assert.Equal(6, reopened.ThemePicker.Items.Count);
             Assert.Equal(view.ThemePicker.SelectedIndex, reopened.ThemePicker.SelectedIndex);
             Assert.Equal(2, persisted.SavedCustomThemes.Length);
+            await VerifyThemePopupAsync(view.ThemePicker, "Fixture Slate", "Fixture AMOLED");
+
+            var active = Assert.IsType<ThemeDocument>(ThemeResources.ReadSaved(profile.CustomThemeJson));
+            string duplicate = active.Name == "Fixture Slate" ? "Fixture AMOLED" : "Fixture Slate";
+            Assert.NotNull(view.RenameTheme(active, duplicate));
+            using (new FileStream(AppSettings.FilePath, FileMode.Open, FileAccess.Read, FileShare.Read))
+                Assert.NotNull(view.RenameTheme(active, "Renamed Fixture"));
+            Assert.Equal(active.Name, ThemeResources.ReadSaved(profile.CustomThemeJson)!.Name);
+            Assert.Null(view.RenameTheme(active, "Renamed Fixture"));
+            await VerifyThemePopupAsync(view.ThemePicker, "Renamed Fixture", duplicate);
+            var renamedProfile = AppSettings.Parse(File.ReadAllText(AppSettings.FilePath));
+            Assert.DoesNotContain(renamedProfile.SavedCustomThemes,
+                json => ThemeResources.ReadSaved(json)?.Name == active.Name);
         }
         finally
         {
@@ -65,6 +89,30 @@ public sealed class FrontendWindowAcceptanceTests(ITestOutputHelper output)
             fixture.Delete(recursive: true);
         }
     });
+
+    private static async Task VerifyThemePopupAsync(ComboBox picker, params string[] names)
+    {
+        picker.ApplyTemplate();
+        picker.IsDropDownOpen = true;
+        try
+        {
+            await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
+            var popup = Assert.IsType<Popup>(picker.Template.FindName("PART_Popup", picker));
+            Assert.True(popup.IsOpen);
+            var child = Assert.IsAssignableFrom<FrameworkElement>(popup.Child);
+            child.UpdateLayout();
+            string[] labels = Labels(child).ToArray();
+            foreach (string name in names) Assert.Contains(name + " (custom)", labels);
+        }
+        finally { picker.IsDropDownOpen = false; }
+
+        static IEnumerable<string> Labels(DependencyObject element)
+        {
+            if (element is TextBlock text) yield return text.Text;
+            for (int i = 0; i < VisualTreeHelper.GetChildrenCount(element); i++)
+                foreach (var label in Labels(VisualTreeHelper.GetChild(element, i))) yield return label;
+        }
+    }
 
     [OptInFact("QUICKCLIP_TEST_FRONTEND_WINDOWS")]
     public Task Hud_preview_uses_display_affinity_or_stays_hidden() => OnDispatcher(async () =>

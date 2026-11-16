@@ -132,16 +132,7 @@ public partial class EditorView : UserControl
             }
             await RefreshSourceAsync();
             if (!SourceReady) return;
-            if (AppProfile.IsPersonal && !MetadataEditor.HasDraft && !MetadataEditor.IsSaving && File.Exists(path))
-            {
-                var source = _sourceStamp;
-                var details = await PersonalLibrary.Current.ReadAsync(path);
-                if (!string.Equals(CurrentFile, path, StringComparison.OrdinalIgnoreCase) || _sourceStamp != source ||
-                    MetadataEditor.HasDraft || MetadataEditor.IsSaving || !VerifySource(path)) return;
-                details ??= ClipDetailsStore.Read(new FileInfo(path), ClipLibrary.InitialGame(_settings.ClipsFolder, path), _media?.EmbeddedCreationTime);
-                MetadataEditor.Open(path, details, duration: _media?.Duration, source: source);
-                ShowClipTitle(details);
-            }
+            await RefreshMetadataAsync();
             return;
         }
         if (!_uiReady)
@@ -349,7 +340,7 @@ public partial class EditorView : UserControl
             async (_, _) =>
             {
                 _draftTimer!.Stop();
-                if (_exportCts == null) await SaveEditDraftAsync();
+                if (_exportCts == null) await FlushEditDraftAsync();
             }, Dispatcher) { IsEnabled = false };
         MetadataEditor.KnownTags = () => KnownTags?.Invoke() ?? [];
         MetadataEditor.SeekBookmark = seconds => OnSeekRequested(seconds, true);
@@ -448,6 +439,7 @@ public partial class EditorView : UserControl
             _previewAudio = new PreviewAudio(_player);
             _player.PropertyChanged += OnMpvProperty;
             _player.EventReceived += OnMpvEvent;
+            _player.PreviewReadyOrFailed += OnMpvPreviewReadyOrFailed;
         }
         catch (Exception ex)
         {
@@ -494,7 +486,7 @@ public partial class EditorView : UserControl
             _exportCts.Cancel();
         }
 
-        if (!await TryLeaveClipAsync()) return false;
+        if (!await TryLeaveClipAsync(closing: true)) return false;
         _draftTimer.Stop();
         _closed = true;
         Loaded -= OnLoaded;
@@ -514,6 +506,7 @@ public partial class EditorView : UserControl
         {
             player.PropertyChanged -= OnMpvProperty;
             player.EventReceived -= OnMpvEvent;
+            player.PreviewReadyOrFailed -= OnMpvPreviewReadyOrFailed;
             await Task.Run(player.Dispose);
         }
         if (_exportPath != null) TryDelete(_exportPath);
@@ -630,38 +623,77 @@ public partial class EditorView : UserControl
                 !await TryLeaveClipAsync()) return;
             if (_pendingFile != null && !_replacingSource) return;
             path = Path.GetFullPath(path);
+            _probingSource = true;
+            ShowPreviewLoading();
+            var previousTitle = FileNameText.Text;
+            var previousWindowTitle = FileTitle;
+            FileTitle = null;
+            FileNameText.Text = "Opening recording…";
+            TitleChanged?.Invoke();
             MediaInfo info;
             FileStamp stamp;
             ClipDetails details;
             StoredClipDraft? storedDraft;
+            EditorRecovery? recovery = null;
+            bool opened = false;
             try
             {
-                var source = EditorSource.Check(path, null, out stamp);
+                var checkedSource = await Task.Run(() =>
+                {
+                    var state = EditorSource.Check(path, null, out var opened);
+                    return (state, opened);
+                });
+                var source = checkedSource.state;
+                stamp = checkedSource.opened;
                 if (source != EditorSourceState.Ready) throw new IOException(EditorSource.Message(source));
                 Mouse.OverrideCursor = Cursors.AppStarting;
                 info = await MediaInfo.ProbeAsync(path);
-                details = await PersonalLibrary.Current.ReadAsync(path) ??
-                    ClipDetailsStore.Read(new FileInfo(path), ClipLibrary.InitialGame(_settings.ClipsFolder, path), info.EmbeddedCreationTime);
+                details = await ReadMetadataAsync(path, stamp, embeddedCreationTime: info.EmbeddedCreationTime)
+                    ?? throw new IOException("The recording changed while opening it.");
                 storedDraft = await ReadEditDraftAsync(path, stamp);
-                source = EditorSource.Check(path, stamp, out _);
+                if (AppProfile.IsPersonal)
+                {
+                    try { recovery = await Task.Run(() => EditorRecovery.Read(stamp)); }
+                    catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Text.Json.JsonException)
+                    {
+                        Log.Failure(DiagnosticCategory.Editor, "Could not read editor recovery", ex);
+                    }
+                }
+                source = await Task.Run(() => EditorSource.Check(path, stamp, out _));
                 if (source != EditorSourceState.Ready) throw new IOException(EditorSource.Message(source));
+                if (_pendingFile != null && !_replacingSource) return;
+                opened = true;
             }
             catch (Exception ex)
             {
+                if (_pendingFile != null && !_replacingSource) return;
                 ModalDialog.Show(OwnerWindow, $"Couldn't open \"{Path.GetFileName(path)}\":\n\n{ex.Message}", "QuickClip", MessageBoxButton.OK, MessageBoxImage.Error);
                 return;
             }
             finally
             {
                 Mouse.OverrideCursor = null;
+                _probingSource = false;
+                if (!opened)
+                {
+                    HidePreviewProgress();
+                    FileNameText.Text = previousTitle;
+                    FileTitle = previousWindowTitle;
+                    TitleChanged?.Invoke();
+                    if (_previewReady)
+                    {
+                        Video.Visibility = Visibility.Visible;
+                        EmptySourceHint.Visibility = Visibility.Collapsed;
+                    }
+                    else if (_media == null)
+                        EmptySourceHint.Text = "Open a video or drop it here";
+                    else if (_previewEntry != 0 && _pendingFile == null)
+                        ReloadPreview();
+                }
             }
 
-            StopSourcePreview();
+            StopSourcePreview(keepLoading: true);
             bool differentClip = !string.Equals(_media?.Path, path, StringComparison.OrdinalIgnoreCase);
-            _previewReady = false;
-            PlayButton.IsEnabled = false;
-            EmptySourceHint.Text = "Loading preview…";
-            EmptySourceHint.Visibility = Visibility.Visible;
             _media = info;
             _sourceStamp = stamp;
             _sourceState = EditorSourceState.Ready;
@@ -719,6 +751,7 @@ public partial class EditorView : UserControl
             CropCheck.IsChecked = false;
             AspectCombo.SelectedIndex = 0;
             SetUpEditDraft(storedDraft);
+            OfferRecovery(recovery);
 
             if (_player != null)
             {
@@ -727,7 +760,7 @@ public partial class EditorView : UserControl
                 SetPreviewStart();
                 ConfigurePreviewAudio();
                 _player.SetProperty("pause", true);
-                _player.CommandAsync("loadfile", path, "replace");
+                LoadNativePreview(path);
             }
             ShowMessage(info.Video == null ? "♪  Audio only" : null);
 
@@ -958,9 +991,7 @@ public partial class EditorView : UserControl
         if (_player == null || _media == null || !SourceReady) return;
         _previewReady = false;
         PlayButton.IsEnabled = false;
-        Video.Visibility = Visibility.Hidden;
-        EmptySourceHint.Text = "Loading preview…";
-        EmptySourceHint.Visibility = Visibility.Visible;
+        ShowPreviewLoading();
         var sounds = _tracks.Where(t => t.IsSound && t.PreviewFile != null).Select(t => t.PreviewFile!);
         double position = _timeline.Position;
         _player.Command("stop"); // the new track setup only fits the reloaded file
@@ -969,7 +1000,7 @@ public partial class EditorView : UserControl
         _player.SetProperty("start", position > 0.001 ? Fmt.Num(position, "0.######") : "none");
         _player.SetProperty("pause", _paused);
         _eof = false;
-        _player.CommandAsync("loadfile", _media.Path, "replace");
+        LoadNativePreview(_media.Path);
     }
 
     /// <summary>Deletes placed sound copies the preview no longer plays (or, at startup, any left over from before).</summary>
@@ -1134,32 +1165,9 @@ public partial class EditorView : UserControl
             if (_closed) return;
             switch (id)
             {
-                case MpvEventId.FileLoaded:
-                    // An older async loadfile can finish after the user has chosen a newer clip,
-                    // especially while the system is busy. Never reveal that stale mpv frame.
-                    if (_closed || !SourceReady || _media == null ||
-                        !EditorSource.MatchesLoadedPreview(_player?.GetString("path"), _media.Path))
-                        break;
-                    _previewReady = true;
-                    _idle = false;
-                    Video.Visibility = Visibility.Visible;
-                    PlayButton.IsEnabled = true;
-                    EmptySourceHint.Visibility = Visibility.Collapsed;
-                    Video.DisableChildWindows();
-                    DeleteStalePreviews();
-                    ApplyPreviewVolumes();
-                    ApplyLoop();
-                    UpdateOsdGeometry();
-                    QueueNativePreviewRepaint();
-                    break;
                 case MpvEventId.VideoReconfig:
                     Video.DisableChildWindows();
                     UpdateOsdGeometry();
-                    break;
-                case MpvEventId.EndFile when error < 0 && _media != null && SourceReady:
-                    if (!VerifySource(_media.Path)) break;
-                    ShowMessage("Preview not available for this file\n(export may still work)");
-                    Log.Event(DiagnosticCategory.Editor, "mpv playback ended with an error", DiagnosticSeverity.Error, error);
                     break;
             }
         });
@@ -2265,6 +2273,7 @@ public partial class EditorView : UserControl
     }
     internal string FpsChoicesForRender => string.Join(", ", FpsCombo.Items.OfType<Choice>().Select(c => c.Label));
     internal string StatusForRender => StatusText.Text;
+    internal void SetTitleForRender(string title) => MetadataEditor.TitleBox.Text = title;
     internal void EditDraftForRender()
     {
         _timeline.SetIn(1);

@@ -92,6 +92,8 @@ public partial class App : Application
             return;
         }
 
+        if (!renderTest || !AppProfile.UsesDefaultDataRoot) Log.StartDevelopmentDiagnostics(Dispatcher);
+
         var missing = new List<string>();
         if (!Deps.HasLibMpv) missing.Add("libmpv-2.dll (video preview)");
         if (Deps.FFmpeg == null) missing.Add("ffmpeg.exe (export)");
@@ -147,6 +149,8 @@ public partial class App : Application
         if (!AppSettings.SaveDisabled) AppSettings.Current.ApplyReplayStartupPreference();
         Host = new AppHost();
         Host.OpenRequested += () => ShowMain();
+        Host.CanRefresh = () => _main is { IsVisible: true, CanRefreshVisiblePage: true };
+        Host.RefreshRequested += () => _main?.RefreshVisiblePage();
         Host.UpdateRequested += () =>
         {
             ShowMain();
@@ -315,6 +319,7 @@ public partial class App : Application
             _quitting = false; // the user kept the window open
             return false;
         }
+        using var quit = Log.Begin(DiagnosticCategory.General, "Application quit");
         await Recorder.Instance.StopAsync();
         Host?.Dispose();
         AppSettings.Current.Save();
@@ -326,6 +331,9 @@ public partial class App : Application
             MessageBox.Show("The update could not start. Open QuickClip to continue using the current version.\n\n" + ex.Message,
                 "QuickClip Personal update", MessageBoxButton.OK, MessageBoxImage.Error);
         }
+        quit?.Complete();
+        quit?.Dispose();
+        await Log.StopDevelopmentDiagnosticsAsync();
         Shutdown(0);
         return true;
     }

@@ -58,8 +58,8 @@ internal sealed class DiagnosticBuffer(int capacity = 2048) : IDisposable
         bool realtime = false) =>
         Volatile.Read(ref _session)?.Publish(category, severity, message, code, realtime);
 
-    public DiagnosticSnapshot? Read(ref DiagnosticCursor cursor) =>
-        Volatile.Read(ref _session)?.Read(ref cursor);
+    public DiagnosticSnapshot? Read(ref DiagnosticCursor cursor, bool incremental = false) =>
+        Volatile.Read(ref _session)?.Read(ref cursor, incremental);
 
     public void Dispose()
     {
@@ -100,21 +100,24 @@ internal sealed class DiagnosticBuffer(int capacity = 2048) : IDisposable
             finally { Monitor.Exit(_gate); }
         }
 
-        public DiagnosticSnapshot? Read(ref DiagnosticCursor cursor)
+        public DiagnosticSnapshot? Read(ref DiagnosticCursor cursor, bool incremental)
         {
             lock (_gate)
             {
                 long contended = Interlocked.Read(ref _contended);
                 var current = new DiagnosticCursor(generation, _count, contended);
                 if (_entries == null || cursor == current) return null;
+                long previous = cursor.Session == generation && incremental ? cursor.Count : 0;
+                long dropped = Math.Max(0, _count - previous - capacity) +
+                    contended - (incremental && cursor.Session == generation ? cursor.Contended : 0);
                 cursor = current;
-                int count = (int)Math.Min(_count, capacity);
+                int count = (int)Math.Min(_count - previous, capacity);
                 int first = (int)((_count - count) % capacity);
                 int contiguous = Math.Min(count, capacity - first);
                 var batch = new DiagnosticEntry[count];
                 Array.Copy(_entries, first, batch, 0, contiguous);
                 Array.Copy(_entries, 0, batch, contiguous, count - contiguous);
-                return new(batch, _count - count + contended);
+                return new(batch, dropped);
             }
         }
 

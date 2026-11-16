@@ -210,7 +210,13 @@ public partial class GalleryView : UserControl
         _ = ReloadAsync();
     }
 
-    private async Task ReloadAsync()
+    internal async Task RefreshVisibleAsync()
+    {
+        if (_released || _loading || !await FlushAnnotationsAsync() || !IsVisible) return;
+        await ReloadAsync(rereadIndex: true);
+    }
+
+    private async Task ReloadAsync(bool rereadIndex = false)
     {
         if (_released) return;
         if (_loading)
@@ -275,6 +281,10 @@ public partial class GalleryView : UserControl
                     _clips = loaded.OrderByDescending(clip => clip.Details.CapturedAt).ToList();
                     if (incomplete) ShowStatus("One or more Gallery sources are unavailable or could not be fully scanned.");
                 }
+                else if (rereadIndex)
+                {
+                    _clips = await PersonalLibrary.Current.ReadIndexedClipsAsync(_lifetime.Token, folders: available);
+                }
                 else
                 {
                     RebuildProjects();
@@ -293,14 +303,19 @@ public partial class GalleryView : UserControl
             foreach (var clip in _clips)
             {
                 // Keep thumbnails already on screen so a new clip doesn't make every card flicker.
-                if (previous.TryGetValue(clip.Path, out var old) && !ReferenceEquals(old, clip) &&
-                    old.Size == clip.Size && old.Thumbnail != null &&
-                    old.File.LastWriteTimeUtc == clip.File.LastWriteTimeUtc && old.File.CreationTimeUtc == clip.File.CreationTimeUtc)
+                if (previous.TryGetValue(clip.Path, out var old) && !ReferenceEquals(old, clip))
                 {
-                    clip.Thumbnail = old.Thumbnail;
-                    clip.ThumbnailWidth = old.ThumbnailWidth;
-                    if (_thumbnailNodes.Remove(old, out var node)) _decodedThumbnails.Remove(node);
-                    RememberThumbnail(clip);
+                    if (old.Details.IndexId is { } clipId && clipId == clip.Details.IndexId &&
+                        old.Details.IndexRevision > clip.Details.IndexRevision)
+                        clip.ApplyDetails(old.Details); // A save callback arrived while the query was in flight.
+                    if (old.Size == clip.Size && old.Thumbnail != null &&
+                        old.File.LastWriteTimeUtc == clip.File.LastWriteTimeUtc && old.File.CreationTimeUtc == clip.File.CreationTimeUtc)
+                    {
+                        clip.Thumbnail = old.Thumbnail;
+                        clip.ThumbnailWidth = old.ThumbnailWidth;
+                        if (_thumbnailNodes.Remove(old, out var node)) _decodedThumbnails.Remove(node);
+                        RememberThumbnail(clip);
+                    }
                 }
                 clip.IsSelected = _selected.Contains(clip.Path);
                 // Incremental refresh can retain items from other sources.
@@ -479,6 +494,8 @@ public partial class GalleryView : UserControl
         FavoritesFilter.IsChecked = FavoritesSort.IsChecked = false;
     }
 
+    internal event Action<string, ClipDetails>? DetailsCommitted;
+
     internal void ApplyClipDetails(string path, ClipDetails details) => ApplyClipDetails([new(path, details, null)]);
 
     private void ApplyClipDetails(IReadOnlyList<ClipAnnotationResult> changes)
@@ -490,10 +507,17 @@ public partial class GalleryView : UserControl
         foreach (var clip in _clips)
         {
             if (!saved.TryGetValue(clip.Path, out var details)) continue;
+            if (clip.Details.IndexId == details.IndexId && clip.Details.IndexRevision > details.IndexRevision) continue;
             regroup |= clip.Folder != details.Game;
             clip.ApplyDetails(details);
         }
         if (saved.Count == 0) return;
+        foreach (var (path, details) in saved)
+        {
+            if (SavedRecordingFolders.Paths.Equals(GalleryDetailsEditor.AnnotationTarget?.Path, path))
+                GalleryDetailsEditor.ApplyCommittedDetails(details);
+            DetailsCommitted?.Invoke(path, details);
+        }
         RefreshKnownTags();
         if (regroup || _filter.FavoritesFirst) _renderedColumns = 0;
         if (regroup) RebuildFolders(preserveScroll: true);

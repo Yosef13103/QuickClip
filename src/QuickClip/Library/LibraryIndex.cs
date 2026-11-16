@@ -87,7 +87,29 @@ internal sealed partial class LibraryIndex
         CancellationToken cancellationToken = default, Action<int, int>? progress = null) => Run(cancellationToken, token => Reconcile(rootId, options ?? new(), token, progress));
 
     private static Task<T> Run<T>(CancellationToken token, Func<CancellationToken, T> action) =>
-        Task.Run(() => { token.ThrowIfCancellationRequested(); return action(token); }, token);
+        Task.Run(() =>
+        {
+            using var operation = Log.Begin(DiagnosticCategory.Library, "SQLite operation");
+            try
+            {
+                token.ThrowIfCancellationRequested();
+                T result = action(token);
+                operation?.Complete();
+                return result;
+            }
+            catch (OperationCanceledException)
+            {
+                operation?.Cancel();
+                throw;
+            }
+            catch (Microsoft.Data.Sqlite.SqliteException ex)
+            {
+                operation?.Fail(ex.SqliteExtendedErrorCode);
+                if (ex.SqliteErrorCode is 5 or 6)
+                    Log.Event(DiagnosticCategory.Library, "SQLite busy or locked", DiagnosticSeverity.Warning, ex.SqliteErrorCode);
+                throw;
+            }
+        }, token);
 
     private static string Id(Guid value) => value.ToString("N");
 

@@ -147,10 +147,12 @@ internal sealed partial class LibraryIndex
         });
 
     private Task<long> Mutate(Guid clipId, long? expectedRevision, CancellationToken cancellationToken,
-        Action<SqliteConnection, SqliteTransaction, string> edit) =>
+        Action<SqliteConnection, SqliteTransaction, string> edit, Func<IDisposable>? leaseSource = null) =>
         Run(cancellationToken, token =>
         {
             if (clipId == Guid.Empty || expectedRevision < 0) throw new ArgumentException("Invalid clip identity or revision.");
+            using var source = leaseSource?.Invoke();
+            token.ThrowIfCancellationRequested();
             using var connection = _database.Open();
             using var transaction = connection.BeginTransaction();
             string id = Id(clipId);

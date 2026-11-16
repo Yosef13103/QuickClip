@@ -7,6 +7,45 @@ namespace QuickClip;
 internal static class Log
 {
     private static readonly DiagnosticBuffer Buffer = new();
+    private static DevelopmentDiagnostics? _development;
+    private static IDisposable? _dispatcherProbe;
+    private static long _nextSlowWarning;
+
+    internal static void StartDevelopmentDiagnostics(System.Windows.Threading.Dispatcher dispatcher)
+    {
+        if (!AppProfile.IsPersonal || Environment.GetEnvironmentVariable("QUICKCLIP_DEV_DIAGNOSTICS") != "1") return;
+        SetEnabled(true);
+        _development = new(Buffer, Path.Combine(AppProfile.LocalDirectory, "diagnostics"));
+        _dispatcherProbe = new DispatcherProbe(dispatcher);
+        Event(DiagnosticCategory.General, "Development diagnostics enabled");
+    }
+
+    internal static async Task StopDevelopmentDiagnosticsAsync()
+    {
+        if (_development == null) return;
+        _dispatcherProbe?.Dispose();
+        Event(DiagnosticCategory.General, "Development session stopping");
+        try { await _development.StopAsync().WaitAsync(TimeSpan.FromMilliseconds(750)); }
+        catch (TimeoutException) { }
+    }
+
+    internal static DiagnosticOperation? Begin(DiagnosticCategory category, [ConstantExpected] string operation) =>
+        Enabled ? new(category, operation) : null;
+
+    internal static void OperationEvent(DiagnosticCategory category, string message,
+        DiagnosticSeverity severity = DiagnosticSeverity.Information, int? code = null)
+    {
+        Buffer.Publish(category, severity, message, code);
+    }
+
+    internal static void WarnSlowSave()
+    {
+        if (!Enabled) return;
+        long now = Environment.TickCount64;
+        long next = Volatile.Read(ref _nextSlowWarning);
+        if (now >= next && Interlocked.CompareExchange(ref _nextSlowWarning, now + 5000, next) == next)
+            Event(DiagnosticCategory.Library, "Save deadline reached; the write is settling", DiagnosticSeverity.Warning);
+    }
 
     public static bool Enabled => Buffer.Enabled;
     internal static string EssentialFilePath => Path.Combine(AppProfile.LocalDirectory, "quickclip-errors.log");
@@ -20,6 +59,7 @@ internal static class Log
 
     public static void Shutdown()
     {
+        _dispatcherProbe?.Dispose();
         Buffer.Dispose();
         CaptureEngine.UpdateDiagnosticLogging();
     }

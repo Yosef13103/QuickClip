@@ -7,6 +7,8 @@ namespace QuickClip.Views;
 
 public partial class GamesSettingsView
 {
+    internal enum DetectionIssue { None, SourceUnavailable, MissingExecutable, OwnershipConflict, UnassociatedExecutable, MinecraftJava }
+
     internal sealed class GameRow(CatalogEntry entry) : INotifyPropertyChanged
     {
         private const string DisplayIcon = "M1,2 H15 V11 H1 Z M8,11 V14 M5,14 H11";
@@ -71,16 +73,72 @@ public partial class GamesSettingsView
             Entry.Executables.IsEmpty ? "No executable found · check the source and rescan" :
             _unavailable.Length > 0 ? "Executable unavailable · check the drive or edit executables" : null;
         public bool ShowAdvanced => !_basic;
+        internal DetectionIssue Issue { get; private set; }
+        internal bool IssueIgnored { get; private set; }
+        public bool HasIssue => Issue != DetectionIssue.None;
+        public bool IssueIsBlocking => Issue is DetectionIssue.MissingExecutable or DetectionIssue.OwnershipConflict;
+        public string DismissIssueLabel => IssueIgnored ? "Unignore issue" : "Ignore issue";
+        public string IssueRepairLabel => Issue switch
+        {
+            DetectionIssue.SourceUnavailable => "Rescan source",
+            DetectionIssue.MinecraftJava => "Fix detection…",
+            DetectionIssue.MissingExecutable => "Locate game executable…",
+            DetectionIssue.OwnershipConflict => "Choose gameplay executable…",
+            _ => "Register gameplay executable…",
+        };
+        public string IssueReason => Issue switch
+        {
+            DetectionIssue.SourceUnavailable => "QuickClip could not verify this game source. Reconnect it and scan again.",
+            DetectionIssue.MissingExecutable => "QuickClip could not find a usable executable for this game.",
+            DetectionIssue.OwnershipConflict => "Multiple game entries claim the same executable.",
+            DetectionIssue.UnassociatedExecutable => "The source found an executable but could not associate it with a verified game installation.",
+            DetectionIssue.MinecraftJava => "Xbox found the Minecraft launcher proxy. The Java gameplay process still needs a verified association.",
+            _ => "",
+        };
+        public string IssueTechnicalDetail => string.Join(", ", Entry.Executables.Select(path =>
+            $"{Path.GetFileName(path)} · {Match(path).Kind}"));
+        internal IEnumerable<string> IssueKeys() => Entry.AliasIds.Prepend(Entry.Id).Select(id => $"{Issue}:{id}");
+
+        internal void EvaluateIssue(IEnumerable<string> ignored, bool scanning)
+        {
+            var issue = ClassifyIssue(scanning);
+            bool wasIgnored = IssueIgnored;
+            bool changed = Issue != issue;
+            Issue = issue;
+            IssueIgnored = HasIssue && IssueKeys().Intersect(ignored, StringComparer.Ordinal).Any();
+            if (changed || wasIgnored != IssueIgnored) OnChanged(string.Empty);
+        }
+
+        private DetectionIssue ClassifyIssue(bool scanning)
+        {
+            if (IsExcluded || Entry.Rules.Classification is AppClassification.Application or AppClassification.Companion or
+                AppClassification.Launcher || DetectionReady) return DetectionIssue.None;
+
+            var matches = Entry.Executables.Select(Match).ToArray();
+            if (matches.Any(match => GameDetector.HasCatalogEligibility(match) && match.Entry?.Id != Entry.Id)) return DetectionIssue.None;
+            if (MinecraftProxy && matches.Any(match => match.Kind == CatalogMatchKind.Launcher))
+                return DetectionIssue.MinecraftJava;
+            if (matches.Length > 0 && matches.All(match => match.Kind is CatalogMatchKind.Launcher or CatalogMatchKind.Ignored or
+                CatalogMatchKind.Application or CatalogMatchKind.Companion)) return DetectionIssue.None;
+            if (matches.Any(match => match.Kind == CatalogMatchKind.Ambiguous)) return DetectionIssue.OwnershipConflict;
+            if (matches.Any(match => match.Kind == CatalogMatchKind.Candidate)) return DetectionIssue.UnassociatedExecutable;
+            if (matches.Length > 0 && _unavailable.Length >= matches.Length) return DetectionIssue.MissingExecutable;
+            if (scanning) return Issue is DetectionIssue.SourceUnavailable or DetectionIssue.MissingExecutable
+                ? Issue : DetectionIssue.None;
+            if (_offline || matches.Any(match => match.Kind == CatalogMatchKind.Inactive)) return DetectionIssue.SourceUnavailable;
+            if (matches.Length == 0) return DetectionIssue.MissingExecutable;
+            return DetectionIssue.None;
+        }
+
         private bool MinecraftProxy => Entry.Executables.Any(path =>
             Path.GetFileName(path).Equals("MCPlaceholderStub.exe", StringComparison.OrdinalIgnoreCase));
         internal bool DetectionReady => !IsExcluded && Entry.Executables.Any(path =>
         {
             var match = Match(path);
-            return match.Entry?.Id == Entry.Id && GameDetector.HasCatalogEligibility(match);
+            return match.Entry?.Id == Entry.Id && !_unavailable.Contains(path, StringComparer.OrdinalIgnoreCase) &&
+                GameDetector.HasCatalogEligibility(match);
         });
-        public string Summary => !IsExcluded && MinecraftProxy && !DetectionReady
-            ? "Minecraft launcher found. For Java Edition, start manual recording on the allowed display unless you have a dedicated game executable."
-            : _basic ? Eligibility :
+        public string Summary => HasIssue ? IssueReason : _basic ? Eligibility :
             Availability is { } issue ? $"{Source} · {Eligibility} · {issue}" : $"{Source} · {Eligibility}";
 
         internal void UseBasicPresentation(bool basic)

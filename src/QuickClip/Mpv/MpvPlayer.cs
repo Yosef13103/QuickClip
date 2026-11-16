@@ -22,6 +22,7 @@ internal sealed class MpvPlayer : IDisposable
 
     /// <summary>Raised on the mpv event thread for lifecycle events (file-loaded, end-file, ...).</summary>
     public event Action<MpvEventId, int>? EventReceived;
+    internal event Action<long, int>? PreviewReadyOrFailed;
 
     /// <param name="wid">Window to render into, or zero for no embedding.</param>
     /// <param name="overrides">Options applied after the defaults (used by tests for headless playback).</param>
@@ -174,6 +175,8 @@ internal sealed class MpvPlayer : IDisposable
 
     private void EventLoop()
     {
+        long entryId = 0;
+        bool loaded = false;
         while (!_disposing)
         {
             IntPtr evPtr = mpv_wait_event(_ctx, -1);
@@ -190,8 +193,26 @@ internal sealed class MpvPlayer : IDisposable
                     case MpvEventId.PropertyChange:
                         HandlePropertyChange(ev);
                         break;
+                    case MpvEventId.StartFile:
+                        entryId = Marshal.ReadInt64(ev.Data);
+                        loaded = false;
+                        EventReceived?.Invoke(ev.EventId, ev.Error);
+                        break;
+                    case MpvEventId.FileLoaded:
+                        loaded = true;
+                        EventReceived?.Invoke(ev.EventId, ev.Error);
+                        break;
+                    case MpvEventId.PlaybackRestart:
+                        if (loaded)
+                        {
+                            loaded = false;
+                            PreviewReadyOrFailed?.Invoke(entryId, 0);
+                        }
+                        EventReceived?.Invoke(ev.EventId, ev.Error);
+                        break;
                     case MpvEventId.EndFile:
                         var end = Marshal.PtrToStructure<MpvEventEndFile>(ev.Data);
+                        if (end.Reason == 4) PreviewReadyOrFailed?.Invoke(end.PlaylistEntryId, end.Error);
                         EventReceived?.Invoke(ev.EventId, end.Reason == 4 ? end.Error : 0); // 4 = MPV_END_FILE_REASON_ERROR
                         break;
                     case MpvEventId.CommandReply:

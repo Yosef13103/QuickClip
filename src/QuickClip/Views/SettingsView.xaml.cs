@@ -43,6 +43,8 @@ public partial class SettingsView : UserControl
             ShellCheck.Visibility = Visibility.Collapsed;
             InstallUpdateLabel.Text = PersonalInstaller.CanApply ? "Download update" : "Download verified update";
             StartupHint.Visibility = ReplayAtStartupCheck.Visibility = ReplayAtStartupHint.Visibility = Visibility.Visible;
+            GamesPage.AttentionCountChanged += UpdateGameIssueBadge;
+            UpdateGameIssueBadge(GamesPage.AttentionCount);
             ApplySettingsSection(RecordingSection);
             UpdateSettingsExperience();
         }
@@ -71,6 +73,15 @@ public partial class SettingsView : UserControl
             Recorder.Instance.StateChanged += OnRecorderState;
             Updater.Changed += OnUpdaterChanged;
         };
+    }
+
+    private sealed record GameIssueBadge(int Count, Visibility Visibility);
+
+    private void UpdateGameIssueBadge(int count)
+    {
+        GamesSection.DataContext = new GameIssueBadge(count, count == 0 ? Visibility.Collapsed : Visibility.Visible);
+        System.Windows.Automation.AutomationProperties.SetHelpText(GamesSection,
+            count == 0 ? "" : $"{count} game detection {(count == 1 ? "issue needs" : "issues need")} attention");
     }
 
     private void SettingsSection_Changed(object sender, RoutedEventArgs e)
@@ -200,9 +211,18 @@ public partial class SettingsView : UserControl
         }
     }
 
+    internal void RefreshVisibleSection()
+    {
+        if (GamesPage.IsVisible) GamesPage.RefreshPresentation();
+        else if (GeneralCard.IsVisible) Appearance.RefreshSelection(AppSettings.Current);
+        else if (LibraryCard.IsVisible) _ = RefreshRecordingFoldersAsync();
+        else Refresh();
+    }
+
     /// <summary>Re-reads settings and devices; called whenever the page is shown.</summary>
     public async void Refresh()
     {
+        if (_loading) return;
         _loading = true;
         try
         {

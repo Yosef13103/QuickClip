@@ -36,6 +36,35 @@ public sealed class LibraryGalleryTests
     }
 
     [Fact]
+    public async Task Contended_cancelled_metadata_write_cannot_commit_when_lock_is_released()
+    {
+        var scratch = Directory.CreateTempSubdirectory("qc-contended-annotations-");
+        try
+        {
+            string root = scratch.CreateSubdirectory("clips").FullName;
+            string path = Path.Combine(root, "fixture.mp4");
+            await File.WriteAllTextAsync(path, "fixture");
+            string database = Path.Combine(scratch.FullName, "library.sqlite3");
+            var index = new LibraryIndex(database, null, _ => new ClipHeader(4, null));
+            var id = await index.RegisterRootAsync(root);
+            await index.ReconcileAsync(id);
+            var row = Assert.Single(await index.ReadGalleryAsync(id, null));
+            var target = new ClipAnnotationTarget(path, row.Stamp, row.Details);
+            using var connection = new LibraryDatabase(database).Open();
+            using var blocking = connection.BeginTransaction();
+            using var cancel = new CancellationTokenSource();
+            var write = index.SaveGalleryDetailsAsync(target, row.Details with { Title = "Cancelled" }, cancel.Token);
+            await Task.Delay(180);
+            Assert.False(write.IsCompleted);
+            cancel.Cancel();
+            blocking.Rollback();
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() => write);
+            Assert.Null(Assert.Single(await index.ReadGalleryAsync(id, null)).Details.Title);
+        }
+        finally { scratch.Delete(recursive: true); }
+    }
+
+    [Fact]
     public async Task Imports_legacy_annotations_and_saves_one_revision_without_changing_media()
     {
         var scratch = Directory.CreateTempSubdirectory("quickclip-gallery-index-");

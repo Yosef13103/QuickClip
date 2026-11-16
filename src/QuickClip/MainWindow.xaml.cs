@@ -22,7 +22,7 @@ public partial class MainWindow : Window
     private EditorView? _editor;
     private PlayerView? _player;
     private SettingsView? _settings;
-    private bool _closeReady, _closing, _settingNavigation;
+    private bool _closeReady, _closing;
     private long _pageRequest;
     private Task<bool>? _navigationFlush;
     private WindowState _stateBeforeFullScreen;
@@ -75,7 +75,16 @@ public partial class MainWindow : Window
         // While the release notes are up, keys don't reach the pages underneath; Esc or Enter closes them.
         PreviewKeyDown += (_, e) =>
         {
-            if (WhatsNew.Visibility != Visibility.Visible) return;
+            if (WhatsNew.Visibility != Visibility.Visible)
+            {
+                if (e.Key == System.Windows.Input.Key.F5 && System.Windows.Input.Keyboard.Modifiers == 0 &&
+                    !e.IsRepeat && CanRefreshVisiblePage)
+                {
+                    RefreshVisiblePage();
+                    e.Handled = true;
+                }
+                return;
+            }
             if (e.Key is System.Windows.Input.Key.Escape or System.Windows.Input.Key.Enter)
             {
                 WhatsNew.Visibility = Visibility.Collapsed;
@@ -99,6 +108,23 @@ public partial class MainWindow : Window
         if (await ShowPageAsync(EditorPage)) await EditorPage.OpenAsync(path);
     }
 
+    private bool _refreshing;
+    internal bool CanRefreshVisiblePage => !_closing && (Gallery.IsVisible || _editor?.IsVisible == true || _settings?.IsVisible == true);
+
+    internal async void RefreshVisiblePage()
+    {
+        if (_refreshing || !CanRefreshVisiblePage || _navigationFlush is { IsCompleted: false }) return;
+        _refreshing = true;
+        try
+        {
+            if (Gallery.IsVisible) await Gallery.RefreshVisibleAsync();
+            else if (_editor?.IsVisible == true) await _editor.RefreshDisplayedClipAsync();
+            else if (_settings?.IsVisible == true) _settings.RefreshVisibleSection();
+        }
+        catch (Exception ex) { Log.Failure(DiagnosticCategory.General, "Could not refresh visible page", ex); }
+        finally { _refreshing = false; }
+    }
+
     public void ShowSettings() => _ = ShowPageAsync(SettingsPage);
 
     private EditorView EditorPage
@@ -110,6 +136,7 @@ public partial class MainWindow : Window
             _editor.TitleChanged += UpdateTitle;
             _editor.BackRequested += () => _ = ShowPageAsync(Gallery);
             _editor.ClipDetailsSaved += Gallery.ApplyClipDetails;
+            Gallery.DetailsCommitted += _editor.ApplyCommittedDetails;
             _editor.EditDraftSaved += Gallery.ApplyEditDraft;
             _editor.KnownTags = () => Gallery.KnownTags;
             _editor.AnnotationActions = Library.PersonalLibrary.Current;
@@ -150,15 +177,11 @@ public partial class MainWindow : Window
         }
     }
 
-    private void Nav_Checked(object sender, RoutedEventArgs e)
+    private void Nav_Click(object sender, RoutedEventArgs e)
     {
-        if (!IsInitialized || _settingNavigation) return;
-        // Gallery uses its Click handler because Player shares its navigation button.
-        if (sender == EditorNav) _ = ShowPageAsync(EditorPage);
-        else if (sender == SettingsNav) _ = ShowPageAsync(SettingsPage);
+        if (!IsInitialized) return;
+        _ = ShowPageAsync(sender == EditorNav ? EditorPage : sender == SettingsNav ? SettingsPage : Gallery);
     }
-
-    private void GalleryNav_Click(object sender, RoutedEventArgs e) => _ = ShowPageAsync(Gallery);
 
     private bool _renderOffscreenForEditor() =>
 #if DEBUG
@@ -169,10 +192,11 @@ public partial class MainWindow : Window
 
     private async Task<bool> ShowPageAsync(UIElement page)
     {
-        if (_closing) return false;
-        long request = ++_pageRequest;
         var current = Pages.Children.OfType<UIElement>().FirstOrDefault(child => child.Visibility == Visibility.Visible);
         if (current != null) SetNavigation(current);
+        if (_closing) return false;
+        using var operation = Log.Begin(DiagnosticCategory.General, "Page navigation");
+        long request = ++_pageRequest;
         bool saved = true;
         if (current != page)
         {
@@ -184,22 +208,28 @@ public partial class MainWindow : Window
             };
             _navigationFlush = flush;
             saved = await flush;
+            if (!saved && !_closing && request == _pageRequest && current is EditorView && page != current)
+            {
+                saved = ModalDialog.ConfirmAction(this,
+                    "Some changes could not be saved. They will stay open in the editor for this session.",
+                    "Could not save changes", "Leave editor", "Keep editing", destructive: false);
+            }
         }
-        if (!saved || _closing || request != _pageRequest) return false;
+        if (!saved || _closing || request != _pageRequest)
+        {
+            if (_closing || request != _pageRequest) operation?.Cancel();
+            return false;
+        }
         ShowPage(page);
+        operation?.Complete();
         return true;
     }
 
     private void SetNavigation(UIElement page)
     {
-        _settingNavigation = true;
-        try
-        {
-            GalleryNav.IsChecked = page == Gallery || page == _player;
-            EditorNav.IsChecked = page == _editor;
-            SettingsNav.IsChecked = page == _settings;
-        }
-        finally { _settingNavigation = false; }
+        GalleryNav.IsChecked = page == Gallery || page == _player;
+        EditorNav.IsChecked = page == _editor;
+        SettingsNav.IsChecked = page == _settings;
     }
 
     private void ShowPage(UIElement page)
@@ -216,6 +246,7 @@ public partial class MainWindow : Window
         if (page == _editor)
         {
             _editor.RefreshTheme();
+            _ = _editor.RefreshMetadataOnReturnAsync();
             Dispatcher.BeginInvoke(_editor.FocusEditor, DispatcherPriority.Input);
         }
         if (page == _player) Dispatcher.BeginInvoke(_player.FocusPlayer, DispatcherPriority.Input);
@@ -477,6 +508,7 @@ public partial class MainWindow : Window
         e.Cancel = true;
         if (_closing) return;
         _closing = true;
+        using var operation = Log.Begin(DiagnosticCategory.General, "Window close");
         if (_navigationFlush is { IsCompleted: false } navigation) await navigation;
         if ((!await Gallery.FlushAnnotationsAsync() &&
                 !ModalDialog.ConfirmAction(this, "Some Gallery changes could not be saved. Discard them and close?",
@@ -484,12 +516,14 @@ public partial class MainWindow : Window
             (_editor != null && !await _editor.CloseAsync()))
         {
             _closing = false;
+            operation?.Cancel();
             _closeResult?.TrySetResult(false);
             return;
         }
         if (_player != null) await _player.CloseAsync();
         await Gallery.CloseAsync();
         _closeReady = true;
+        operation?.Complete();
         // Close for real once this handler has returned; WPF refuses a Close() from inside Closing.
         _ = Dispatcher.BeginInvoke(Close);
     }

@@ -84,7 +84,7 @@ internal static class ClipDetailsStore
         return new ClipDetails((embedded ?? new DateTimeOffset(fallback)).ToLocalTime(), game);
     }
 
-    public static void Write(string mediaPath, ClipDetails details)
+    public static void Write(string mediaPath, ClipDetails details, CancellationToken token = default)
     {
         var file = new FileInfo(mediaPath);
         string path = MetadataPath(file);
@@ -93,6 +93,7 @@ internal static class ClipDetailsStore
         try
         {
             File.WriteAllText(staged, JsonSerializer.Serialize(new Entry(file.CreationTimeUtc.Ticks, file.LastWriteTimeUtc.Ticks, file.Length, details.Normalize())));
+            token.ThrowIfCancellationRequested();
             File.Move(staged, path, overwrite: true);
         }
         finally

@@ -34,7 +34,11 @@ public partial class GamesSettingsView : UserControl
     private GameCatalogSettings? _renderedState;
     private List<GameRow> _rows = [];
     private LauncherRow[] _launchers = [];
-    private ListCollectionView? _gamesView;
+    private ListCollectionView? _gamesView, _attentionView, _ignoredView;
+    private readonly ListBoxItem[] _attentionHeading, _ignoredHeading, _otherHeading;
+    private readonly Expander _ignoredExpander;
+    internal event Action<int>? AttentionCountChanged;
+    internal int AttentionCount { get; private set; }
     private int _uniqueCount, _manualCount, _retainedCount, _offlineCount;
     private GameRow? _expanded;
     private string _query = "";
@@ -43,6 +47,14 @@ public partial class GamesSettingsView : UserControl
     public GamesSettingsView()
     {
         InitializeComponent();
+        _ignoredExpander = new() { Header = "Ignored issues", Margin = new Thickness(4, 4, 0, 4) };
+        _ignoredExpander.Expanded += IgnoredExpansion_Changed;
+        _ignoredExpander.Collapsed += IgnoredExpansion_Changed;
+        var attention = new TextBlock { Text = "Needs attention", FontWeight = FontWeights.SemiBold, Margin = new(4, 12, 0, 2) };
+        attention.SetResourceReference(TextBlock.ForegroundProperty, "WarningBrush");
+        _attentionHeading = [Heading(attention)];
+        _ignoredHeading = [Heading(_ignoredExpander)];
+        _otherHeading = [Heading(new TextBlock { Text = "Games and apps", FontWeight = FontWeights.SemiBold, Margin = new(4, 12, 0, 2) })];
         Render();
         IsVisibleChanged += async (_, _) =>
         {
@@ -53,6 +65,11 @@ public partial class GamesSettingsView : UserControl
             await Discovery.RequestAsync();
         };
     }
+
+    private static ListBoxItem Heading(object content) => new()
+    {
+        Content = content, Focusable = false, HorizontalContentAlignment = HorizontalAlignment.Stretch,
+    };
 
     // Even a ListBox with its scrollbar disabled owns an internal ScrollViewer
     // that consumes wheel events. Forward them to the page's virtualized scroller.
@@ -75,6 +92,8 @@ public partial class GamesSettingsView : UserControl
                 return child;
         return null;
     }
+
+    internal void RefreshPresentation() => ShowDiscoveryStatus();
 
     private void ShowDiscoveryStatus()
     {
@@ -255,12 +274,12 @@ public partial class GamesSettingsView : UserControl
         return null;
     }
 
-    private void PickExecutables(CatalogEntry? entry, string? directory = null)
+    private void PickExecutables(CatalogEntry? entry, string? directory = null, string? suggestedName = null)
     {
         var dialog = new OpenFileDialog { Filter = "Executable or shortcut|*.exe;*.lnk", Multiselect = true,
             Title = "Select game executables or shortcuts", CheckFileExists = true, DereferenceLinks = false,
             InitialDirectory = directory ?? "" };
-        if (dialog.ShowDialog(Window.GetWindow(this)) == true) AddSelection(dialog.FileNames, entry);
+        if (dialog.ShowDialog(Window.GetWindow(this)) == true) AddSelection(dialog.FileNames, entry, suggestedName);
     }
 
     private void ShowAddError(string? message)
@@ -294,7 +313,7 @@ public partial class GamesSettingsView : UserControl
         _ = Discovery.RequestAsync(manual: true, sourceKey: new CatalogScope(CatalogSource.Folder, path).Key);
     }
 
-    private void AddSelection(IReadOnlyList<string> inputs, CatalogEntry? entry)
+    private void AddSelection(IReadOnlyList<string> inputs, CatalogEntry? entry, string? suggestedName = null)
     {
         void Error(string message)
         {
@@ -342,7 +361,7 @@ public partial class GamesSettingsView : UserControl
             Error($"A selected file is already in {existing.Entry.DisplayName}.");
             return;
         }
-        string name = entry?.DisplayName ?? ManualGameInput.FriendlyName(paths[0]);
+        string name = entry?.DisplayName ?? suggestedName ?? ManualGameInput.FriendlyName(paths[0]);
         if (entry == null)
         {
             if (TextPrompt.Ask(owner, "Game display name", name, "Add Game") is not { Length: > 0 } confirmed) return;
@@ -451,7 +470,7 @@ public partial class GamesSettingsView : UserControl
     private void Search_Changed(object sender, TextChangedEventArgs e)
     {
         _query = Search.Text.Trim();
-        _gamesView?.Refresh();
+        RefreshIssueViews();
         UpdateCount();
     }
 
@@ -549,12 +568,16 @@ public partial class GamesSettingsView : UserControl
         _eligibleCount = 0;
         var rows = new List<GameRow>(entries.Length);
         bool refilter = false;
+        var ignored = (AppSettings.Current.IgnoredGameIssues ?? []).ToHashSet(StringComparer.Ordinal);
         foreach (var entry in entries)
         {
             if (!existing.TryGetValue(entry.Id, out var row)) row = new(entry);
             else if (_query.Length > 0) refilter |= row.Matches(_query) != GameRow.Matches(entry, _query);
             row.Update(entry, offline.Contains(entry.Id), state.BlockedExecutables, catalog);
             row.UseBasicPresentation(_basic);
+            var previousIssue = (row.Issue, row.IssueIgnored);
+            row.EvaluateIssue(ignored, Discovery.IsRunning);
+            refilter |= previousIssue != (row.Issue, row.IssueIgnored);
             if (row.DetectionReady) _eligibleCount++;
             rows.Add(row);
         }
@@ -563,12 +586,93 @@ public partial class GamesSettingsView : UserControl
         if (_gamesView == null || !_rows.SequenceEqual(rows))
         {
             _rows = rows;
-            _gamesView = new ListCollectionView(rows) { Filter = item => ((GameRow)item).Matches(_query) };
+            _gamesView = new ListCollectionView(rows) { Filter = item => item is GameRow row && row.Matches(_query) && !row.HasIssue };
+            _attentionView = new ListCollectionView(rows) { Filter = item => item is GameRow row && row.Matches(_query) && row.HasIssue && !row.IssueIgnored };
+            _ignoredView = new ListCollectionView(rows) { Filter = item => item is GameRow row && row.Matches(_query) && row.HasIssue && row.IssueIgnored };
             GameItems.Collection = _gamesView;
+            AttentionItems.Collection = _attentionView;
+            IgnoredItems.Collection = _ignoredExpander.IsExpanded ? _ignoredView : null;
             Games.SelectedItem = rows.FirstOrDefault(row => row.Entry.Id == selected && row.Matches(_query));
         }
-        else if (refilter) _gamesView.Refresh();
+        else if (refilter) RefreshIssueViews();
+        UpdateIssueHeaders();
         UpdateCount();
+    }
+
+    private void RefreshIssueViews()
+    {
+        _gamesView?.Refresh();
+        _attentionView?.Refresh();
+        _ignoredView?.Refresh();
+        UpdateIssueHeaders();
+    }
+
+    private void UpdateIssueHeaders()
+    {
+        if (_attentionView == null || _ignoredView == null) return;
+        ShowHeading(AttentionHeading, _attentionHeading, _attentionView.Count > 0);
+        ShowHeading(IgnoredHeading, _ignoredHeading, _ignoredView.Count > 0);
+        ShowHeading(OtherGamesHeading, _otherHeading, _attentionView.Count + _ignoredView.Count > 0);
+        int count = _rows.Count(row => row.HasIssue && !row.IssueIgnored);
+        if (AttentionCount == count) return;
+        AttentionCount = count;
+        AttentionCountChanged?.Invoke(count);
+    }
+
+    private static void ShowHeading(CollectionContainer container, ListBoxItem[] heading, bool visible)
+    {
+        var collection = visible ? heading : null;
+        if (!ReferenceEquals(container.Collection, collection)) container.Collection = collection;
+    }
+
+    private void IgnoredExpansion_Changed(object sender, RoutedEventArgs e)
+    {
+        if (IgnoredItems != null) IgnoredItems.Collection = _ignoredExpander.IsExpanded ? _ignoredView : null;
+        UpdateCount();
+    }
+
+    private void DismissIssue_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not Button { DataContext: GameRow { HasIssue: true } row }) return;
+        var settings = AppSettings.Current;
+        var previous = settings.IgnoredGameIssues ?? [];
+        settings.IgnoredGameIssues = row.IssueIgnored
+            ? previous.Except(row.IssueKeys(), StringComparer.Ordinal).ToArray()
+            : previous.Append(row.IssueKeys().First()).Distinct(StringComparer.Ordinal).ToArray();
+        if (!settings.TrySave())
+        {
+            settings.IgnoredGameIssues = previous;
+            row.ActionError = "Could not save your issue preference.";
+            return;
+        }
+        row.ActionError = null;
+        row.EvaluateIssue(settings.IgnoredGameIssues, Discovery.IsRunning);
+        RefreshIssueViews();
+    }
+
+    private async void RepairIssue_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not Button { DataContext: GameRow { HasIssue: true } row }) return;
+        if (row.Issue == DetectionIssue.SourceUnavailable)
+        {
+            string? key = CatalogScope.Enabled(State).FirstOrDefault(scope => scope.Kind == row.Entry.Source &&
+                (scope.Root == null || row.Entry.InstallDirectories.Any(path => CatalogPaths.IsWithin(path, scope.Root))))?.Key;
+            if (key == null) row.ActionError = "Restore or re-enable the game source before rescanning.";
+            else if (Discovery.IsRunning) row.ActionError = "A scan is already running. Try again when it finishes.";
+            else await Discovery.RequestAsync(manual: true, sourceKey: key);
+            return;
+        }
+
+        string? initial = row.Entry.InstallDirectories.FirstOrDefault();
+        if (row.Issue == DetectionIssue.MinecraftJava)
+        {
+            if (!ModalDialog.ConfirmAction(Window.GetWindow(this),
+                "Launch Minecraft Java from its launcher. The Xbox placeholder cannot start recording. If your installation uses a dedicated Java executable, select that exact file. For a shared runtime, use manual recording on an allowed display. Minecraft for Windows (Bedrock) is a separate game.",
+                "Fix Minecraft Java detection", "Locate dedicated executable", "Close", destructive: false)) return;
+            initial = null;
+        }
+        string? name = row.Issue == DetectionIssue.MinecraftJava ? "Minecraft Java Edition" : row.Entry.DisplayName;
+        PickExecutables(row.IsManual ? row.Entry : null, initial, row.IsManual ? null : name);
     }
 
     private void UpdateCount()
@@ -577,7 +681,7 @@ public partial class GamesSettingsView : UserControl
         {
             Count.Text = (_basic ? $"{_uniqueCount:N0} games and apps found" :
                 $"Catalog · {_uniqueCount:N0} unique games and apps · {_manualCount:N0} manual entries")
-                + (_query.Length == 0 ? "" : $" · {_gamesView.Count:N0} shown");
+                + (_query.Length == 0 ? "" : $" · {_gamesView.Count + (_attentionView?.Count ?? 0) + (_ignoredExpander.IsExpanded ? _ignoredView?.Count ?? 0 : 0):N0} shown");
             DiscoveryCountDetail.Text = $"{_retainedCount:N0} entries with cached paths · {_offlineCount:N0} awaiting verification";
             DiscoveryCountDetail.Visibility = !_basic && _retainedCount + _offlineCount > 0 ? Visibility.Visible : Visibility.Collapsed;
         }
@@ -592,7 +696,12 @@ public partial class GamesSettingsView : UserControl
         try
         {
             var unavailable = await Task.Run(() => paths.Where(path => !File.Exists(path)).ToArray());
-            if (row.Entry.Executables.SequenceEqual(paths)) row.SetUnavailableExecutables(unavailable);
+            if (row.Entry.Executables.SequenceEqual(paths))
+            {
+                row.SetUnavailableExecutables(unavailable);
+                row.EvaluateIssue(AppSettings.Current.IgnoredGameIssues ?? [], Discovery.IsRunning);
+                RefreshIssueViews();
+            }
         }
         finally { row.CheckingExecutables = false; }
     }

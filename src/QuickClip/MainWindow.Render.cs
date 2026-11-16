@@ -24,16 +24,39 @@ public partial class MainWindow
             if (!ready()) throw new InvalidOperationException(message);
         }
 
+        Log.Event(DiagnosticCategory.Editor, "Draft smoke waiting for Gallery");
         await WaitForAsync(() => Gallery.DraftCardForRender(editorFile) != null, "Gallery did not load the fixture.");
+        Log.Event(DiagnosticCategory.Editor, "Draft smoke opening Editor");
         await OpenInEditorAsync(editorFile);
         var editor = EditorPage;
         await WaitForAsync(() => editor.PreviewReadyForRender, "Editor preview did not load.");
+        Log.Event(DiagnosticCategory.Editor, "Draft smoke preview ready");
         if (phase == "write")
         {
             editor.EditDraftForRender();
-            if (!await ShowPageAsync(Gallery) ||
+            // Dispatch the same events as the three rail buttons, with a pending metadata debounce.
+            EditorNav.IsChecked = false;
+            GalleryNav.IsChecked = true;
+            GalleryNav.RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Primitives.ButtonBase.ClickEvent));
+            SettingsNav.IsChecked = true;
+            SettingsNav.RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Primitives.ButtonBase.ClickEvent));
+            GalleryNav.IsChecked = true;
+            GalleryNav.RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Primitives.ButtonBase.ClickEvent));
+            await WaitForAsync(() => Gallery.IsVisible, "The latest rail request did not win.");
+            if (GalleryNav.IsChecked != true || SettingsNav.IsChecked == true ||
                 Math.Abs((Gallery.DraftCardForRender(editorFile)?.SelectedDuration ?? 0) - 3.5) > 0.01)
                 throw new InvalidOperationException("Leaving the editor did not save the trim to Gallery.");
+            var card = Gallery.DraftCardForRender(editorFile)!;
+            var target = ClipAnnotationTarget.For(card);
+            var rename = await Library.PersonalLibrary.Current.SaveDraftAsync(target,
+                card.Details with { Title = "Gallery rename fixture" }, CancellationToken.None);
+            Gallery.ApplyClipDetails(editorFile, rename.Details ?? throw new InvalidOperationException("Gallery rename failed."));
+            if (!await ShowPageAsync(editor) || editor.FileTitle != "Gallery rename fixture" ||
+                Math.Abs(editor.TrimEndForRender - 4.5) > 0.01)
+                throw new InvalidOperationException("Returning from Gallery did not update the title while retaining the editor draft.");
+            editor.SetTitleForRender("Persisted fixture");
+            if (!await ShowPageAsync(Gallery) || Gallery.DraftCardForRender(editorFile)?.Title != "Persisted fixture")
+                throw new InvalidOperationException("Editor rename did not update Gallery.");
             UpdateLayout();
             await Gallery.VerifyHoverTrimForRenderAsync(Gallery.DraftCardForRender(editorFile)!);
             string other = Path.Combine(AppSettings.Current.ClipsFolder, "fixture-b.mp4");
@@ -50,7 +73,9 @@ public partial class MainWindow
             if (phase == "read")
             {
                 string output = Path.Combine(dir, "export.mp4");
+                Log.Event(DiagnosticCategory.Editor, "Draft smoke exporting fixture");
                 await editor.ExportDraftForRender(output);
+                Log.Event(DiagnosticCategory.Editor, "Draft smoke export settled");
                 var media = await Media.MediaInfo.ProbeAsync(output);
                 if (Math.Abs(media.Duration - 3.5) > 0.15 || media.Audio.Count != 1)
                     throw new InvalidOperationException("Export did not write the trimmed single-mix video.");
@@ -69,8 +94,34 @@ public partial class MainWindow
                 editor.VerifyDraftForRender();
             }
         }
-        else throw new ArgumentException("Expected write, read or replace.");
+        else if (phase == "close-pending")
+        {
+            var pending = new StalledAnnotationWrite();
+            editor.AnnotationActions = pending;
+            editor.SetTitleForRender("Recover this title");
+            var stamp = ClipAnnotationTarget.ReadSource(editorFile) ?? throw new InvalidOperationException("Fixture identity is unavailable.");
+            if (!await RequestCloseAsync().WaitAsync(TimeSpan.FromSeconds(15)) || !pending.Token.IsCancellationRequested)
+                throw new InvalidOperationException("Close did not finish and cancel the stalled save.");
+            if (await Task.Run(() => Library.EditorRecovery.Read(stamp)) is not
+                { Details.Draft.Title: "Recover this title" })
+                throw new InvalidOperationException("Close did not preserve the pending title for recovery.");
+        }
+        else throw new ArgumentException("Expected write, read, replace or close-pending.");
         File.WriteAllText(Path.Combine(dir, "editor-draft-" + phase + ".txt"), "Passed");
+    }
+
+    private sealed class StalledAnnotationWrite : IClipAnnotationActions
+    {
+        internal CancellationToken Token { get; private set; }
+
+        public Task<ClipAnnotationResult> SaveDraftAsync(ClipAnnotationTarget target, ClipDetails draft, CancellationToken token)
+        {
+            Token = token;
+            return new TaskCompletionSource<ClipAnnotationResult>().Task;
+        }
+
+        public Task<IReadOnlyList<ClipAnnotationResult>> ApplyAsync(IReadOnlyList<ClipAnnotationTarget> targets,
+            string? addTag, bool? favorite, CancellationToken token) => throw new NotSupportedException();
     }
 
     internal async Task RenderPagesAsync(string dir, string? editorFile)

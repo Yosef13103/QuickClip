@@ -4,9 +4,17 @@
              xmlns:views="clr-namespace:QuickClip.Views">
     <StackPanel>
         <Label Content="_Theme" Target="{Binding ElementName=ThemePicker}" Padding="0,0,0,4" />
-        <ComboBox x:Name="ThemePicker" HorizontalAlignment="Left" MinWidth="180" DisplayMemberPath="Label"
-                  AutomationProperties.Name="Theme" SelectionChanged="ThemePicker_Changed" />
-        <Button x:Name="RemoveThemeButton" Content="Remove selected saved theme" HorizontalAlignment="Left" Margin="0,6,0,0" IsEnabled="False" Click="RemoveTheme_Click" />
+        <ComboBox x:Name="ThemePicker" HorizontalAlignment="Left" MinWidth="180"
+                  AutomationProperties.Name="Theme" SelectionChanged="ThemePicker_Changed">
+            <ComboBox.ItemTemplate>
+                <DataTemplate><TextBlock Text="{Binding Label}" /></DataTemplate>
+            </ComboBox.ItemTemplate>
+        </ComboBox>
+        <WrapPanel Margin="0,6,0,0">
+            <Button x:Name="RenameThemeButton" Content="Rename selected theme…" Margin="0,0,6,0"
+                    IsEnabled="False" Click="RenameTheme_Click" />
+            <Button x:Name="RemoveThemeButton" Content="Remove selected saved theme" IsEnabled="False" Click="RemoveTheme_Click" />
+        </WrapPanel>
         <TextBlock Text="Imported themes are saved in QuickClip. Select any saved theme above, even after deleting or moving the original JSON file." TextWrapping="Wrap" Foreground="{DynamicResource SecondaryTextBrush}" Margin="0,6,0,0" />
         <Expander Header="Custom palette" Margin="0,10,0,0">
             <views:CustomThemeEditor x:Name="CustomEditor" Margin="0,8,0,0" />
