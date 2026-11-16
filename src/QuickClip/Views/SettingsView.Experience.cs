@@ -115,7 +115,7 @@ public partial class SettingsView
             { Value: ClipNotificationMode.Overlay or ClipNotificationMode.Both };
         ImageAppearancePanel.Visibility = !basic && image ? Visibility.Visible : Visibility.Collapsed;
         BannerAppearancePanel.Visibility = !basic && banners ? Visibility.Visible : Visibility.Collapsed;
-        OverlayDetailsPanel.Visibility = !basic && banners && !image ? Visibility.Visible : Visibility.Collapsed;
+        OverlayDetailsPanel.Visibility = !basic && banners && ClipSavedNotice.IsChecked == true ? Visibility.Visible : Visibility.Collapsed;
 
         int step = GuideStep;
         var visible = Visibility.Visible;
