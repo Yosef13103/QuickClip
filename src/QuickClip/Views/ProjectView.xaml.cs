@@ -62,7 +62,7 @@ public partial class ProjectView : UserControl
     private MediaInfo? _music;
     private MontageTimeline _timeline = new([]);
     private int _loadToken;
-    private CancellationTokenSource? _exportCts;
+    private Guid? _lastExportJob;
 
     private MpvPlayer? _player;
     private int _current = -1;           // clip loaded in the preview
@@ -117,7 +117,7 @@ public partial class ProjectView : UserControl
         }
         catch (Exception ex)
         {
-            Log.Write("mpv init failed: " + ex);
+            Log.Failure(DiagnosticCategory.Editor, "mpv init failed", ex);
             return;
         }
         _childWindowTimer.Start();
@@ -180,7 +180,7 @@ public partial class ProjectView : UserControl
 
     public async Task CloseAsync()
     {
-        _exportCts?.Cancel();
+        _lastExportJob = null;
         _childWindowTimer.Stop();
         var player = _player;
         _player = null;
@@ -202,7 +202,7 @@ public partial class ProjectView : UserControl
         }
         catch (Exception ex)
         {
-            Log.Write($"Probing {path} failed: {ex.Message}");
+            Log.Failure(DiagnosticCategory.Editor, "Probing project media failed", ex);
             return null;
         }
     }
@@ -216,7 +216,7 @@ public partial class ProjectView : UserControl
         }
         catch (Exception ex)
         {
-            Log.Write("Loading thumbnail failed: " + ex.Message);
+            Log.Failure(DiagnosticCategory.Editor, "Loading thumbnail failed", ex);
         }
     }
 
@@ -232,7 +232,7 @@ public partial class ProjectView : UserControl
         bool empty = _clips.Count == 0;
         EmptyState.Visibility = empty ? Visibility.Visible : Visibility.Collapsed;
         Workspace.Visibility = empty ? Visibility.Collapsed : Visibility.Visible;
-        ExportButton.IsEnabled = !empty && _exportCts == null;
+        ExportButton.IsEnabled = !empty;
         var first = _clips.Select(c => c.Info?.Video).FirstOrDefault(v => v != null);
         InfoText.Text = empty ? "No clips yet"
             : $"{_clips.Count} clip{(_clips.Count == 1 ? "" : "s")}  ·  {Fmt.Time(_timeline.Total, millis: false)}" +
@@ -526,7 +526,7 @@ public partial class ProjectView : UserControl
         }
         catch (Exception ex)
         {
-            Log.Write("Setting the music failed: " + ex);
+            Log.Failure(DiagnosticCategory.Editor, "Setting the music failed", ex);
             ModalDialog.Show(Window.GetWindow(this), "Couldn't add the music:\n\n" + ex.Message, "QuickClip", MessageBoxButton.OK, MessageBoxImage.Warning);
         }
         _music = _project.Music != null ? await ProbeAsync(_project.Music) : null;
@@ -539,7 +539,7 @@ public partial class ProjectView : UserControl
 
     private async void Export_Click(object sender, RoutedEventArgs e)
     {
-        if (_project == null || _clips.Count == 0 || _exportCts != null) return;
+        if (App.IsQuittingForUpdate || _project == null || _clips.Count == 0) return;
         var missing = _clips.FirstOrDefault(c => c.Info == null);
         if (missing != null)
         {
@@ -551,42 +551,41 @@ public partial class ProjectView : UserControl
         var project = _project;
         var clips = _clips.Select(c => c.Info!).ToList();
         var music = project.Music != null ? _music : null;
-        _exportCts = new CancellationTokenSource();
-        ExportPanel.Visibility = Visibility.Visible;
-        ExportButton.IsEnabled = false;
-        ExportProgress.Value = 0;
-        ExportText.Text = $"Joining {clips.Count} clips…";
-        var progress = new Progress<double>(p =>
-        {
-            ExportProgress.Value = p;
-            ExportText.Text = $"Joining {clips.Count} clips… {p:P0}";
-        });
         try
         {
-            var encoder = Montage.ChooseEncoder(await VideoEncoders.GetAvailableAsync());
-            Directory.CreateDirectory(project.ExportsFolder);
-            string output = Path.Combine(project.ExportsFolder, $"{project.Name} {DateTime.Now:yyyy-MM-dd HH-mm-ss}.mp4");
-            await Montage.ExportAsync(clips, music, encoder, output, progress, _exportCts.Token);
-            EditRequested?.Invoke(output);
+            var sources = clips.Select(clip => clip.Path).Concat(music == null ? [] : new[] { music.Path })
+                .Distinct(StringComparer.OrdinalIgnoreCase).Select(MediaSource.Capture).ToArray();
+            string output = Path.Combine(project.ExportsFolder, $"{project.Name} {DateTime.Now:yyyy-MM-dd HH-mm-ss-fff}.mp4");
+            var submission = MediaJobs.Current.Submit(new(Path.GetFileName(output), false, sources, output,
+                async (job, ct) =>
+                {
+                    var encoder = Montage.ChooseEncoder(await VideoEncoders.GetAvailableAsync().WaitAsync(ct));
+                    MediaProcessing.RequireSafeDirectory(project.ExportsFolder);
+                    Directory.CreateDirectory(project.ExportsFolder);
+                    MediaProcessing.CheckFreeSpace(project.ExportsFolder, clips.Sum(clip => clip.Size));
+                    return await MediaProcessing.PublishAsync(output, ".mp4", null,
+                        staging => job.EncodeAsync(encoder.Id, async () =>
+                        {
+                            await Montage.ExportAsync(clips, music, encoder, staging,
+                                new ProgressCallback<double>(p => job.Progress(1, p)), ct);
+                            job.Validating();
+                            var result = await MediaInfo.ProbeAsync(staging, ct, localOnly: true);
+                            if (result.Video == null || Math.Abs(result.Duration - clips.Sum(clip => clip.Duration)) > 0.5)
+                                throw new ExportException("The staged montage did not match the selected clips.");
+                            return true;
+                        }, ct), ct);
+                }));
+            _lastExportJob = submission.Id;
+            var result = await submission.Completion;
+            if (result.Output is { } completed && IsVisible && _project == project && _lastExportJob == submission.Id)
+                EditRequested?.Invoke(completed);
         }
-        catch (OperationCanceledException)
+        catch (Exception ex) when (ex is ExportException or IOException or UnauthorizedAccessException)
         {
-        }
-        catch (Exception ex)
-        {
-            Log.Write("Montage export failed: " + ex);
+            Log.Failure(DiagnosticCategory.Editor, "Montage export failed", ex);
             ModalDialog.Show(Window.GetWindow(this), "The montage couldn't be made:\n\n" + ex.Message, "QuickClip", MessageBoxButton.OK, MessageBoxImage.Error);
         }
-        finally
-        {
-            _exportCts.Dispose();
-            _exportCts = null;
-            ExportPanel.Visibility = Visibility.Collapsed;
-            ExportButton.IsEnabled = _clips.Count > 0;
-        }
     }
-
-    private void CancelExport_Click(object sender, RoutedEventArgs e) => _exportCts?.Cancel();
 
     private void OpenFolder_Click(object sender, RoutedEventArgs e)
     {
@@ -601,7 +600,7 @@ public partial class ProjectView : UserControl
         }
         catch (Exception ex)
         {
-            Log.Write("Saving the project failed: " + ex.Message);
+            Log.Failure(DiagnosticCategory.Editor, "Saving the project failed", ex);
         }
     }
 
@@ -619,6 +618,5 @@ public partial class ProjectView : UserControl
         CommitOrder();
     }
     internal void ExportForRender() => Export_Click(this, new RoutedEventArgs());
-    internal bool Exporting => _exportCts != null;
 #endif
 }

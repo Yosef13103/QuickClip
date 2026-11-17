@@ -12,6 +12,7 @@ public partial class SettingsView
     {
         public override string ToString() => Available ? Path : $"{Path} · unavailable";
     }
+    internal event Action? RecordingFoldersChanged;
     private int _folderRefresh;
     private long _estimatedClipBytes;
     private (long Total, long Free, long? Tracked)? _destinationUsage;
@@ -58,6 +59,7 @@ public partial class SettingsView
 
     private async Task RefreshRecordingFoldersAsync()
     {
+        using var activity = QuickClip.Shell.BackgroundActivity.Begin("Checking library storage");
         int refresh = ++_folderRefresh;
         var settings = AppSettings.Current;
         string destination = settings.ClipsFolder;
@@ -104,7 +106,7 @@ public partial class SettingsView
         }
         catch (Exception ex)
         {
-            Log.Write("Could not read storage estimate: " + ex.GetType().Name);
+            Log.Failure(DiagnosticCategory.Library, "Could not read storage estimate", ex);
         }
     }
 
@@ -176,7 +178,11 @@ public partial class SettingsView
         var previous = (settings.ClipsFolder, settings.AdditionalClipSources);
         settings.ClipsFolder = destination;
         settings.AdditionalClipSources = sources;
-        if (settings.TrySave()) return true;
+        if (settings.TrySave())
+        {
+            RecordingFoldersChanged?.Invoke();
+            return true;
+        }
         (settings.ClipsFolder, settings.AdditionalClipSources) = previous;
         ShowFolderProblem("The folder settings could not be saved. The previous locations are still active.");
         return false;

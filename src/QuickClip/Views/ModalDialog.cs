@@ -61,7 +61,8 @@ internal static class ModalDialog
     }
 
     internal static bool Run(Window owner, string title, FrameworkElement content, string accept, string? cancel,
-        bool safeDefault = false, bool destructive = false, IInputElement? initialFocus = null)
+        bool safeDefault = false, bool destructive = false, IInputElement? initialFocus = null, Button? dismissOnClick = null,
+        bool accent = false, bool wide = false, Func<bool>? validate = null)
     {
         var host = (Panel)owner.Content;
         var overlay = new Grid { Background = new SolidColorBrush(Color.FromArgb(140, 0, 0, 0)) };
@@ -78,7 +79,7 @@ internal static class ModalDialog
 
         var box = new Border
         {
-            Width = Math.Min(480, Math.Max(280, owner.ActualWidth - 64)),
+            Width = Math.Min(wide ? 560 : 480, Math.Max(280, owner.ActualWidth - 64)),
             MaxHeight = Math.Max(220, owner.ActualHeight - 40),
             HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center,
             CornerRadius = new CornerRadius(12), Padding = new Thickness(22),
@@ -94,14 +95,16 @@ internal static class ModalDialog
         AutomationProperties.SetName(box, title);
         var body = new StackPanel();
         body.Children.Add(new TextBlock { Text = title, FontSize = 19, FontWeight = FontWeights.SemiBold, TextWrapping = TextWrapping.Wrap });
-        body.Children.Add(new ScrollViewer
+        var scroll = new ScrollViewer
         {
             Content = content, VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
             MaxHeight = Math.Max(70, box.MaxHeight - 120), Margin = new Thickness(0, 12, 0, 20),
-        });
+        };
+        body.Children.Add(scroll);
         var buttons = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right };
         var primary = new Button { Content = accept, MinWidth = 84, Padding = new Thickness(12, 6, 12, 6) };
         var secondary = new Button { Content = cancel ?? "", MinWidth = 84, Padding = new Thickness(12, 6, 12, 6), Margin = new Thickness(0, 0, 8, 0) };
+        if (accent) primary.SetResourceReference(FrameworkElement.StyleProperty, "AccentButtonStyle");
         if (destructive && owner.TryFindResource("DangerButtonStyle") is Style danger)
             primary.Style = danger;
         if (cancel != null) buttons.Children.Add(secondary);
@@ -112,10 +115,13 @@ internal static class ModalDialog
 
         var frame = new DispatcherFrame();
         bool accepted = false;
-        primary.Click += (_, _) => { accepted = true; frame.Continue = false; };
+        primary.Click += (_, _) => { if (validate?.Invoke() == false) return; accepted = true; frame.Continue = false; };
         secondary.Click += (_, _) => frame.Continue = false;
+        RoutedEventHandler dismiss = (_, _) => frame.Continue = false;
+        if (dismissOnClick != null) dismissOnClick.Click += dismiss;
         void Keys(object sender, KeyEventArgs args)
         {
+            if (!overlay.IsKeyboardFocusWithin) return;
             if (args.Key == Key.Escape)
             {
                 frame.Continue = false;
@@ -123,6 +129,7 @@ internal static class ModalDialog
             }
             else if (args.Key == Key.Enter && Keyboard.FocusedElement is not Button)
             {
+                if (!safeDefault && validate?.Invoke() == false) { args.Handled = true; return; }
                 accepted = !safeDefault;
                 frame.Continue = false;
                 args.Handled = true;
@@ -148,6 +155,8 @@ internal static class ModalDialog
             owner.Closed -= close;
             owner.PreviewKeyDown -= Keys;
             host.Children.Remove(overlay);
+            scroll.Content = null;
+            if (dismissOnClick != null) dismissOnClick.Click -= dismiss;
             foreach (var native in airspace) native.SetCurrentValue(UIElement.VisibilityProperty, Visibility.Visible);
             if (priorFocus != null && owner.IsVisible) Keyboard.Focus(priorFocus);
         }

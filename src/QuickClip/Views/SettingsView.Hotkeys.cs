@@ -14,15 +14,15 @@ public partial class SettingsView
 
     private void BuildHotkeyRows()
     {
-        AddRow(RecordingCommand.SaveClip, "Save clip", "Save the current replay buffer.");
+        AddRow(RecordingCommand.SaveClip, "Save clip", "Save the last few moments of your recording.");
         if (AppProfile.IsPersonal)
         {
             AddRow(RecordingCommand.ToggleMaster, "Toggle recording",
-                "Turn recording on or off. Turning it off expires manual display permissions.");
+                "Turn recording on or off. Turning it off also stops desktop recording.");
             AddRow(RecordingCommand.ToggleDesktop, "Toggle desktop recording",
-                "Start or stop recording the selected display. Starting requires your confirmation.");
-            AddRow(RecordingCommand.SwitchMonitor, "Switch to next authorized display",
-                "Cycle through connected displays you already approved for this manual session. Switching starts a new replay buffer.");
+                "Start or stop recording the selected screen. Allow that screen in Recording settings first.");
+            AddRow(RecordingCommand.SwitchMonitor, "Switch recording display",
+                "During desktop recording, switch to the next screen you've approved for this session. This starts a new replay buffer.");
         }
         ShowHotkeys();
     }

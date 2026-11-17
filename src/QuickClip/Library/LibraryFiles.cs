@@ -24,7 +24,7 @@ internal static class LibraryFiles
     public static string RootPath(string path)
     {
         var full = CatalogPaths.LocalPath(path);
-        if (full == null || full == Path.GetPathRoot(full) || ClipLibrary.IsMomentsPath(full) ||
+        if (full == null || full == Path.GetPathRoot(full) || ClipLibrary.IsMomentsPath(full) || ClipLibrary.IsSharedCopyPath(full) ||
             full.Split(Path.DirectorySeparatorChar).Any(ExcludedNames.Contains) ||
             Path.GetFileName(full).Equals("QuickClip", StringComparison.OrdinalIgnoreCase))
             throw new ArgumentException("Select a specific media directory outside archive, project and cache folders.", nameof(path));
@@ -42,7 +42,7 @@ internal static class LibraryFiles
     public static bool IsExcluded(string root, string path, ImmutableArray<string> exclusions)
     {
         var relative = Path.GetRelativePath(root, path);
-        return ClipLibrary.IsMomentsPath(path) || relative.Split(Path.DirectorySeparatorChar).Any(part => ExcludedNames.Contains(part)
+        return ClipLibrary.IsMomentsPath(path) || ClipLibrary.IsSharedCopyPath(path) || relative.Split(Path.DirectorySeparatorChar).Any(part => ExcludedNames.Contains(part)
             || part.Equals("QuickClip", StringComparison.OrdinalIgnoreCase)) ||
             exclusions.Any(directory => Within(relative, directory));
     }

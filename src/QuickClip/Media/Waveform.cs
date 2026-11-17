@@ -57,7 +57,7 @@ internal static class Waveform
         if (p == null) return;
         try { p.PriorityClass = ProcessPriorityClass.BelowNormal; } catch { }
         using var reg = ct.Register(() => Proc.KillQuietly(p));
-        var errors = p.StandardError.ReadToEndAsync(CancellationToken.None);
+        var drainErrors = p.StandardError.BaseStream.CopyToAsync(Stream.Null);
 
         var stream = p.StandardOutput.BaseStream;
         var buffer = new byte[64 * 1024];
@@ -96,7 +96,9 @@ internal static class Waveform
         {
             if (inPeak > 0) data.Append(peak / 32768f);
             await p.WaitForExitAsync(CancellationToken.None);
-            if (p.ExitCode != 0) Log.Write($"Waveform for stream {streamIndex} failed: {(await errors).Trim()}");
+            await drainErrors;
+            if (p.ExitCode != 0)
+                Log.Event(DiagnosticCategory.Editor, "Waveform decoding failed", DiagnosticSeverity.Error, p.ExitCode);
             data.IsComplete = true;
             progress();
         }

@@ -40,9 +40,11 @@ public sealed class GameCatalogIndexTests
         Assert.Equal(CatalogMatchKind.Candidate, BuildIndex(found).Match(path, true).Kind);
         Assert.Equal(CatalogMatchKind.Game, BuildIndex(found with { Rules = new(Classification: AppClassification.Game) }).Match(path, true).Kind);
         Assert.Equal(CatalogMatchKind.Ignored, BuildIndex(found, manual).Match(path, true).Kind);
+        Assert.Equal(CatalogMatchKind.Ignored, BuildIndex(found with { Rules = manual.Rules },
+            manual with { Rules = new() }).Match(path, true).Kind);
         Assert.Equal(CatalogMatchKind.Companion, BuildIndex(found, manual with { Rules = new(Classification: AppClassification.Companion) }).Match(path, true).Kind);
         Assert.Equal(CatalogMatchKind.Application, BuildIndex(found, manual with { Rules = new(Classification: AppClassification.Application) }).Match(path, true).Kind);
-        Assert.Equal(CatalogMatchKind.Ambiguous, BuildIndex(manual, found, manual with { Id = "manual:b" }).Match(path, true).Kind);
+        Assert.Equal(CatalogMatchKind.Ambiguous, BuildIndex(manual with { Rules = new() }, found, manual with { Id = "manual:b", Rules = new() }).Match(path, true).Kind);
     }
 
     [Fact]

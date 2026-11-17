@@ -5,22 +5,53 @@ using System.Windows.Controls.Primitives;
 using System.Windows.Data;
 using Microsoft.Win32;
 using QuickClip.Discovery;
+using QuickClip.Recording;
 
 namespace QuickClip.Views;
 
 public partial class GamesSettingsView : UserControl
 {
-    private sealed record RootRow(string Path, bool Steam, bool Automatic = false, bool Excluded = false, bool Epic = false)
+    private sealed record LauncherRow(CatalogSource Source, string Name, bool Enabled, bool Supported, string Status)
     {
+        public bool CanRefresh => Enabled && Supported;
+        public string LogoKey => Source.ToString();
+        public string TileName => Source switch
+        {
+            CatalogSource.Xbox => "Xbox / Game Pass",
+            CatalogSource.Ubisoft => "Ubisoft",
+            CatalogSource.Rockstar => "Rockstar",
+            CatalogSource.Origin => "Origin",
+            _ => Name,
+        };
+        public string TileTooltip => $"{Name} · {(Enabled ? "Enabled" : "Disabled")}\n{Status}\nClick to {(Enabled ? "disable" : "enable")} discovery";
+        public string RefreshName => $"Refresh {Name} game library";
+    }
+
+    private sealed record RootRow(string Path, bool Steam, bool Automatic = false, bool Excluded = false, bool Epic = false,
+        string? Key = null, string? Status = null, bool Enabled = true, bool IsCollection = false,
+        bool HasPreviousExclusion = false)
+    {
+        public bool CanToggle => Key != null && !Excluded;
+        public bool CanRefresh => CanToggle && Enabled;
+        public string RemoveLabel => Excluded ? "Restore" : Automatic ? "Exclude" : "Remove";
+        public string Label => ToString();
         public override string ToString() => (Excluded ? "Excluded · " : Epic ? "Detected Epic manifests · " :
-            Automatic ? "Detected Steam · " : Steam ? "Steam · " : "Game folder · ") + Path;
+            Automatic ? "Detected Steam · " : Steam ? "Steam · " : IsCollection ? "Game collection · " : "Game folder · ") + Path +
+            (Status == null ? "" : " · " + Status) +
+            (HasPreviousExclusion ? " · Previous game exclusion retained" : "");
     }
     private static GameDiscoveryCoordinator Discovery => GameCatalogRuntime.Discovery;
-    private bool _rendering;
+    private bool _basic;
+    private int _eligibleCount;
     private GameCatalogSettings? _renderedState;
     private List<GameRow> _rows = [];
-    private ListCollectionView? _gamesView;
-    private int _manualCount, _retainedCount, _offlineCount;
+    private LauncherRow[] _launchers = [];
+    private ListCollectionView? _gamesView, _attentionView, _ignoredView;
+    private readonly ListBoxItem[] _attentionHeading, _ignoredHeading, _otherHeading;
+    private readonly Expander _ignoredExpander;
+    internal event Action<int>? AttentionCountChanged;
+    internal int AttentionCount { get; private set; }
+    private int _uniqueCount, _manualCount, _retainedCount, _offlineCount;
     private GameRow? _expanded;
     private string _query = "";
     private static GameCatalogSettings State => AppSettings.Current.Games ?? new();
@@ -28,6 +59,14 @@ public partial class GamesSettingsView : UserControl
     public GamesSettingsView()
     {
         InitializeComponent();
+        _ignoredExpander = new() { Header = "Ignored issues", Margin = new Thickness(4, 4, 0, 4) };
+        _ignoredExpander.Expanded += IgnoredExpansion_Changed;
+        _ignoredExpander.Collapsed += IgnoredExpansion_Changed;
+        var attention = new TextBlock { Text = "Needs attention", FontWeight = FontWeights.SemiBold, Margin = new(4, 12, 0, 2) };
+        attention.SetResourceReference(TextBlock.ForegroundProperty, "WarningBrush");
+        _attentionHeading = [Heading(attention)];
+        _ignoredHeading = [Heading(_ignoredExpander)];
+        _otherHeading = [Heading(new TextBlock { Text = "Games and apps", FontWeight = FontWeights.SemiBold, Margin = new(4, 12, 0, 2) })];
         Render();
         IsVisibleChanged += async (_, _) =>
         {
@@ -39,20 +78,77 @@ public partial class GamesSettingsView : UserControl
         };
     }
 
+    private static ListBoxItem Heading(object content) => new()
+    {
+        Content = content, Focusable = false, HorizontalContentAlignment = HorizontalAlignment.Stretch,
+    };
+
+    // Even a ListBox with its scrollbar disabled owns an internal ScrollViewer
+    // that consumes wheel events. Forward them to the page's virtualized scroller.
+    private void SourceList_PreviewMouseWheel(object sender, System.Windows.Input.MouseWheelEventArgs e)
+    {
+        if (e.Handled || e.Delta == 0) return;
+        e.Handled = true;
+        var scroller = FindPageScrollViewer(Games);
+        scroller?.RaiseEvent(new System.Windows.Input.MouseWheelEventArgs(e.MouseDevice, e.Timestamp, e.Delta)
+        {
+            RoutedEvent = System.Windows.Input.Mouse.MouseWheelEvent
+        });
+    }
+
+    private static ScrollViewer? FindPageScrollViewer(DependencyObject element)
+    {
+        if (element is ScrollViewer scroll) return scroll;
+        for (int i = 0; i < System.Windows.Media.VisualTreeHelper.GetChildrenCount(element); i++)
+            if (FindPageScrollViewer(System.Windows.Media.VisualTreeHelper.GetChild(element, i)) is { } child)
+                return child;
+        return null;
+    }
+
+    internal void RefreshPresentation() => ShowDiscoveryStatus();
+
     private void ShowDiscoveryStatus()
     {
         if (!ReferenceEquals(_renderedState, AppSettings.Current.Games)) Render();
         ScanButton.IsEnabled = !Discovery.IsRunning;
         ScanButton.Content = Discovery.IsPaused ? "Resume scan" : "Scan Now";
         CancelButton.IsEnabled = Discovery.IsRunning;
-        if (Discovery.Status.Length != 0) Status.Text = Discovery.Status;
+        if (_basic) Status.Text = Discovery.IsPaused ? "Game search paused." : Discovery.IsRunning
+            ? $"Looking for games · {Discovery.ActiveSourceVisited:N0} items checked" : BasicReadiness;
+        else if (Discovery.Status.Length != 0) Status.Text = Discovery.Status;
         else if (State.Snapshot?.InProgress == true)
             Status.Text = "Incomplete · a previous session ended during the scan.";
     }
 
+    internal void UseBasicPresentation(bool basic)
+    {
+        if (_basic == basic) return;
+        _basic = basic;
+        LibrarySources.Visibility = ScanDetails.Visibility = basic ? Visibility.Collapsed : Visibility.Visible;
+        ScanHelp.Visibility = TargetingHelp.Visibility = basic ? Visibility.Visible : Visibility.Collapsed;
+        ScanHelp.Text = basic ? "Use Add Game for one game or a collection. Manage your added folders here; game stores are in Advanced settings."
+            : "Automatic scans refresh enabled sources. You can pause and resume a scan here.";
+        TargetingHelp.Text = basic ? "Games marked ready can start recording when recording is on and the display is allowed."
+            : "Targeting rules apply to game detection. Manual entire-display capture includes anything visible on the approved display, including games disabled here.";
+        foreach (var row in _rows) row.UseBasicPresentation(basic);
+        Render();
+        ShowDiscoveryStatus();
+        UpdateCount();
+    }
+
+    internal string BasicReadiness
+    {
+        get
+        {
+            if (!ReferenceEquals(_renderedState, AppSettings.Current.Games)) Render();
+            return _eligibleCount == 0 ? "No games ready yet. Search or add a game."
+                : $"{_eligibleCount:N0} {(_eligibleCount == 1 ? "game" : "games")} ready for automatic detection.";
+        }
+    }
+
     private void SetState(GameCatalogSettings state)
     {
-        AppSettings.Current.Games = state;
+        AppSettings.Current.Games = CatalogClaims.Reconfigure(state);
         AppSettings.Current.Save();
         Render();
         _ = Discovery.SettingsChangedAsync();
@@ -67,6 +163,48 @@ public partial class GamesSettingsView : UserControl
     private async void Scan_Click(object sender, RoutedEventArgs e) => await Discovery.RequestAsync(manual: true);
     private void Cancel_Click(object sender, RoutedEventArgs e) => Discovery.Pause();
 
+    private void Provider_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not ToggleButton { DataContext: LauncherRow { Supported: true } row } box) return;
+        bool enabled = box.IsChecked == true;
+        var state = State;
+        SetState(row.Source switch
+        {
+            CatalogSource.Steam => state with { DiscoverSteam = enabled },
+            CatalogSource.Epic => state with { DiscoverEpic = enabled },
+            CatalogSource.Gog => state with { DiscoverGog = enabled },
+            _ => state with { EnabledLaunchers = enabled
+                ? state.EnabledLaunchers.Add(row.Source) : state.EnabledLaunchers.Remove(row.Source) },
+        });
+    }
+
+    private async void RefreshLauncher_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is Button { DataContext: LauncherRow { CanRefresh: true } row })
+            await Discovery.RequestAsync(manual: true, sourceKey: new CatalogScope(row.Source).Key);
+    }
+
+    private void RootEnabled_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not CheckBox { DataContext: RootRow { Key: { } key } } box) return;
+        var state = State;
+        var disabled = state.DisabledSourceKeys;
+        SetState(state with { DisabledSourceKeys = box.IsChecked == true ? disabled.Remove(key) : disabled.Add(key) });
+    }
+
+    private void EnableStores_Click(object sender, RoutedEventArgs e)
+    {
+        SetState(State with { DiscoverSteam = true, DiscoverEpic = true, DiscoverGog = true,
+            EnabledLaunchers = [.. Enum.GetValues<CatalogSource>().Where(LocalLaunchers.IsSupported)] });
+    }
+
+    private async void RefreshSource_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is Button { DataContext: RootRow { CanRefresh: true, Key: { } key } } &&
+            CatalogScope.Enabled(State).Any(scope => scope.Key == key))
+            await Discovery.RequestAsync(manual: true, sourceKey: key);
+    }
+
     private void Steam_Click(object sender, RoutedEventArgs e) => Approve(true);
     private void Collection_Click(object sender, RoutedEventArgs e) => Approve(false);
 
@@ -78,55 +216,87 @@ public partial class GamesSettingsView : UserControl
                 "Choose a folder containing multiple games",
         };
         if (dialog.ShowDialog(Window.GetWindow(this)) != true) return;
+        AddedFolders.IsExpanded = true;
+        SourceError.Text = "";
         if (CatalogPaths.LocalPath(dialog.FolderName) is not { Length: > 3 } path)
         {
-            Status.Text = "Choose a folder on a local drive.";
+            SourceError.Text = "Choose a folder on a local drive.";
             return;
         }
         var request = State.Request;
         if (request.GameRoots.Length + request.SteamLibraryRoots.Length >= 128)
         {
-            Status.Text = "Remove an approved folder before adding another.";
+            SourceError.Text = "Remove a game folder before adding another.";
             return;
         }
         if (steam ? request.SteamLibraryRoots.Contains(path, StringComparer.OrdinalIgnoreCase)
-            : request.GameRoots.Any(root => string.Equals(root.Path, path, StringComparison.OrdinalIgnoreCase))) return;
+            : request.GameRoots.Any(root => string.Equals(root.Path, path, StringComparison.OrdinalIgnoreCase)))
+        {
+            SourceError.Text = "This folder is already in your game sources. Remove it first to change its type.";
+            AddedFolders.IsExpanded = true;
+            return;
+        }
         SetState(State with { Request = steam ? request with { SteamLibraryRoots = request.SteamLibraryRoots.Add(path) }
             : request with { GameRoots = request.GameRoots.Add(new(path, IsCollection: true)) } });
-        Status.Text = "Folder approved. Select Scan Now to scan it.";
+        SourceError.Text = "";
+        AddedFolders.IsExpanded = true;
+        _ = Discovery.RequestAsync(manual: true, sourceKey: new CatalogScope(
+            steam ? CatalogSource.Steam : CatalogSource.Folder, path, IsCollection: !steam).Key);
+    }
+
+    private void RestoreCollectionExclusion_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not Button { DataContext: RootRow { HasPreviousExclusion: true } root } ||
+            CatalogClaims.CollectionRootExclusion(State, root.Path) is not { } prior) return;
+        if (!ModalDialog.ConfirmAction(Window.GetWindow(this),
+            $"A previous game-level exclusion for this folder can still block its executables.\n\n{root.Path}\n\n" +
+            $"Restore this one rule ({prior.DeniedExecutables.Length:N0} remembered executable paths)? Other explicit blocks, game exclusions and normal detection rules still apply.",
+            "Restore previous game exclusion", "Restore", "Cancel", destructive: false)) return;
+        SetState(CatalogClaims.RestoreCollectionRootExclusion(State, root.Path));
+        Status.Text = "Previous game exclusion restored to normal detection rules.";
     }
 
     private void RemoveRoot_Click(object sender, RoutedEventArgs e)
     {
-        if (Roots.SelectedItem is not RootRow root) return;
+        if (sender is not Button { DataContext: RootRow root }) return;
         var request = State.Request;
         SetState(State with { Request = root.Excluded
             ? request with { ExcludedDirectories = request.ExcludedDirectories.Remove(root.Path) }
             : root.Automatic
             ? request with { ExcludedDirectories = request.ExcludedDirectories.Add(root.Path) }
-            : root.Steam ? request with { SteamLibraryRoots = request.SteamLibraryRoots.Remove(root.Path) }
-            : request with { GameRoots = request.GameRoots.RemoveAll(row => row.Path == root.Path) } });
+            : root.Steam ? request with { SteamLibraryRoots = request.SteamLibraryRoots.RemoveAll(path =>
+                string.Equals(CatalogPaths.LocalPath(path), root.Path, StringComparison.OrdinalIgnoreCase)) }
+            : request with { GameRoots = request.GameRoots.RemoveAll(row =>
+                string.Equals(CatalogPaths.LocalPath(row.Path), root.Path, StringComparison.OrdinalIgnoreCase)) },
+            DisabledSourceKeys = root.Key is { } key ? State.DisabledSourceKeys.Remove(key) : State.DisabledSourceKeys });
         Status.Text = root.Excluded ? "Exclusion removed. Scan again to find this source."
-            : root.Automatic ? "Launcher source excluded." : "Approval removed.";
+            : root.Automatic ? "Launcher source excluded." : "Folder removed from QuickClip. Game files are unchanged.";
     }
 
     private void Add_Click(object sender, RoutedEventArgs e)
     {
         if (sender is not Button button) return;
+        ShowAddError(null);
         var menu = new ContextMenu { PlacementTarget = button, Placement = PlacementMode.Bottom };
         var file = new MenuItem { Header = "Executable or shortcut (more accurate)…" };
         file.Click += (_, _) => PickExecutables(null);
-        var folder = new MenuItem { Header = "Game installation folder…" };
-        folder.Click += async (_, _) => await PickGameFolderAsync();
+        var folder = new MenuItem { Header = "One game — installation folder…" };
+        folder.Click += (_, _) => PickGameFolder();
         menu.Items.Add(file);
         menu.Items.Add(folder);
+        var collection = new MenuItem { Header = "Multiple games — collection folder…" };
+        collection.Click += (_, _) => Approve(false);
+        menu.Items.Add(collection);
         menu.IsOpen = true;
     }
 
     private void Edit_Click(object sender, RoutedEventArgs e)
     {
-        if (sender is FrameworkElement { DataContext: GameRow { Entry: { Source: CatalogSource.Manual } entry } })
-            PickExecutables(entry);
+        if (sender is FrameworkElement { DataContext: GameRow { IsManual: true } row })
+        {
+            row.ActionError = null;
+            PickExecutables(row.Entry);
+        }
     }
 
     internal static string? ValidateManualGameExecutables(IReadOnlyList<string> paths)
@@ -136,72 +306,66 @@ public partial class GamesSettingsView : UserControl
         return null;
     }
 
-    private void PickExecutables(CatalogEntry? entry, string? directory = null)
+    private void PickExecutables(CatalogEntry? entry, string? directory = null, string? suggestedName = null)
     {
         var dialog = new OpenFileDialog { Filter = "Executable or shortcut|*.exe;*.lnk", Multiselect = true,
             Title = "Select game executables or shortcuts", CheckFileExists = true, DereferenceLinks = false,
             InitialDirectory = directory ?? "" };
-        if (dialog.ShowDialog(Window.GetWindow(this)) == true) AddSelection(dialog.FileNames, entry);
+        if (dialog.ShowDialog(Window.GetWindow(this)) == true) AddSelection(dialog.FileNames, entry, suggestedName);
     }
 
-    private async Task PickGameFolderAsync()
+    private void ShowAddError(string? message)
     {
-        var owner = Window.GetWindow(this);
-        var dialog = new OpenFolderDialog { Title = "Choose one game's installation folder" };
-        if (dialog.ShowDialog(owner) != true) return;
-        try
+        AddError.Text = message;
+        AddError.Visibility = message == null ? Visibility.Collapsed : Visibility.Visible;
+    }
+
+    private void PickGameFolder()
+    {
+        var dialog = new OpenFolderDialog { Title = "Choose ONE game's installation folder (not a collection)" };
+        if (dialog.ShowDialog(Window.GetWindow(this)) != true) return;
+        if (CatalogPaths.LocalPath(dialog.FolderName) is not { Length: > 3 } path)
         {
-            var (paths, limited) = await Task.Run(() => ManualGameInput.FindCandidates(dialog.FolderName));
-            if (paths.Count == 0)
-            {
-                Status.Text = limited ? "The folder search was incomplete. Choose the executable directly."
-                    : "No likely game executable was found. Choose the executable directly.";
-                PickExecutables(null, dialog.FolderName);
-                return;
-            }
-            if (owner is not { IsVisible: true, Content: Panel }) return;
-            var list = new ListBox { SelectionMode = SelectionMode.Extended, MaxHeight = 260, MinHeight = 70,
-                ItemsSource = paths.Select(path => Path.GetRelativePath(dialog.FolderName, path)).ToArray() };
-            if (paths.Count == 1) list.SelectedIndex = 0;
-            var panel = new StackPanel();
-            panel.Children.Add(new TextBlock { Text = limited ? "Search incomplete. Select the game's executable or browse for it."
-                : "Select the executable or executables that belong to this game.", TextWrapping = TextWrapping.Wrap });
-            panel.Children.Add(list);
-            var browse = new Button { Content = "Browse for another executable…", HorizontalAlignment = HorizontalAlignment.Left };
-            panel.Children.Add(browse);
-            string[]? other = null;
-            browse.Click += (_, _) =>
-            {
-                var picker = new OpenFileDialog { Filter = "Executable or shortcut|*.exe;*.lnk", Multiselect = true,
-                    CheckFileExists = true, DereferenceLinks = false, InitialDirectory = dialog.FolderName };
-                if (picker.ShowDialog(owner) != true) return;
-                other = picker.FileNames;
-                list.UnselectAll();
-                browse.Content = other.Length == 1 ? Path.GetFileName(other[0]) : $"{other.Length} executables selected";
-            };
-            list.SelectionChanged += (_, _) =>
-            {
-                if (list.SelectedItems.Count > 0) other = null;
-            };
-            if (!ModalDialog.Run(owner, "Choose game executables", panel, "Continue", "Cancel", safeDefault: true)) return;
-            AddSelection(other ?? list.SelectedItems.Cast<string>()
-                .Select(path => Path.Combine(dialog.FolderName, path)).ToArray(), null);
+            ShowAddError("Choose a game installation folder on a local drive.");
+            return;
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { Status.Text = ex.Message; }
+        var request = State.Request;
+        if (request.GameRoots.Any(root => string.Equals(root.Path, path, StringComparison.OrdinalIgnoreCase)))
+        {
+            ShowAddError("This folder is already in your game sources. Remove it from Game folders and collections before adding it with a different type.");
+            AddedFolders.IsExpanded = true;
+            return;
+        }
+        if (request.GameRoots.Length + request.SteamLibraryRoots.Length >= 128)
+        {
+            ShowAddError("Remove a game folder before adding another.");
+            return;
+        }
+        SetState(State with { Request = request with { GameRoots = request.GameRoots.Add(new(path)) } });
+        AddedFolders.IsExpanded = true;
+        Status.Text = "Game folder added. Scan queued…";
+        _ = Discovery.RequestAsync(manual: true, sourceKey: new CatalogScope(CatalogSource.Folder, path).Key);
     }
 
-    private void AddSelection(IReadOnlyList<string> inputs, CatalogEntry? entry)
+    private void AddSelection(IReadOnlyList<string> inputs, CatalogEntry? entry, string? suggestedName = null)
     {
+        void Error(string message)
+        {
+            if (entry != null && _rows.FirstOrDefault(row => row.Entry.Id == entry.Id) is { } row)
+                row.ActionError = message;
+            else ShowAddError(message);
+        }
+
         if (inputs.Count == 0)
         {
-            Status.Text = "Select at least one game executable.";
+            Error("Select at least one game executable.");
             return;
         }
         ManualGameInput.Selection[] selections;
         try { selections = inputs.Select(ManualGameInput.Read).ToArray(); }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            Status.Text = ex.Message;
+            Error(ex.Message);
             return;
         }
 
@@ -213,38 +377,25 @@ public partial class GamesSettingsView : UserControl
                 "Confirm shortcut target", "Use executable", "Cancel", destructive: false)) return;
         }
         var paths = selections.Select(item => item.Executable).Distinct(StringComparer.OrdinalIgnoreCase).ToImmutableArray();
-        var state = State;
-        var request = state.Request;
-        var entries = GameCatalogRuntime.Rows(state);
-        var existing = entries.Where(row => row.Id != entry?.Id &&
-            row.Executables.Intersect(paths, StringComparer.OrdinalIgnoreCase).Any()).ToArray();
-        if (existing.Length > 0)
+        if (paths.FirstOrDefault(path => GameDetector.ApplyProcessRole(path, new(CatalogPaths.DefaultRole(path))).Kind
+            != CatalogMatchKind.Unknown) is { } nonGame)
         {
-            if (existing is [var match] && paths.All(path => match.Executables.Contains(path, StringComparer.OrdinalIgnoreCase)))
-            {
-                var catalogRow = _rows.FirstOrDefault(row => row.Entry.Id == match.Id);
-                bool approved = catalogRow?.RulesAfterApproval(paths) != null &&
-                    ModalDialog.ConfirmAction(owner,
-                        $"Allow the selected executables in {match.DisplayName} to trigger replay when they own the game window?",
-                        "Approve game executables", "Approve executables", "Keep current settings", destructive: false);
-                if (approved)
-                {
-                    // A discovery update can refresh the catalog while the confirmation is open.
-                    catalogRow = _rows.FirstOrDefault(row => row.Entry.Id == match.Id);
-                    if (catalogRow?.RulesAfterApproval(paths) is { } confirmedRules)
-                        SaveRules(catalogRow.Entry, confirmedRules);
-                    else approved = false;
-                }
-                Search.Text = "";
-                Games.SelectedItem = _rows.FirstOrDefault(row => row.Entry.Id == match.Id);
-                if (Games.SelectedItem is { } selected) Games.ScrollIntoView(selected);
-                Status.Text = approved ? ExecutablesApproved :
-                    $"Already in the catalog as {match.DisplayName}. Open its details to check executable eligibility.";
-            }
-            else Status.Text = "Some executables already belong to another catalog entry. Select only new executables.";
+            Error($"{Path.GetFileName(nonGame)} is a launcher or other non-game executable. Select the executable that renders the game itself.");
             return;
         }
-        string name = entry?.DisplayName ?? ManualGameInput.FriendlyName(paths[0]);
+        if (paths.Any(CatalogPaths.IsJavaRuntime) && !ModalDialog.ConfirmAction(owner,
+            "This Java executable can run more than one app. Only add it if this exact file is dedicated to your game. For a shared Java installation, use manual recording on an allowed display.",
+            "Confirm dedicated Java executable", "Add dedicated executable", "Cancel", destructive: false)) return;
+        var state = State;
+        var request = state.Request;
+        var existing = _rows.FirstOrDefault(row => row.IsManual && row.Entry.Id != entry?.Id &&
+            row.Entry.Executables.Intersect(paths, StringComparer.OrdinalIgnoreCase).Any());
+        if (existing != null)
+        {
+            Error($"A selected file is already in {existing.Entry.DisplayName}.");
+            return;
+        }
+        string name = entry?.DisplayName ?? suggestedName ?? ManualGameInput.FriendlyName(paths[0]);
         if (entry == null)
         {
             if (TextPrompt.Ask(owner, "Game display name", name, "Add Game") is not { Length: > 0 } confirmed) return;
@@ -259,9 +410,8 @@ public partial class GamesSettingsView : UserControl
         Search.Text = "";
         Games.SelectedItem = _rows.FirstOrDefault(row => row.Entry.Id == "manual:" + id.ToString("N"));
         Status.Text = paths.Any(path => state.BlockedExecutables.Contains(path, StringComparer.OrdinalIgnoreCase))
-            ? "Entry saved. Blocked paths stay ignored until restored under Ignored executables."
-            : paths.Any(path => CatalogPaths.DefaultRole(path) == CatalogMatchKind.Companion)
-                ? "Companion apps do not trigger game recording." : "Entry saved.";
+            ? "Entry saved. Blocked paths stay ignored until restored under Blocked executables."
+            : "Entry saved.";
     }
 
     private void Remove_Click(object sender, RoutedEventArgs e)
@@ -293,13 +443,6 @@ public partial class GamesSettingsView : UserControl
             ? CatalogInclusion.Include : CatalogInclusion.Exclude });
     }
 
-    private void Classification_Changed(object sender, SelectionChangedEventArgs e)
-    {
-        if (_rendering || sender is not ComboBox { IsKeyboardFocusWithin: true, DataContext: GameRow row,
-                SelectedValue: AppClassification classification } || classification == row.Entry.Rules.Classification) return;
-        SaveRules(row.Entry, row.Entry.Rules with { Classification = classification });
-    }
-
     private void Launcher_Click(object sender, RoutedEventArgs e)
     {
         if (sender is not Button { DataContext: GameRow row, CommandParameter: string path }) return;
@@ -309,47 +452,31 @@ public partial class GamesSettingsView : UserControl
             ? launchers.RemoveAll(value => string.Equals(value, path, StringComparison.OrdinalIgnoreCase)) : launchers.Add(path) });
     }
 
-    private void ApproveExecutable_Click(object sender, RoutedEventArgs e)
-    {
-        if (sender is not Button { DataContext: GameRow row, CommandParameter: string path }) return;
-        if (row.RulesAfterApproval([path]) == null)
-        {
-            Status.Text = "This executable cannot be approved. Check its detection status.";
-            return;
-        }
-        if (!ModalDialog.ConfirmAction(Window.GetWindow(this),
-            $"Allow {Path.GetFileName(path)} to trigger replay when it owns the game window?",
-            "Approve game executable", "Approve executable", "Cancel", destructive: false)) return;
-        if (!_rows.Contains(row) || row.RulesAfterApproval([path]) is not { } rules)
-        {
-            Status.Text = "This executable cannot be approved. Check its detection status.";
-            return;
-        }
-        SaveRules(row.Entry, rules);
-        Status.Text = ExecutablesApproved;
-    }
-
-    private const string ExecutablesApproved = "Approval saved. Replay requires a verified game window and authorized display.";
-
     private void BlockFile_Click(object sender, RoutedEventArgs e)
     {
         var dialog = new OpenFileDialog { Filter = "Windows executables|*.exe", Multiselect = true,
-            Title = "Select executables to ignore for automatic game detection", CheckFileExists = true };
+            Title = "Select executables to block for automatic game detection", CheckFileExists = true };
         if (dialog.ShowDialog(Window.GetWindow(this)) == true) BlockExecutables(dialog.FileNames);
     }
 
     private void BlockSelected_Click(object sender, RoutedEventArgs e)
     {
-        if (sender is Button { CommandParameter: string path }) BlockExecutables([path]);
+        if (sender is not Button { CommandParameter: string path, DataContext: GameRow row }) return;
+        if (State.BlockedExecutables.Contains(path, StringComparer.OrdinalIgnoreCase))
+        {
+            SetState(State with { BlockedExecutables = State.BlockedExecutables.RemoveAll(value =>
+                string.Equals(value, path, StringComparison.OrdinalIgnoreCase)) });
+            Status.Text = "Executable restored to its catalog rules.";
+        }
+        else BlockExecutables([path], row);
     }
 
-    private void BlockExecutables(IReadOnlyList<string> paths)
+    private void BlockExecutables(IReadOnlyList<string> paths, GameRow? row = null)
     {
-        if (ValidateManualGameExecutables(paths) is { } error)
-        {
-            Status.Text = error;
-            return;
-        }
+        string? error = ValidateManualGameExecutables(paths);
+        if (row == null) BlockedError.Text = error;
+        else row.ActionError = error;
+        if (error != null) return;
         var blocked = State.BlockedExecutables.Concat(paths.Select(path => CatalogPaths.LocalPath(path)!))
             .Distinct(StringComparer.OrdinalIgnoreCase).ToImmutableArray();
         SetState(State with { BlockedExecutables = blocked });
@@ -366,16 +493,25 @@ public partial class GamesSettingsView : UserControl
     private void SaveRules(CatalogEntry entry, CatalogRules rules)
     {
         var request = State.Request;
+        var prior = request.Overrides.LastOrDefault(item => item.Id == entry.Id);
+        var overrides = request.Overrides.RemoveAll(item => item.Id == entry.Id).Add(new(entry.Id, rules)
+        {
+            DeniedExecutables = rules.Inclusion == CatalogInclusion.Exclude
+                ? [.. (prior?.DeniedExecutables ?? []).Concat(entry.Executables).Distinct(StringComparer.OrdinalIgnoreCase)] : [],
+        });
+        if (entry.Rules.Inclusion != rules.Inclusion)
+            overrides = [.. overrides.Select(item => entry.AliasIds.Contains(item.Id) ?
+                item with { Rules = item.Rules with { Inclusion = rules.Inclusion } } : item)];
         SetState(State with { Request = request with
         {
-            Overrides = request.Overrides.RemoveAll(item => item.Id == entry.Id).Add(new(entry.Id, rules)),
+            Overrides = overrides,
         } });
     }
 
     private void Search_Changed(object sender, TextChangedEventArgs e)
     {
         _query = Search.Text.Trim();
-        _gamesView?.Refresh();
+        RefreshIssueViews();
         UpdateCount();
     }
 
@@ -384,72 +520,214 @@ public partial class GamesSettingsView : UserControl
         _renderedState = AppSettings.Current.Games;
         var state = _renderedState ?? new();
         AutoScan.IsChecked = state.AutoScan;
+        var claims = (state.SourceClaims ?? []).ToDictionary(claim => claim.Scope.Key, StringComparer.Ordinal);
+        string DescribeSource(string key)
+        {
+            if (state.DisabledSourceKeys.Contains(key)) return "Disabled";
+            if (key == Discovery.ActiveSourceKey && (Discovery.IsRunning || Discovery.IsPaused))
+                return Discovery.IsPaused ? "Scan paused" : "Scanning";
+            if (!claims.TryGetValue(key, out var claim)) return "Awaiting scan";
+            var issues = claim.Result.Issues;
+            string count = $"{claim.DiscoveredCount ?? claim.Result.Entries.Length:N0} found";
+            if (claim.Verified && claim.Scope.Kind == CatalogSource.Steam && claim.Scope.Root == null &&
+                claim.Result.SteamLibraries.IsEmpty) return "Not installed";
+            if (claim.Verified) return $"Available · {count}";
+            if (issues.Any(issue => issue.Kind == CatalogIssueKind.Unavailable) || claim.Result.SourceUnavailable)
+                return $"Inaccessible or offline · {count}";
+            if (issues.Any(issue => issue.Kind == CatalogIssueKind.SourceMissing) &&
+                issues.All(issue => issue.Kind is CatalogIssueKind.SourceMissing or CatalogIssueKind.ReparsePoint))
+                return claim.Scope.Root != null ? "Source missing" :
+                    claim.Result.Entries.IsEmpty ? "Not installed" : "Not currently found";
+            return $"Incomplete · {count}";
+        }
+        var enabled = CatalogScope.Enabled(state).Select(scope => scope.Key).ToHashSet(StringComparer.Ordinal);
+        LauncherRow[] launchers = new[]
+        {
+            CatalogSource.Steam, CatalogSource.Epic, CatalogSource.Gog, CatalogSource.Xbox, CatalogSource.Ea, CatalogSource.Riot,
+            CatalogSource.BattleNet, CatalogSource.Ubisoft, CatalogSource.Rockstar, CatalogSource.Heroic, CatalogSource.Origin,
+            CatalogSource.Amazon, CatalogSource.Itch,
+        }.Select(source =>
+        {
+            string key = new CatalogScope(source).Key;
+            bool supported = source is CatalogSource.Steam or CatalogSource.Epic or CatalogSource.Gog || LocalLaunchers.IsSupported(source);
+            bool active = enabled.Contains(key);
+            return new LauncherRow(source, LocalLaunchers.Name(source), active, supported,
+                !supported ? "Unsupported" : active ? DescribeSource(key) : "Disabled");
+        }).ToArray();
+        if (!_launchers.SequenceEqual(launchers)) Launchers.ItemsSource = _launchers = launchers;
         RootRow[] epic = state.Snapshot?.EpicManifestDirectory is { } manifestDirectory &&
             !state.Request.ExcludedDirectories.Any(root => CatalogPaths.IsWithin(manifestDirectory, root))
             ? [new(manifestDirectory, Steam: false, Automatic: true, Epic: true)] : [];
-        Roots.ItemsSource = state.Request.SteamLibraryRoots.Select(path => new RootRow(path, true))
+        var roots = CatalogScope.Configured(state).Where(scope => scope.Root != null)
+            .Select(scope => new RootRow(scope.Root!, scope.Kind == CatalogSource.Steam, Key: scope.Key, Status: DescribeSource(scope.Key), Enabled: enabled.Contains(scope.Key), IsCollection: scope.IsCollection,
+                HasPreviousExclusion: scope.Kind == CatalogSource.Folder && scope.IsCollection &&
+                    CatalogClaims.CollectionRootExclusion(state, scope.Root!) != null))
             .Concat((state.Snapshot?.SteamLibraries ?? []).Where(path =>
                 !state.Request.SteamLibraryRoots.Contains(path, StringComparer.OrdinalIgnoreCase) &&
                 !state.Request.ExcludedDirectories.Contains(path, StringComparer.OrdinalIgnoreCase))
                 .Select(path => new RootRow(path, true, Automatic: true)))
             .Concat(epic)
-            .Concat(state.Request.GameRoots.Select(root => new RootRow(root.Path, false)))
-            .Concat(state.Request.ExcludedDirectories.Select(path => new RootRow(path, false, Excluded: true))).ToArray();
+            .Concat(state.Request.ExcludedDirectories.Select(path => new RootRow(path, false, Excluded: true)));
+        Roots.ItemsSource = roots.Where(root => !_basic || !root.Automatic && !root.Excluded).ToArray();
         LastScan.Text = state.Snapshot is { CompletedAt: var completed } && completed != default
             ? $"Last finished scan · {completed.ToLocalTime():g}" : "No finished scan.";
         BlockedFiles.ItemsSource = state.BlockedExecutables;
-        var issues = state.Snapshot?.Issues.Select(ScanIssueText) ?? [];
+        // Old saved snapshots may predate the coordinator's presentation filter.
+        // Show SourceMissing only for an explicitly configured folder; never
+        // list each absent optional launcher as a scan warning.
+        var explicitMissing = claims.Values.Where(claim => claim.Scope.Root != null)
+            .SelectMany(claim => claim.Result.Issues)
+            .Where(issue => issue.Kind == CatalogIssueKind.SourceMissing).ToHashSet();
+        var issues = state.Snapshot?.Issues.Where(issue =>
+            issue.Kind != CatalogIssueKind.SourceMissing || explicitMissing.Contains(issue))
+            .Select(ScanIssueText) ?? [];
         ScanIssues.ItemsSource = state.Snapshot?.HasMoreIssues == true ? issues.Append("Additional scan issues are omitted.").ToArray()
             : issues.ToArray();
-        RenderRows(state);
+        RenderRows(CatalogClaims.Start(state));
     }
 
     internal void RenderRows(GameCatalogSettings state)
     {
         string? selected = (Games.SelectedItem as GameRow)?.Entry.Id;
         var entries = GameCatalogRuntime.Rows(state);
-        var offline = state.OfflineIds.ToHashSet(StringComparer.Ordinal);
-        var catalog = new GameCatalogIndex(new(entries, [], 0, false, default), state.BlockedExecutables);
-        var retained = state.RetainedIds.ToHashSet(StringComparer.Ordinal);
+        var offline = entries.Where(entry => entry.IsUnverified).Select(entry => entry.Id)
+            .Concat(state.OfflineIds).ToHashSet(StringComparer.Ordinal);
+        var catalog = new GameCatalogIndex(new(entries, [], 0, false, default), CatalogClaims.BlockedExecutables(state));
+        var retained = entries.Where(entry => entry.IsUnverified || !entry.UnverifiedExecutables.IsEmpty)
+            .Select(entry => entry.Id).Concat(state.RetainedIds).ToHashSet(StringComparer.Ordinal);
         _manualCount = entries.Count(entry => entry.Source == CatalogSource.Manual);
+        _uniqueCount = entries.Length - _manualCount;
+        var knownPaths = entries.Where(entry => entry.Source != CatalogSource.Manual).SelectMany(entry => entry.Executables)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        foreach (var entry in entries.Where(entry => entry.Source == CatalogSource.Manual))
+        {
+            if (entry.Executables.IsEmpty || entry.Executables.Any(path => !knownPaths.Contains(path))) _uniqueCount++;
+            knownPaths.UnionWith(entry.Executables);
+        }
         _retainedCount = entries.Count(entry => entry.Source != CatalogSource.Manual && retained.Contains(entry.Id));
         _offlineCount = entries.Count(entry => entry.Source != CatalogSource.Manual && offline.Contains(entry.Id));
         var existing = _rows.ToDictionary(row => row.Entry.Id, StringComparer.Ordinal);
+        _eligibleCount = 0;
         var rows = new List<GameRow>(entries.Length);
         bool refilter = false;
-        _rendering = true;
-        try
+        var ignored = (AppSettings.Current.IgnoredGameIssues ?? []).ToHashSet(StringComparer.Ordinal);
+        foreach (var entry in entries)
         {
-            foreach (var entry in entries)
-            {
-                if (!existing.TryGetValue(entry.Id, out var row)) row = new(entry);
-                else if (_query.Length > 0) refilter |= row.Matches(_query) != GameRow.Matches(entry, _query);
-                row.Update(entry, offline.Contains(entry.Id), state.BlockedExecutables, catalog);
-                rows.Add(row);
-            }
-            if (_expanded != null && !entries.Any(entry => entry.Id == _expanded.Entry.Id))
-                _expanded = null;
-            if (_gamesView == null || !_rows.SequenceEqual(rows))
-            {
-                _rows = rows;
-                _gamesView = new ListCollectionView(rows) { Filter = item => ((GameRow)item).Matches(_query) };
-                Games.ItemsSource = _gamesView;
-                Games.SelectedItem = rows.FirstOrDefault(row => row.Entry.Id == selected && row.Matches(_query));
-            }
-            else if (refilter) _gamesView.Refresh();
+            if (!existing.TryGetValue(entry.Id, out var row)) row = new(entry);
+            else if (_query.Length > 0) refilter |= row.Matches(_query) != GameRow.Matches(entry, _query);
+            row.Update(entry, offline.Contains(entry.Id), state.BlockedExecutables, catalog);
+            row.UseBasicPresentation(_basic);
+            var previousIssue = (row.Issue, row.IssueIgnored);
+            row.EvaluateIssue(ignored, Discovery.IsRunning);
+            refilter |= previousIssue != (row.Issue, row.IssueIgnored);
+            if (row.DetectionReady) _eligibleCount++;
+            rows.Add(row);
         }
-        finally { _rendering = false; }
+        if (_expanded != null && !entries.Any(entry => entry.Id == _expanded.Entry.Id))
+            _expanded = null;
+        if (_gamesView == null || !_rows.SequenceEqual(rows))
+        {
+            _rows = rows;
+            _gamesView = new ListCollectionView(rows) { Filter = item => item is GameRow row && row.Matches(_query) && !row.HasIssue };
+            _attentionView = new ListCollectionView(rows) { Filter = item => item is GameRow row && row.Matches(_query) && row.HasIssue && !row.IssueIgnored };
+            _ignoredView = new ListCollectionView(rows) { Filter = item => item is GameRow row && row.Matches(_query) && row.HasIssue && row.IssueIgnored };
+            GameItems.Collection = _gamesView;
+            AttentionItems.Collection = _attentionView;
+            IgnoredItems.Collection = _ignoredExpander.IsExpanded ? _ignoredView : null;
+            Games.SelectedItem = rows.FirstOrDefault(row => row.Entry.Id == selected && row.Matches(_query));
+        }
+        else if (refilter) RefreshIssueViews();
+        UpdateIssueHeaders();
         UpdateCount();
+    }
+
+    private void RefreshIssueViews()
+    {
+        _gamesView?.Refresh();
+        _attentionView?.Refresh();
+        _ignoredView?.Refresh();
+        UpdateIssueHeaders();
+    }
+
+    private void UpdateIssueHeaders()
+    {
+        if (_attentionView == null || _ignoredView == null) return;
+        ShowHeading(AttentionHeading, _attentionHeading, _attentionView.Count > 0);
+        ShowHeading(IgnoredHeading, _ignoredHeading, _ignoredView.Count > 0);
+        ShowHeading(OtherGamesHeading, _otherHeading, _attentionView.Count + _ignoredView.Count > 0);
+        int count = _rows.Count(row => row.HasIssue && !row.IssueIgnored);
+        if (AttentionCount == count) return;
+        AttentionCount = count;
+        AttentionCountChanged?.Invoke(count);
+    }
+
+    private static void ShowHeading(CollectionContainer container, ListBoxItem[] heading, bool visible)
+    {
+        var collection = visible ? heading : null;
+        if (!ReferenceEquals(container.Collection, collection)) container.Collection = collection;
+    }
+
+    private void IgnoredExpansion_Changed(object sender, RoutedEventArgs e)
+    {
+        if (IgnoredItems != null) IgnoredItems.Collection = _ignoredExpander.IsExpanded ? _ignoredView : null;
+        UpdateCount();
+    }
+
+    private void DismissIssue_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not Button { DataContext: GameRow { HasIssue: true } row }) return;
+        var settings = AppSettings.Current;
+        var previous = settings.IgnoredGameIssues ?? [];
+        settings.IgnoredGameIssues = row.IssueIgnored
+            ? previous.Except(row.IssueKeys(), StringComparer.Ordinal).ToArray()
+            : previous.Append(row.IssueKeys().First()).Distinct(StringComparer.Ordinal).ToArray();
+        if (!settings.TrySave())
+        {
+            settings.IgnoredGameIssues = previous;
+            row.ActionError = "Could not save your issue preference.";
+            return;
+        }
+        row.ActionError = null;
+        row.EvaluateIssue(settings.IgnoredGameIssues, Discovery.IsRunning);
+        RefreshIssueViews();
+    }
+
+    private async void RepairIssue_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not Button { DataContext: GameRow { HasIssue: true } row }) return;
+        if (row.Issue == DetectionIssue.SourceUnavailable)
+        {
+            string? key = CatalogScope.Enabled(State).FirstOrDefault(scope => scope.Kind == row.Entry.Source &&
+                (scope.Root == null || row.Entry.InstallDirectories.Any(path => CatalogPaths.IsWithin(path, scope.Root))))?.Key;
+            if (key == null) row.ActionError = "Restore or re-enable the game source before rescanning.";
+            else if (Discovery.IsRunning) row.ActionError = "A scan is already running. Try again when it finishes.";
+            else await Discovery.RequestAsync(manual: true, sourceKey: key);
+            return;
+        }
+
+        string? initial = row.Entry.InstallDirectories.FirstOrDefault();
+        if (row.Issue == DetectionIssue.MinecraftJava)
+        {
+            if (!ModalDialog.ConfirmAction(Window.GetWindow(this),
+                "QuickClip could not find Minecraft's bundled Java runtime. Look inside your Minecraft Launcher installation (often under Program Files (x86), possibly on another drive) for:\n\n" +
+                CatalogPaths.MinecraftLauncherFolder + "\\" + CatalogPaths.MinecraftRuntimeRelative +
+                "\n\nIf your runtime version differs, start Minecraft and use Task Manager > Details > javaw.exe > Open file location. Select the dedicated javaw.exe, not MinecraftLauncher.exe. Bedrock is separate.",
+                "Fix Minecraft Java detection", "Locate dedicated executable", "Close", destructive: false)) return;
+            initial = null;
+        }
+        string? name = row.Issue == DetectionIssue.MinecraftJava ? "Minecraft Java Edition" : row.Entry.DisplayName;
+        PickExecutables(row.IsManual ? row.Entry : null, initial, row.IsManual ? null : name);
     }
 
     private void UpdateCount()
     {
         if (Count != null && _gamesView != null)
         {
-            Count.Text = $"Catalog · {_rows.Count:N0} entries · {_rows.Count - _manualCount:N0} discovered · {_manualCount:N0} manual"
-                + (_query.Length == 0 ? "" : $" · {_gamesView.Count:N0} shown");
-            DiscoveryCountDetail.Text = $"Of discovered entries · {_retainedCount:N0} retained · {_offlineCount:N0} awaiting verification";
-            DiscoveryCountDetail.Visibility = _retainedCount + _offlineCount > 0 ? Visibility.Visible : Visibility.Collapsed;
+            Count.Text = (_basic ? $"{_uniqueCount:N0} games and apps found" :
+                $"Catalog · {_uniqueCount:N0} unique games and apps · {_manualCount:N0} manual entries")
+                + (_query.Length == 0 ? "" : $" · {_gamesView.Count + (_attentionView?.Count ?? 0) + (_ignoredExpander.IsExpanded ? _ignoredView?.Count ?? 0 : 0):N0} shown");
+            DiscoveryCountDetail.Text = $"{_retainedCount:N0} entries with cached paths · {_offlineCount:N0} awaiting verification";
+            DiscoveryCountDetail.Visibility = !_basic && _retainedCount + _offlineCount > 0 ? Visibility.Visible : Visibility.Collapsed;
         }
     }
 
@@ -462,7 +740,12 @@ public partial class GamesSettingsView : UserControl
         try
         {
             var unavailable = await Task.Run(() => paths.Where(path => !File.Exists(path)).ToArray());
-            if (row.Entry.Executables.SequenceEqual(paths)) row.SetUnavailableExecutables(unavailable);
+            if (row.Entry.Executables.SequenceEqual(paths))
+            {
+                row.SetUnavailableExecutables(unavailable);
+                row.EvaluateIssue(AppSettings.Current.IgnoredGameIssues ?? [], Discovery.IsRunning);
+                RefreshIssueViews();
+            }
         }
         finally { row.CheckingExecutables = false; }
     }
@@ -483,6 +766,7 @@ public partial class GamesSettingsView : UserControl
     internal static string ScanIssueText(CatalogIssue issue) => (issue.Kind switch
     {
         CatalogIssueKind.Unavailable => "Source unavailable · reconnect the drive or check folder access",
+        CatalogIssueKind.SourceMissing => "Source missing",
         CatalogIssueKind.InvalidManifest => "Unreadable launcher manifest · check the installation and rescan",
         CatalogIssueKind.InvalidManualEntry => "Invalid manual entry · edit its executable selection",
         CatalogIssueKind.ReparsePoint => "Linked folder skipped · approve its actual local location",

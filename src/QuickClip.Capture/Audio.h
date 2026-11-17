@@ -32,7 +32,7 @@ namespace qc
     class TrackMixer
     {
     public:
-        explicit TrackMixer(int64_t t0Us, bool measureSignal = false);
+        explicit TrackMixer(int64_t t0Us, bool measureSignal = false, bool measureTiming = false);
 
         struct Cursor
         {
@@ -62,7 +62,7 @@ namespace qc
         std::atomic<int64_t> nonzeroBlocks_{ 0 };
         std::atomic<int64_t> lateFrames_{ 0 }, overlapFrames_{ 0 }, aheadFrames_{ 0 };
         std::atomic<float> maxPeak_{ 0 };
-        bool measureSignal_;
+        const bool measureSignal_, measureTiming_;
         int64_t t0Us_;
     };
 

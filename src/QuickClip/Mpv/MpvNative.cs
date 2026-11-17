@@ -17,7 +17,6 @@ internal enum MpvEventId
 {
     None = 0,
     Shutdown = 1,
-    LogMessage = 2,
     GetPropertyReply = 3,
     SetPropertyReply = 4,
     CommandReply = 5,
@@ -52,19 +51,11 @@ internal struct MpvEventProperty
 }
 
 [StructLayout(LayoutKind.Sequential)]
-internal struct MpvEventLogMessage
-{
-    public IntPtr Prefix;
-    public IntPtr Level;
-    public IntPtr Text;
-    public int LogLevel;
-}
-
-[StructLayout(LayoutKind.Sequential)]
 internal struct MpvEventEndFile
 {
     public int Reason;
     public int Error;
+    public long PlaylistEntryId;
 }
 
 internal static class MpvNative
@@ -110,8 +101,6 @@ internal static class MpvNative
     [DllImport(Lib, CallingConvention = CallingConvention.Cdecl)]
     public static extern void mpv_wakeup(IntPtr ctx);
 
-    [DllImport(Lib, CallingConvention = CallingConvention.Cdecl)]
-    public static extern int mpv_request_log_messages(IntPtr ctx, [MarshalAs(UnmanagedType.LPUTF8Str)] string minLevel);
 
     [DllImport(Lib, CallingConvention = CallingConvention.Cdecl)]
     public static extern IntPtr mpv_error_string(int error);

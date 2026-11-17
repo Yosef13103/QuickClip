@@ -27,7 +27,7 @@ internal sealed partial class GameDetector
 {
     internal static bool HasCatalogEligibility(CatalogMatch match) =>
         match.Kind == CatalogMatchKind.Game ||
-        match is { Kind: CatalogMatchKind.Candidate, Entry.Source: CatalogSource.Steam };
+        match is { Kind: CatalogMatchKind.Candidate, Entry: { Source: CatalogSource.Steam, RendererExecutables: null } };
 
     // Apps that are never games, even when fullscreen.
     private static readonly HashSet<string> NotGames = new(StringComparer.OrdinalIgnoreCase)
@@ -54,6 +54,7 @@ internal sealed partial class GameDetector
     private HashSet<string> _knownGames = new(StringComparer.OrdinalIgnoreCase);
     private DateTime _knownGamesLoaded;
     private string? _lastGame;
+    private (CatalogMatchKind? Kind, bool Eligible)? _lastDiagnosticOutcome;
     private DateTime _lastGameSeen;
 
     static GameDetector()
@@ -72,6 +73,16 @@ internal sealed partial class GameDetector
         ForegroundObservation = DetectForeground();
         ActiveObservation = SelectObservation(ActiveObservation, ForegroundObservation, IsCurrent);
         ForegroundGame = ForegroundObservation?.Target;
+        if (Log.Enabled)
+        {
+            var outcome = (ForegroundObservation?.Match.Kind, ActiveObservation?.VerifiedTarget != null);
+            if (_lastDiagnosticOutcome != outcome)
+            {
+                _lastDiagnosticOutcome = outcome;
+                Log.Event(DiagnosticCategory.GameDetection, "Foreground eligibility changed",
+                    code: (int)(outcome.Item1 ?? CatalogMatchKind.Unknown) + (outcome.Item2 ? 100 : 0));
+            }
+        }
         if (ForegroundObservation is { Match.Kind: not CatalogMatchKind.Unknown } observed
             && ForegroundGame != null)
         {
@@ -144,7 +155,7 @@ internal sealed partial class GameDetector
         }
         catch (Exception ex)
         {
-            Log.Write("Game detection failed: " + ex.Message);
+            Log.Failure(DiagnosticCategory.GameDetection, "Game detection failed", ex);
             return null;
         }
     }

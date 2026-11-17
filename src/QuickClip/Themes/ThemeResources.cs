@@ -103,6 +103,7 @@ internal sealed class ThemeResources
         brushes["DividerBrush"] = Frozen(Blend(colors[ThemeColor.Surface], colors[ThemeColor.Border], .38));
         // Semantic foregrounds are available to all palettes, including the legacy Dark and high-contrast paths.
         brushes["OnAccentBrush"] = OnColor(colors[ThemeColor.Accent]);
+        brushes["OnWarningBrush"] = OnColor(colors[ThemeColor.Warning]);
         brushes["OnAccentHoverBrush"] = OnColor(colors[ThemeColor.AccentHover]);
         if (ReferenceEquals(colors, ThemePalette.Get(ThemeChoice.Dark)) && !overrideFluent)
         {

@@ -1,0 +1,18 @@
+# Wave 2 owner follow-up: scope and acceptance
+
+This draft includes the exact Codex stabilization head `3bd0cfd229e9a725d15ec0ff832e5f159a5d0a5e` as an ancestor. PR 87 is therefore already represented in PR 88; do not merge both independently. No production merge or release is authorized.
+
+Implemented in source, pending Windows CI and owner validation:
+- Explicit short duration suffix (16s); minute durations use mm:ss.
+- Themed catalog cards/expanded headings, round single-digit badge, full-width scrolling viewport, preserved virtualization and unified wheel forwarding from the Games page. Verify blank margins, nested source lists, open game details, narrow widths and large catalogs.
+- Shared editable endpoint rows and compact accessible reorder/remove buttons in both modes; remove repetitive routing text while retaining actionable error messages. Verify device rename, removal, order, enable state and mic testing.
+- Clarify that MinecraftLauncher.exe and the launcher proxy are not the gameplay process. Point the user toward an exact, dedicated javaw.exe; no general Java-runtime allowlisting or automatic Minecraft association yet.
+- Custom image exclusion is retired, including for legacy stored preferences; keep saved-banner exclusion and normal image alpha/animation. Owner reported both exclusion modes had hidden their respective overlays; image appearance was unacceptable. Recheck ordinary image rendering and saved-banner exclusion independently.
+- On-demand theme designer window with local clickable sample components and independent preview sizing. No gradient schema change. Verify saved picker contents after Light/Custom changes, import, rename, export, duplicate handling and reopening; close must release the editor. Current preview is representative, not a pixel-perfect duplicate of the entire application.
+- Selected cached gallery thumbnail grows briefly within the editor loading placeholder; no forced wait; actual preview still uses the native source readiness contract. Full card-to-editor shared-element motion is not implemented. Verify rapid switches, missing posters, reduced motion, minimize and restore.
+
+Remaining native overlay defect: capture-excluded opaque fallback may intercept mouse clicks despite WPF IsHitTestVisible=false and WS_EX_TRANSPARENT. Microsoft guarantees pass-through for layered windows, not arbitrary opaque HWNDs (https://learn.microsoft.com/en-us/windows/win32/winmsg/window-features#layered-windows). Try a capture-compatible layered implementation on Win10 and Win11, explicitly verify exclusion in saved footage AND clicks/drags across unrelated process windows. Never synthesize clicks, steal focus, disable input, or silently expose an excluded banner. If compatibility fails, offer honest alternative presentation/placement rather than a claim of successful pass-through. Preserve accepted HUD appearance and lifecycle.
+
+Outstanding acceptance: original tag-order save reproduction, cancellation/recovery and actual shutdown, catalogue repair/playback capture across launcher-to-game transitions, ignored issue rescan/restart, editor reload/edit preservation, theme popup owner symptom, real capture/audio, performance benchmark with existing runner, updater/installer and packaging gates, regression ledger reconciliation. Codex reported local Personal 873 passed/22 opt-in skipped and Upstream 74 passed/14 opt-in skipped; PR 87 Windows quality run 43944286821 passed. Those results do not certify this new head. No destructive testing with the owner's real library.
+
+Overlapping replay joining is a separate native/media feature; research and acceptance requirements are in [overlapping-replay-research.md](overlapping-replay-research.md).

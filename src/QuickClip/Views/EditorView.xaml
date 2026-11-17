@@ -21,7 +21,7 @@
                     <Setter.Value>
                         <ControlTemplate TargetType="Expander">
                             <StackPanel>
-                                <ToggleButton HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch" Padding="8,6"
+                                <ToggleButton Style="{StaticResource EditorOptionToggle}" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch" Padding="8,6"
                                               IsChecked="{Binding IsExpanded, RelativeSource={RelativeSource TemplatedParent}, Mode=TwoWay}">
                                     <DockPanel>
                                         <TextBlock x:Name="Chevron" DockPanel.Dock="Right" Margin="8,0,0,0" Text="▸" />
@@ -77,11 +77,14 @@
                     <TextBlock Text="Back to Gallery" VerticalAlignment="Center" />
                 </StackPanel>
             </Button>
+            <Button x:Name="ExternalPlayerButton" DockPanel.Dock="Right" Style="{StaticResource IconButton}" Content="&#xE8A7;"
+                    Click="OpenExternal_Click" VerticalAlignment="Center" IsEnabled="False"
+                    AutomationProperties.Name="Open in external player" ToolTip="Open saved clip in external player" />
             <Button x:Name="ModeButton" DockPanel.Dock="Right" Content="View mode" Click="ToggleMode_Click" Style="{StaticResource TextButton}" />
-            <Button x:Name="FullscreenButton" DockPanel.Dock="Right" Content="Fullscreen" Click="ToggleFullscreen_Click"
-                    Style="{StaticResource TextButton}" ToolTip="Fullscreen (F11)" />
             <Button x:Name="DeleteMediaButton" DockPanel.Dock="Right" Content="Delete…" Click="DeleteMedia_Click" Style="{StaticResource DangerButtonStyle}" />
-            <Button x:Name="FavoriteButton" DockPanel.Dock="Right" Click="Favorite_Click" VerticalAlignment="Center" Style="{StaticResource FavoriteButtonStyle}" />
+            <Button x:Name="FavoriteButton" DockPanel.Dock="Right" Click="Favorite_Click" VerticalAlignment="Center" Style="{StaticResource FavoriteButtonStyle}">
+
+            </Button>
             <Button DockPanel.Dock="Left" Style="{StaticResource TextButton}" Click="Open_Click" ToolTip="Open a file (Ctrl+O)">
                 <StackPanel Orientation="Horizontal">
                     <TextBlock FontFamily="{StaticResource IconFont}" Text="&#xE8E5;" VerticalAlignment="Center" Margin="0,0,8,0" />
@@ -90,28 +93,32 @@
             </Button>
             <Button DockPanel.Dock="Right" Style="{StaticResource IconButton}" Content="&#xE765;" Margin="4,0" VerticalAlignment="Center"
                     Click="Shortcuts_Click" AutomationProperties.Name="Keyboard shortcuts">
-                <Button.ToolTip>
-                    <TextBlock LineHeight="20">
-                        <Bold>Keyboard shortcuts</Bold><LineBreak />
-                        Space — play / pause<LineBreak />
-                        ← / → — previous / next frame<LineBreak />
-                        Shift+← / → — 1 second · Ctrl+← / → — 5 seconds<LineBreak />
-                        I / O — set in / out at the playhead<LineBreak />
-                        Shift+I / Shift+O — jump to in / out<LineBreak />
-                        Home / End — start / end of file<LineBreak />
-                        Ctrl+B — bookmark the playhead<LineBreak />
-                        L — loop selection · C — crop on/off · M — mute<LineBreak />
-                        + / − / 0 — zoom timeline in / out / fit<LineBreak />
-                        Wheel over tracks — scroll · Ctrl+wheel — zoom · Shift+wheel — pan<LineBreak />
-                        Ctrl+E — export as new file · Ctrl+S — save over original
-                    </TextBlock>
-                </Button.ToolTip>
+                <Button.ContentTemplate>
+                    <DataTemplate>
+                        <Path Width="19" Height="14" Stretch="Uniform" Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}" StrokeThickness="1.5" StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round"
+                              Data="M2,3 L22,3 L22,17 L2,17 Z M5,7 L6,7 M9,7 L10,7 M13,7 L14,7 M17,7 L19,7 M5,10 L6,10 M9,10 L10,10 M13,10 L14,10 M17,10 L19,10 M7,14 L17,14" />
+                    </DataTemplate>
+                </Button.ContentTemplate>
+                <Button.ToolTip>Keyboard shortcuts</Button.ToolTip>
             </Button>
-            <StackPanel Margin="14,0,0,0" VerticalAlignment="Center">
-                <TextBlock x:Name="FileNameText" FontSize="{DynamicResource QuickClipText15}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" Text="No file open" />
-                <TextBlock x:Name="FileInfoText" FontSize="{DynamicResource QuickClipText12}" Foreground="{DynamicResource SubtleText}" TextTrimming="CharacterEllipsis"
-                           Text="Open a video or audio file, or drop one onto this window." />
-            </StackPanel>
+            <DockPanel Margin="12,0,8,0" VerticalAlignment="Center" LastChildFill="True">
+                <Button x:Name="PreviousClipButton" DockPanel.Dock="Left" Style="{StaticResource IconButton}" IsEnabled="False"
+                        Click="PreviousClip_Click" ToolTip="Previous clip in Gallery order" AutomationProperties.Name="Previous clip">
+                    <Path Data="M9,2 L4,7 L9,12" StrokeThickness="1.6" StrokeLineJoin="Round"
+                          Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}" />
+                </Button>
+                <Button x:Name="NextClipButton" DockPanel.Dock="Right" Style="{StaticResource IconButton}" IsEnabled="False"
+                        Click="NextClip_Click" ToolTip="Next clip in Gallery order" AutomationProperties.Name="Next clip">
+                    <Path Data="M4,2 L9,7 L4,12" StrokeThickness="1.6" StrokeLineJoin="Round"
+                          Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}" />
+                </Button>
+                <StackPanel Margin="6,0" VerticalAlignment="Center">
+                    <TextBlock x:Name="FileNameText" FontSize="{DynamicResource QuickClipText15}" FontWeight="SemiBold" TextAlignment="Center"
+                               TextTrimming="CharacterEllipsis" Text="No file open" />
+                    <TextBlock x:Name="FileInfoText" FontSize="{DynamicResource QuickClipText12}" Foreground="{DynamicResource SubtleText}"
+                               TextAlignment="Center" TextTrimming="CharacterEllipsis" Text="Open a video or audio file, or drop one onto this window." />
+                </StackPanel>
+            </DockPanel>
         </DockPanel>
 
         <!-- Video -->
@@ -124,6 +131,9 @@
                            Visibility="Collapsed" Foreground="{DynamicResource SubtleText}" TextWrapping="Wrap"
                            HorizontalAlignment="Center" VerticalAlignment="Center" Margin="16"
                            AutomationProperties.LiveSetting="Polite" />
+                <ProgressBar x:Name="PreviewProgress" Width="104" Height="4" HorizontalAlignment="Center"
+                             VerticalAlignment="Center" Margin="0,48,0,0" IsIndeterminate="False"
+                             Visibility="Collapsed" AutomationProperties.Name="Loading preview" />
                 <StackPanel x:Name="UnavailableSource" Visibility="Collapsed" MaxWidth="460"
                             HorizontalAlignment="Center" VerticalAlignment="Center" Margin="16">
                     <TextBlock x:Name="UnavailableSourceText" TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite" />
@@ -155,9 +165,9 @@
                 <TextBlock x:Name="TimeText" Margin="10,0,0,0" VerticalAlignment="Center" FontFamily="Consolas" FontSize="{DynamicResource QuickClipText15}" Text="0:00.000" />
                 <TextBlock x:Name="DurationText" VerticalAlignment="Center" FontFamily="Consolas" FontSize="{DynamicResource QuickClipText13}" Foreground="{DynamicResource SubtleText}" Text=" / 0:00.000" />
                 <controls:AppVolumeControl x:Name="Volume" Margin="14,0,0,0" VerticalAlignment="Center" />
+                <Button x:Name="FullscreenButton" Style="{StaticResource IconButton}" Content="&#xE740;" Click="ToggleFullscreen_Click" Margin="8,0,0,0"
+                        ToolTip="Fullscreen (F11)" AutomationProperties.Name="Fullscreen" />
             </StackPanel>
-            <Button x:Name="ExitFullscreenButton" Grid.Column="1" Content="Exit fullscreen" Click="ToggleFullscreen_Click"
-                    Style="{StaticResource TextButton}" Visibility="Collapsed" />
             <StackPanel x:Name="EditControls" Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center" HorizontalAlignment="Right">
                 <Button Style="{StaticResource TextButton}" Click="SetIn_Click" Content="Set in" ToolTip="Start the clip at the playhead (I)" />
                 <Button Style="{StaticResource TextButton}" Click="SetOut_Click" Content="Set out" ToolTip="End the clip at the playhead (O)" />
@@ -247,8 +257,7 @@
                         <TextBlock Text="Add sound" FontSize="{DynamicResource QuickClipText12}" />
                     </StackPanel>
                 </Button>
-                <CheckBox Style="{StaticResource SwitchCheckBox}" Content="Taller tracks" IsChecked="{Binding ExpandedTracks, RelativeSource={RelativeSource AncestorType=views:EditorView}}"
-                          Margin="10,0,0,0" VerticalAlignment="Center" ToolTip="Show more waveform detail" />
+
             </DockPanel>
 
             <ScrollViewer Grid.Row="2" Grid.ColumnSpan="3" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled"
@@ -283,12 +292,12 @@
                                             <ColumnDefinition Width="*" />
                                             <ColumnDefinition Width="Auto" />
                                         </Grid.ColumnDefinitions>
-                                        <CheckBox IsChecked="{Binding Include}" VerticalAlignment="Center" Margin="0,0,-4,0" MinHeight="0"
+                                        <CheckBox Style="{StaticResource EditorTrackCheck}" IsChecked="{Binding Include}" VerticalAlignment="Center" Margin="0,0,-4,0" MinHeight="0"
                                                   ToolTip="Include this track in the export" />
                                         <TextBox Grid.Column="1" Style="{StaticResource CompactBox}" Text="{Binding Name, UpdateSourceTrigger=PropertyChanged}"
                                                  ToolTip="{Binding Description}" VerticalAlignment="Center" />
                                         <StackPanel Grid.Column="2" Orientation="Horizontal">
-                                            <ToggleButton IsChecked="{Binding Solo}" Margin="4,0,0,0" Padding="7,3" MinWidth="0" MinHeight="0"
+                                            <ToggleButton Style="{StaticResource EditorOptionToggle}" IsChecked="{Binding Solo}" Margin="4,0,0,0" Padding="7,3" MinWidth="0" MinHeight="0"
                                                           Focusable="False" FontSize="{DynamicResource QuickClipText12}" Content="Solo" VerticalAlignment="Center"
                                                           ToolTip="Preview only this track (doesn't affect the export)" />
                                             <Button Style="{StaticResource IconButton}" Content="&#xE711;" FontSize="{DynamicResource QuickClipVisual10}" Padding="6,4" Margin="4,0,0,0"
@@ -301,7 +310,7 @@
                                                 <ColumnDefinition Width="82" />
                                             </Grid.ColumnDefinitions>
                                             <Slider Minimum="0" Maximum="200" Value="{Binding VolumePercent}" SmallChange="1" LargeChange="10"
-                                                    Focusable="False" VerticalAlignment="Center" IsMoveToPointEnabled="True"
+                                                    Style="{StaticResource ThemedMediaSlider}" AutomationProperties.Name="Track volume" VerticalAlignment="Center" IsMoveToPointEnabled="True"
                                                     MouseDoubleClick="VolumeSlider_DoubleClick" ToolTip="Volume (double-click for 100%)" />
                                             <TextBlock Grid.Column="1" Text="{Binding VolumeText}" FontSize="{DynamicResource QuickClipText11}" Foreground="{DynamicResource SubtleText}"
                                                        VerticalAlignment="Center" TextAlignment="Right" />
@@ -322,15 +331,15 @@
                 <TextBlock x:Name="SoundDropText" HorizontalAlignment="Center" VerticalAlignment="Center" FontSize="{DynamicResource QuickClipText13}" Text="Drop to add as a sound" />
             </Grid>
         </Grid>
-        <Slider x:Name="ViewSeek" Grid.Row="4" Grid.Column="0" Margin="0,4,0,8"
+        <Slider Style="{StaticResource ThemedMediaSlider}" x:Name="ViewSeek" Grid.Row="4" Grid.Column="0" Margin="0,4,0,8"
                 AutomationProperties.Name="Playback position" IsMoveToPointEnabled="True"
                 Visibility="Collapsed" ValueChanged="ViewSeek_Changed" />
 
         <!-- Side panel -->
         <GridSplitter x:Name="InspectorDivider" Grid.Column="1" Grid.RowSpan="5" Width="8" HorizontalAlignment="Stretch"
-                      ResizeDirection="Columns" ResizeBehavior="PreviousAndNext" Background="{DynamicResource PanelBrush}"
+                      ResizeDirection="Columns" ResizeBehavior="PreviousAndNext" Background="{DynamicResource BackgroundBrush}"
                       DragCompleted="InspectorDivider_DragCompleted" AutomationProperties.Name="Resize video and inspector" />
-        <Border x:Name="Inspector" Grid.Row="0" Grid.RowSpan="5" Grid.Column="2" Background="{DynamicResource PanelBrush}" CornerRadius="8" Padding="16,6,16,14">
+        <Border x:Name="Inspector" Grid.Row="0" Grid.RowSpan="5" Grid.Column="2" Background="{DynamicResource PanelBrush}" BorderBrush="{DynamicResource DividerBrush}" BorderThickness="1" CornerRadius="8" Padding="16,6,16,14">
             <DockPanel>
                 <StackPanel DockPanel.Dock="Bottom">
                     <TextBlock x:Name="SummaryText" FontSize="{DynamicResource QuickClipText12}" Foreground="{DynamicResource SubtleText}" TextWrapping="Wrap" Margin="0,10,0,10" />
@@ -341,6 +350,14 @@
                             <TextBlock Text="Export as new file…" />
                         </StackPanel>
                     </Button>
+                    <Grid Margin="0,6,0,0">
+                        <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                        <Button x:Name="ShareSelectionButton" Content="Share current edit" Click="ShareSelection_Click"
+                                HorizontalAlignment="Stretch" Margin="0,0,2,0" ToolTip="Share this trim, crop, and audio selection with the default profile" />
+                        <Button x:Name="ShareSelectionOptionsButton" Grid.Column="1" Content="▾"
+                                AutomationProperties.Name="Sharing options" ToolTip="Sharing options" Click="ShareSelectionOptions_Click" />
+                    </Grid>
+
                     <Button x:Name="SaveOverButton" HorizontalAlignment="Stretch" Padding="10,8" Margin="0,8,0,0" Focusable="False"
                             Click="SaveOver_Click" ToolTip="Replace the original file with the edited clip (Ctrl+S). The original goes to the Recycle Bin.">
                         <StackPanel Orientation="Horizontal">
@@ -348,6 +365,10 @@
                             <TextBlock Text="Save over original" />
                         </StackPanel>
                     </Button>
+                    <DockPanel Margin="0,8,0,0" LastChildFill="True">
+                        <Button x:Name="ResetEditsButton" DockPanel.Dock="Right" Content="Reset edits" Click="ResetEdits_Click" Style="{StaticResource TextButton}" Visibility="Collapsed" />
+                        <TextBlock x:Name="DraftStatus" TextWrapping="Wrap" VerticalAlignment="Center" FontSize="{DynamicResource QuickClipText12}" Foreground="{DynamicResource SubtleText}" />
+                    </DockPanel>
                     <Grid x:Name="ProgressPanel" Margin="0,12,0,0" Visibility="Collapsed">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="*" />
@@ -390,6 +411,34 @@
                             <TextBlock Text="Options changed" FontSize="{DynamicResource QuickClipText11.5}" VerticalAlignment="Center"
                                        Foreground="{DynamicResource SubtleText}" />
                         </DockPanel>
+                        <!-- Output -->
+                        <Expander x:Name="OutputExpander" Style="{StaticResource OptionsGroup}">
+                            <Expander.Header>
+                                <StackPanel>
+                                    <TextBlock Text="Output" Style="{StaticResource OptionsTitle}" />
+                                    <TextBlock x:Name="OutputHeaderText" Style="{StaticResource OptionsSubtitle}" />
+                                </StackPanel>
+                            </Expander.Header>
+                            <StackPanel Margin="0,2,0,0">
+                                <TextBlock Text="Format" Style="{StaticResource FieldLabel}" />
+                                <ComboBox x:Name="FormatCombo" SelectionChanged="ExportOption_Changed" />
+                                <StackPanel x:Name="ResolutionOptions">
+                                    <TextBlock Text="Resolution" Style="{StaticResource FieldLabel}" />
+                                    <ComboBox x:Name="ResolutionCombo" SelectionChanged="ExportOption_Changed" />
+                                </StackPanel>
+                            <StackPanel x:Name="FpsExpander" Margin="0,6,0,0">
+                                <TextBlock Text="Frame rate" Style="{StaticResource FieldLabel}" />
+                                <TextBlock x:Name="FpsHeaderText" Visibility="Collapsed" />
+                                <ComboBox x:Name="FpsCombo" SelectionChanged="ExportOption_Changed" />
+                                <TextBlock x:Name="SmoothFpsHint" FontSize="{DynamicResource QuickClipText11.5}" Foreground="{DynamicResource SubtleText}" TextWrapping="Wrap" Margin="0,4,0,0"
+                                           Text="Smooth 60 fps blends the frames in between into motion blur rather than dropping them, so motion looks smoother." />
+                            </StackPanel>
+                                <TextBlock Margin="0,10,0,0" TextWrapping="Wrap"
+                                           Foreground="{DynamicResource SubtleText}"
+                                           Text="Export as new file creates one playable soundtrack. Save over original also retains separate editable tracks." />
+                            </StackPanel>
+                        </Expander>
+
                         <!-- Crop -->
                         <Expander x:Name="CropExpander" Style="{StaticResource OptionsGroup}">
                             <Expander.Header>
@@ -431,21 +480,6 @@
                             </StackPanel>
                         </Expander>
 
-                        <!-- Frame rate -->
-                        <Expander x:Name="FpsExpander" Style="{StaticResource OptionsGroup}">
-                            <Expander.Header>
-                                <StackPanel>
-                                    <TextBlock Text="Frame rate" Style="{StaticResource OptionsTitle}" />
-                                    <TextBlock x:Name="FpsHeaderText" Style="{StaticResource OptionsSubtitle}" />
-                                </StackPanel>
-                            </Expander.Header>
-                            <StackPanel Margin="0,6,0,0">
-                                <ComboBox x:Name="FpsCombo" SelectionChanged="ExportOption_Changed" />
-                                <TextBlock x:Name="SmoothFpsHint" FontSize="{DynamicResource QuickClipText11.5}" Foreground="{DynamicResource SubtleText}" TextWrapping="Wrap" Margin="0,4,0,0"
-                                           Text="Smooth 60 fps blends the frames in between into motion blur rather than dropping them, so motion looks smoother." />
-                            </StackPanel>
-                        </Expander>
-
                         <!-- Encoding -->
                         <Expander x:Name="EncodingExpander" Style="{StaticResource OptionsGroup}">
                             <Expander.Header>
@@ -476,26 +510,7 @@
                             </StackPanel>
                         </Expander>
 
-                        <!-- Output -->
-                        <Expander x:Name="OutputExpander" Style="{StaticResource OptionsGroup}">
-                            <Expander.Header>
-                                <StackPanel>
-                                    <TextBlock Text="Output" Style="{StaticResource OptionsTitle}" />
-                                    <TextBlock x:Name="OutputHeaderText" Style="{StaticResource OptionsSubtitle}" />
-                                </StackPanel>
-                            </Expander.Header>
-                            <StackPanel Margin="0,2,0,0">
-                                <TextBlock Text="Format" Style="{StaticResource FieldLabel}" />
-                                <ComboBox x:Name="FormatCombo" SelectionChanged="ExportOption_Changed" />
-                                <StackPanel x:Name="ResolutionOptions">
-                                    <TextBlock Text="Resolution" Style="{StaticResource FieldLabel}" />
-                                    <ComboBox x:Name="ResolutionCombo" SelectionChanged="ExportOption_Changed" />
-                                </StackPanel>
-                                <TextBlock Margin="0,10,0,0" TextWrapping="Wrap"
-                                           Foreground="{DynamicResource SubtleText}"
-                                           Text="Export as new file creates one playable soundtrack. Save over original also retains separate editable tracks." />
-                            </StackPanel>
-                        </Expander>
+
                     </StackPanel>
                 </ScrollViewer>
             </DockPanel>

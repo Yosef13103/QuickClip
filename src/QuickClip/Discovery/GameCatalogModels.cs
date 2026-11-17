@@ -2,7 +2,7 @@ using System.Collections.Immutable;
 
 namespace QuickClip.Discovery;
 
-internal enum CatalogSource { Folder, Steam, Manual, Epic }
+internal enum CatalogSource { Folder, Steam, Manual, Epic, Gog, Xbox, Ea, Riot, BattleNet, Ubisoft, Rockstar, Heroic, Origin, Amazon, Itch }
 internal enum CatalogConfidence { Low, Medium, High }
 internal enum CatalogInclusion { Default, Include, Exclude }
 internal enum AppClassification { Automatic, Game, Application, Companion, Launcher }
@@ -25,7 +25,10 @@ internal sealed record CatalogRules(
 internal sealed record ManualCatalogEntry(Guid Id, string DisplayName, ImmutableArray<string> Executables);
 
 // Persist these separately from the last scan so offline installations keep their rules.
-internal sealed record CatalogOverride(string Id, CatalogRules Rules);
+internal sealed record CatalogOverride(string Id, CatalogRules Rules)
+{
+    public ImmutableArray<string> DeniedExecutables { get; init; } = [];
+}
 
 internal sealed record GameScanRoot(string Path, bool IsCollection = false);
 
@@ -33,6 +36,8 @@ internal sealed record CatalogRequest
 {
     public bool DiscoverSteam { get; init; }
     public bool DiscoverEpic { get; init; }
+    public bool DiscoverGog { get; init; }
+    public ImmutableArray<CatalogSource> Launchers { get; init; } = [];
     public ImmutableArray<GameScanRoot> GameRoots { get; init; } = [];
     public ImmutableArray<string> SteamLibraryRoots { get; init; } = [];
     public ImmutableArray<string> ExcludedDirectories { get; init; } = [];
@@ -46,20 +51,29 @@ internal sealed record CatalogEntry(
     string Id, string Name, CatalogSource Source,
     ImmutableArray<string> InstallDirectories, ImmutableArray<string> Executables, CatalogRules Rules)
 {
+    // Exact executable paths selected by scan evidence. Includes the scoped folder fallback.
     public ImmutableArray<string>? RendererExecutables { get; init; }
     public ImmutableArray<string> DetectedLaunchers { get; init; } = [];
+    [System.Text.Json.Serialization.JsonIgnore]
+    public ImmutableArray<string> UnverifiedExecutables { get; init; } = [];
+    [System.Text.Json.Serialization.JsonIgnore]
+    public bool IsUnverified { get; init; }
+    [System.Text.Json.Serialization.JsonIgnore]
+    public ImmutableArray<string> AliasIds { get; init; } = [];
+    [System.Text.Json.Serialization.JsonIgnore]
+    public ImmutableArray<CatalogSource> Provenance { get; init; } = [];
     public string DisplayName => string.IsNullOrWhiteSpace(Rules.DisplayName) ? Name : Rules.DisplayName.Trim();
 
     // Confidence in the catalog association, rather than in a particular EXE being the game's renderer.
     public CatalogConfidence Confidence => Source switch
     {
         CatalogSource.Manual => CatalogConfidence.High,
-        CatalogSource.Steam or CatalogSource.Epic => CatalogConfidence.Medium,
-        _ => CatalogConfidence.Low,
+        CatalogSource.Folder => CatalogConfidence.Low,
+        _ => CatalogConfidence.Medium,
     };
 }
 
-internal enum CatalogIssueKind { InvalidPath, Unavailable, ReparsePoint, InvalidManifest, InvalidManualEntry, Incomplete, DepthLimit }
+internal enum CatalogIssueKind { InvalidPath, Unavailable, ReparsePoint, InvalidManifest, InvalidManualEntry, Incomplete, DepthLimit, SourceMissing }
 
 internal sealed record CatalogIssue(string Location, CatalogIssueKind Kind);
 
@@ -72,5 +86,10 @@ internal sealed record CatalogResult(
     public bool InProgress { get; init; }
     public bool HasMoreIssues { get; init; }
     public bool HasUnreportedFailures { get; init; }
+    public bool SourceUnavailable { get; init; }
     public int CandidateExecutablesVisited { get; init; }
+    public int InspectedEntries { get; init; }
+    // Positive evidence from completed installs, even while their source has more work.
+    [System.Text.Json.Serialization.JsonIgnore]
+    public ImmutableArray<CatalogEntry> VerifiedInstalls { get; init; } = [];
 }

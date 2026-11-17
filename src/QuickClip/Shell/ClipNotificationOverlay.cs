@@ -29,11 +29,16 @@ internal sealed class ClipNotificationOverlay : IDisposable
     private bool _disposed;
     private DispatcherTimer? _timer;
     private IntPtr _handle;
+    private (string Device, OverlayAnchor Anchor, Rect Bounds, Rect WorkArea, uint Dpi, bool HasMicrophone)? _indicatorPlacement;
+    private System.Windows.Shapes.Path? _indicatorMicrophoneGlyph;
 
+    internal string? IndicatorFailure { get; private set; }
+    internal IntPtr WindowHandle => _handle;
     internal bool IsVisible => _window?.IsVisible == true;
     internal bool IsAnimatingImage => _frameTimer?.IsEnabled == true;
 
-    internal async Task ShowAsync(ClipOverlayOptions options, string title, bool success, ClipNotificationDetails? details = null, string? error = null, ClipOverlayOptions? missingImageFallback = null)
+    internal async Task ShowAsync(ClipOverlayOptions options, string title, bool success, ClipNotificationDetails? details = null, string? error = null, ClipOverlayOptions? missingImageFallback = null,
+        bool saved = false)
     {
         if (_disposed) return;
         Hide();
@@ -63,9 +68,19 @@ internal sealed class ClipNotificationOverlay : IDisposable
             imageOnly = false;
             options = missingImageFallback.Banner();
         }
+        if (saved && !imageOnly && options.HideSavedBannerFromCapture) return;
         var displays = Displays();
         var display = SelectDisplay(displays, options.Display);
-        if (display == null) return;
+        if (display == null)
+        {
+            if (saved) Log.Event(DiagnosticCategory.General, "Saved overlay skipped: display unavailable");
+            return;
+        }
+        if (saved)
+        {
+            if (imageOnly) Log.Event(DiagnosticCategory.General, "Saved overlay rendering image");
+            else Log.Event(DiagnosticCategory.General, "Saved overlay rendering banner");
+        }
         EnsureWindow();
         GetDpiForMonitor(display.Handle, 0, out uint monitorDpi, out _);
         double monitorScale = monitorDpi == 0 ? 1 : monitorDpi / 96d;
@@ -181,7 +196,9 @@ internal sealed class ClipNotificationOverlay : IDisposable
         }
         // Reserve actual transparent space for the expanding wave, rather than
         // scaling a hidden icon inside a clipped content column.
-        bool ripple = MotionEnabled(SystemParameters.ClientAreaAnimation, options.Animation) && options.Animation == OverlayAnimation.Ripple;
+        // GIF/WebM playback still uses the usual frame animation below.
+        bool animateWindow = MotionEnabled(SystemParameters.ClientAreaAnimation, options.Animation);
+        bool ripple = animateWindow && options.Animation == OverlayAnimation.Ripple;
         double waveSpace = ripple ? 14 : 0;
         _card.Margin = new Thickness(waveSpace);
         _ring.Margin = new Thickness(waveSpace);
@@ -202,7 +219,6 @@ internal sealed class ClipNotificationOverlay : IDisposable
         _surface.RenderTransform = new TranslateTransform();
         _window!.Width = width;
         _window.Height = height;
-        if (!_window.IsVisible) _window.Show();
         var prior = SetThreadDpiAwarenessContext(new IntPtr(-4));
         try
         {
@@ -211,14 +227,16 @@ internal sealed class ClipNotificationOverlay : IDisposable
             var pixels = new Size(Math.Round(width * scale), Math.Round(height * scale));
             // Images sit four physical pixels from the edge; banners sit two. The
             // ripple reserve stays inside the window so the wave cannot be cut off.
-            Point position = ClipOverlayOptions.Place(display.Bounds, pixels, imageOnly ? 4 : 2, options.Anchor);
-            SetWindowPos(_handle, new IntPtr(-1), (int)Math.Round(position.X), (int)Math.Round(position.Y),
-                (int)pixels.Width, (int)pixels.Height, 0x0210);
+            Rect bounds = imageOnly ? display.Bounds : BannerBounds(display.Bounds, display.WorkArea ?? display.Bounds, options.Anchor, scale, pixels.Height);
+            Point position = ClipOverlayOptions.Place(bounds, pixels, imageOnly ? 4 : 2, options.Anchor);
+            int pixelWidth = (int)pixels.Width, pixelHeight = (int)pixels.Height;
+            int x = (int)Math.Round(position.X), y = (int)Math.Round(position.Y);
+            _window.Show();
+            SetWindowPos(_handle, new IntPtr(-1), x, y, pixelWidth, pixelHeight, 0x0210);
+            if (saved) Log.Event(DiagnosticCategory.General, "Saved overlay show requested");
         }
         finally { if (prior != IntPtr.Zero) SetThreadDpiAwarenessContext(prior); }
-        if (OperatingSystem.IsWindowsVersionAtLeast(10, 0, 19041))
-            SetWindowDisplayAffinity(_handle, 0x11);
-        if (MotionEnabled(SystemParameters.ClientAreaAnimation, options.Animation))
+        if (animateWindow)
         {
             if (options.Animation == OverlayAnimation.Slide)
             {
@@ -305,10 +323,17 @@ internal sealed class ClipNotificationOverlay : IDisposable
             Background = Brushes.Transparent, Content = _surface, Width = 72, Height = 72,
         };
         _handle = new WindowInteropHelper(_window).EnsureHandle();
-        if (OperatingSystem.IsWindowsVersionAtLeast(10, 0, 19041))
-            SetWindowDisplayAffinity(_handle, 0x11); // WDA_EXCLUDEFROMCAPTURE, where the capture API supports it
         const int exStyle = -20;
-        SetWindowLong(_handle, exStyle, GetWindowLong(_handle, exStyle) | 0x080000A0);
+        // WS_EX_TRANSPARENT on a layered window lets mouse events reach windows underneath.
+        const int transparent = 0x20, toolWindow = 0x80, layered = 0x00080000, noActivate = 0x08000000;
+        const int windowFlags = transparent | toolWindow | noActivate;
+        SetWindowLong(_handle, exStyle, GetWindowLong(_handle, exStyle) | windowFlags);
+        const int required = windowFlags | layered;
+        if ((GetWindowLong(_handle, exStyle) & required) != required)
+        {
+            CloseWindow();
+            throw new InvalidOperationException("Could not make the notification window click-through.");
+        }
         _timer = new DispatcherTimer(DispatcherPriority.Background);
         _timer.Tick += (_, _) => Hide();
         _frameTimer = new DispatcherTimer(DispatcherPriority.Render);
@@ -385,6 +410,8 @@ internal sealed class ClipNotificationOverlay : IDisposable
 
     internal void Hide()
     {
+        _indicatorPlacement = null;
+        _indicatorMicrophoneGlyph = null;
         _showRevision++;
         _timer?.Stop();
         _frameTimer?.Stop();
@@ -409,6 +436,11 @@ internal sealed class ClipNotificationOverlay : IDisposable
         Hide();
         _image = null;
         _imageLoad = null;
+        CloseWindow();
+    }
+
+    private void CloseWindow()
+    {
         _window?.Close();
         _window = null;
     }
@@ -420,7 +452,128 @@ internal sealed class ClipNotificationOverlay : IDisposable
             ?? available.FirstOrDefault(d => d.Primary) ?? available.FirstOrDefault();
     }
 
-    internal sealed record Display(IntPtr Handle, string Device, Rect Bounds, bool Primary)
+    // Separate status surface: no animation, theme lookup or fallback to another monitor.
+    internal void ShowRecordingIndicator(string device, OverlayAnchor anchor, MicrophoneIndicatorState microphone)
+    {
+        if (_disposed) return;
+        var display = Displays().FirstOrDefault(d => string.Equals(d.Device, device, StringComparison.OrdinalIgnoreCase));
+        if (display == null || !Enum.IsDefined(anchor) || anchor == OverlayAnchor.Center)
+        {
+            Hide();
+            IndicatorFailure = "The capture display or icon position is unavailable.";
+            return;
+        }
+        bool hasMicrophone = microphone != MicrophoneIndicatorState.Hidden;
+        GetDpiForMonitor(display.Handle, 0, out uint monitorDpi, out _);
+        var workArea = display.WorkArea ?? display.Bounds;
+        var placement = (display.Device, anchor, display.Bounds, workArea, monitorDpi, hasMicrophone);
+        if (IsVisible && _indicatorPlacement == placement)
+        {
+            UpdateRecordingIndicatorMicrophone(microphone);
+            return;
+        }
+        Hide();
+        IndicatorFailure = null;
+        try { EnsureWindow(); }
+        catch (InvalidOperationException ex)
+        {
+            Log.Failure(DiagnosticCategory.Capture, "Could not create a click-through HUD", ex);
+            IndicatorFailure = "Could not create click-through recording icons.";
+            return;
+        }
+        _surface!.LayoutTransform = Transform.Identity;
+        _surface.Opacity = 1;
+        _card!.Background = Brushes.Transparent;
+        _card.Padding = new Thickness(0);
+        _card.BorderThickness = new Thickness(0);
+        var icons = new StackPanel { Orientation = Orientation.Horizontal };
+        var camera = StatusGlyph("M2,5 H5 L6.5,3 H9.5 L11,5 H14 V13 H2 Z M10.5,9 A2.5,2.5 0 1 1 5.5,9 A2.5,2.5 0 1 1 10.5,9", out _);
+        if ((int)anchor % 3 == 0 || !hasMicrophone) icons.Children.Add(camera);
+        if (hasMicrophone)
+        {
+            icons.Children.Add(StatusGlyph("M6,3 A2,2 0 0 1 10,3 V8 A2,2 0 0 1 6,8 Z M4,7 V8 A4,4 0 0 0 12,8 V7 M8,12 V14 M5.5,14 H10.5", out var mic));
+            _indicatorMicrophoneGlyph = mic;
+            if ((int)anchor % 3 != 0) icons.Children.Add(camera);
+        }
+        _card.Child = icons;
+        UpdateRecordingIndicatorMicrophone(microphone);
+        _window!.Width = hasMicrophone ? 56 : 28;
+        _window.Height = 28;
+        var prior = SetThreadDpiAwarenessContext(new IntPtr(-4));
+        try
+        {
+            GetDpiForMonitor(display.Handle, 0, out uint dpi, out _);
+            double scale = dpi == 0 ? 1 : dpi / 96d;
+            var size = new Size(Math.Round(_window.Width * scale), Math.Round(_window.Height * scale));
+            // HUD follows the physical screen corner, not the taskbar work area.
+            Point p = ClipOverlayOptions.Place(display.Bounds, size, 4, anchor);
+            if (!SetWindowPos(_handle, new IntPtr(-1), (int)Math.Round(p.X), (int)Math.Round(p.Y), (int)size.Width, (int)size.Height, 0x0210))
+            {
+                IndicatorFailure = $"Could not position the recording icons (Win32 {Marshal.GetLastWin32Error()}).";
+                return;
+            }
+            _window.Show();
+            if (!SetWindowPos(_handle, new IntPtr(-1), (int)Math.Round(p.X), (int)Math.Round(p.Y), (int)size.Width, (int)size.Height, 0x0210))
+            {
+                int positionError = Marshal.GetLastWin32Error();
+                Hide();
+                IndicatorFailure = $"Windows could not position the recording icons (Win32 {positionError}).";
+                return;
+            }
+            IndicatorFailure = null;
+            _indicatorPlacement = placement;
+        }
+        finally { if (prior != IntPtr.Zero) SetThreadDpiAwarenessContext(prior); }
+    }
+
+    private static Grid StatusGlyph(string geometry, out System.Windows.Shapes.Path foreground)
+    {
+        var data = Geometry.Parse(geometry);
+        data.Freeze();
+        var cell = new Grid { Width = 28, Height = 28 };
+        cell.Children.Add(new Border
+        {
+            Margin = new Thickness(1), CornerRadius = new CornerRadius(5),
+            Background = new SolidColorBrush(Color.FromArgb(112, 24, 26, 32)),
+            BorderBrush = new SolidColorBrush(Color.FromArgb(95, 210, 210, 220)), BorderThickness = new Thickness(1),
+        });
+        var canvas = new Grid { Width = 16, Height = 16, Opacity = .85 };
+        cell.Children.Add(canvas);
+        canvas.Children.Add(new System.Windows.Shapes.Path
+        {
+            Data = data, Stroke = Brushes.Black, StrokeThickness = 3.2, StrokeLineJoin = PenLineJoin.Round,
+            StrokeStartLineCap = PenLineCap.Round, StrokeEndLineCap = PenLineCap.Round,
+        });
+        foreground = new System.Windows.Shapes.Path
+        {
+            Data = data, Stroke = Brushes.White, StrokeThickness = 1.5, StrokeLineJoin = PenLineJoin.Round,
+            StrokeStartLineCap = PenLineCap.Round, StrokeEndLineCap = PenLineCap.Round,
+        };
+        canvas.Children.Add(foreground);
+        return cell;
+    }
+
+    internal void UpdateRecordingIndicatorMicrophone(MicrophoneIndicatorState state)
+    {
+        if (_indicatorMicrophoneGlyph == null) return;
+        _indicatorMicrophoneGlyph.Stroke = state switch
+        {
+            MicrophoneIndicatorState.Active => Brushes.White,
+            MicrophoneIndicatorState.Checking => Brushes.Goldenrod,
+            _ => Brushes.Red,
+        };
+    }
+
+    internal static Rect BannerBounds(Rect display, Rect work, OverlayAnchor anchor, double scale, double height)
+    {
+        if ((int)anchor / 3 != 2) return display;
+        // Reserve at least a normal taskbar height, including on auto-hide/secondary screens.
+        double inset = Math.Max(40 * scale, display.Bottom - work.Bottom);
+        inset = Math.Clamp(inset, 0, Math.Max(0, display.Height - height - 4));
+        return new Rect(display.X, display.Y, display.Width, display.Height - inset);
+    }
+
+    internal sealed record Display(IntPtr Handle, string Device, Rect Bounds, bool Primary, Rect? WorkArea = null)
     {
         public string Label => $"{Device.Replace(@"\\.\", "")} · {Bounds.Width:0} × {Bounds.Height:0}";
     }
@@ -436,7 +589,8 @@ internal sealed class ClipNotificationOverlay : IDisposable
                 var info = new MonitorInfo { Size = Marshal.SizeOf<MonitorInfo>(), Device = "" };
                 if (GetMonitorInfo(monitor, ref info))
                     result.Add(new(monitor, info.Device, new Rect(info.Monitor.Left, info.Monitor.Top,
-                        info.Monitor.Right - info.Monitor.Left, info.Monitor.Bottom - info.Monitor.Top), (info.Flags & 1) != 0));
+                        info.Monitor.Right - info.Monitor.Left, info.Monitor.Bottom - info.Monitor.Top), (info.Flags & 1) != 0,
+                        new Rect(info.Work.Left, info.Work.Top, info.Work.Right - info.Work.Left, info.Work.Bottom - info.Work.Top)));
                 return true;
             }, IntPtr.Zero);
         }
@@ -460,6 +614,5 @@ internal sealed class ClipNotificationOverlay : IDisposable
     [DllImport("user32.dll")] private static extern IntPtr SetThreadDpiAwarenessContext(IntPtr context);
     [DllImport("user32.dll", EntryPoint = "GetWindowLongW")] private static extern int GetWindowLong(IntPtr window, int index);
     [DllImport("user32.dll", EntryPoint = "SetWindowLongW")] private static extern int SetWindowLong(IntPtr window, int index, int value);
-    [DllImport("user32.dll")] private static extern bool SetWindowPos(IntPtr window, IntPtr order, int x, int y, int width, int height, uint flags);
-    [DllImport("user32.dll")] private static extern bool SetWindowDisplayAffinity(IntPtr window, uint affinity);
+    [DllImport("user32.dll", SetLastError = true)] private static extern bool SetWindowPos(IntPtr window, IntPtr order, int x, int y, int width, int height, uint flags);
 }

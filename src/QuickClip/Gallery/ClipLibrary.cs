@@ -7,6 +7,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Windows.Media;
 using QuickClip.Media;
+using QuickClip.Library;
 
 namespace QuickClip.Gallery;
 
@@ -23,6 +24,7 @@ public sealed class ClipItem : INotifyPropertyChanged
         Details = details;
         Header = header;
         Created = details.CapturedAt.LocalDateTime;
+        FileCreatedAt = file.CreationTimeUtc;
         Size = file.Length;
         Duration = header.Duration;
         File = file;
@@ -35,6 +37,8 @@ public sealed class ClipItem : INotifyPropertyChanged
     public bool IsFavorite => Details.IsFavorite;
     public string TagText => string.Join("  ·  ", Details.Tags);
     public DateTime Created { get; }
+    public DateTime FileCreatedAt { get; }
+    public string DateTooltip => $"Footage captured: {Created:F}\nFile created: {FileCreatedAt.ToLocalTime():F}\nRelative age uses the local file creation time.";
     public long Size { get; }
     public double? Duration { get; }
     internal FileInfo File { get; }
@@ -42,7 +46,16 @@ public sealed class ClipItem : INotifyPropertyChanged
     internal ClipHeader Header { get; }
     internal int ThumbnailWidth { get; set; }
 
-    public string DurationText => Duration is double d ? Fmt.CompactDuration(d) : "";
+    internal ClipDraftRange? EditRange { get; private set; }
+    internal double? SelectedDuration => EditRange is { } range ? range.End - range.Start : Duration;
+    public string DurationText => SelectedDuration is double d ? Fmt.CompactDuration(d) : "";
+
+    internal void ApplyEditRange(ClipDraftRange? range)
+    {
+        if (EditRange == range) return;
+        EditRange = range;
+        OnChanged(nameof(DurationText));
+    }
     public string SizeText => Fmt.Size(Size);
 
     internal void ApplyDetails(ClipDetails details)
@@ -57,7 +70,7 @@ public sealed class ClipItem : INotifyPropertyChanged
     public string Ago
     {
         get => _ago;
-        private set { _ago = value; OnChanged(); }
+        private set { if (_ago == value) return; _ago = value; OnChanged(); }
     }
 
     public ImageSource? Thumbnail
@@ -81,7 +94,7 @@ public sealed class ClipItem : INotifyPropertyChanged
 
     public event Action<ClipItem>? SelectionChanged;
 
-    public void RefreshAgo() => Ago = TimeAgo.Format(Created, DateTime.Now);
+    public void RefreshAgo() => Ago = TimeAgo.Format(FileCreatedAt, DateTime.UtcNow);
 
     public event PropertyChangedEventHandler? PropertyChanged;
     private void OnChanged([CallerMemberName] string? name = null) => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
@@ -120,6 +133,8 @@ internal static class ClipLibrary
         && !path.Contains(".quickclip-tmp", StringComparison.OrdinalIgnoreCase);
 
     public static bool IsMomentsPath(string path) => ContainsMomentsDirectory(Path.GetFullPath(path));
+    public static bool IsSharedCopyPath(string path) =>
+        IsWithin(Path.GetFullPath(path), Path.TrimEndingDirectorySeparator(AppProfile.SharedDirectory));
 
     private static bool ContainsMomentsDirectory(string path) => path.Split('\\', '/')
         .Any(part => part.TrimEnd(' ', '.').Equals(MomentsArchive, StringComparison.OrdinalIgnoreCase));
@@ -145,7 +160,7 @@ internal static class ClipLibrary
     public static List<ClipItem> Scan(string root, string[]? exclusions = null, IReadOnlyDictionary<string, ClipItem>? previous = null)
     {
         var clips = new List<ClipItem>();
-        if (!Directory.Exists(root) || IsMomentsPath(root)) return clips;
+        if (IsMomentsPath(root) || IsSharedCopyPath(root) || !Directory.Exists(root)) return clips;
         var options = new EnumerationOptions
         {
             RecurseSubdirectories = true,
@@ -159,7 +174,7 @@ internal static class ClipLibrary
             ShouldRecursePredicate = (ref FileSystemEntry entry) =>
             {
                 string relative = Path.GetRelativePath(root, entry.ToFullPath());
-                return !IsWithin(relative, ProjectLibrary.FolderName) && !IsExcluded(relative, exclusions);
+                return !IsWithin(relative, ProjectLibrary.FolderName) && !IsExcluded(relative, exclusions) && !IsSharedCopyPath(entry.ToFullPath());
             },
         };
         foreach (var path in files)
@@ -341,7 +356,7 @@ internal static class ThumbnailCache
         }
         catch (Exception ex)
         {
-            Log.Write("Thumbnail generation failed: " + ex.GetType().Name);
+            Log.Failure(DiagnosticCategory.Library, "Thumbnail generation failed", ex);
             return null;
         }
         finally

@@ -97,26 +97,30 @@
         </Border>
 
         <!-- Navigation -->
-        <DockPanel x:Name="Rail" Grid.Row="1" Grid.RowSpan="2" Background="{DynamicResource RailBrush}">
+        <DockPanel x:Name="Rail" Grid.Row="1" Background="{DynamicResource RailBrush}">
             <Image x:Name="RailIcon" DockPanel.Dock="Top" Source="Assets/QuickClip.ico" Width="30" Height="30" Margin="0,16,0,14" />
             <StackPanel DockPanel.Dock="Top">
                 <RadioButton x:Name="GalleryNav" Style="{StaticResource RailItem}" Tag="&#xE8A9;" Content="Gallery" GroupName="Nav"
-                             IsChecked="True" Checked="Nav_Checked" Click="GalleryNav_Click" ToolTip="Your clips" />
-                <RadioButton x:Name="EditorNav" Style="{StaticResource RailItem}" Tag="&#xE70F;" Content="Editor" GroupName="Nav"
-                             Checked="Nav_Checked" ToolTip="Trim, crop and export a clip" />
+                             IsChecked="True" Click="Nav_Click" ToolTip="Your clips" />
+                <RadioButton x:Name="PlayerNav" Style="{StaticResource RailItem}" Tag="&#xE768;" Content="Player" GroupName="Nav"
+                              Click="Nav_Click" ToolTip="Watch saved clips without editing" />
+                 <RadioButton x:Name="EditorNav" Style="{StaticResource RailItem}" Tag="&#xE70F;" Content="Editor" GroupName="Nav"
+                             Click="Nav_Click" ToolTip="Trim, crop and export a clip" />
                 <RadioButton x:Name="SettingsNav" Style="{StaticResource RailItem}" Tag="&#xE713;" Content="Settings" GroupName="Nav"
-                             Checked="Nav_Checked" ToolTip="Recording, audio, hotkey and startup" />
+                             Click="Nav_Click" ToolTip="Recording, audio, hotkey and startup" />
             </StackPanel>
             <Grid />
         </DockPanel>
 
         <!-- Pages: the player and editor are created the first time they're needed and then kept (their video windows must persist) -->
-        <Grid x:Name="Pages" Grid.Row="1" Grid.Column="1">
-            <views:GalleryView x:Name="Gallery" />
-        </Grid>
+        <AdornerDecorator Grid.Row="1" Grid.Column="1">
+            <Grid x:Name="Pages" ClipToBounds="True">
+                <views:GalleryView x:Name="Gallery" />
+            </Grid>
+        </AdornerDecorator>
 
         <!-- Recording status -->
-        <Border x:Name="StatusBar" Grid.Row="2" Grid.Column="1" Background="{DynamicResource PanelBrush}" BorderBrush="{DynamicResource DividerBrush}" BorderThickness="1" CornerRadius="10" Margin="8,3,8,8" Padding="12,7,8,7">
+        <Border x:Name="StatusBar" Grid.Row="2" Grid.ColumnSpan="2" Background="{DynamicResource PanelBrush}" BorderBrush="{DynamicResource DividerBrush}" BorderThickness="0,1,0,0" CornerRadius="0" Margin="0" Padding="16,8,12,8">
             <DockPanel>
                 <Button x:Name="SaveClipButton" DockPanel.Dock="Right" Style="{StaticResource SaveClipAction}" Margin="12,0,0,0"
                         AutomationProperties.Name="Save clip" Click="SaveClip_Click" VerticalAlignment="Center">
@@ -133,22 +137,26 @@
                         <TextBlock x:Name="UpdateButtonText" Text="Update available" />
                     </StackPanel>
                 </Button>
-                <!-- Instant share: progress while the copy is made, then where it went -->
-                <StackPanel x:Name="SharePanel" DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center" Margin="12,0,12,0"
-                            Visibility="Collapsed">
-                    <TextBlock x:Name="ShareIcon" FontFamily="{StaticResource IconFont}" Text="&#xE72D;" VerticalAlignment="Center" Margin="0,0,8,0"
-                               Foreground="{DynamicResource AccentFillColorDefaultBrush}" />
-                    <TextBlock x:Name="ShareName" VerticalAlignment="Center" FontSize="{DynamicResource QuickClipText12.5}" FontWeight="SemiBold" MaxWidth="200"
-                               TextTrimming="CharacterEllipsis" Margin="0,0,8,0" />
-                    <TextBlock x:Name="ShareText" VerticalAlignment="Center" FontSize="{DynamicResource QuickClipText12.5}" />
-                    <ProgressBar x:Name="ShareProgress" Width="85" Height="6" Minimum="0" Maximum="1" Margin="10,0,0,0" VerticalAlignment="Center" />
-                    <Button x:Name="ShareShowButton" Style="{StaticResource TextButton}" Content="Show" Padding="9,3" Margin="8,0,0,0"
-                            Click="ShareShow_Click" ToolTip="Show the copy in Explorer" />
-                    <Button x:Name="ShareCloseButton" Style="{StaticResource IconButton}" Content="&#xE711;" FontSize="{DynamicResource QuickClipVisual10}" Padding="6,4" Margin="4,0,0,0"
-                            Click="ShareClose_Click" />
-                </StackPanel>
+                <Button x:Name="MediaJobsButton" DockPanel.Dock="Right" Content="Media jobs"
+                        Style="{StaticResource TextButton}" Padding="9,3" Margin="8,0,0,0"
+                        ToolTip="Media jobs and prepared share files" Click="MediaJobs_Click" />
                 <Ellipse x:Name="RecDot" DockPanel.Dock="Left" Width="9" Height="9" Margin="0,0,9,0" VerticalAlignment="Center" Fill="{DynamicResource DisabledBrush}" />
-                <TextBlock x:Name="RecStatus" VerticalAlignment="Center" ToolTip="{Binding Text, RelativeSource={RelativeSource Self}}" FontSize="{DynamicResource QuickClipText12.5}" TextTrimming="CharacterEllipsis" Text="Starting…" />
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <TextBlock x:Name="RecStatus" VerticalAlignment="Center" ToolTip="{Binding Text, RelativeSource={RelativeSource Self}}" FontSize="{DynamicResource QuickClipText12.5}" TextTrimming="CharacterEllipsis" Text="Starting…" />
+                    <Button x:Name="ActivityButton" Grid.Column="1" Visibility="Collapsed" Style="{StaticResource TextButton}"
+                            Margin="8,0,0,0" Padding="8,3" MaxWidth="310" Click="ActivityButton_Click"
+                            AutomationProperties.Name="Background activity">
+                        <StackPanel>
+                            <TextBlock x:Name="ActivityText" FontSize="{DynamicResource QuickClipText12.5}" TextTrimming="CharacterEllipsis" />
+                            <ProgressBar x:Name="ActivityProgress" Height="3" Margin="0,4,0,0" Minimum="0" Maximum="1"
+                                         Foreground="{DynamicResource AccentBrush}" />
+                        </StackPanel>
+                    </Button>
+                </Grid>
             </DockPanel>
         </Border>
 

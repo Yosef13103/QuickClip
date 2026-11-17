@@ -265,6 +265,54 @@ public sealed class RecordingLifecycleTests
     }
 
     [Fact]
+    public void Same_display_handoff_and_process_relaunch_start_new_replay_buffers()
+    {
+        var backend = new Backend();
+        var clock = new RecoveryClock();
+        var lifecycle = new RecordingLifecycle(backend.Start, backend.Stop, clock);
+        var handoff = new ForegroundGameHandoff(clock);
+        var first = Game(1);
+        var second = Game(2);
+        var reopenedOwner = second.Owner with { Started = second.Owner.Started + 1 };
+        var current = new HashSet<WindowOwner> { first.Owner, second.Owner };
+        GameCaptureObservation? retained = null;
+        CatalogMatch Match(string path, bool _) => path == first.Executable ? first.Match : second.Match;
+        void Poll(GameCaptureObservation? foreground, params PassiveGameWindow[] visible)
+        {
+            retained = GameDetector.ResolveEligibleGame(retained, foreground, current.Contains,
+                () => visible, Match, (old, next) => handoff.PreferForeground(old, next, _ => "A"));
+            lifecycle.Reconcile(true, null, retained, [Display1], _ => Display1.DeviceName, _ => true);
+        }
+
+        Poll(first);
+        backend.Frames = 90;
+        Poll(second);
+        Assert.Equal(first.Owner, backend.Active?.GameOwner);
+        clock.Advance(1);
+        Poll(second);
+        Assert.Equal(second.Owner, backend.Active?.GameOwner);
+        Assert.Equal(0, backend.Frames);
+        backend.Frames = 120;
+
+        // Discord/desktop focus cannot replace an open game or reset its replay.
+        Poll(null);
+        Assert.Equal(second.Owner, backend.Active?.GameOwner);
+        Assert.Equal(120, backend.Frames);
+
+        current.Clear();
+        Poll(null, new PassiveGameWindow(second.Owner, second.Executable, 100));
+        Assert.Null(backend.Active);
+        Assert.Equal(RecordingMode.Armed, lifecycle.Mode);
+
+        current.Add(reopenedOwner);
+        Poll(null, new PassiveGameWindow(reopenedOwner, second.Executable, 100));
+        Assert.Equal(reopenedOwner, backend.Active?.GameOwner);
+        Assert.Equal(0, backend.Frames);
+        Assert.Equal(3, backend.Starts.Count);
+        Assert.Equal(2, backend.Stops);
+    }
+
+    [Fact]
     public void Idle_off_unverified_and_unauthorized_sources_cannot_start_capture()
     {
         var backend = new Backend();

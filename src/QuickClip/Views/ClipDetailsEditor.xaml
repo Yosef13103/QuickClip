@@ -19,15 +19,15 @@
         </DockPanel>
         <TextBlock Text="Clip title" />
         <TextBox x:Name="TitleBox" AutomationProperties.Name="Clip title" ToolTip="Leave blank to use the filename"
-                 TextChanged="UserText_Changed" />
-        <TextBlock Text="Game classification" Margin="0,6,0,0" />
+                 MaxLength="256" TextChanged="UserText_Changed" />
+        <TextBlock Text="Game classification" Margin="0,8,0,0" />
         <TextBox x:Name="GameBox" AutomationProperties.Name="Game classification" ToolTip="Leave blank to use the folder"
-                 TextChanged="UserText_Changed" />
+                 MaxLength="256" TextChanged="UserText_Changed" />
         <CheckBox Style="{StaticResource SwitchCheckBox}" x:Name="FavoriteBox" Content="Favorite" Margin="0,8,0,4"
                   Checked="UserField_Changed" Unchecked="UserField_Changed" />
-        <TextBlock Text="Tags" />
+        <TextBlock Text="Tags" Margin="0,8,0,0" />
         <WrapPanel x:Name="TagChips" />
-        <DockPanel Margin="0,4,0,0">
+        <DockPanel Margin="0,3,0,0">
             <Button DockPanel.Dock="Right" Content="Add tag" Click="AddTag_Click" Margin="6,0,0,0" />
             <TextBox x:Name="TagBox" AutomationProperties.Name="New tag" MaxLength="32"
                      KeyDown="TagBox_KeyDown" TextChanged="TagBox_TextChanged" />
@@ -41,9 +41,11 @@
         <TextBlock x:Name="AutoSaveHint" Text="Changes save automatically after you stop editing."
                    Visibility="Collapsed" TextWrapping="Wrap" Margin="0,6,0,0"
                    AutomationProperties.LiveSetting="Polite" />
-        <TextBlock x:Name="Feedback" TextWrapping="Wrap" Margin="0,4,0,0" />
+        <TextBlock x:Name="Feedback" TextWrapping="Wrap" Margin="0,4,0,0" AutomationProperties.LiveSetting="Polite" />
         <StackPanel Orientation="Horizontal" Margin="0,6,0,0">
             <Button x:Name="SaveButton" Content="Save details" Click="Save_Click" />
+            <Button x:Name="RevertDetailsButton" Content="Revert details" Click="RevertDetails_Click"
+                    Visibility="Collapsed" Margin="8,0,0,0" />
             <Button x:Name="CancelButton" Content="Cancel" Click="Cancel_Click" Margin="8,0,0,0" />
         </StackPanel>
     </StackPanel>

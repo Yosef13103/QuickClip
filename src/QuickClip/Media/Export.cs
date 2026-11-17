@@ -31,6 +31,9 @@ internal sealed record ExportRequest
     public int AudioBitrateK { get; init; } = 192;
     /// <summary>Lowering the frame rate blends the dropped frames into motion blur rather than discarding them.</summary>
     public bool MotionBlur { get; init; }
+    public bool ForceAudioEncode { get; init; }
+    public long? SizeCeilingBytes { get; init; }
+    public bool AdaptiveSize { get; init; }
     public DateTimeOffset? CaptureTime { get; init; }
     public string? ClipTitle { get; init; }
 
@@ -64,11 +67,12 @@ internal static class ExportBuilder
         var c = r.Container;
         var media = r.Media;
 
-        var args = new List<string> { "-hide_banner", "-nostdin", "-y", "-v", "error", "-nostats", "-progress", "pipe:1" };
+        var args = new List<string> { "-hide_banner", "-nostdin", "-y", "-v", "error", "-nostats", "-progress", "pipe:1",
+            "-filter_threads", "2", "-filter_complex_threads", "2" };
         // A copy starts on the keyframe at or before the seek point: aim a hair past the one asked for, so rounding
         // can't land just before it and take the one a second earlier.
         if (r.Start > 0.0005) args.AddRange(["-ss", F(r.VideoMode == VideoMode.Copy ? r.Start + 0.001 : r.Start)]);
-        args.AddRange(["-t", F(r.Duration), "-i", media.Path]);
+        args.AddRange(["-t", F(r.Duration), "-threads", "2", "-protocol_whitelist", "file", "-i", media.Path]);
 
         var graph = new List<string>();
         var outArgs = new List<string>();
@@ -162,7 +166,7 @@ internal static class ExportBuilder
                 {
                     var t = tracks[o];
                     bool unchanged = Math.Abs(t.Volume - 1) < 0.001 && t.SoundPath == null;
-                    if (unchanged && c.CanCopyAudio(t.Codec))
+                    if (unchanged && CanCopyAudio(r, t))
                     {
                         outArgs.AddRange(["-map", $"0:{t.StreamIndex}", $"-c:a:{o}", "copy"]);
                         audioBits += t.BitRate > 0 ? t.BitRate : 192_000;
@@ -191,7 +195,7 @@ internal static class ExportBuilder
         if (r.Quality == "size" && wantVideo && r.VideoMode == VideoMode.Encode && !c.IsGif)
             ApplyTargetSize(r, outArgs, audioBits);
 
-        foreach (var sound in soundInputs) args.AddRange(["-i", sound]);
+        foreach (var sound in soundInputs) args.AddRange(["-protocol_whitelist", "file", "-i", sound]);
         if (graph.Count > 0) args.AddRange(["-filter_complex", string.Join(";", graph)]);
         args.AddRange(outArgs);
         // Copied audio would start where the seek landed, on the keyframe up to a second before the in point, with
@@ -265,6 +269,7 @@ internal static class ExportBuilder
         }
 
         AddEncoder(outArgs, enc, r.Quality, appleTag: c.Key is "mp4" or "mov" or "m4v");
+        if (!enc.Hardware) outArgs.AddRange(["-threads:v", "4"]);
         if (r.Quality == "original")
         {
             if (scaled) (w, h) = w >= h ? (w * maxShort / h, maxShort) : (maxShort, h * maxShort / w);
@@ -342,7 +347,7 @@ internal static class ExportBuilder
                 if (!size) outArgs.AddRange(["-crf", $"{q}"]);
                 break;
             case "libx265":
-                outArgs.AddRange(["-preset", "medium", "-x265-params", "log-level=error"]);
+                outArgs.AddRange(["-preset", "medium", "-x265-params", "log-level=error:pools=2:frame-threads=2"]);
                 if (!size) outArgs.AddRange(["-crf", $"{q + 4}"]);
                 break;
             case "h264_nvenc":
@@ -388,8 +393,7 @@ internal static class ExportBuilder
     private static void ApplyTargetSize(ExportRequest r, List<string> outArgs, long audioBitsPerSecond)
     {
         // Single-pass rate control overshoots a little, especially on short clips; aim below the limit.
-        double totalBits = r.TargetSizeMB * 1_000_000 * 8 * 0.9;
-        double videoBps = totalBits / r.Duration - audioBitsPerSecond;
+        double videoBps = TargetSizeExport.VideoBudget(r, audioBitsPerSecond);
         if (videoBps < 50_000)
             throw new ExportException($"{r.TargetSizeMB:0.#} MB is too small for a {Fmt.Time(r.Duration, false)} clip. Raise the target size, lower the audio bitrate or shorten the selection.");
         long kbps = (long)(videoBps / 1000);
@@ -397,6 +401,27 @@ internal static class ExportBuilder
         if (r.EncoderId != "libsvtav1") // SVT-AV1 rejects a VBV cap in VBR mode
             outArgs.AddRange(["-maxrate", $"{kbps}k", "-bufsize", $"{kbps}k"]);
     }
+
+    internal static int AudioOutputCount(ExportRequest r)
+    {
+        int count = r.Tracks.Count;
+        if (r.Container.IsGif || count == 0) return 0;
+        if (r.Container.SingleAudioTrack) return 1;
+        if (r.HybridAudio && count > 1) return count + 1;
+        return r.MergeAudio ? 1 : count;
+    }
+
+    internal static long EstimateAudioBitsPerSecond(ExportRequest r)
+    {
+        int output = AudioOutputCount(r);
+        if (r.Tracks.Count != output) return output * r.AudioBitrateK * 1000L;
+        return r.Tracks.Sum(t => Math.Abs(t.Volume - 1) < 0.001 && t.SoundPath == null && CanCopyAudio(r, t)
+            ? (t.BitRate > 0 ? t.BitRate : 192_000)
+            : r.AudioBitrateK * 1000L);
+    }
+
+    private static bool CanCopyAudio(ExportRequest r, TrackExport t) =>
+        r.Container.CanCopyAudio(t.Codec) && (!r.ForceAudioEncode || t.Codec == "aac");
 
     private static void AddAudioCodec(List<string> outArgs, int o, string? encoder, bool lossless, int bitrateK, int channels)
     {
@@ -416,21 +441,32 @@ internal static class ExportBuilder
 internal static class ExportRunner
 {
     /// <summary>Runs FFmpeg, reporting progress 0..1. Throws on failure; deletes the partial output on failure or cancel.</summary>
-    public static async Task RunAsync(IReadOnlyList<string> args, string outputPath, double duration, IProgress<double> progress, CancellationToken ct)
+    public static async Task RunAsync(IReadOnlyList<string> args, string outputPath, double duration, IProgress<double> progress,
+        CancellationToken ct, bool deletePartial = true)
     {
         if (Deps.FFmpeg == null) throw new ExportException("ffmpeg.exe was not found.");
-        Log.Write("ffmpeg " + Proc.Quote(args.Select(a => a.StartsWith("title=", StringComparison.Ordinal) ? "title=<redacted>" : a)));
+        Log.Event(DiagnosticCategory.Editor, "FFmpeg export started");
 
         var errors = new StringBuilder();
+        using var lifetime = new ExportProcessScope();
         using var p = new Process { StartInfo = Proc.StartInfo(Deps.FFmpeg, args) };
-        p.ErrorDataReceived += (_, e) => { if (e.Data != null) lock (errors) errors.AppendLine(e.Data); };
+        p.ErrorDataReceived += (_, e) =>
+        {
+            if (e.Data == null) return;
+            lock (errors)
+            {
+                errors.AppendLine(e.Data.Length <= 1500 ? e.Data : e.Data[..1500]);
+                if (errors.Length > 12000) errors.Remove(0, errors.Length - 12000);
+            }
+        };
+        ct.ThrowIfCancellationRequested();
         p.Start();
-        p.BeginErrorReadLine();
-        try { p.PriorityClass = ProcessPriorityClass.BelowNormal; } catch { }
-
         bool ok = false;
         try
         {
+            lifetime.Attach(p);
+            p.BeginErrorReadLine();
+            try { p.PriorityClass = ProcessPriorityClass.BelowNormal; } catch { }
             using (ct.Register(() => Proc.KillQuietly(p)))
             {
                 string? line;
@@ -447,7 +483,7 @@ internal static class ExportRunner
             {
                 string msg;
                 lock (errors) msg = errors.ToString().Trim();
-                Log.Write("ffmpeg failed: " + msg);
+                Log.Event(DiagnosticCategory.Editor, "FFmpeg export failed", DiagnosticSeverity.Error, p.ExitCode);
                 throw new ExportException(string.IsNullOrEmpty(msg) ? $"FFmpeg exited with code {p.ExitCode}." : LastLines(msg, 8));
             }
             ok = true;
@@ -456,7 +492,13 @@ internal static class ExportRunner
         finally
         {
             if (!ok)
-                try { if (File.Exists(outputPath)) File.Delete(outputPath); } catch { }
+            {
+                Proc.KillQuietly(p);
+                await p.WaitForExitAsync(CancellationToken.None);
+                if (deletePartial)
+                    try { File.Delete(outputPath); }
+                    catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
+            }
         }
     }
 

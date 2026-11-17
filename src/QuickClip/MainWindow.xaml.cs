@@ -18,11 +18,12 @@ public partial class MainWindow : Window
     private bool _savingClip;
 
     private readonly DispatcherTimer _statusTimer;
-    private readonly DispatcherTimer _shareHideTimer;
     private EditorView? _editor;
     private PlayerView? _player;
     private SettingsView? _settings;
-    private bool _closeReady;
+    private bool _closeReady, _closing;
+    private long _pageRequest;
+    private Task<bool>? _navigationFlush;
     private WindowState _stateBeforeFullScreen;
     private bool _windowFullScreen;
 
@@ -40,30 +41,30 @@ public partial class MainWindow : Window
         Width = Math.Min(Width, SystemParameters.WorkArea.Width * 0.95);
         Height = Math.Min(Height, SystemParameters.WorkArea.Height * 0.95);
 
-        Gallery.OpenRequested += path => _ = OpenInEditorAsync(path);
-        Gallery.PlayRequested += (clips, index) =>
+        Gallery.OpenRequested += path => _ = AppProfile.IsPersonal
+            ? OpenGalleryCardAsync(path, null) : OpenInEditorAsync(path);
+        Gallery.CardOpenRequested += (path, card) => _ = OpenGalleryCardAsync(path, card);
+        PlayerNav.Visibility = AppProfile.IsPersonal ? Visibility.Visible : Visibility.Collapsed;
+        Gallery.PlaybackLibraryChanged += () =>
         {
-            ShowPage(PlayerPage);
-            PlayerPage.Play(clips, index);
+            if (_player is { IsVisible: true, HasPlaylist: false } player)
+                player.PlayLibrary(Gallery.PlaybackLibrarySnapshot());
+        };
+        Gallery.PlayRequested += async (clips, index) =>
+        {
+            if (await ShowPageAsync(PlayerPage)) PlayerPage.Play(clips, index);
         };
         Recorder.Instance.StateChanged += OnRecorderState;
         Updater.Changed += OnUpdaterChanged;
         OnUpdaterChanged();
-        ClipSharing.Changed += ShowShareStatus;
-        _shareHideTimer = new DispatcherTimer(TimeSpan.FromSeconds(15), DispatcherPriority.Background, (_, _) =>
-        {
-            _shareHideTimer!.Stop();
-            SharePanel.Visibility = Visibility.Collapsed;
-        }, Dispatcher) { IsEnabled = false };
-        if (ClipSharing.IsBusy) ShowShareStatus();
         _statusTimer = new DispatcherTimer(TimeSpan.FromSeconds(1), DispatcherPriority.Background, (_, _) => UpdateStatus(), Dispatcher);
         Loaded += (_, _) =>
         {
             UpdateStatus();
             _statusTimer.Start();
             _ = ShowWhatsNewAfterUpdateAsync();
-            if (AppProfile.IsPersonal && !AppSettings.SaveDisabled && !AppSettings.Current.LoadedFromFile
-                && !AppSettings.Current.ReplayOnboardingCompleted)
+            if (AppProfile.IsPersonal && !AppSettings.SaveDisabled && !AppSettings.Current.ReplayOnboardingCompleted
+                && (!AppSettings.Current.LoadedFromFile || AppSettings.Current.GuidedSetupStep.HasValue))
                 Dispatcher.BeginInvoke(ShowFirstRunReplayChoice, DispatcherPriority.ApplicationIdle);
         };
         WhatsNew.Closed += () =>
@@ -74,7 +75,22 @@ public partial class MainWindow : Window
         // While the release notes are up, keys don't reach the pages underneath; Esc or Enter closes them.
         PreviewKeyDown += (_, e) =>
         {
-            if (WhatsNew.Visibility != Visibility.Visible) return;
+            if (WhatsNew.Visibility != Visibility.Visible)
+            {
+                if (e.Key == System.Windows.Input.Key.Escape && _galleryOpening != null)
+                {
+                    CancelGalleryOpen();
+                    e.Handled = true;
+                    return;
+                }
+                if (e.Key == System.Windows.Input.Key.F5 && System.Windows.Input.Keyboard.Modifiers == 0 &&
+                    !e.IsRepeat && CanRefreshVisiblePage)
+                {
+                    RefreshVisiblePage();
+                    e.Handled = true;
+                }
+                return;
+            }
             if (e.Key is System.Windows.Input.Key.Escape or System.Windows.Input.Key.Enter)
             {
                 WhatsNew.Visibility = Visibility.Collapsed;
@@ -82,7 +98,12 @@ public partial class MainWindow : Window
             }
             e.Handled = true;
         };
-        Deactivated += (_, _) => Gallery.StopHoverPreview();
+        Deactivated += (_, _) =>
+        {
+            Gallery.StopHoverPreview();
+            _editor?.DismissFullscreenControls();
+            _player?.DismissFullscreenControls();
+        };
         StateChanged += (_, _) =>
         {
             if (WindowState != WindowState.Minimized) return;
@@ -95,11 +116,33 @@ public partial class MainWindow : Window
 
     public async Task OpenInEditorAsync(string path)
     {
-        ShowPage(EditorPage);
-        await EditorPage.OpenAsync(path);
+        var clips = Gallery.IsVisible ? Gallery.EditorNavigationPaths() :
+            _player?.IsVisible == true ? _player.EditorNavigationPaths() : Array.Empty<string>();
+        if (await ShowPageAsync(EditorPage))
+        {
+            EditorPage.SetNavigationClips(clips);
+            await EditorPage.OpenAsync(path);
+        }
     }
 
-    public void ShowSettings() => ShowPage(SettingsPage);
+    private bool _refreshing;
+    internal bool CanRefreshVisiblePage => !_closing && (Gallery.IsVisible || _editor?.IsVisible == true || _settings?.IsVisible == true);
+
+    internal async void RefreshVisiblePage()
+    {
+        if (_refreshing || !CanRefreshVisiblePage || _navigationFlush is { IsCompleted: false }) return;
+        _refreshing = true;
+        try
+        {
+            if (Gallery.IsVisible) await Gallery.RefreshVisibleAsync();
+            else if (_editor?.IsVisible == true) await _editor.RefreshDisplayedClipAsync();
+            else if (_settings?.IsVisible == true) _settings.RefreshVisibleSection();
+        }
+        catch (Exception ex) { Log.Failure(DiagnosticCategory.General, "Could not refresh visible page", ex); }
+        finally { _refreshing = false; }
+    }
+
+    public void ShowSettings() => _ = ShowPageAsync(SettingsPage);
 
     private EditorView EditorPage
     {
@@ -108,8 +151,10 @@ public partial class MainWindow : Window
             if (_editor != null) return _editor;
             _editor = new EditorView { Visibility = Visibility.Collapsed };
             _editor.TitleChanged += UpdateTitle;
-            _editor.BackRequested += () => ShowPage(Gallery);
+            _editor.BackRequested += () => _ = ShowPageAsync(Gallery);
             _editor.ClipDetailsSaved += Gallery.ApplyClipDetails;
+            Gallery.DetailsCommitted += _editor.ApplyCommittedDetails;
+            _editor.EditDraftSaved += Gallery.ApplyEditDraft;
             _editor.KnownTags = () => Gallery.KnownTags;
             _editor.AnnotationActions = Library.PersonalLibrary.Current;
             _editor.FullscreenRequested += on =>
@@ -128,7 +173,7 @@ public partial class MainWindow : Window
         {
             if (_player != null) return _player;
             _player = new PlayerView { Visibility = Visibility.Collapsed };
-            _player.BackRequested += () => ShowPage(Gallery);
+            _player.BackRequested += () => _ = ShowPageAsync(Gallery);
             _player.EditRequested += path => _ = OpenInEditorAsync(path);
             _player.FullScreenRequested += SetFullScreen;
             _player.TitleChanged += UpdateTitle;
@@ -143,21 +188,25 @@ public partial class MainWindow : Window
         {
             if (_settings != null) return _settings;
             _settings = new SettingsView { Visibility = Visibility.Collapsed };
+            _settings.RecordingFoldersChanged += Gallery.RefreshConfiguredSources;
             Pages.Children.Add(_settings);
             return _settings;
         }
     }
 
-    private void Nav_Checked(object sender, RoutedEventArgs e)
+    private async void Nav_Click(object sender, RoutedEventArgs e)
     {
         if (!IsInitialized) return;
-        if (sender == GalleryNav) ShowPage(Gallery);
-        else if (sender == EditorNav) ShowPage(EditorPage);
-        else if (sender == SettingsNav) ShowPage(SettingsPage);
+        if (sender == PlayerNav && AppProfile.IsPersonal)
+        {
+            var player = PlayerPage;
+            if (player.IsVisible) return;
+            if (await ShowPageAsync(player))
+                player.PlayLibrary(Gallery.PlaybackLibrarySnapshot());
+            return;
+        }
+        await ShowPageAsync(sender == EditorNav ? EditorPage : sender == SettingsNav ? SettingsPage : Gallery);
     }
-
-    // Clicking Gallery while the player (part of the gallery) is open goes back to the clips.
-    private void GalleryNav_Click(object sender, RoutedEventArgs e) => ShowPage(Gallery);
 
     private bool _renderOffscreenForEditor() =>
 #if DEBUG
@@ -165,6 +214,56 @@ public partial class MainWindow : Window
 #else
         false;
 #endif
+
+    private async Task<bool> ShowPageAsync(UIElement page)
+    {
+        CancelGalleryOpen();
+        var current = Pages.Children.OfType<UIElement>().FirstOrDefault(child => child.Visibility == Visibility.Visible && child != _galleryStagedEditor);
+        if (current != null) SetNavigation(current);
+        if (_closing) return false;
+        using var operation = Log.Begin(DiagnosticCategory.General, "Page navigation");
+        long request = ++_pageRequest;
+        if (page == _galleryStagedEditor && _galleryOpenTask is { } staged)
+        {
+            await staged;
+            if (_closing || request != _pageRequest) return false;
+        }
+        bool saved = true;
+        if (current != page)
+        {
+            var flush = _navigationFlush is { IsCompleted: false } pending ? pending : current switch
+            {
+                EditorView editor => editor.FlushForNavigationAsync(),
+                GalleryView gallery => gallery.FlushAnnotationsAsync(),
+                _ => Task.FromResult(true),
+            };
+            _navigationFlush = flush;
+            saved = await flush;
+            if (!saved && !_closing && request == _pageRequest &&
+                current is EditorView { CanLeaveAfterSaveFailure: true })
+            {
+                saved = ModalDialog.ConfirmAction(this,
+                    "Some changes could not be saved. They will stay open in the editor for this session.",
+                    "Could not save changes", "Leave editor", "Keep editing", destructive: false);
+            }
+        }
+        if (!saved || _closing || request != _pageRequest)
+        {
+            if (_closing || request != _pageRequest) operation?.Cancel();
+            return false;
+        }
+        ShowPage(page);
+        operation?.Complete();
+        return true;
+    }
+
+    private void SetNavigation(UIElement page)
+    {
+        GalleryNav.IsChecked = page == Gallery || (!AppProfile.IsPersonal && page == _player);
+        PlayerNav.IsChecked = AppProfile.IsPersonal && page == _player;
+        EditorNav.IsChecked = page == _editor;
+        SettingsNav.IsChecked = page == _settings;
+    }
 
     private void ShowPage(UIElement page)
     {
@@ -175,13 +274,13 @@ public partial class MainWindow : Window
             _player.Unload();
         }
         foreach (UIElement child in Pages.Children)
-            child.Visibility = child == page ? Visibility.Visible : Visibility.Collapsed;
-        GalleryNav.IsChecked = page == Gallery || page == _player;
-        EditorNav.IsChecked = page == _editor;
-        SettingsNav.IsChecked = page == _settings;
+            if (child != _galleryStagedEditor || child == page)
+                child.Visibility = child == page ? Visibility.Visible : Visibility.Collapsed;
+        SetNavigation(page);
         if (page == _editor)
         {
             _editor.RefreshTheme();
+            _ = _editor.RefreshMetadataOnReturnAsync();
             Dispatcher.BeginInvoke(_editor.FocusEditor, DispatcherPriority.Input);
         }
         if (page == _player) Dispatcher.BeginInvoke(_player.FocusPlayer, DispatcherPriority.Input);
@@ -252,31 +351,19 @@ public partial class MainWindow : Window
 
     private void UpdateButton_Click(object sender, RoutedEventArgs e) => ShowSettings();
 
-    private async void ShowFirstRunReplayChoice()
+    private void ShowFirstRunReplayChoice()
     {
         var settings = AppSettings.Current;
-        if (!IsVisible || settings.LoadedFromFile || settings.ReplayOnboardingCompleted || AppSettings.SaveDisabled) return;
-        bool enable = ModalDialog.ConfirmAction(this,
-            "QuickClip can save the last minute of gameplay when you press the hotkey. " +
-            "While waiting for a recognized game, it does not start the video or audio capture engine.\n\n" +
-            "QuickClip records the entire display containing an eligible game and follows it to any connected display, including displays connected later. " +
-            "Other apps, messages and notifications visible on that display can appear in clips.\n\n" +
-            "Enable instant replay and allow game display following?",
-            "Welcome to QuickClip Personal", "Enable instant replay", "Not now", destructive: false);
-        settings.ReplayOnboardingCompleted = true;
-        if (enable)
-        {
-            settings.AllowGameDisplayFollowing = true;
-            settings.RecordingEnabled = true;
-        }
-        settings.Save();
-        await Recorder.Instance.ApplySettingsAsync();
-        UpdateStatus();
-        if (enable) ShowSettings();
+        if (!IsVisible || settings.ReplayOnboardingCompleted || AppSettings.SaveDisabled ||
+            (settings.LoadedFromFile && !settings.GuidedSetupStep.HasValue)) return;
+        ShowSettings();
+        SettingsPage.BeginGuidedSetup();
     }
 
     private void UpdateStatus()
     {
+        RefreshBackgroundActivity();
+        RefreshMediaJobs();
         var recorder = Recorder.Instance;
         var s = AppSettings.Current;
         var hotkey = new Hotkey(s.HotkeyModifiers, s.HotkeyKey);
@@ -361,7 +448,7 @@ public partial class MainWindow : Window
         }
         catch (Exception ex)
         {
-            Log.Write("Loading the release notes failed: " + ex.Message);
+            Log.Failure(DiagnosticCategory.General, "Loading the release notes failed", ex);
             error = ex is OperationCanceledException or System.Net.Http.HttpRequestException ? "couldn't reach GitHub" : ex.Message;
         }
         if (onlyIfAny && notes.Count == 0 && error == null)
@@ -383,39 +470,9 @@ public partial class MainWindow : Window
         s.Save();
     }
 
-    private void ShowShareStatus()
-    {
-        if (ClipSharing.Status is not { } s) return;
-        bool working = s.Stage == ShareStage.Working;
-        SharePanel.Visibility = Visibility.Visible;
-        ShareName.Text = s.ClipName;
-        ShareName.ToolTip = s.ClipName;
-        ShareText.Text = s.Text;
-        ShareIcon.Text = s.Stage switch { ShareStage.Done => "\uE73E", ShareStage.Failed => "\uE783", _ => "\uE72D" };
-        ShareProgress.Visibility = working ? Visibility.Visible : Visibility.Collapsed;
-        ShareProgress.IsIndeterminate = working && s.Progress < 0;
-        if (s.Progress >= 0) ShareProgress.Value = s.Progress;
-        ShareShowButton.Visibility = s.Output != null ? Visibility.Visible : Visibility.Collapsed;
-        ShareCloseButton.ToolTip = working ? "Stop sharing" : "Hide";
-        _shareHideTimer.Stop();
-        if (!working) _shareHideTimer.Start(); // the result stays up for a while, then the bar is the recorder's again
-    }
-
-    private void ShareShow_Click(object sender, RoutedEventArgs e)
-    {
-        if (ClipSharing.Status?.Output is { } file && File.Exists(file))
-            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo("explorer.exe", $"/select,\"{file}\"") { UseShellExecute = true });
-    }
-
-    private void ShareClose_Click(object sender, RoutedEventArgs e)
-    {
-        if (ClipSharing.IsBusy) ClipSharing.Cancel();
-        else SharePanel.Visibility = Visibility.Collapsed;
-    }
-
     private async void SaveClip_Click(object sender, RoutedEventArgs e)
     {
-        if (_savingClip) return;
+        if (_savingClip || App.IsQuittingForUpdate) return;
         _savingClip = true;
         SaveClipButton.IsEnabled = false;
         SaveClipText.Text = "Saving…";
@@ -431,9 +488,13 @@ public partial class MainWindow : Window
         }
     }
 
+    internal bool HasActiveEditorExport => _editor?.HasActiveExport == true;
+    internal bool IsSavingClip => _savingClip;
+
     /// <summary>Closes the window; false if the user kept it open (e.g. to let an export finish).</summary>
     public Task<bool> RequestCloseAsync()
     {
+        if (_closing && _closeResult != null) return _closeResult.Task;
         _closeResult = new TaskCompletionSource<bool>();
         Close();
         return _closeResult.Task;
@@ -449,14 +510,36 @@ public partial class MainWindow : Window
             return;
         }
         e.Cancel = true;
-        if (_editor != null && !await _editor.CloseAsync())
+        if (_closing) return;
+        _closing = true;
+        CancelGalleryOpen();
+        using var operation = Log.Begin(DiagnosticCategory.General, "Window close");
+        if (_galleryOpenTask is { IsCompleted: false } preparing)
         {
+            try { await preparing.WaitAsync(TimeSpan.FromSeconds(2)); }
+            catch (TimeoutException)
+            {
+                operation?.Cancel();
+                _closing = false;
+                _closeResult?.TrySetResult(false);
+                return;
+            }
+        }
+        if (_navigationFlush is { IsCompleted: false } navigation) await navigation;
+        if ((!await Gallery.FlushAnnotationsAsync() &&
+                !ModalDialog.ConfirmAction(this, "Some Gallery changes could not be saved. Discard them and close?",
+                    "Unsaved details", "Discard changes", "Keep open", destructive: true)) ||
+            (_editor != null && !await _editor.CloseAsync()))
+        {
+            _closing = false;
+            operation?.Cancel();
             _closeResult?.TrySetResult(false);
             return;
         }
         if (_player != null) await _player.CloseAsync();
         await Gallery.CloseAsync();
         _closeReady = true;
+        operation?.Complete();
         // Close for real once this handler has returned; WPF refuses a Close() from inside Closing.
         _ = Dispatcher.BeginInvoke(Close);
     }
@@ -465,10 +548,9 @@ public partial class MainWindow : Window
     {
         _closeResult?.TrySetResult(true);
         _statusTimer.Stop();
+        ActivityProgress.IsIndeterminate = false;
         Recorder.Instance.StateChanged -= OnRecorderState;
         Updater.Changed -= OnUpdaterChanged;
-        ClipSharing.Changed -= ShowShareStatus;
-        _shareHideTimer.Stop();
         base.OnClosed(e);
         ((App)Application.Current).OnMainWindowClosed(this);
     }

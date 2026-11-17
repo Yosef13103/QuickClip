@@ -15,11 +15,11 @@ public sealed class GameDiscoveryCountTests
             [@"C:\Manual\Play.exe"], new());
         var prior = new GameCatalogSettings { Snapshot = new([retained], [], 2, false, default) };
         var scan = new CatalogResult([discovered, manual], [], 15, false, default) { InProgress = true };
-        scan = scan with { CandidateExecutablesVisited = 4 };
+        scan = scan with { CandidateExecutablesVisited = 4, InspectedEntries = 21 };
         var state = GameCatalogRuntime.WithScan(prior, scan);
 
         Assert.Equal(retained.Id, Assert.Single(state.RetainedIds));
-        Assert.Equal("Scanning · 4 candidate executable visits · 1 discovered this scan",
+        Assert.Equal("Scanning · 21 items checked · 1 game found",
             GameDiscoveryCoordinator.Describe(state, "Scanning", scan));
     }
 
@@ -45,6 +45,7 @@ public sealed class GameDiscoveryCountTests
 
             Assert.True(result.VisitedEntries > 1);
             Assert.Equal(1, result.CandidateExecutablesVisited);
+            Assert.True(result.InspectedEntries > result.VisitedEntries);
             Assert.Equal(2, result.Entries.Length);
         }
         finally { scratch.Delete(recursive: true); }

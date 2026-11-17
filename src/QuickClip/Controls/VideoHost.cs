@@ -18,6 +18,7 @@ public sealed class VideoHost : HwndHost
     public event Action<int, int>? VideoMouseDown;
     public event Action<int, int>? VideoMouseMove;
     public event Action<int, int>? VideoMouseUp;
+    public event Action? VideoContextRequested;
 
     /// <summary>Asked on WM_SETCURSOR with the cursor position; return a Win32 IDC_* id, 0 for the arrow or -1 for none.</summary>
     public Func<int, int, int>? CursorQuery { get; set; }
@@ -105,6 +106,10 @@ public sealed class VideoHost : HwndHost
                 VideoMouseUp?.Invoke(x, y);
                 handled = true;
                 return IntPtr.Zero;
+            case WM_RBUTTONUP when VideoContextRequested != null:
+                VideoContextRequested.Invoke();
+                handled = true;
+                return IntPtr.Zero;
             case WM_SETCURSOR:
                 if (GetCursorPos(out var pt) && ScreenToClient(hwnd, ref pt))
                 {
@@ -161,7 +166,7 @@ public sealed class VideoHost : HwndHost
     private const int WS_CHILD = 0x40000000, WS_VISIBLE = 0x10000000, WS_CLIPCHILDREN = 0x02000000, WS_CLIPSIBLINGS = 0x04000000;
     private const int BLACK_BRUSH = 4;
     private const int WM_SETCURSOR = 0x0020, WM_ERASEBKGND = 0x0014, WM_MOUSEMOVE = 0x0200, WM_LBUTTONDOWN = 0x0201,
-        WM_LBUTTONUP = 0x0202;
+        WM_LBUTTONUP = 0x0202, WM_RBUTTONUP = 0x0205;
 
     private delegate IntPtr WndProcDelegate(IntPtr hwnd, uint msg, IntPtr wParam, IntPtr lParam);
     private delegate bool EnumWindowsProc(IntPtr hwnd, IntPtr lParam);

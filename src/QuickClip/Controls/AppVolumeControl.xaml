@@ -7,7 +7,7 @@
     <!-- QuickClip's level in the Windows volume mixer -->
     <StackPanel Orientation="Horizontal">
         <Button x:Name="MuteButton" Style="{StaticResource IconButton}" Content="&#xE995;" Margin="0,0,2,0" Click="Mute_Click" />
-        <Slider x:Name="LevelSlider" Width="90" Minimum="0" Maximum="100" SmallChange="1" LargeChange="10" Focusable="False"
+        <Slider Style="{StaticResource ThemedMediaSlider}" x:Name="LevelSlider" Width="90" Minimum="0" Maximum="100" SmallChange="1" LargeChange="10" Focusable="False"
                 IsMoveToPointEnabled="True" VerticalAlignment="Center" ValueChanged="Level_Changed" PreviewMouseWheel="Level_Wheel" />
     </StackPanel>
 </UserControl>

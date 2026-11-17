@@ -84,14 +84,15 @@ internal static class ManualGameInput
         return (Rank(candidates, root), limited);
     }
 
-    private static bool IsSupportFile(string path, string root)
+    internal static bool IsSupportFile(string path, string root)
     {
         string name = Path.GetFileNameWithoutExtension(path).ToUpperInvariant();
         return name is "7Z" or "7ZR" or "UNRAR" or "DXSETUP" or "PREREQUISITES" or "WERFAULT" ||
             name.Contains("CRASH") || name.Contains("REDIST") || name.Contains("DIAGNOSTIC") ||
             name.Contains("UPDATER") || name.Contains("UNINSTALL") || name.Contains("LAUNCHHELPER") ||
             Path.GetRelativePath(root, path).Split(Path.DirectorySeparatorChar).SkipLast(1).Any(part =>
-                part.ToUpperInvariant() is "_COMMONREDIST" or "REDIST" or "PREREQUISITES" or "INSTALLERS" or "SUPPORT");
+                part.ToUpperInvariant() is "_COMMONREDIST" or "REDIST" or "PREREQUISITES" or "INSTALLERS" or
+                    "SUPPORT" or "TOOLS" or "UTILITIES" or "EXTRAS");
     }
 
     private static string[] Rank(List<string> paths, string root)

@@ -60,7 +60,7 @@ internal static class ProjectLibrary
         }
         catch (Exception ex)
         {
-            Log.Write($"Reading {folder}\\{FileName} failed: {ex.Message}");
+            Log.Failure(DiagnosticCategory.Library, "Reading a project failed", ex);
         }
 
         // The saved order first; clips put in the folder some other way go after it, oldest first.

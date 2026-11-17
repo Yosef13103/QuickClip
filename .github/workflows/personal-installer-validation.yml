@@ -1,0 +1,35 @@
+name: Personal installer validation
+on:
+  pull_request:
+    branches: [custom/main]
+    paths:
+      - installer/QuickClip.Personal.iss
+      - scripts/test-personal-installer.ps1
+      - scripts/test-personal-upgrade.ps1
+      - scripts/package.ps1
+      - src/QuickClip/Updates/**
+      - .github/workflows/personal-installer-validation.yml
+permissions:
+  contents: read
+jobs:
+  alternate-drive:
+    runs-on: windows-2025
+    timeout-minutes: 45
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.403'
+      - name: Provision verified dependencies
+        run: ./scripts/get-deps.ps1 -Force
+      - name: Exercise the in-place handoff and restart on an alternate drive
+        run: ./scripts/test-personal-upgrade.ps1
+      - name: Build actual Personal installer
+        run: ./scripts/package.ps1 -Personal
+      - name: Install to a non-system drive letter on this disposable runner
+        run: ./scripts/test-personal-installer.ps1

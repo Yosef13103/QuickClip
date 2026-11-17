@@ -11,9 +11,184 @@ namespace QuickClip;
 // Debug-only: renders each page of this window to PNG files (no screen capture) for checking the layout.
 public partial class MainWindow
 {
+    private async Task VerifyEditorDraftAsync(string dir, string? editorFile, string phase)
+    {
+        if (!AppProfile.IsPersonal || AppProfile.UsesDefaultDataRoot || Recorder.Instance.IsRunning ||
+            editorFile == null || !Environment.GetCommandLineArgs().Any(arg => arg.StartsWith("--clips=", StringComparison.Ordinal)) ||
+            !Path.GetFullPath(editorFile).Equals(Path.Combine(AppSettings.Current.ClipsFolder, "fixture-a.mp4"), StringComparison.OrdinalIgnoreCase))
+            throw new InvalidOperationException("Supply the generated fixture-a.mp4 in an explicitly isolated Personal profile and clips folder.");
+
+        static async Task WaitForAsync(Func<bool> ready, string message)
+        {
+            for (int i = 0; i < 100 && !ready(); i++) await Task.Delay(100);
+            if (!ready()) throw new InvalidOperationException(message);
+        }
+
+        Log.Event(DiagnosticCategory.Editor, "Draft smoke waiting for Gallery");
+        await WaitForAsync(() => Gallery.DraftCardForRender(editorFile) != null, "Gallery did not load the fixture.");
+        Log.Event(DiagnosticCategory.Editor, "Draft smoke opening Editor");
+        if (phase == "presentation")
+        {
+            await WaitForAsync(() => Gallery.DraftCardForRender(editorFile)?.Thumbnail != null,
+                "Gallery thumbnail did not load.");
+            UpdateLayout();
+            var item = Gallery.DraftCardForRender(editorFile);
+            var card = FindCard(Gallery, item) ?? throw new InvalidOperationException("Gallery card was not realized.");
+            var opening = OpenGalleryCardAsync(editorFile, card);
+            if (!Gallery.IsVisible || GalleryNav.IsChecked != true || EditorNav.IsChecked == true)
+                throw new InvalidOperationException("Gallery lost its rail selection before the preview was ready.");
+            UpdateLayout();
+            if (SystemParameters.ClientAreaAnimation &&
+                System.Windows.Documents.AdornerLayer.GetAdornerLayer(Gallery)?.GetAdorners(Gallery)?.Length is not > 0)
+                throw new InvalidOperationException("Gallery card transition was not attached.");
+            SaveVisual(Path.Combine(dir, "gallery-opening.png"));
+            await opening;
+            if (!EditorPage.IsVisible || EditorNav.IsChecked != true || !EditorPage.PreviewReadyForRender)
+                throw new InvalidOperationException("Editor did not wait for the loaded playlist entry.");
+            EditorPage.ToggleFullscreenForRender();
+            await System.Windows.Threading.Dispatcher.Yield(System.Windows.Threading.DispatcherPriority.ApplicationIdle);
+            if (!EditorPage.VerifyFullscreenLayoutForRender() || !EditorPage.SavePreviewForRender(Path.Combine(dir, "fullscreen-frame.png")))
+                throw new InvalidOperationException("Fullscreen did not fill the Editor client or expose a decoded frame.");
+            SaveVisual(Path.Combine(dir, "fullscreen-layout.png"));
+            EditorPage.ExitFullscreen();
+            await System.Windows.Threading.Dispatcher.Yield(System.Windows.Threading.DispatcherPriority.ApplicationIdle);
+            if (!EditorPage.VerifyRestoredLayoutForRender())
+                throw new InvalidOperationException("Fullscreen controls or layout did not restore.");
+            var player = PlayerPage;
+            if (item == null || !await ShowPageAsync(player) || AppProfile.IsPersonal && PlayerNav.IsChecked != true)
+                throw new InvalidOperationException("Could not open the standalone player.");
+            player.Play([item], 0);
+            SetFullScreen(true);
+            await System.Windows.Threading.Dispatcher.Yield(System.Windows.Threading.DispatcherPriority.ApplicationIdle);
+            await WaitForAsync(() => player.TrySaveFrameForRender(Path.Combine(dir, "player-fullscreen-frame.png")),
+                "The standalone player did not present a decoded frame.");
+            if (!player.VerifyFullscreenLayoutForRender())
+                throw new InvalidOperationException("The standalone player reserved space for fullscreen controls.");
+            SetFullScreen(false);
+            if (!player.VerifyRestoredLayoutForRender())
+                throw new InvalidOperationException("The standalone player controls did not restore.");
+
+            File.WriteAllText(Path.Combine(dir, "editor-draft-presentation.txt"), "Passed");
+            return;
+        }
+        await OpenInEditorAsync(editorFile);
+        var editor = EditorPage;
+        await WaitForAsync(() => editor.PreviewReadyForRender, "Editor preview did not load.");
+        Log.Event(DiagnosticCategory.Editor, "Draft smoke preview ready");
+        if (phase == "write")
+        {
+            editor.EditDraftForRender();
+            // Dispatch the same events as the three rail buttons, with a pending metadata debounce.
+            EditorNav.IsChecked = false;
+            GalleryNav.IsChecked = true;
+            GalleryNav.RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Primitives.ButtonBase.ClickEvent));
+            SettingsNav.IsChecked = true;
+            SettingsNav.RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Primitives.ButtonBase.ClickEvent));
+            GalleryNav.IsChecked = true;
+            GalleryNav.RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Primitives.ButtonBase.ClickEvent));
+            await WaitForAsync(() => Gallery.IsVisible, "The latest rail request did not win.");
+            if (GalleryNav.IsChecked != true || SettingsNav.IsChecked == true ||
+                Math.Abs((Gallery.DraftCardForRender(editorFile)?.SelectedDuration ?? 0) - 3.5) > 0.01)
+                throw new InvalidOperationException("Leaving the editor did not save the trim to Gallery.");
+            var card = Gallery.DraftCardForRender(editorFile)!;
+            var target = ClipAnnotationTarget.For(card);
+            var rename = await Library.PersonalLibrary.Current.SaveDraftAsync(target,
+                card.Details with { Title = "Gallery rename fixture" }, CancellationToken.None);
+            Gallery.ApplyClipDetails(editorFile, rename.Details ?? throw new InvalidOperationException("Gallery rename failed."));
+            if (!await ShowPageAsync(editor) || editor.FileTitle != "Gallery rename fixture" ||
+                Math.Abs(editor.TrimEndForRender - 4.5) > 0.01)
+                throw new InvalidOperationException("Returning from Gallery did not update the title while retaining the editor draft.");
+            editor.SetTitleForRender("Persisted fixture");
+            if (!await ShowPageAsync(Gallery) || Gallery.DraftCardForRender(editorFile)?.Title != "Persisted fixture")
+                throw new InvalidOperationException("Editor rename did not update Gallery.");
+            UpdateLayout();
+            await Gallery.VerifyHoverOriginalForRenderAsync(Gallery.DraftCardForRender(editorFile)!);
+            string other = Path.Combine(AppSettings.Current.ClipsFolder, "fixture-b.mp4");
+            var opening = OpenInEditorAsync(other);
+            await WaitForAsync(() => editor.ProbingSourceForRender || opening.IsCompleted, "The next preview probe did not start.");
+            if (editor.ProbingSourceForRender && (await ShowPageAsync(SettingsPage) || EditorNav.IsChecked != true))
+                throw new InvalidOperationException("An in-progress source switch changed the selected page.");
+            await Task.WhenAll(opening, OpenInEditorAsync(editorFile));
+            await WaitForAsync(() => editor.CurrentFile == editorFile && editor.PreviewReadyForRender, "Rapid switching lost the last clip.");
+            editor.VerifyDraftForRender();
+        }
+        else if (phase is "read" or "replace")
+        {
+            editor.VerifyDraftForRender();
+            if (Gallery.DraftCardForRender(editorFile) is not { } card ||
+                Math.Abs((card.SelectedDuration ?? 0) - 3.5) > 0.01 || card.Title != "Persisted fixture")
+                throw new InvalidOperationException("Gallery trim or metadata did not survive the restart.");
+            if (phase == "read")
+            {
+                string output = Path.Combine(dir, "export.mp4");
+                Log.Event(DiagnosticCategory.Editor, "Draft smoke exporting fixture");
+                await editor.ExportDraftForRender(output);
+                Log.Event(DiagnosticCategory.Editor, "Draft smoke export settled");
+                var media = await Media.MediaInfo.ProbeAsync(output);
+                if (Math.Abs(media.Duration - 3.5) > 0.15 || media.Audio.Count != 1)
+                    throw new InvalidOperationException("Export did not write the trimmed single-mix video.");
+                editor.VerifyDraftForRender();
+            }
+            else
+            {
+                if (Environment.GetEnvironmentVariable("QUICKCLIP_TEST_RECYCLE_BIN") != "1")
+                    throw new InvalidOperationException("The generated-media replacement test needs Recycle Bin opt-in.");
+                await editor.SaveOverForRender(1);
+                await WaitForAsync(() => editor.PreviewReadyForRender, "Replacement preview did not load.");
+                if (!editor.CanUndo || Math.Abs(editor.TrimEndForRender - 3.5) > 0.15)
+                    throw new InvalidOperationException("Replacement did not start with the edited video and clean trim.");
+                await editor.UndoForRender();
+                await WaitForAsync(() => editor.PreviewReadyForRender, "Restored preview did not load.");
+                editor.VerifyDraftForRender();
+            }
+        }
+        else if (phase == "close-pending")
+        {
+            var pending = new StalledAnnotationWrite();
+            editor.AnnotationActions = pending;
+            editor.SetTitleForRender("Recover this title");
+            var stamp = ClipAnnotationTarget.ReadSource(editorFile) ?? throw new InvalidOperationException("Fixture identity is unavailable.");
+            if (!await RequestCloseAsync().WaitAsync(TimeSpan.FromSeconds(15)) || !pending.Token.IsCancellationRequested)
+                throw new InvalidOperationException("Close did not finish and cancel the stalled save.");
+            if (await Task.Run(() => Library.EditorRecovery.Read(stamp)) is not
+                { Details.Draft.Title: "Recover this title" })
+                throw new InvalidOperationException("Close did not preserve the pending title for recovery.");
+        }
+        else throw new ArgumentException("Expected write, read, replace or close-pending.");
+        File.WriteAllText(Path.Combine(dir, "editor-draft-" + phase + ".txt"), "Passed");
+    }
+
+    private static FrameworkElement? FindCard(DependencyObject root, ClipItem? item)
+    {
+        if (root is Border { Name: "Card" } card && ReferenceEquals(card.DataContext, item)) return card;
+        for (int i = 0; i < VisualTreeHelper.GetChildrenCount(root); i++)
+            if (FindCard(VisualTreeHelper.GetChild(root, i), item) is { } found) return found;
+        return null;
+    }
+
+    private sealed class StalledAnnotationWrite : IClipAnnotationActions
+    {
+        internal CancellationToken Token { get; private set; }
+
+        public Task<ClipAnnotationResult> SaveDraftAsync(ClipAnnotationTarget target, ClipDetails draft, CancellationToken token)
+        {
+            Token = token;
+            return new TaskCompletionSource<ClipAnnotationResult>().Task;
+        }
+
+        public Task<IReadOnlyList<ClipAnnotationResult>> ApplyAsync(IReadOnlyList<ClipAnnotationTarget> targets,
+            string? addTag, bool? favorite, CancellationToken token) => throw new NotSupportedException();
+    }
+
     internal async Task RenderPagesAsync(string dir, string? editorFile)
     {
         Directory.CreateDirectory(dir);
+        if (Environment.GetCommandLineArgs().FirstOrDefault(arg => arg.StartsWith("--editor-draft-smoke=", StringComparison.Ordinal))
+            is { } draftSmoke)
+        {
+            await VerifyEditorDraftAsync(dir, editorFile, draftSmoke["--editor-draft-smoke=".Length..]);
+            return;
+        }
         if (Environment.GetCommandLineArgs().Contains("--editor-lifecycle-smoke-only"))
         {
             if (string.IsNullOrWhiteSpace(editorFile))

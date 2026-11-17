@@ -98,7 +98,7 @@ public sealed class RecordingHotkeysTests
     [Fact]
     public void Manual_approval_expires_even_if_the_master_switch_is_immediately_turned_back_on()
     {
-        var settings = new AppSettings { RecordingEnabled = true, AuthorizedGameDisplay = "game-display" };
+        var settings = new AppSettings { RecordingEnabled = true, AllowedRecordingDisplays = ["game-display"] };
         int consent = settings.RecordingDisableRevision;
         Assert.True(settings.AllowsManualDesktop(consent));
 
@@ -108,7 +108,7 @@ public sealed class RecordingHotkeysTests
 
         Assert.False(settings.AllowsManualDesktop(consent));
         Assert.True(settings.AllowsManualDesktop(settings.RecordingDisableRevision));
-        Assert.Equal("game-display", settings.AuthorizedGameDisplay);
+        Assert.Equal("game-display", Assert.Single(settings.AllowedRecordingDisplays));
     }
 
     [Fact]

@@ -1,130 +1,260 @@
 using System.Collections.Specialized;
 using System.Runtime.InteropServices;
+using System.Text.Json;
+using QuickClip.Library;
+using QuickClip.Gallery;
 using System.Windows;
 using QuickClip.Media;
 using QuickClip.Shell;
+using QuickClip.Views;
 
 namespace QuickClip;
 
-internal enum ShareStage { Working, Done, Failed, Cancelled }
-
-/// <summary>What instant share is doing, for the status bar.</summary>
-internal sealed record ShareStatus(ShareStage Stage, string ClipName, double Progress, string Text, string? Output = null);
-
-/// <summary>
-/// Instant share: makes a copy of a clip small enough to post anywhere (<see cref="ShareCopy"/>) and puts it on the
-/// clipboard, ready to paste into Discord, a chat or a folder. One clip at a time.
-/// </summary>
 internal static class ClipSharing
 {
-    /// <summary>
-    /// Where the copies go: in Videos but outside the clips folder, so they don't show up in the gallery. Not in
-    /// AppData: apps treat files pasted from there with suspicion (Discord took one as an empty file).
-    /// </summary>
-    public static readonly string Folder = AppProfile.SharedDirectory;
+    private static long _lastClipboardRequest;
+    private static uint _lastCopySequence;
 
-    private static CancellationTokenSource? _cts;
+    internal static string Folder => AppProfile.SharedDirectory;
+    internal static string? LastCopied { get; private set; }
+    internal static bool IsLastCopyCurrent => LastCopied != null && GetClipboardSequenceNumber() == _lastCopySequence;
+    internal static void IgnorePendingClipboardCopies() => ++_lastClipboardRequest;
 
-    public static bool IsBusy => _cts != null;
-    public static ShareStatus? Status { get; private set; }
-
-    /// <summary>Raised on the UI thread whenever <see cref="Status"/> changes.</summary>
-    public static event Action? Changed;
-
-    public static async Task ShareAsync(string clip)
+    internal static async Task ShareAsync(string clip, SharingProfile? profile = null, ExportRequest? edits = null)
     {
-        if (_cts != null) return; // the status bar shows the one already going
-        var cts = new CancellationTokenSource();
-        _cts = cts;
-        string name = Path.GetFileNameWithoutExtension(clip);
+        var settings = AppSettings.Current;
+        profile ??= SharingProfiles.Default(settings);
+        double limit = profile.LimitMB;
+        bool motionBlur = settings.ShareMotionBlur;
+        long ticket = ++_lastClipboardRequest;
+        uint sequence = GetClipboardSequenceNumber();
         try
         {
-            Report(new ShareStatus(ShareStage.Working, name, -1, "Sharing…"));
-            await Task.Run(DeleteOldCopies);
-            var info = await MediaInfo.ProbeAsync(clip, cts.Token);
-            string encoder = ShareCopy.Encoder(await VideoEncoders.GetAvailableAsync());
-            string dir = Path.Combine(Folder, DateTime.Now.ToString("yyyy-MM-dd HH-mm-ss-fff"));
-            Directory.CreateDirectory(dir);
+            var sources = MediaProcessing.Sources(clip, edits?.Tracks);
+            string name = Path.GetFileNameWithoutExtension(clip);
+            string dir = Path.Combine(Folder, "share-" + Guid.NewGuid().ToString("N"));
             string output = Path.Combine(dir, name + ".mp4");
-
-            var progress = new Progress<(int Attempt, double Progress)>(p => Report(new ShareStatus(ShareStage.Working, name, p.Progress,
-                $"{(p.Attempt == 1 ? "Sharing" : "Compressing a little more")}  ·  {p.Progress:P0}")));
-            long size = await ShareCopy.CreateAsync(info, output, encoder, progress, cts.Token,
-                limitMB: Math.Clamp(AppSettings.Current.ShareSizeMB, 1, 4000), motionBlur: AppSettings.Current.ShareMotionBlur);
-
-            await CopyToClipboardAsync(output);
-            Log.Write($"Shared {clip} as {output} ({Fmt.Size(size)}), copied to the clipboard");
-            Report(new ShareStatus(ShareStage.Done, name, 1, $"Copied to the clipboard ({Fmt.Size(size)}): paste it anywhere with Ctrl+V", output));
-            if (Application.Current?.MainWindow is not { IsActive: true })
-                App.Host?.Notify("Clip ready to share", $"{name} ({Fmt.Size(size)}) is on the clipboard: paste it anywhere with Ctrl+V");
+            var submission = MediaJobs.Current.Submit(new($"{name} · {profile.Name}", true, sources, output,
+                async (job, ct) =>
+                {
+                    ReserveShareFolder(dir);
+                    try
+                    {
+                        string encoder = ShareCopy.Encoder(await VideoEncoders.GetAvailableAsync().WaitAsync(ct));
+                        string published = await MediaProcessing.PublishAsync(output, ".mp4", null, async staging =>
+                        {
+                            var plan = edits == null
+                                ? ShareCopy.Plan(await MediaInfo.ProbeAsync(clip, ct, localOnly: true), staging, encoder, limit, motionBlur: motionBlur)
+                                : ShareCopy.Plan(edits with { OutputPath = staging }, encoder, limit, allowCopy: true, motionBlur);
+                            long ceiling = TargetSizeExport.Ceiling(plan, limit);
+                            MediaProcessing.CheckFreeSpace(dir, ceiling);
+                            await TargetSizeExport.RunAsync(plan, ceiling, "libx264",
+                                new ProgressCallback<(int Attempt, double Progress)>(p => job.Progress(p.Attempt, p.Progress)),
+                                job.Validating, ct, job);
+                        }, ct);
+                        RecordRetention(published, publishedByJob: true);
+                        return published;
+                    }
+                    finally
+                    {
+                        try { Directory.Delete(dir); }
+                        catch (IOException) { }
+                        catch (UnauthorizedAccessException) { }
+                    }
+                }));
+            var result = await submission.Completion;
+            if (result.Output is { } file && Application.Current != null)
+            {
+                bool copied = await TryCopyAsync(file, () => ticket == _lastClipboardRequest && GetClipboardSequenceNumber() == sequence);
+                App.Host?.NotifyShareReady(copied && IsLastCopyCurrent && LastCopied == file);
+            }
         }
-        catch (OperationCanceledException)
+        catch (Exception ex) when (ex is ExportException or IOException or UnauthorizedAccessException)
         {
-            Report(new ShareStatus(ShareStage.Cancelled, name, 0, "Sharing stopped."));
-        }
-        catch (Exception ex)
-        {
-            Log.Write($"Sharing {clip} failed: {ex}");
-            Report(new ShareStatus(ShareStage.Failed, name, 0, $"Couldn't share: {FirstLine(ex.Message)}"));
-        }
-        finally
-        {
-            _cts = null;
-            cts.Dispose();
+            ModalDialog.Show(Application.Current?.MainWindow, ex.Message, "Can't share clip", MessageBoxButton.OK, MessageBoxImage.Warning);
         }
     }
 
-    public static void Cancel() => _cts?.Cancel();
-
-    private static void Report(ShareStatus status)
+    internal static async Task<bool> CopyAgainAsync(string path)
     {
-        Status = status;
-        Changed?.Invoke();
+        long ticket = ++_lastClipboardRequest;
+        uint sequence = GetClipboardSequenceNumber();
+        bool copied = await TryCopyAsync(path, () => ticket == _lastClipboardRequest && GetClipboardSequenceNumber() == sequence);
+        if (copied) App.Host?.NotifyShareReady(IsLastCopyCurrent && LastCopied == path);
+        return copied;
     }
 
-    /// <summary>Puts the file on the clipboard the way Explorer's Copy does, so pasting into an app attaches it.</summary>
-    private static async Task CopyToClipboardAsync(string path)
+    private static async Task<bool> TryCopyAsync(string path, Func<bool> stillRequested)
     {
+        if (!stillRequested() || !File.Exists(path)) return false;
+        IDisposable? read;
+        try { read = MediaOwnership.Current.TryAcquire([MediaSource.Capture(path)], []); }
+        catch (Exception ex) when (LibraryFiles.IsAccessError(ex) || ex is ExportException) { return false; }
+        if (read == null) return false;
+        using var ownership = read;
         try
         {
-            // Windows' own data object for the file: exactly what Explorer puts on the clipboard.
-            ShellClipboard.CopyFile(path);
-            return;
+            if (!ShellClipboard.TryCopyFile(path, stillRequested)) return false;
+            LastCopied = path;
+            _lastCopySequence = GetClipboardSequenceNumber();
+            RecordRetention(path);
+            return true;
         }
         catch (Exception ex)
         {
-            Log.Write("Copying the file the shell's way failed, using a plain file list: " + ex.Message);
+            Log.Failure(DiagnosticCategory.General, "Shell copy unavailable; trying file drop", ex);
         }
 
         var data = new DataObject();
         data.SetFileDropList(new StringCollection { path });
-        data.SetData("Preferred DropEffect", new MemoryStream(BitConverter.GetBytes(1))); // DROPEFFECT_COPY
-        for (int attempt = 1; ; attempt++)
+        data.SetData("Preferred DropEffect", new MemoryStream(BitConverter.GetBytes(1)));
+        for (int attempt = 1; attempt <= 10 && stillRequested(); attempt++)
         {
             try
             {
                 Clipboard.SetDataObject(data, copy: true);
-                return;
+                LastCopied = path;
+                _lastCopySequence = GetClipboardSequenceNumber();
+                RecordRetention(path);
+                return true;
             }
-            catch (ExternalException) when (attempt < 10)
+            catch (ExternalException) { await Task.Delay(100); }
+        }
+        return false;
+    }
+
+    private static readonly object ShareStorage = new();
+    private static string RetentionJournal => Path.Combine(AppProfile.LocalDirectory, "share-retention");
+    private sealed record ShareReceipt(string Path, FileStamp Stamp, DateTimeOffset UsedAt);
+
+    internal static bool RetentionExpired(DateTimeOffset lastUse, DateTimeOffset now) =>
+        lastUse <= now && now - lastUse >= TimeSpan.FromDays(1);
+
+    internal static bool OwnedSharePath(string root, string path, string key)
+    {
+        if (!Guid.TryParseExact(key, "N", out _) || !Path.IsPathFullyQualified(path) ||
+            !string.Equals(Path.GetExtension(path), ".mp4", StringComparison.OrdinalIgnoreCase)) return false;
+        return string.Equals(Path.GetDirectoryName(Path.GetFullPath(path)),
+            Path.Combine(Path.GetFullPath(root), "share-" + key), StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static void RecordRetention(string path, bool publishedByJob = false)
+    {
+        lock (ShareStorage)
+        {
+            try
             {
-                await Task.Delay(100); // another app has the clipboard open
+                string dir = Path.GetFileName(Path.GetDirectoryName(path)) ?? "";
+                if (!dir.StartsWith("share-", StringComparison.Ordinal) || !OwnedSharePath(Folder, path, dir[6..])) return;
+                var stamp = MediaSource.Capture(path).Stamp;
+                if (stamp.Identity == null) return;
+                MediaProcessing.RequireSafeDirectory(RetentionJournal);
+                Directory.CreateDirectory(RetentionJournal);
+                string receipt = Path.Combine(RetentionJournal, dir[6..] + ".json");
+                // Recopy extends an existing receipt, but never adopts changed or untracked files.
+                if (File.Exists(receipt))
+                {
+                    if (LibraryFiles.InspectPath(receipt, directory: false) != ClipAvailability.Available ||
+                        new FileInfo(receipt).Length > 16_384) return;
+                    var previous = JsonSerializer.Deserialize<ShareReceipt>(File.ReadAllText(receipt));
+                    if (previous == null || previous.Stamp != stamp ||
+                        !string.Equals(previous.Path, path, StringComparison.OrdinalIgnoreCase)) return;
+                }
+                else
+                {
+                    // Only publication creates a receipt. Recopying old untracked files is not authorization.
+                    // The worker calls this before completing the job; UI copies only renew tracked receipts.
+                    if (!publishedByJob) return;
+                }
+                string staged = receipt + "." + Guid.NewGuid().ToString("N") + ".tmp";
+                try
+                {
+                    using (var stream = new FileStream(staged, FileMode.CreateNew, FileAccess.Write, FileShare.None))
+                        JsonSerializer.Serialize(stream, new ShareReceipt(path, stamp, DateTimeOffset.UtcNow));
+                    File.Move(staged, receipt, overwrite: true);
+                }
+                finally { if (File.Exists(staged)) File.Delete(staged); }
             }
+            catch (Exception ex) when (LibraryFiles.IsAccessError(ex) || ex is JsonException or ArgumentException or ExportException)
+            { Log.Failure(DiagnosticCategory.General, "Could not track shared copy retention", ex); }
         }
     }
 
-    /// <summary>Copies from earlier days; they've been pasted by now.</summary>
-    private static void DeleteOldCopies()
+    // Called on the UI dispatcher: don't invalidate files currently offered for paste.
+    internal static void CleanupExpired()
+    {
+        if (!Directory.Exists(RetentionJournal)) return;
+        try
+        {
+            uint sequence = GetClipboardSequenceNumber();
+            var clipboard = Clipboard.GetDataObject();
+            var protectedPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            if (clipboard?.GetDataPresent(DataFormats.FileDrop) == true)
+            {
+                if (clipboard.GetData(DataFormats.FileDrop) is not string[] paths) return;
+                foreach (var path in paths) protectedPaths.Add(Path.GetFullPath(path));
+            }
+            else if (clipboard?.GetDataPresent("Shell IDList Array") == true) return;
+            if (IsLastCopyCurrent && LastCopied != null) protectedPaths.Add(LastCopied);
+            SweepExpired(Folder, RetentionJournal, protectedPaths,
+                () => GetClipboardSequenceNumber() == sequence, DateTimeOffset.UtcNow);
+        }
+        catch (Exception ex) when (LibraryFiles.IsAccessError(ex) || ex is ExternalException or ArgumentException or ExportException)
+        { Log.Failure(DiagnosticCategory.General, "Shared copy cleanup deferred", ex); }
+    }
+
+    internal static void SweepExpired(string folder, string journal, HashSet<string> protectedPaths,
+        Func<bool> clipboardUnchanged, DateTimeOffset now)
     {
         try
         {
-            if (!Directory.Exists(Folder)) return;
-            foreach (var dir in Directory.GetDirectories(Folder))
-                if (DateTime.Now - Directory.GetCreationTime(dir) > TimeSpan.FromDays(2))
-                    try { Directory.Delete(dir, recursive: true); } catch { }
+            lock (ShareStorage)
+            {
+                MediaProcessing.RequireSafeDirectory(journal);
+                MediaProcessing.RequireSafeDirectory(folder);
+                foreach (string receipt in Directory.EnumerateFiles(journal, "*.json"))
+                {
+                    if (!clipboardUnchanged()) return;
+                    try
+                    {
+                        if (LibraryFiles.InspectPath(receipt, directory: false) != ClipAvailability.Available ||
+                            new FileInfo(receipt).Length > 16_384) continue;
+                        var entry = JsonSerializer.Deserialize<ShareReceipt>(File.ReadAllText(receipt));
+                        if (entry == null || !OwnedSharePath(folder, entry.Path, Path.GetFileNameWithoutExtension(receipt)) ||
+                            entry.Stamp.Identity == null || protectedPaths.Contains(entry.Path) ||
+                            !RetentionExpired(entry.UsedAt, now)) continue;
+                        var availability = LibraryFiles.InspectPath(entry.Path, directory: false);
+                        if (availability == ClipAvailability.Missing) { File.Delete(receipt); continue; }
+                        if (availability != ClipAvailability.Available) continue;
+                        using var lease = MediaOwnership.Current.TryMutate(entry.Path);
+                        if (lease == null || MediaSource.Capture(entry.Path).Stamp != entry.Stamp) continue;
+                        if (!clipboardUnchanged()) return;
+                        File.Delete(entry.Path);
+                        File.Delete(receipt);
+                        // Never recursively delete: preserve anything else a user put in the directory.
+                        try { Directory.Delete(Path.GetDirectoryName(entry.Path)!); }
+                        catch (IOException) { }
+                    }
+                    catch (Exception ex) when (LibraryFiles.IsAccessError(ex) || ex is JsonException or ArgumentException or ExportException)
+                    { Log.Failure(DiagnosticCategory.General, "Could not expire a shared copy", ex); }
+                }
+            }
         }
-        catch { }
+        catch (Exception ex) when (LibraryFiles.IsAccessError(ex) || ex is ExternalException or ArgumentException or ExportException)
+        { Log.Failure(DiagnosticCategory.General, "Shared copy cleanup deferred", ex); }
     }
 
-    private static string FirstLine(string text) => text.Split('\n', 2)[0].Trim();
+    private static void ReserveShareFolder(string directory)
+    {
+        lock (ShareStorage)
+        {
+            MediaProcessing.RequireSafeDirectory(Folder);
+            if (Directory.Exists(Folder) && Directory.EnumerateDirectories(Folder, "share-*").Take(128).Count() >= 128)
+                throw new ExportException("Shared copies are retained for pasting. Free space in the shared copies folder before preparing more.");
+            Directory.CreateDirectory(directory);
+        }
+    }
+
+    [DllImport("user32.dll")]
+    private static extern uint GetClipboardSequenceNumber();
 }

@@ -8,7 +8,13 @@ namespace QuickClip;
 /// <summary>User preferences persisted in the active application profile.</summary>
 internal sealed class AppSettings
 {
-    public GameCatalogSettings Games { get; set; } = new();
+    public GameCatalogSettings Games { get; set; } = new()
+    {
+        DiscoverGog = AppProfile.IsPersonal,
+        EnabledLaunchers = AppProfile.IsPersonal ? [.. Enum.GetValues<CatalogSource>().Where(LocalLaunchers.IsSupported)] : [],
+    };
+    public string[] IgnoredGameIssues { get; set; } = [];
+
     // The editor's encoder, quality, size and frame rate start at "same as original" for every clip.
     public InterfaceScale InterfaceScale { get; set; } = new();
     public string Format { get; set; } = "source";
@@ -51,8 +57,10 @@ internal sealed class AppSettings
     public bool CaptureCursor { get; set; } = true;
     public bool PreferGameWindow { get; set; } = AppProfile.IsPersonal;
     // Preserve the original physical-display grant without broadening it on upgrade.
-    public string? AuthorizedGameDisplay { get; set; }
-    public bool AllowGameDisplayFollowing { get; set; }
+    // Fresh Personal profiles permit identifiable displays until the user blocks one.
+    // Legacy whitelist profiles retain their grants until a deliberate migration.
+    public bool AllowRecordingDisplaysByDefault { get; set; } = AppProfile.IsPersonal;
+    public string[] AllowedRecordingDisplays { get; set; } = [];
     public string[] ExcludedGameDisplays { get; set; } = [];
     public bool SplitChatAudio { get; set; } = true;
     public bool SplitMusicAudio { get; set; } = true;
@@ -76,27 +84,42 @@ internal sealed class AppSettings
     public string? ClipSoundOutputId { get; set; }
     public string? ClipSoundFilePath { get; set; } // Optional user-selected local chime; null uses bundled shutter.
     public Shell.ClipEventOptions ClipEvents { get; set; } = new();
+    public bool ShowGameRecordingIndicator { get; set; }
+    public bool AllowRecordingIconsInCapture { get; set; }
+    public bool ShowRecordingMicrophoneIndicator { get; set; } = true;
+    public Shell.OverlayAnchor GameRecordingIndicatorAnchor { get; set; } = Shell.OverlayAnchor.BottomRight;
     public bool ClipNotificationsEnabled { get; set; } = true;
-    public bool ClipWindowsNotification { get; set; } = true;
+    public bool ClipWindowsNotification { get; set; } = !AppProfile.IsPersonal;
     // Suppress expected no-game/off hotkey warnings by default in Personal, not actual capture errors.
     public bool ShowInactiveSaveNotifications { get; set; } = !AppProfile.IsPersonal;
     // First-run prompt is explicit: a new Personal profile never silently starts screen capture.
     public bool ReplayOnboardingCompleted { get; set; }
-    public Shell.ClipOverlayOptions ClipOverlay { get; set; } = new();
+    // Presentation only. Existing profiles retain Advanced; fresh Personal profiles start in Basic.
+    public bool BasicSettings { get; set; } = AppProfile.IsPersonal;
+    public int? GuidedSetupStep { get; set; } = AppProfile.IsPersonal ? 0 : null;
+    public Shell.ClipOverlayOptions ClipOverlay { get; set; } = new() { Enabled = AppProfile.IsPersonal };
     public bool EnableLibraryIndex { get; set; } = AppProfile.IsPersonal;
     public double ShareSizeMB { get; set; } = 30;                // shared copies are made to fit under this
+    [JsonConverter(typeof(SharingProfiles.ListConverter))]
+    public SharingProfile[]? ShareProfiles { get; set; }
+    [JsonConverter(typeof(SharingProfiles.IdConverter))]
+    public string? DefaultShareProfile { get; set; }
+    public int MediaJobConcurrency { get; set; } = 1;
     public bool ShareMotionBlur { get; set; } = true;             // sharing a 120 fps clip blends it into 60 fps motion blur
     public string ClipsFolder { get; set; } = AppProfile.ClipsDirectory;
     public string[] AdditionalClipSources { get; set; } = [];
     public string ClipFilenameTemplate { get; set; } = Gallery.ClipNaming.DefaultTemplate;
     public string[] LibraryExclusions { get; set; } = [];
     public bool ConfirmClipDeletion { get; set; } = true;
+    public bool ConfirmSaveOverOriginal { get; set; } = true;
+    public string? ExternalPlayerPath { get; set; }
 
     // Window behaviour
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public bool? EnableReplayOnStartup { get; set; }
     public string? Theme { get; set; }
     public string? CustomThemeJson { get; set; }
+    public string[] SavedCustomThemes { get; set; } = [];
     public bool StartInTray { get; set; } = true;
     public bool CloseToTray { get; set; } = true;
 
@@ -141,7 +164,7 @@ internal sealed class AppSettings
         }
         catch (Exception ex)
         {
-            Log.Write("Could not read settings: " + ex.Message);
+            Log.Essential(DiagnosticCategory.Settings, "Could not read settings", ex);
         }
         return new AppSettings();
     }
@@ -150,11 +173,38 @@ internal sealed class AppSettings
     {
         var settings = JsonSerializer.Deserialize<AppSettings>(json, JsonOptions) ?? new AppSettings();
         settings.ClipOverlay = (settings.ClipOverlay ?? new()).Migrate();
+        if (AppProfile.IsPersonal) settings.SavedCustomThemes = Themes.SavedThemes.Normalize(settings.SavedCustomThemes, settings.CustomThemeJson);
         // V1 shared a preference between minimizing and Windows startup. Only
         // the startup behavior survives; the newer key takes precedence.
         using (var legacy = JsonDocument.Parse(json))
         {
             var root = legacy.RootElement;
+            if (root.ValueKind == JsonValueKind.Object)
+            {
+                // Preserve legacy notification choices when only one channel was serialized.
+                if (root.TryGetProperty(nameof(ClipWindowsNotification), out _) &&
+                    !root.TryGetProperty(nameof(ClipOverlay), out _))
+                    settings.ClipOverlay = new();
+                if (root.TryGetProperty(nameof(ClipOverlay), out _) &&
+                    !root.TryGetProperty(nameof(ClipWindowsNotification), out _))
+                    settings.ClipWindowsNotification = true;
+                if (!root.TryGetProperty(nameof(BasicSettings), out _)) settings.BasicSettings = false;
+                if (!root.TryGetProperty(nameof(GuidedSetupStep), out _)) settings.GuidedSetupStep = null;
+                if (settings.GuidedSetupStep is < 0 or > 8) settings.GuidedSetupStep = 0;
+                if (!root.TryGetProperty(nameof(AllowRecordingDisplaysByDefault), out _))
+                    settings.AllowRecordingDisplaysByDefault = false;
+                // Only the old exact physical identity is safe to migrate. The former
+                // global toggle does not identify which monitors the owner had used.
+                if (AppProfile.IsPersonal && !root.TryGetProperty(nameof(AllowedRecordingDisplays), out _) &&
+                    root.TryGetProperty("AuthorizedGameDisplay", out var legacyDisplay) &&
+                    legacyDisplay.ValueKind == JsonValueKind.String && legacyDisplay.GetString() is { } identity &&
+                    (settings.PreferGameWindow ||
+                        root.TryGetProperty("AllowGameDisplayFollowing", out var following) && following.ValueKind == JsonValueKind.True) &&
+                    !CaptureSourcePolicy.IsDisplayExcluded(settings, identity))
+                    settings.AllowedRecordingDisplays = [identity];
+                settings.AllowedRecordingDisplays = [.. (settings.AllowedRecordingDisplays ?? [])
+                    .Where(id => !string.IsNullOrWhiteSpace(id)).Distinct(StringComparer.OrdinalIgnoreCase)];
+            }
             if (root.ValueKind == JsonValueKind.Object &&
                 !root.TryGetProperty(nameof(StartInTray), out _) &&
                 root.TryGetProperty("MinimizeToTray", out var oldTray) &&
@@ -185,9 +235,13 @@ internal sealed class AppSettings
 
     public void Save() => TrySave();
 
-    internal bool TrySave()
+    internal bool TrySave(bool? recordingEnabled = null)
     {
-        if (SaveDisabled) return true;
+        if (SaveDisabled)
+        {
+            if (recordingEnabled is { } inMemory) RecordingEnabled = inMemory;
+            return true;
+        }
         string? staged = null;
         try
         {
@@ -195,15 +249,18 @@ internal sealed class AppSettings
             lock (JsonOptions)
             {
                 staged = FilePath + "." + Guid.NewGuid().ToString("N") + ".tmp";
-                File.WriteAllText(staged, ToJson());
+                var snapshot = recordingEnabled.HasValue ? (AppSettings)MemberwiseClone() : this;
+                if (recordingEnabled is { } enabled) snapshot.RecordingEnabled = enabled;
+                File.WriteAllText(staged, snapshot.ToJson());
                 File.Move(staged, FilePath, overwrite: true);
                 staged = null;
+                if (recordingEnabled is { } committed) RecordingEnabled = committed;
             }
             return true;
         }
         catch (Exception ex)
         {
-            Log.Write("Could not save settings: " + ex.GetType().Name);
+            Log.Essential(DiagnosticCategory.Settings, "Could not save settings", ex);
             return false;
         }
         finally

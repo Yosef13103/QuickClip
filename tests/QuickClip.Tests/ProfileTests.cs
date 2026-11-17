@@ -11,7 +11,7 @@ public sealed class ProfileTests
         string root = Path.GetDirectoryName(AppProfile.SettingsDirectory)!;
         Assert.StartsWith("quickclip-test-profile-", Path.GetFileName(root));
         Assert.Equal(Path.Combine(root, "settings", "settings.json"), AppSettings.FilePath);
-        Assert.Equal(Path.Combine(root, "local", "quickclip.log"), Log.FilePath);
+        Assert.Equal(Path.Combine(root, "local", "quickclip-errors.log"), Log.EssentialFilePath);
         Assert.Equal(Path.Combine(root, "clips"), AppSettings.Current.ClipsFolder);
         Assert.Equal(Path.Combine(root, "shared"), ClipSharing.Folder);
         Assert.Equal(Path.Combine(root, "temp"), AppProfile.TempDirectory);

@@ -14,7 +14,7 @@ public sealed class GameDiscoveryCoordinatorTests : IDisposable
         foreach (string path in expected) File.WriteAllBytes(path, [1]);
         var request = new CatalogRequest { GameRoots = [new(install)], MaxEntries = 3 };
         var lastFinished = DateTimeOffset.UtcNow.AddDays(-1);
-        GameCatalogSettings state = new() { Request = request, Snapshot = new([], [], 0, false, lastFinished) };
+        GameCatalogSettings state = new() { DiscoverSteam = false, DiscoverEpic = false, Request = request, Snapshot = new([], [], 0, false, lastFinished) };
         int scans = 0;
         using var coordinator = new GameDiscoveryCoordinator(() => state, (updated, _) => state = updated,
             request => { scans++; return GameCatalogService.CreateScan(request, () => [], () => null); });
@@ -60,7 +60,7 @@ public sealed class GameDiscoveryCoordinatorTests : IDisposable
     public async Task Startup_without_a_view_coalesces_manual_and_automatic_requests()
     {
         string root = AddInstall("Game");
-        GameCatalogSettings state = new() { Request = new() { GameRoots = [new(root)] } };
+        GameCatalogSettings state = new() { DiscoverSteam = false, DiscoverEpic = false, Request = new() { GameRoots = [new(root)] } };
         var published = new TaskCompletionSource<GameCatalogSettings>(TaskCreationOptions.RunContinuationsAsynchronously);
         int scans = 0;
         using var coordinator = new GameDiscoveryCoordinator(() => state, (updated, persist) =>
@@ -87,7 +87,7 @@ public sealed class GameDiscoveryCoordinatorTests : IDisposable
     {
         string first = AddInstall("First");
         string second = AddInstall("Second");
-        GameCatalogSettings state = new() { Request = new() { GameRoots = [new(first), new(second)] } };
+        GameCatalogSettings state = new() { DiscoverSteam = false, DiscoverEpic = false, Request = new() { GameRoots = [new(first), new(second)] } };
         int scans = 0;
         using var coordinator = new GameDiscoveryCoordinator(() => state, (updated, _) => state = updated, request =>
         {
@@ -109,7 +109,7 @@ public sealed class GameDiscoveryCoordinatorTests : IDisposable
         Assert.Contains("Paused", coordinator.Status);
         Directory.Move(first, first + "-gone");
         await coordinator.RequestAsync(manual: true);
-        Assert.Equal(1, scans);
+        Assert.Equal(2, scans);
         Assert.Equal(new[] { "First", "Second" }, state.Snapshot!.Entries.Select(entry => entry.Name));
         Assert.Equal(2, state.Snapshot.VisitedEntries);
         Assert.False(state.Snapshot.LimitReached);
@@ -181,6 +181,42 @@ public sealed class GameDiscoveryCoordinatorTests : IDisposable
         Assert.Equal(0, publications);
         Assert.Same(snapshot, state.Snapshot);
         Assert.False(coordinator.IsRunning);
+        Assert.Equal("Scan canceled", coordinator.Status);
+    }
+
+    [Fact]
+    public async Task Absent_optional_launcher_does_not_warn_or_change_source_claim_safety()
+    {
+        string missingManifests = Path.Combine(_fixture.FullName, "MissingEpic");
+        GameCatalogSettings state = new() { DiscoverSteam = false, DiscoverEpic = true };
+        using var coordinator = new GameDiscoveryCoordinator(() => state, (updated, _) => state = updated,
+            request => GameCatalogService.CreateScan(request, () => [], () => missingManifests));
+
+        await coordinator.RequestAsync(manual: true);
+
+        Assert.StartsWith("Completed ·", coordinator.Status);
+        Assert.DoesNotContain("source missing", coordinator.Status, StringComparison.OrdinalIgnoreCase);
+        Assert.Empty(state.Snapshot!.Issues);
+        var claim = Assert.Single(state.SourceClaims!.Value);
+        Assert.False(claim.Verified);
+        Assert.Contains(claim.Result.Issues, issue => issue.Kind == CatalogIssueKind.SourceMissing);
+    }
+
+    [Fact]
+    public async Task Absent_optional_launcher_does_not_hide_an_explicitly_added_missing_folder()
+    {
+        string missingManifests = Path.Combine(_fixture.FullName, "MissingEpic");
+        string missingFolder = Path.Combine(_fixture.FullName, "MissingGame");
+        GameCatalogSettings state = new() { DiscoverSteam = false, DiscoverEpic = true,
+            Request = new() { GameRoots = [new(missingFolder)] } };
+        using var coordinator = new GameDiscoveryCoordinator(() => state, (updated, _) => state = updated,
+            request => GameCatalogService.CreateScan(request, () => [], () => missingManifests));
+
+        await coordinator.RequestAsync(manual: true);
+
+        Assert.StartsWith("Incomplete", coordinator.Status);
+        Assert.Contains(state.Snapshot!.Issues, issue => issue.Kind == CatalogIssueKind.Unavailable);
+        Assert.DoesNotContain(state.Snapshot.Issues, issue => issue.Kind == CatalogIssueKind.SourceMissing);
     }
 
     private string AddInstall(string name)

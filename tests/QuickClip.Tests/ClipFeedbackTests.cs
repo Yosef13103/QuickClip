@@ -19,6 +19,20 @@ public sealed class ClipFeedbackTests
         Assert.Equal(new Point(x, y), ClipOverlayOptions.Place(new Rect(-1920, 100, 1920, 1080), 80, 20, Enum.Parse<OverlayAnchor>(anchor)));
 
     [Fact]
+    public void Personal_defaults_to_overlay_without_overwriting_existing_notification_choice()
+    {
+        var fresh = new AppSettings();
+        Assert.Equal(!AppProfile.IsPersonal, fresh.ClipWindowsNotification);
+        Assert.Equal(AppProfile.IsPersonal, fresh.ClipOverlay.Enabled);
+        var existing = AppSettings.Parse("""{"ClipWindowsNotification":true,"ClipOverlay":{"Enabled":false}}""");
+        Assert.True(existing.ClipWindowsNotification);
+        Assert.False(existing.ClipOverlay.Enabled);
+        var legacy = AppSettings.Parse("""{"ClipWindowsNotification":true}""");
+        Assert.True(legacy.ClipWindowsNotification);
+        Assert.False(legacy.ClipOverlay.Enabled);
+    }
+
+    [Fact]
     public void Notification_channels_round_trip_independently()
     {
         var settings = AppSettings.Parse("""
@@ -213,6 +227,40 @@ public sealed class ClipFeedbackTests
         Assert.Equal(42, AppSettings.Parse(new AppSettings { ClipSoundVolume = 42 }.ToJson()).ClipSoundVolume);
     }
 
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    [InlineData(true, true)]
+    public void Legacy_banner_hold_does_not_suppress_images_or_other_banners(bool hideBanner, bool hideImage)
+    {
+        var legacy = AppSettings.Parse("{}").ClipOverlay;
+        Assert.False(legacy.HideSavedBannerFromCapture);
+        Assert.False(legacy.HideImageFromCapture);
+        var settings = new AppSettings
+        {
+            ClipOverlay = new()
+            {
+                Enabled = true, ImagePath = "fixture.gif",
+                HideSavedBannerFromCapture = hideBanner, HideImageFromCapture = hideImage,
+            },
+        };
+        var options = AppSettings.Parse(settings.ToJson()).ClipOverlay;
+        Assert.Equal(hideBanner, options.ForEvent(ClipEvent.Saved) == null);
+        Assert.NotNull((options with { ImageOnly = true }).ImageForEvent(ClipEvent.Saved));
+        Assert.NotNull(options.ForEvent(ClipEvent.GameStarted));
+    }
+
+    [Fact]
+    public void Legacy_recording_icons_require_consent_to_ordinary_capture()
+    {
+        var settings = AppSettings.Parse("""{"ShowGameRecordingIndicator":true,"ShowRecordingMicrophoneIndicator":true}""");
+        Assert.False(RecordingIndicator.IsEnabled(settings));
+        Assert.True(settings.ShowRecordingMicrophoneIndicator);
+        settings.AllowRecordingIconsInCapture = true;
+        Assert.True(RecordingIndicator.IsEnabled(AppSettings.Parse(settings.ToJson())));
+    }
+
     private static byte[] GifFixture() => Convert.FromHexString(
         "47494638396101000100800000FF00000000FF" +
         "21F904000A0000002C0000000001000100000202440100" +
@@ -254,6 +302,12 @@ public sealed class ClipFeedbackTests
                         overlay.Hide();
                         await pending;
                         Assert.False(overlay.IsVisible);
+                        await overlay.ShowAsync(options with { HideImageFromCapture = true }, "Excluded image", true, saved: true);
+                        Assert.True(overlay.IsVisible);
+                        Assert.Equal(SystemParameters.ClientAreaAnimation, overlay.IsAnimatingImage);
+                        await overlay.ShowAsync(new ClipOverlayOptions { HideSavedBannerFromCapture = true }, "Held banner", true, saved: true);
+                        Assert.False(overlay.IsVisible);
+                        Assert.False(overlay.IsAnimatingImage);
                         await overlay.ShowAsync(options, "Expires", true);
                         Assert.Equal(SystemParameters.ClientAreaAnimation, overlay.IsAnimatingImage);
                         await Task.Delay(900);
@@ -381,15 +435,82 @@ public sealed class ClipFeedbackTests
         var settings = new AppSettings { ClipNotificationsEnabled = true, ClipWindowsNotification = !banners,
             ClipOverlay = new() { Enabled = banners, Style = OverlayStyle.Detailed, ImageOnly = image,
                 ImagePath = "test.gif", Seconds = 1.5, ImageAppearance = new() { Seconds = 6 } } };
-        var routed = settings.ClipOverlay.ForEvent(ClipEvent.Saved);
-        Assert.Equal(expected, routed != null);
-        Assert.Equal(AppProfile.IsPersonal && expected, ClipFeedback.From(settings, ClipEvent.Saved, "saved").Overlay);
-        if (routed != null)
+        var banner = settings.ClipOverlay.ForEvent(ClipEvent.Saved);
+        var celebration = settings.ClipOverlay.ImageForEvent(ClipEvent.Saved);
+        Assert.Equal(banners, banner != null);
+        Assert.Equal(image, celebration != null);
+        var feedback = ClipFeedback.From(settings, ClipEvent.Saved, "saved");
+        Assert.Equal(AppProfile.IsPersonal && expected, feedback.Overlay);
+        Assert.Equal(AppProfile.IsPersonal && banners, feedback.BannerOverlay != null);
+        Assert.Equal(AppProfile.IsPersonal && image, feedback.ImageOverlay != null);
+        if (banner != null)
         {
-            Assert.Equal(image ? OverlayStyle.ImageOnly : OverlayStyle.Detailed, routed.Style);
-            Assert.Equal(image ? 6 : 1.5, routed.Seconds);
-            Assert.Equal(image ? "test.gif" : null, routed.ImagePath);
-            if (image) Assert.Equal(OverlayAnchor.TopRight, routed.Anchor);
+            Assert.Equal(OverlayStyle.Detailed, banner.Style);
+            Assert.Equal(1.5, banner.Seconds);
+            Assert.Null(banner.ImagePath);
+        }
+        if (celebration != null)
+        {
+            Assert.Equal(OverlayStyle.ImageOnly, celebration.Style);
+            Assert.Equal(6, celebration.Seconds);
+            Assert.Equal("test.gif", celebration.ImagePath);
+            Assert.Equal(OverlayAnchor.TopRight, celebration.Anchor);
+        }
+    }
+
+    [Fact]
+    public void Legacy_banner_hold_preserves_ordinary_animation()
+    {
+        var options = new ClipOverlayOptions { Enabled = true, ImageOnly = true, ImagePath = "sample.gif",
+            Animation = OverlayAnimation.Slide, HideSavedBannerFromCapture = true,
+            ImageAppearance = new() { Animation = OverlayAnimation.Fade } };
+        Assert.Null(options.ForEvent(ClipEvent.Saved));
+        Assert.Equal(OverlayAnimation.Slide, options.ForEvent(ClipEvent.GameStarted)!.Animation);
+        Assert.Equal(OverlayAnimation.Fade, options.ImageForEvent(ClipEvent.Saved)!.Animation);
+        Assert.Equal(OverlayAnimation.Slide, (options with { HideSavedBannerFromCapture = false }).ForEvent(ClipEvent.Saved)!.Animation);
+    }
+
+    [Fact]
+    public void Same_notification_placement_resolves_primary_alias_and_disconnected_fallback()
+    {
+        var main = new ClipNotificationOverlay.Display((IntPtr)1, "Display1", new Rect(0, 0, 1920, 1080), true);
+        var other = new ClipNotificationOverlay.Display((IntPtr)2, "Display2", new Rect(-1280, 0, 1280, 720), false);
+        var banner = new ClipOverlayOptions { Anchor = OverlayAnchor.BottomRight };
+        var image = banner with { Display = "display1" };
+        Assert.True(ClipOverlayOptions.SamePlacement(banner, image, [main, other]));
+        Assert.False(ClipOverlayOptions.SamePlacement(banner, image with { Display = "Display2" }, [main, other]));
+        Assert.True(ClipOverlayOptions.SamePlacement(banner, image with { Display = "Disconnected" }, [main, other]));
+        Assert.False(ClipOverlayOptions.SamePlacement(banner, image with { Anchor = OverlayAnchor.TopRight }, [main, other]));
+        Assert.False(ClipOverlayOptions.SamePlacement(banner, image, []));
+    }
+
+    [Fact]
+    public void Save_sound_image_and_text_preferences_are_independent()
+    {
+        foreach (bool master in new[] { false, true })
+        foreach (bool text in new[] { false, true })
+        foreach (bool image in new[] { false, true })
+        foreach (bool sound in new[] { false, true })
+        {
+            var settings = AppSettings.Parse(new AppSettings
+            {
+                ClipNotificationsEnabled = master,
+                ClipEvents = new(Saved: text),
+                ClipSound = sound,
+                ClipWindowsNotification = true,
+                ClipOverlay = new() { Enabled = true, ImageOnly = image, ImagePath = "fixture.gif",
+                    Style = OverlayStyle.Detailed, ImageAppearance = new() },
+            }.ToJson());
+            var saved = ClipFeedback.From(settings, ClipEvent.Saved, "Fixture");
+            Assert.Equal(sound, saved.Sound);
+            Assert.Equal(!AppProfile.IsPersonal || master && text, saved.Windows);
+            Assert.Equal(AppProfile.IsPersonal && master && text, saved.BannerOverlay != null);
+            Assert.Equal(AppProfile.IsPersonal && master && image, saved.ImageOverlay != null);
+            Assert.Equal(saved.BannerOverlay != null || saved.ImageOverlay != null, saved.Overlay);
+            var started = ClipFeedback.From(settings, ClipEvent.GameStarted, "Fixture");
+            Assert.False(started.Sound);
+            Assert.Null(started.ImageOverlay);
+            Assert.Equal(AppProfile.IsPersonal && master, started.BannerOverlay != null);
         }
     }
 
@@ -399,7 +520,7 @@ public sealed class ClipFeedbackTests
         var settings = AppSettings.Parse("""
             {"ClipOverlay":{"Enabled":true,"Style":"ImageOnly","ImagePath":"sample.gif","Seconds":6,"Anchor":"TopLeft","Size":48}}
             """);
-        var saved = settings.ClipOverlay.ForEvent(ClipEvent.Saved)!;
+        var saved = settings.ClipOverlay.ImageForEvent(ClipEvent.Saved)!;
         var status = settings.ClipOverlay.ForEvent(ClipEvent.DesktopStarted)!;
         Assert.Equal(6, saved.Seconds);
         Assert.Equal(OverlayAnchor.TopLeft, saved.Anchor);
@@ -416,17 +537,18 @@ public sealed class ClipFeedbackTests
         var options = new ClipOverlayOptions { Enabled = false, ImageOnly = true, ImageAppearance = new() };
         if (ClipOverlayImage.HasDefault)
         {
-            Assert.Equal(OverlayStyle.ImageOnly, options.ForEvent(ClipEvent.Saved)!.Style);
-            Assert.Null(options.ForEvent(ClipEvent.Saved)!.ImagePath);
-            Assert.Equal(OverlayStyle.ImageOnly, (options with { Enabled = true }).ForEvent(ClipEvent.Saved)!.Style);
+            Assert.Equal(OverlayStyle.ImageOnly, options.ImageForEvent(ClipEvent.Saved)!.Style);
+            Assert.Null(options.ImageForEvent(ClipEvent.Saved)!.ImagePath);
+            Assert.Equal(OverlayStyle.ImageOnly, (options with { Enabled = true }).ImageForEvent(ClipEvent.Saved)!.Style);
         }
         else
         {
-            Assert.Null(options.ForEvent(ClipEvent.Saved));
-            Assert.Equal(OverlayStyle.Compact, (options with { Enabled = true }).ForEvent(ClipEvent.Saved)!.Style);
+            Assert.Null(options.ImageForEvent(ClipEvent.Saved));
         }
-        Assert.Null(options.ForEvent(ClipEvent.DesktopStarted));
-        Assert.Null((options with { ImageOnly = false }).ForEvent(ClipEvent.Saved));
+        Assert.Null(options.ForEvent(ClipEvent.Saved));
+        Assert.Equal(OverlayStyle.Compact, (options with { Enabled = true }).ForEvent(ClipEvent.Saved)!.Style);
+        Assert.Null(options.ImageForEvent(ClipEvent.DesktopStarted));
+        Assert.Null((options with { ImageOnly = false }).ImageForEvent(ClipEvent.Saved));
     }
 
     [Fact]
@@ -523,4 +645,27 @@ public sealed class ClipFeedbackTests
     [InlineData("NaN", false)]
     public void Custom_overlay_size_has_bounded_validation(string text, bool valid) =>
         Assert.Equal(valid, ClipOverlayOptions.TryParseSize(text, out _));
+
+    [Fact]
+    public void Bottom_banners_reserve_taskbar_height_on_mixed_dpi_displays()
+    {
+        var bounds = new Rect(-1920, 0, 1920, 1080);
+        var work = new Rect(-1920, 0, 1920, 1020);
+        Assert.Equal(1020, ClipNotificationOverlay.BannerBounds(bounds, work, OverlayAnchor.BottomRight, 1.25, 80).Bottom);
+        Assert.Equal(1030, ClipNotificationOverlay.BannerBounds(bounds, bounds, OverlayAnchor.BottomLeft, 1.25, 80).Bottom);
+        Assert.Equal(bounds, ClipNotificationOverlay.BannerBounds(bounds, work, OverlayAnchor.TopRight, 1.25, 80));
+    }
+
+    [Fact]
+    public void Game_start_banner_is_independent_of_clip_saved_and_dot_is_opt_in()
+    {
+        var s = new AppSettings { ClipEvents = new(Saved: false, GameStarted: true),
+            ClipOverlay = new() { Enabled = true, ImageOnly = true }, ClipNotificationsEnabled = true };
+        Assert.False(s.ShowGameRecordingIndicator);
+        Assert.True(s.ClipEvents.Allows(ClipEvent.GameStarted, false));
+        Assert.Equal("Game recording started", ClipFeedback.From(s, ClipEvent.GameStarted, "Fixture").Title);
+        Assert.False(ClipFeedback.From(s, ClipEvent.GameStarted, "Fixture").Sound);
+        Assert.Equal(OverlayStyle.Compact, s.ClipOverlay.ForEvent(ClipEvent.GameStarted)!.Style);
+        Assert.False((s.ClipEvents with { GameStarted = false }).Allows(ClipEvent.GameStarted, false));
+    }
 }

@@ -24,6 +24,7 @@ internal static class ShareCopy
         bool motionBlur = true)
     {
         if (clip.Duration <= 0) throw new ExportException("This clip has no length to share.");
+        var audio = clip.EditableAudio.Count < clip.Audio.Count ? clip.Audio.Take(1) : clip.Audio;
         var request = new ExportRequest
         {
             Media = clip,
@@ -31,29 +32,36 @@ internal static class ShareCopy
             Container = Containers.Mp4,
             Start = 0,
             End = clip.Duration,
-            Tracks = clip.Audio.Select(a => new TrackExport(a.Index, a.Codec, a.Channels, a.BitRate, a.DisplayName, 1)).ToList(),
+            Tracks = audio.Select(a => new TrackExport(a.Index, a.Codec, a.Channels, a.BitRate, a.DisplayName, 1)).ToArray(),
             MergeAudio = true,
             AudioBitrateK = AudioKbps,
             EncoderId = encoderId,
+            ForceAudioEncode = true,
         };
-        var v = clip.Video;
-        double sizeMB = clip.Size / 1e6;
-        if (v == null || (allowCopy && v.Codec == "h264" && v.Fps <= MaxFps + 0.5 && sizeMB <= limitMB * 0.95))
-            return request with { VideoMode = VideoMode.Copy };
+        return Plan(request, encoderId, limitMB, allowCopy, motionBlur);
+    }
 
-        // No bigger than it needs to be: H.264 needs about twice the bits AV1 or HEVC do for the same picture.
-        double targetMB = Math.Min(limitMB, sizeMB * (v.Codec == "h264" ? 1 : 2));
-        double fps = Math.Min(v.Fps > 0 ? v.Fps : MaxFps, MaxFps);
-        double videoBps = targetMB * 1e6 * 8 * 0.9 / clip.Duration - AudioKbps * 1000; // as the export aims for the target
-        return request with
+    internal static ExportRequest Plan(ExportRequest request, string encoderId, double limitMB, bool allowCopy, bool motionBlur)
+    {
+        var v = request.Media.Video ?? throw new ExportException("Sharing requires a video stream.");
+        double fps = v.Fps > MaxFps + 0.01 ? MaxFps : 0;
+        bool copy = allowCopy && v.Codec == "h264" && v.Fps > 0 && fps == 0 &&
+            request.Crop == null && request.Start <= 0.0005 &&
+            request.Media.Size * request.Duration / request.Media.Duration <= limitMB * TargetSizeExport.BytesPerMB;
+        request = request with
         {
-            VideoMode = VideoMode.Encode,
-            Quality = "size",
-            TargetSizeMB = targetMB,
-            Fps = v.Fps > MaxFps + 0.01 ? MaxFps : 0,
+            Container = Containers.Mp4,
+            MergeAudio = true,
+            HybridAudio = false,
+            EncoderId = encoderId,
+            MaxShortSide = 0,
+            AudioBitrateK = AudioKbps,
+            ForceAudioEncode = true,
+            VideoMode = copy ? VideoMode.Copy : VideoMode.Encode,
+            Fps = fps,
             MotionBlur = motionBlur,
-            MaxShortSide = ShortSideFor(v.Width, v.Height, fps, videoBps),
         };
+        return TargetSizeExport.Plan(request, limitMB, adaptive: true);
     }
 
     /// <summary>
@@ -80,19 +88,7 @@ internal static class ShareCopy
         CancellationToken ct, double limitMB = LimitMB, bool motionBlur = true)
     {
         var request = Plan(clip, output, encoderId, limitMB, motionBlur: motionBlur);
-        for (int attempt = 1; ; attempt++)
-        {
-            int a = attempt;
-            Log.Write($"Sharing {clip.Path}: {(request.VideoMode == VideoMode.Copy ? "video copied" : $"{request.TargetSizeMB:0.#} MB, short side {request.MaxShortSide}")}" +
-                      $", fps {request.Fps}{(request.MotionBlur && request.Fps > 0 ? " with motion blur" : "")}, {request.Tracks.Count} audio tracks merged, attempt {attempt}");
-            await ExportRunner.RunAsync(ExportBuilder.BuildArgs(request), output, request.Duration,
-                new Progress<double>(p => progress.Report((a, p))), ct);
-            long size = new FileInfo(output).Length;
-            if (size <= limitMB * 1e6) return size;
-            if (attempt == 3) throw new ExportException($"The clip didn't fit in {limitMB:0} MB.");
-            // Aim lower by as much as it overshot.
-            double target = (request.VideoMode == VideoMode.Copy ? limitMB : request.TargetSizeMB) * (limitMB * 1e6 / size) * 0.95;
-            request = Plan(clip, output, encoderId, target, allowCopy: false, motionBlur: motionBlur);
-        }
+        return await TargetSizeExport.RunAsync(request, TargetSizeExport.Ceiling(request, limitMB), "libx264",
+            progress, validating: null, ct);
     }
 }

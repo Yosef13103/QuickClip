@@ -8,6 +8,84 @@ public sealed class GameCatalogTests : IDisposable
 {
     private readonly DirectoryInfo _fixture = Directory.CreateTempSubdirectory("quickclip-catalog-");
 
+    [Fact]
+    public async Task Scoped_install_activates_corroborated_variants_and_keeps_other_executables_ineligible()
+    {
+        string first = FileAt("Library", "StarfieldFixture", "StarfieldFixture.exe");
+        string alternate = FileAt("Library", "StarfieldFixture", "Bin", "StarfieldFixture-DX12.exe");
+        string fallback = FileAt("Library", "StarfieldFixture", "Bin", "StarfieldFixture-x64.exe");
+        string browser = FileAt("Library", "StarfieldFixture", "Bin", "chrome.exe");
+        string utility = FileAt("Library", "StarfieldFixture", "Bin", "ModTool.exe");
+        string[] knownNonGames = [FileAt("Library", "StarfieldFixture", "Bin", "GameLauncher.exe"),
+            FileAt("Library", "StarfieldFixture", "Bin", "CrashReporter.exe"),
+            FileAt("Library", "StarfieldFixture", "Bin", "Setup.exe"),
+            FileAt("Library", "StarfieldFixture", "Bin", "Unins000.exe"),
+            FileAt("Library", "StarfieldFixture", "Bin", "GenericHelper.exe")];
+        var scan = await GameCatalogService.ScanAsync(new() { GameRoots = [new(At("Library"), true)] });
+        var index = new GameCatalogIndex(scan);
+        var owner = new WindowOwner((IntPtr)1, 2, 3, 4);
+        GameCaptureObservation? Observe(string path) =>
+            GameDetector.ResolveEligibleGame(null, null, _ => true, () => [new(owner, path, 100)], index.Match);
+        foreach (var path in new[] { first, alternate, fallback })
+            Assert.Equal("StarfieldFixture", Observe(path)?.VerifiedTarget?.Game);
+        foreach (var path in knownNonGames.Append(browser).Append(utility))
+            Assert.Null(Observe(path));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Approved_install_with_one_scoped_executable_needs_no_engine_metadata(bool collection)
+    {
+        string install = At("Library", "Owner Game");
+        string play = FileAt("Library", "Owner Game", "Bin", "CustomRuntime.exe");
+        string helper = FileAt("Library", "Owner Game", "Bin", "7za.exe");
+        string updater = FileAt("Library", "Owner Game", "Bin", "Update.exe");
+        string utility = FileAt("Library", "Owner Game", "Extras", "Tool.exe");
+        var request = new CatalogRequest { GameRoots = [new(collection ? At("Library") : install, collection)] };
+        var scan = await GameCatalogService.ScanAsync(request);
+        var state = AppSettings.Parse(new AppSettings { Games = new() { Request = request, Snapshot = scan } }.ToJson()).Games;
+        var rows = GameCatalogRuntime.Rows(state);
+        var index = new GameCatalogIndex(scan with { Entries = rows });
+        var owner = new WindowOwner((IntPtr)1, 2, 3, 4);
+        GameCaptureObservation? Observe(string path, bool current = true) => GameDetector.ResolveEligibleGame(
+            null, null, _ => current, () => [new(owner, path, 100)], index.Match);
+
+        Assert.Equal("Owner Game", Observe(play)?.VerifiedTarget?.Game);
+        Assert.Null(Observe(play, current: false));
+        Assert.Null(Observe(helper));
+        Assert.Null(Observe(updater));
+        Assert.Null(Observe(utility));
+        Assert.Null(Observe(At("Elsewhere", "CustomRuntime.exe")));
+        Assert.Empty(GameCatalogRuntime.Rows(state with { Request = request with { GameRoots = [] } }));
+    }
+
+    [Fact]
+    public async Task Collection_loose_executable_stays_unresolved_but_scoped_game_binaries_are_ready()
+    {
+        string loose = FileAt("Library", "Loose.exe");
+        string first = FileAt("Library", "Install", "First.exe");
+        string second = FileAt("Library", "Install", "Bin", "Second.exe");
+        var scan = await GameCatalogService.ScanAsync(new() { GameRoots = [new(At("Library"), IsCollection: true)] });
+        var index = new GameCatalogIndex(scan);
+        Assert.Equal(CatalogMatchKind.Candidate, index.Match(loose, true).Kind);
+        Assert.Equal(CatalogMatchKind.Game, index.Match(first, true).Kind);
+        Assert.Equal(CatalogMatchKind.Game, index.Match(second, true).Kind);
+    }
+
+    [Fact]
+    public async Task Current_install_layout_accepts_osu_without_per_executable_approval()
+    {
+        string game = FileAt("Library", "osu!lazer", "current", "osu!.exe");
+        string java = FileAt("Library", "osu!lazer", "current", "javaw.exe");
+        string helper = FileAt("Library", "osu!lazer", "current", "Update.exe");
+        var scan = await GameCatalogService.ScanAsync(new() { GameRoots = [new(At("Library"), true)] });
+        var index = new GameCatalogIndex(scan);
+        Assert.Equal(CatalogMatchKind.Game, index.Match(game, true).Kind);
+        Assert.NotEqual(CatalogMatchKind.Game, index.Match(java, true).Kind);
+        Assert.NotEqual(CatalogMatchKind.Game, index.Match(helper, true).Kind);
+    }
+
     [Theory]
     [InlineData("Unreal")]
     [InlineData("Unity")]

@@ -14,15 +14,32 @@ param(
     [switch]$Portable,
     [Parameter(Mandatory = $true, ParameterSetName = 'Watch')]
     [switch]$Watch,
+    [switch]$NoDevelopmentDiagnostics,
     [ValidateSet('Debug', 'Release')][string]$Configuration = 'Release'
 )
 
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
 $workspaceSdk = Join-Path $root '.quickclip-local\dotnet\dotnet.exe'
-$dotnet = if (Test-Path -LiteralPath $workspaceSdk) { $workspaceSdk }
-          else { (Get-Command dotnet.exe -CommandType Application -ErrorAction SilentlyContinue).Source }
-if (!$dotnet -or -not (& $dotnet --list-sdks | Where-Object { $_ -match '^10\.' })) {
+$candidates = @($workspaceSdk)
+$parent = Split-Path -Parent $root
+if ((Split-Path -Leaf $parent) -eq '.quickclip-local') {
+    $candidates += Join-Path $parent 'dotnet\dotnet.exe'
+}
+if ($env:DOTNET_ROOT) { $candidates += Join-Path $env:DOTNET_ROOT 'dotnet.exe' }
+$candidates += @(Get-Command dotnet.exe -CommandType Application -All -ErrorAction SilentlyContinue | ForEach-Object Source)
+$dotnet = $null
+foreach ($candidate in ($candidates | Select-Object -Unique)) {
+    if (-not (Test-Path -LiteralPath $candidate -PathType Leaf)) { continue }
+    $sdks = & $candidate --list-sdks
+    if ($LASTEXITCODE -ne 0 -or -not ($sdks | Where-Object { $_ -match '^10\.' })) { continue }
+    $info = & $candidate --info
+    if ($LASTEXITCODE -eq 0 -and ($info | Where-Object { $_ -match '^\s*Architecture:\s*x64\s*$' })) {
+        $dotnet = $candidate
+        break
+    }
+}
+if (!$dotnet) {
     throw 'The x64 .NET 10 SDK is required. Install it or extract it to .quickclip-local\dotnet.'
 }
 
@@ -163,8 +180,10 @@ if (!$Watch) {
 
 $previousRoot = $env:DOTNET_ROOT
 $previousProfile = $env:QUICKCLIP_PERSONAL_DATA_DIR
+$previousDiagnostics = $env:QUICKCLIP_DEV_DIAGNOSTICS
 try {
     $env:DOTNET_ROOT = Split-Path -Parent $dotnet
+    $env:QUICKCLIP_DEV_DIAGNOSTICS = if ($NoDevelopmentDiagnostics) { '0' } else { '1' }
     if (!$previousProfile) {
         $env:QUICKCLIP_PERSONAL_DATA_DIR = Join-Path $devRoot $(if ($Watch) { 'watch-profile' } else { 'profile' })
     }
@@ -174,4 +193,5 @@ try {
 finally {
     $env:DOTNET_ROOT = $previousRoot
     $env:QUICKCLIP_PERSONAL_DATA_DIR = $previousProfile
+    $env:QUICKCLIP_DEV_DIAGNOSTICS = $previousDiagnostics
 }

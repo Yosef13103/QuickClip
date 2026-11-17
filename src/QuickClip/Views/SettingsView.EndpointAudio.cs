@@ -24,10 +24,8 @@ public partial class SettingsView
     private async void EndpointMode_Changed(object sender, RoutedEventArgs e)
     {
         if (_loading || !IsInitialized) return;
-        AppSettings.Current.UseAudioEndpoints = EndpointModeCheck.IsChecked == true;
-        ShowEndpointMode();
-        CommitEndpoints();
-        if (AppSettings.Current.UseAudioEndpoints) await LoadEndpointsAsync();
+        bool selected = EndpointModeCheck.IsChecked == true;
+        if (CommitEndpoints(settings => settings.UseAudioEndpoints = selected) && selected) await LoadEndpointsAsync();
     }
 
     private async void RefreshEndpoints_Click(object sender, RoutedEventArgs e) => await LoadEndpointsAsync();
@@ -51,7 +49,7 @@ public partial class SettingsView
         catch (Exception ex)
         {
             _endpointError = "Could not list audio devices. Check that the native recording engine is up to date.";
-            Log.Write("Listing audio endpoints failed: " + ex.Message);
+            Log.Failure(DiagnosticCategory.Audio, "Listing audio endpoints failed", ex);
             _endpoints = [];
         }
         finally
@@ -82,20 +80,19 @@ public partial class SettingsView
             var device = EndpointAudio.FindEndpoint(track, endpoints);
             string caption = string.IsNullOrWhiteSpace(track.Label) ? FlowName(track.Flow) : track.Label;
             var row = new DockPanel { Margin = new Thickness(0, 8, 0, 0), LastChildFill = true };
-            var actions = new StackPanel { Orientation = Orientation.Horizontal };
+            var actions = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Top, Margin = new Thickness(4, 0, 0, 0) };
             DockPanel.SetDock(actions, Dock.Right);
-            actions.Children.Add(EndpointButton("Up", $"Move {caption} up", index > 0, () => MoveEndpoint(index, -1)));
-            actions.Children.Add(EndpointButton("Down", $"Move {caption} down", index + 1 < tracks.Count, () => MoveEndpoint(index, 1)));
-            actions.Children.Add(EndpointButton("Remove", $"Remove {caption}", true, () =>
+            actions.Children.Add(EndpointButton("\uE70E", $"Move {caption} up", index > 0, () => MoveEndpoint(index, -1), icon: true));
+            actions.Children.Add(EndpointButton("\uE70D", $"Move {caption} down", index + 1 < tracks.Count, () => MoveEndpoint(index, 1), icon: true));
+            actions.Children.Add(EndpointButton("\uE711", $"Remove {caption}", true, () =>
             {
                 var remaining = AppSettings.Current.EndpointTracks.ToList();
                 remaining.RemoveAt(index);
-                AppSettings.Current.EndpointTracks = remaining;
-                CommitEndpoints(rebuild: true);
-            }));
+                CommitEndpoints(settings => settings.EndpointTracks = remaining, rebuild: true);
+            }, icon: true));
             row.Children.Add(actions);
 
-            var enabled = new CheckBox { IsChecked = track.Enabled, VerticalAlignment = VerticalAlignment.Center, ToolTip = "Record this device" };
+            var enabled = new CheckBox { IsChecked = track.Enabled, VerticalAlignment = VerticalAlignment.Top, Margin = new Thickness(0, 7, 0, 0), ToolTip = "Record this device" };
             enabled.SetResourceReference(FrameworkElement.StyleProperty, "SwitchCheckBox");
             AutomationProperties.SetName(enabled, $"Record {FlowName(track.Flow)} track {caption}");
             enabled.Checked += (_, _) => UpdateEndpoint(track, t => t with { Enabled = true });
@@ -103,13 +100,43 @@ public partial class SettingsView
             row.Children.Add(enabled);
 
             var fields = new StackPanel { Margin = new Thickness(8, 0, 4, 0) };
-            var label = new TextBox { Text = track.Label, ToolTip = "Name of this track in saved clips" };
+            var rename = new Button { Content = caption, Style = (Style)FindResource("TextButton"),
+                ToolTip = "Rename this track" };
+            AutomationProperties.SetName(rename, $"Rename {FlowName(track.Flow)} track {i + 1}");
+            rename.HorizontalAlignment = HorizontalAlignment.Left;
+            var label = new TextBox { Text = track.Label, Visibility = Visibility.Collapsed,
+                ToolTip = "Name of this track in saved clips", Padding = new Thickness(5, 4, 5, 4) };
             AutomationProperties.SetName(label, $"Name of {FlowName(track.Flow)} track {i + 1}");
-            label.LostKeyboardFocus += (_, _) => UpdateEndpoint(track, t => t with { Label = label.Text });
+            string savedLabel = track.Label;
+            rename.Click += (_, _) =>
+            {
+                label.Text = savedLabel;
+                rename.Visibility = Visibility.Collapsed;
+                label.Visibility = Visibility.Visible;
+                label.Focus();
+                label.SelectAll();
+            };
+            void FinishRename(bool save)
+            {
+                if (!ReferenceEquals(row.Parent, EndpointRows) || label.Visibility != Visibility.Visible) return;
+                string text = label.Text.Trim();
+                rename.Visibility = Visibility.Visible;
+                label.Visibility = Visibility.Collapsed;
+                if (!save) return;
+                UpdateEndpoint(track, t => t with { Label = text });
+                savedLabel = AppSettings.Current.EndpointTracks.FirstOrDefault(t =>
+                    EndpointAudio.SameDevice(t.Flow, t.DeviceId, track.Flow, track.DeviceId))?.Label ?? savedLabel;
+                rename.Content = string.IsNullOrWhiteSpace(savedLabel) ? FlowName(track.Flow) : savedLabel;
+            }
+            label.LostKeyboardFocus += (_, _) => FinishRename(save: true);
             label.KeyDown += (_, e) =>
             {
-                if (e.Key == Key.Enter) label.MoveFocus(new TraversalRequest(FocusNavigationDirection.Next));
+                if (e.Key is not (Key.Enter or Key.Escape)) return;
+                e.Handled = true;
+                FinishRename(save: e.Key == Key.Enter);
+                rename.Focus();
             };
+            fields.Children.Add(rename);
             fields.Children.Add(label);
             string deviceText = $"{i + 1} · {FlowName(track.Flow)} · " +
                 (device != null ? EndpointName(device) : availabilityChecked ? "Missing device (selection kept)" : "Availability not checked");
@@ -131,6 +158,7 @@ public partial class SettingsView
         UpdateEndpointNotice();
         UpdateAddEndpointButton();
         UpdateMicrophoneMonitoring();
+        UpdateBasicAudio();
 
         void PopulatePicker(ComboBox picker, TextBlock placeholder, EndpointFlow flow, string prompt)
         {
@@ -149,9 +177,11 @@ public partial class SettingsView
         }
     }
 
-    private Button EndpointButton(string caption, string accessibleName, bool enabled, Action run)
+    private Button EndpointButton(string caption, string accessibleName, bool enabled, Action run, bool icon = false)
     {
-        var button = new Button { Content = caption, IsEnabled = enabled, Focusable = true, Style = (Style)FindResource("TextButton") };
+        var button = new Button { Content = caption, IsEnabled = enabled, Focusable = true, ToolTip = accessibleName,
+            Style = (Style)FindResource(icon ? "IconButton" : "TextButton") };
+        if (icon) { button.MinWidth = 32; button.MinHeight = 32; }
         AutomationProperties.SetName(button, accessibleName);
         button.Click += (_, _) => run();
         return button;
@@ -173,8 +203,8 @@ public partial class SettingsView
         if (settings.EndpointTracks.Count >= EndpointAudio.MaxTracks ||
             picker.SelectedItem is not Choice { Value: AudioEndpoint endpoint } ||
             settings.EndpointTracks.Any(track => StringComparer.OrdinalIgnoreCase.Equals(track.DeviceId, endpoint.Id))) return;
-        settings.EndpointTracks = [.. settings.EndpointTracks, new EndpointTrack(endpoint.Flow, endpoint.Id, EndpointName(endpoint))];
-        CommitEndpoints(rebuild: true);
+        CommitEndpoints(current => current.EndpointTracks =
+            [.. current.EndpointTracks, new EndpointTrack(endpoint.Flow, endpoint.Id, EndpointName(endpoint))], rebuild: true);
     }
 
     private void MoveEndpoint(int index, int direction)
@@ -182,8 +212,7 @@ public partial class SettingsView
         var tracks = AppSettings.Current.EndpointTracks.ToList();
         int next = index + direction;
         (tracks[index], tracks[next]) = (tracks[next], tracks[index]);
-        AppSettings.Current.EndpointTracks = tracks;
-        CommitEndpoints(rebuild: true);
+        CommitEndpoints(settings => settings.EndpointTracks = tracks, rebuild: true);
     }
 
     private void UpdateEndpoint(EndpointTrack selected, Func<EndpointTrack, EndpointTrack> change)
@@ -194,17 +223,33 @@ public partial class SettingsView
         var updated = change(tracks[index]);
         if (updated == tracks[index]) return;
         tracks[index] = updated;
-        AppSettings.Current.EndpointTracks = tracks;
-        CommitEndpoints();
+        CommitEndpoints(settings => settings.EndpointTracks = tracks);
     }
 
-    private void CommitEndpoints(bool rebuild = false)
+    private bool CommitEndpoints(Action<AppSettings> update, bool rebuild = false)
     {
-        AppSettings.Current.Save();
+        var settings = AppSettings.Current;
+        var previous = (settings.UseAudioEndpoints, settings.EndpointTracks);
+        update(settings);
+        if (!settings.TrySave())
+        {
+            (settings.UseAudioEndpoints, settings.EndpointTracks) = previous;
+            bool wasLoading = _loading;
+            _loading = true;
+            EndpointModeCheck.IsChecked = settings.UseAudioEndpoints;
+            _loading = wasLoading;
+            ShowEndpointMode();
+            ShowEndpointRows();
+            ModalDialog.Show(Window.GetWindow(this), "Could not save the audio change. Your previous audio choices are still active.", "Audio");
+            return false;
+        }
+        ShowEndpointMode();
         if (rebuild) ShowEndpointRows();
         else UpdateEndpointNotice();
+        UpdateBasicAudio();
         UpdateEstimates();
         ScheduleRecorderRestart();
+        return true;
     }
 
     private void UpdateEndpointNotice()
@@ -213,11 +258,8 @@ public partial class SettingsView
         var plan = EndpointAudio.Plan(AppSettings.Current);
         if (plan == null) return;
         int missing = _endpointsLoaded ? plan.Count(track => EndpointAudio.FindEndpoint(track, _endpoints) == null) : 0;
-        int playback = plan.Count(t => t.Flow == EndpointFlow.Playback);
         var notices = new List<string>();
         if (missing > 0) notices.Add($"{missing} enabled device(s) missing. QuickClip keeps those selections and retries the same devices without substituting a default.");
-        if (playback > 1) notices.Add("Multiple playback devices may carry the same audio, such as a headset and a virtual output feeding it.");
-        if (playback > 0) notices.Add("Playback loopback includes QuickClip previews played through a selected device.");
         if (_endpointsLoaded && _endpoints.Count == 0 && missing == 0) notices.Add("No active devices found.");
         EndpointNotice.Text = string.Join(" ", notices);
     }
@@ -237,7 +279,7 @@ public partial class SettingsView
         catch (Exception ex)
         {
             if (request == _statusRequest) EndpointStatusText.Text = "Could not read running audio status.";
-            Log.Write("Reading running endpoint status failed: " + ex.GetType().Name);
+            Log.Failure(DiagnosticCategory.Audio, "Reading running endpoint status failed", ex);
         }
         finally
         {

@@ -24,6 +24,7 @@ public partial class PlayerView : UserControl
     private readonly DispatcherTimer _childWindowTimer;
     private readonly DispatcherTimer _hideTimer;
     private MpvPlayer? _player;
+    private Popup? _fullscreenPopup;
     private PreviewAudio? _audio;
     private List<ClipItem> _clips = [];
     private int _index = -1;
@@ -42,6 +43,8 @@ public partial class PlayerView : UserControl
     public event Action? TitleChanged;
 
     public string? ClipTitle => Current?.Title;
+    internal string[] EditorNavigationPaths() => _clips.Select(clip => clip.Path).ToArray();
+    internal bool HasPlaylist => _clips.Count > 0;
 
     private ClipItem? Current => _index >= 0 && _index < _clips.Count ? _clips[_index] : null;
 
@@ -64,16 +67,62 @@ public partial class PlayerView : UserControl
             Seek(SeekBar.Value);
         }));
         PreviewKeyDown += OnPreviewKeyDown;
+        ControlBar.PreviewKeyDown += (_, e) =>
+        {
+            if (_fullScreen && e.Key is Key.Escape or Key.F11)
+            {
+                e.Handled = true;
+                if (!e.IsRepeat) FullScreenRequested?.Invoke(false);
+            }
+        };
+        Root.SizeChanged += (_, _) =>
+        {
+            if (_fullscreenPopup?.IsOpen == true) Controls.FullscreenPopup.UpdateWidth(_fullscreenPopup, ControlBar, Root.ActualWidth);
+        };
         // Hidden with the window (minimized to the tray, say): don't keep playing unseen.
-        IsVisibleChanged += (_, e) => { if (e.NewValue is false) _player?.SetProperty("pause", true); };
+        IsVisibleChanged += (_, e) =>
+        {
+            if (e.NewValue is not false) return;
+            DismissFullscreenControls();
+            _player?.SetProperty("pause", true);
+        };
         Loaded += OnLoaded;
     }
 
     /// <summary>Plays <paramref name="clips"/>[<paramref name="index"/>]; previous and next move through the list.</summary>
+    internal void PlayLibrary(IReadOnlyList<ClipItem> clips)
+    {
+        string? previous = Current?.Path;
+        int index = 0;
+        for (int i = 0; i < clips.Count; i++)
+            if (string.Equals(clips[i].Path, previous, StringComparison.OrdinalIgnoreCase)) { index = i; break; }
+        Play(clips, index);
+    }
+
     public void Play(IReadOnlyList<ClipItem> clips, int index)
     {
+        if (clips.Count == 0)
+        {
+            Unload();
+            _clips.Clear();
+            _index = -1;
+            TitleText.Text = "No clips to play";
+            InfoText.Text = "Record a clip or add a recording folder in Settings.";
+            PreviousButton.IsEnabled = NextButton.IsEnabled = false;
+            FloatingPrevious.IsEnabled = FloatingNext.IsEnabled = false;
+            FullScreenButton.IsEnabled = PlayButton.IsEnabled = SeekBar.IsEnabled = false;
+            _duration = 0;
+            SeekMarkers.Show([], 0);
+            ShowPosition(0);
+            TitleChanged?.Invoke();
+            return;
+        }
+        if (index < 0 || index >= clips.Count) return;
+        PlayButton.IsEnabled = SeekBar.IsEnabled = FullScreenButton.IsEnabled = true;
         _clips = [.. clips];
         _index = index;
+        PreviousButton.IsEnabled = FloatingPrevious.IsEnabled = index > 0;
+        NextButton.IsEnabled = FloatingNext.IsEnabled = index < _clips.Count - 1;
         _openedAt = Environment.TickCount64;
         if (_player == null) _openWhenLoaded = true;
         else _ = OpenAsync(index);
@@ -83,6 +132,7 @@ public partial class PlayerView : UserControl
     public void Unload()
     {
         _openToken++;
+        _openWhenLoaded = false;
         _player?.Command("stop");
         ShowMessage(null);
     }
@@ -96,18 +146,34 @@ public partial class PlayerView : UserControl
         get => _fullScreen;
         set
         {
+            if (_fullScreen == value) return;
             _fullScreen = value;
+            SetFloatingControls(value);
             Header.Visibility = value ? Visibility.Collapsed : Visibility.Visible;
             FullScreenButton.Content = value ? ExitFullScreenGlyph : FullScreenGlyph;
-            FullScreenButton.ToolTip = value ? "Exit full screen (F or Esc)" : "Full screen (F)";
+            FullScreenButton.ToolTip = value ? "Exit full screen (F11 or Esc)" : "Full screen (F11)";
             ShowControls();
         }
     }
 
+#if DEBUG
+    internal bool TrySaveFrameForRender(string path) =>
+        _player?.Command("screenshot-to-file", path, "window") == true;
+
+    internal bool VerifyFullscreenLayoutForRender() =>
+        _fullScreen && _fullscreenPopup?.IsOpen == true && !Root.Children.Contains(ControlBar) &&
+        FloatingPrevious.Visibility == Visibility.Visible && FloatingNext.Visibility == Visibility.Visible &&
+        Math.Abs(Video.ActualWidth - Root.ActualWidth) < 1 && Math.Abs(Video.ActualHeight - Root.ActualHeight) < 1;
+
+    internal bool VerifyRestoredLayoutForRender() =>
+        !_fullScreen && _fullscreenPopup == null && Root.Children.Contains(ControlBar) && Header.IsVisible &&
+        FloatingPrevious.Visibility == Visibility.Collapsed && FloatingNext.Visibility == Visibility.Collapsed;
+#endif
+
     public async Task CloseAsync()
     {
         _childWindowTimer.Stop();
-        _hideTimer.Stop();
+        DismissFullscreenControls();
         // mpv tears down its child window during shutdown, which needs this thread to keep pumping.
         var player = _player;
         _player = null;
@@ -129,7 +195,7 @@ public partial class PlayerView : UserControl
         }
         catch (Exception ex)
         {
-            Log.Write("mpv init failed: " + ex);
+            Log.Failure(DiagnosticCategory.Editor, "mpv init failed", ex);
             InfoText.Text = "The video player could not be started: " + ex.Message;
             return;
         }
@@ -153,9 +219,10 @@ public partial class PlayerView : UserControl
         var clip = _clips[index];
         TitleText.Text = clip.Title;
         InfoText.Text = string.Join("  ·  ", new[] { clip.Folder, clip.Ago, clip.SizeText, $"{index + 1} of {_clips.Count}" }.Where(s => s.Length > 0));
-        PreviousButton.IsEnabled = index > 0;
-        NextButton.IsEnabled = index < _clips.Count - 1;
+        PreviousButton.IsEnabled = FloatingPrevious.IsEnabled = index > 0;
+        NextButton.IsEnabled = FloatingNext.IsEnabled = index < _clips.Count - 1;
         TitleChanged?.Invoke();
+        _player.Command("stop");
         _duration = clip.Duration ?? 0;
         _mpvTimePos = 0;
         SeekMarkers.Show([], 0); // switching clips must never show the previous clip's markers
@@ -167,13 +234,15 @@ public partial class PlayerView : UserControl
         try
         {
             var info = await MediaInfo.ProbeAsync(clip.Path);
+            if (token != _openToken || _player == null) return;
             tracks = info.Audio.Count;
             if (info.Duration > 0) _duration = info.Duration;
         }
         catch (Exception ex)
         {
-            Log.Write($"Probing {clip.Path} failed: {ex.Message}"); // mpv may still manage
+            Log.Failure(DiagnosticCategory.Editor, "Probing clip media failed", ex); // mpv may still manage
         }
+        if (token != _openToken || _player == null) return;
         ClipBookmark[] markers = [];
         if (AppProfile.IsPersonal)
         {
@@ -183,11 +252,16 @@ public partial class PlayerView : UserControl
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {
-                Log.Write("Reading clip timeline markers failed: " + ex.Message);
+                Log.Failure(DiagnosticCategory.Editor, "Reading clip timeline markers failed", ex);
             }
         }
         if (token != _openToken || _player == null || _audio == null) return;
         SeekMarkers.Show(markers, _duration);
+        if (!File.Exists(clip.Path))
+        {
+            ShowMessage("This clip is missing or unavailable");
+            return;
+        }
 
         _eof = false;
         _player.Command("stop");
@@ -257,7 +331,7 @@ public partial class PlayerView : UserControl
         if (id == MpvEventId.EndFile && error < 0 && Current != null)
         {
             ShowMessage("This clip can't be played");
-            Log.Write("mpv end-file error: " + MpvNative.ErrorString(error));
+            Log.Event(DiagnosticCategory.Editor, "mpv playback ended with an error", DiagnosticSeverity.Error, error);
         }
     });
 
@@ -321,7 +395,10 @@ public partial class PlayerView : UserControl
 
     private void Play_Click(object sender, RoutedEventArgs e) => TogglePlay();
 
-    private void FullScreen_Click(object sender, RoutedEventArgs e) => FullScreenRequested?.Invoke(!_fullScreen);
+    private void FullScreen_Click(object sender, RoutedEventArgs e)
+    {
+        if (_fullScreen || Current != null) FullScreenRequested?.Invoke(!_fullScreen);
+    }
 
     private void Back_Click(object sender, RoutedEventArgs e) => BackRequested?.Invoke();
 
@@ -332,6 +409,12 @@ public partial class PlayerView : UserControl
     private void Share_Click(object sender, RoutedEventArgs e)
     {
         if (Current is { } clip) _ = ClipSharing.ShareAsync(clip.Path);
+    }
+
+    private void ShareOptions_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is FrameworkElement anchor && Current is { } clip)
+            SharingDialogs.OpenMenu(anchor, profile => _ = ClipSharing.ShareAsync(clip.Path, profile));
     }
 
     private void Edit_Click(object sender, RoutedEventArgs e)
@@ -374,6 +457,7 @@ public partial class PlayerView : UserControl
     private void OnVideoMouseDown(int x, int y)
     {
         Root.Focus();
+        if (Current == null) return;
         long now = Environment.TickCount64;
         uint doubleClick = GetDoubleClickTime();
         // The second click of a double-click on a gallery card lands here; it shouldn't pause the new clip.
@@ -400,8 +484,42 @@ public partial class PlayerView : UserControl
 
     private void ControlBar_MouseMove(object sender, MouseEventArgs e) => ShowControls();
 
+    private void SetFloatingControls(bool enabled)
+    {
+        if (enabled)
+        {
+            FloatingPrevious.Visibility = FloatingNext.Visibility = Visibility.Visible;
+            Root.Children.Remove(ControlBar);
+            _fullscreenPopup = new Popup
+            {
+                PlacementTarget = Root, Placement = PlacementMode.Custom, AllowsTransparency = true,
+                StaysOpen = true, Child = ControlBar, CustomPopupPlacementCallback = Controls.FullscreenPopup.Place,
+            };
+            Controls.FullscreenPopup.UpdateWidth(_fullscreenPopup, ControlBar, Root.ActualWidth);
+            _player?.CommandAsync("show-text", "Esc or F11 to exit fullscreen", "1600");
+        }
+        else if (_fullscreenPopup is { } popup)
+        {
+            popup.IsOpen = false;
+            popup.Child = null;
+            _fullscreenPopup = null;
+            ControlBar.ClearValue(WidthProperty);
+            FloatingPrevious.Visibility = FloatingNext.Visibility = Visibility.Collapsed;
+            Root.Children.Add(ControlBar);
+            _dragging = false;
+            Root.Focus();
+        }
+    }
+
+    internal void DismissFullscreenControls()
+    {
+        _hideTimer.Stop();
+        if (_fullscreenPopup != null) _fullscreenPopup.IsOpen = false;
+    }
+
     private void ShowControls()
     {
+        if (_fullScreen && IsVisible && _fullscreenPopup?.IsOpen == false) _fullscreenPopup.IsOpen = true;
         if (_controlsHidden)
         {
             _controlsHidden = false;
@@ -409,15 +527,14 @@ public partial class PlayerView : UserControl
             Video.RefreshCursor();
         }
         _hideTimer.Stop();
-        if (_fullScreen && !_paused) _hideTimer.Start();
+        if (_fullScreen && IsVisible) _hideTimer.Start();
     }
 
     private void HideControls()
     {
-        _hideTimer.Stop();
-        if (!_fullScreen || _paused || ControlBar.IsMouseOver) return;
+        if (!_fullScreen || ControlBar.IsMouseOver || ControlBar.IsKeyboardFocusWithin || ControlBar.IsMouseCaptureWithin) return;
+        DismissFullscreenControls();
         _controlsHidden = true;
-        ControlBar.Visibility = Visibility.Collapsed;
         Video.RefreshCursor();
     }
 
@@ -438,7 +555,7 @@ public partial class PlayerView : UserControl
             case Key.Up: Volume.Nudge(5); break;
             case Key.Down: Volume.Nudge(-5); break;
             case Key.M: Volume.ToggleMute(); break;
-            case Key.F or Key.F11: FullScreenRequested?.Invoke(!_fullScreen); break;
+            case Key.F or Key.F11: FullScreen_Click(this, e); break;
             case Key.Escape when _fullScreen: FullScreenRequested?.Invoke(false); break;
             case Key.Escape or Key.Back: BackRequested?.Invoke(); break;
             case Key.PageUp: Step(-1); break;

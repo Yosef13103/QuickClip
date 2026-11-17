@@ -7,7 +7,7 @@ namespace QuickClip.Library;
 
 internal sealed partial class LibraryIndex
 {
-    internal sealed record GalleryRow(string Path, ClipMediaStamp Stamp, ClipDetails Details, double? Duration);
+    internal sealed record GalleryRow(string Path, ClipMediaStamp Stamp, ClipDetails Details, double? Duration, string? Identity);
     private sealed record BookmarkRow(string Id, long Ticks, string? Label, string? Session);
 
     internal Task<List<GalleryRow>> ReadGalleryAsync(Guid? root, string? path, CancellationToken token = default) =>
@@ -20,7 +20,7 @@ internal sealed partial class LibraryIndex
                     (SELECT json_group_array(name) FROM
                         (SELECT t.name FROM clip_tags ct JOIN tags t ON t.id=ct.tag_id WHERE ct.clip_id=c.id ORDER BY t.name_key)),
                     (SELECT json_group_array(json_object('Id',id,'Ticks',offset_ticks,'Label',label,'Session',session_id))
-                        FROM bookmarks WHERE clip_id=c.id)
+                        FROM bookmarks WHERE clip_id=c.id), c.file_id
                 FROM clips c JOIN roots r ON r.id=c.root_id
                 WHERE r.availability=0 AND c.availability=0
                     AND ($root IS NULL OR c.root_id=$root) AND ($path IS NULL OR c.path_key=$path)
@@ -43,19 +43,19 @@ internal sealed partial class LibraryIndex
                 };
                 rows.Add(new(reader.GetString(1), new(reader.GetInt64(2),
                     new DateTime(reader.GetInt64(3), DateTimeKind.Utc), new DateTime(reader.GetInt64(4), DateTimeKind.Utc)),
-                    details, reader.IsDBNull(11) ? null : TimeSpan.FromTicks(reader.GetInt64(11)).TotalSeconds));
+                    details, reader.IsDBNull(11) ? null : TimeSpan.FromTicks(reader.GetInt64(11)).TotalSeconds, ReadText(reader, 14)));
             }
             return rows;
         });
 
-    internal Task<long> SaveGalleryDetailsAsync(ClipAnnotationTarget target, ClipDetails draft, CancellationToken token) =>
-        Mutate(target.Details.IndexId ?? Guid.Empty, target.Details.IndexRevision, token, (connection, transaction, id) =>
+    internal Task<long> SaveGalleryDetailsAsync(ClipAnnotationTarget target, ClipDetails draft, CancellationToken token)
+    {
+        FileStamp stamp = default;
+        return Mutate(target.Details.IndexId ?? Guid.Empty, target.Details.IndexRevision, token, (connection, transaction, id) =>
         {
             // Check both the indexed path and current file identity before editing a cached card or draft.
-            using var handle = LibraryFiles.OpenMedia(target.Path);
-            var stamp = LibraryFiles.ReadStamp(handle);
             if (stamp.Bytes != target.Stamp.Length || stamp.Created != target.Stamp.Created.Ticks ||
-                stamp.Modified != target.Stamp.Modified.Ticks ||
+                stamp.Modified != target.Stamp.Modified.Ticks || (target.Source is { } expected && stamp != expected) ||
                 Convert.ToInt64(Scalar(connection, transaction, """
                     SELECT count(*) FROM clips c JOIN roots r ON r.id=c.root_id
                     WHERE c.id=$id AND c.path_key=$path AND c.availability=0 AND r.availability=0
@@ -74,7 +74,21 @@ internal sealed partial class LibraryIndex
                 ("$game", game), ("$gameKey", LibraryFiles.TextKey(game)), ("$id", id));
             var ticks = Scalar(connection, transaction, "SELECT duration_ticks FROM clips WHERE id=$id;", ("$id", id));
             WriteGalleryAnnotations(connection, transaction, id, draft.Normalize(), ticks as long?, preserveExisting: true);
+        }, leaseSource: () =>
+        {
+            var handle = LibraryFiles.OpenMedia(target.Path);
+            try
+            {
+                stamp = LibraryFiles.ReadStamp(handle);
+                return handle;
+            }
+            catch
+            {
+                handle.Dispose();
+                throw;
+            }
         });
+    }
 
     private static void WriteGalleryAnnotations(SqliteConnection connection, SqliteTransaction transaction,
         string id, ClipDetails details, long? durationTicks, bool preserveExisting = false)

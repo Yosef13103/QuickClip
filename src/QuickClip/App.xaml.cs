@@ -23,6 +23,7 @@ public partial class App : Application
     {
         base.OnStartup(e);
         DispatcherUnhandledException += OnUnhandledException;
+        AppDomain.CurrentDomain.UnhandledException += OnFatalException;
         ShutdownMode = ShutdownMode.OnExplicitShutdown;
 
         var args = e.Args;
@@ -51,7 +52,7 @@ public partial class App : Application
             }
             catch (Exception ex)
             {
-                Log.Write($"{args[0]} failed: {ex}");
+                Log.Essential(DiagnosticCategory.General, "Shell registration command failed", ex);
                 Shutdown(1);
             }
             return;
@@ -72,6 +73,12 @@ public partial class App : Application
         Themes.Attach(this);
         Themes.Apply(this, AppSettings.Current);
 
+        if (!CanOpenDuringUpdate(args))
+        {
+            Shutdown(0);
+            return;
+        }
+
         // One QuickClip per user: a second launch (e.g. "Edit with QuickClip") hands its file to the first.
         if (!renderTest && !SingleInstance.TryBecomePrimary())
         {
@@ -79,11 +86,13 @@ public partial class App : Application
             Shutdown(0);
             return;
         }
-        if (args.Contains("--quit") || args.Contains("--save-clip"))
+        if (!CanOpenDuringUpdate(args) || args.Contains("--quit") || args.Contains("--save-clip"))
         {
             Shutdown(0); // nothing running to talk to
             return;
         }
+
+        if (!renderTest || !AppProfile.UsesDefaultDataRoot) Log.StartDevelopmentDiagnostics(Dispatcher);
 
         var missing = new List<string>();
         if (!Deps.HasLibMpv) missing.Add("libmpv-2.dll (video preview)");
@@ -131,15 +140,18 @@ public partial class App : Application
             Dispatcher.BeginInvoke(async () =>
             {
                 try { await window.RenderPagesAsync(render["--render=".Length..], file); }
-                catch (Exception ex) { Log.Write("render failed: " + ex); }
+                catch (Exception ex) { Log.Essential(DiagnosticCategory.General, "render failed", ex); }
                 Quit();
             }, DispatcherPriority.ApplicationIdle);
             return;
         }
 #endif
         if (!AppSettings.SaveDisabled) AppSettings.Current.ApplyReplayStartupPreference();
+        _ = Task.Run(Media.MediaStaging.Recover);
         Host = new AppHost();
         Host.OpenRequested += () => ShowMain();
+        Host.CanRefresh = () => _main is { IsVisible: true, CanRefreshVisiblePage: true };
+        Host.RefreshRequested += () => _main?.RefreshVisiblePage();
         Host.UpdateRequested += () =>
         {
             ShowMain();
@@ -179,6 +191,7 @@ public partial class App : Application
     /// <summary>Arguments from a later launch: a file to edit, or a command for the running QuickClip.</summary>
     private void HandleArgs(string[] args)
     {
+        if (_quittingForUpdate) return;
         if (AppProfile.IsPersonal && args.Contains(Shell.Startup.WindowsStartupArgument)) return;
         if (AppProfile.IsPersonal && args.Contains("--reset-theme", StringComparer.OrdinalIgnoreCase))
         {
@@ -307,19 +320,40 @@ public partial class App : Application
             _quitting = false; // the user kept the window open
             return false;
         }
+        using var quit = Log.Begin(DiagnosticCategory.General, "Application quit");
+        ClipSharing.IgnorePendingClipboardCopies();
+        await Media.MediaJobs.Current.StopAsync();
         await Recorder.Instance.StopAsync();
         Host?.Dispose();
         AppSettings.Current.Save();
         ShellClipboard.KeepAfterExit();
-        Log.Flush();
-        beforeExit?.Invoke();
+        try { beforeExit?.Invoke(); }
+        catch (Exception ex) when (_quittingForUpdate)
+        {
+            Log.Write("Could not hand off the approved update: " + ex.Message);
+            MessageBox.Show("The update could not start. Open QuickClip to continue using the current version.\n\n" + ex.Message,
+                "QuickClip Personal update", MessageBoxButton.OK, MessageBoxImage.Error);
+        }
+        quit?.Complete();
+        quit?.Dispose();
+        await Log.StopDevelopmentDiagnosticsAsync();
         Shutdown(0);
         return true;
     }
 
+    protected override void OnExit(ExitEventArgs e)
+    {
+        AppDomain.CurrentDomain.UnhandledException -= OnFatalException;
+        Log.Shutdown();
+        base.OnExit(e);
+    }
+
+    private static void OnFatalException(object sender, UnhandledExceptionEventArgs e) =>
+        Log.Essential(DiagnosticCategory.General, "Unhandled process exception", e.ExceptionObject as Exception, crash: true);
+
     private void OnUnhandledException(object sender, DispatcherUnhandledExceptionEventArgs e)
     {
-        Log.Write("Unhandled: " + e.Exception);
+        Log.Essential(DiagnosticCategory.General, "Unhandled dispatcher exception", e.Exception, crash: true);
         Views.ModalDialog.Show(_main, e.Exception.Message, "QuickClip – unexpected error", MessageBoxButton.OK, MessageBoxImage.Error);
         e.Handled = true;
     }

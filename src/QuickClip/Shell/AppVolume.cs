@@ -34,7 +34,8 @@ internal static class AppVolume
         }
         catch (Exception ex)
         {
-            Forget("Reading the app volume failed: " + ex.Message);
+            Log.Failure(DiagnosticCategory.Audio, "Reading the app volume failed", ex);
+            Forget();
             return null;
         }
     }
@@ -48,7 +49,8 @@ internal static class AppVolume
         }
         catch (Exception ex)
         {
-            Forget("Setting the app volume failed: " + ex.Message);
+            Log.Failure(DiagnosticCategory.Audio, "Setting the app volume failed", ex);
+            Forget();
         }
     }
 
@@ -61,7 +63,8 @@ internal static class AppVolume
         }
         catch (Exception ex)
         {
-            Forget("Muting the app failed: " + ex.Message);
+            Log.Failure(DiagnosticCategory.Audio, "Muting the app failed", ex);
+            Forget();
         }
     }
 
@@ -71,11 +74,12 @@ internal static class AppVolume
         try
         {
             using var device = DefaultDevice();
-            if (_disconnected || device?.Id != _deviceId) Forget(null);
+            if (_disconnected || device?.Id != _deviceId) Forget();
         }
         catch (Exception ex)
         {
-            Forget("Checking the output device failed: " + ex.Message);
+            Log.Failure(DiagnosticCategory.Audio, "Checking the output device failed", ex);
+            Forget();
         }
     }
 
@@ -92,7 +96,7 @@ internal static class AppVolume
         }
         catch (Exception ex)
         {
-            Log.Write("Opening the app's audio session failed: " + ex.Message);
+            Log.Failure(DiagnosticCategory.Audio, "Opening the app's audio session failed", ex);
             return null;
         }
     }
@@ -111,9 +115,8 @@ internal static class AppVolume
         return (device.Id, control, volume);
     }
 
-    private static void Forget(string? why)
+    private static void Forget()
     {
-        if (why != null) Log.Write(why);
         try
         {
             if (_control != null && _events != null) _control.UnregisterAudioSessionNotification(_events);

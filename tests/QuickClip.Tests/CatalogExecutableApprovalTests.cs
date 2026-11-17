@@ -1,6 +1,4 @@
 using QuickClip.Discovery;
-using QuickClip.Recording;
-using QuickClip.Views;
 
 namespace QuickClip.Tests;
 
@@ -14,36 +12,19 @@ public sealed class CatalogExecutableApprovalTests
     private const string Helper = Install + @"\chrome.exe";
 
     [Fact]
-    public void Discovered_steam_entry_can_approve_a_selected_rendererless_executable()
+    public void Saved_exact_executable_approvals_still_apply_to_verified_paths()
     {
-        var entry = Entry();
-        var row = new GamesSettingsView.GameRow(entry);
-
-        var rules = Assert.IsType<CatalogRules>(row.RulesAfterApproval([Selected]));
-        Assert.Equal(Selected, Assert.Single(rules.ApprovedExecutables));
-        var catalog = Index(entry with { Rules = rules });
+        var entry = Entry() with { Rules = new() { ApprovedExecutables = [Selected] } };
+        var catalog = Index(entry);
         Assert.Equal(CatalogMatchKind.Game, catalog.Match(Selected, true).Kind);
         Assert.Equal(CatalogMatchKind.Candidate, catalog.Match(Sibling, true).Kind);
-        Assert.Null(row.RulesAfterApproval([Launcher]));
-        Assert.Null(row.RulesAfterApproval([Helper]));
-        Assert.Null(row.RulesAfterApproval([Selected, Helper]));
-    }
-
-    [Fact]
-    public void Approval_rejects_blocked_offline_ambiguous_and_disabled_entries()
-    {
-        var entry = Entry();
-        var row = new GamesSettingsView.GameRow(entry);
-        row.Update(entry, false, [Selected], Index(entry, blocked: [Selected]));
-        Assert.Null(row.RulesAfterApproval([Selected]));
-        row.Update(entry, true, [], Index(entry));
-        Assert.Null(row.RulesAfterApproval([Selected]));
-        var duplicate = entry with { Id = "steam:duplicate" };
-        row.Update(entry, false, [], new(new([entry, duplicate], [], 0, false, default)));
-        Assert.Null(row.RulesAfterApproval([Selected]));
-        var disabled = entry with { Rules = new(Inclusion: CatalogInclusion.Exclude) };
-        row.Update(disabled, false, [], Index(disabled));
-        Assert.Null(row.RulesAfterApproval([Selected]));
+        Assert.Equal(CatalogMatchKind.Launcher, catalog.Match(Launcher, true).Kind);
+        Assert.Equal(CatalogMatchKind.Ignored, Index(entry, [Selected]).Match(Selected, true).Kind);
+        Assert.Equal(CatalogMatchKind.Inactive, Index(entry with { UnverifiedExecutables = [Selected] }).Match(Selected, true).Kind);
+        Assert.Equal(CatalogMatchKind.Ignored, Index(entry with
+        {
+            Rules = entry.Rules with { Inclusion = CatalogInclusion.Exclude },
+        }).Match(Selected, true).Kind);
     }
 
     [Theory]

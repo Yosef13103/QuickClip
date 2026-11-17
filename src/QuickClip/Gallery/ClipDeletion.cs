@@ -1,4 +1,5 @@
 using QuickClip.Shell;
+using QuickClip.Media;
 
 namespace QuickClip.Gallery;
 
@@ -28,37 +29,59 @@ internal sealed class ClipDeletion
         {
             var batch = paths.Select(Path.GetFullPath).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
             if (batch.Count == 0 || !confirm(batch)) return new(0, 0, true);
-            Releasing?.Invoke(batch);
-            release?.Invoke();
-            var receipts = new List<RecycledFile>();
-            var result = await RunOnStaAsync(() =>
+            var ownership = new Dictionary<string, IDisposable>(StringComparer.OrdinalIgnoreCase);
+            foreach (string path in batch)
             {
-                int deleted = 0, failed = 0;
-                foreach (string path in batch)
+                if (ClipLibrary.IsMomentsPath(path) || !File.Exists(path)) continue;
+                try
                 {
-                    DateTime since = DateTime.UtcNow.AddSeconds(-1);
-                    bool sent = false;
-                    if (!ClipLibrary.IsMomentsPath(path) && File.Exists(path))
-                    {
-                        for (int attempt = 0; attempt < 6; attempt++)
-                        {
-                            if (sent = _recycle(path)) break;
-                            if (attempt < 5) Thread.Sleep(150);
-                        }
-                    }
-                    if (sent)
-                    {
-                        deleted++;
-                        try { if (_find(path, since) is { } receipt) receipts.Add(receipt); }
-                        catch (Exception ex) { Log.Write("Recycle Bin undo receipt unavailable: " + ex.GetType().Name); }
-                    }
-                    else failed++;
-                    progress?.Report(deleted + failed);
+                    if (MediaOwnership.Current.TryMutate(path) is { } lease) ownership.Add(path, lease);
                 }
-                return new Result(deleted, failed);
-            });
-            if (result.Deleted > 0) { _undo.Clear(); _undo.AddRange(receipts); }
-            return result;
+                catch (IOException) { }
+                catch (UnauthorizedAccessException) { }
+                catch (ExportException) { }
+            }
+            try
+            {
+                if (ownership.Count > 0)
+                {
+                    Releasing?.Invoke(ownership.Keys.ToArray());
+                    release?.Invoke();
+                }
+                var receipts = new List<RecycledFile>();
+                var result = await RunOnStaAsync(() =>
+                {
+                    int deleted = 0, failed = 0;
+                    foreach (string path in batch)
+                    {
+                        DateTime since = DateTime.UtcNow.AddSeconds(-1);
+                        bool sent = false;
+                        if (ownership.ContainsKey(path) && File.Exists(path))
+                        {
+                            for (int attempt = 0; attempt < 6; attempt++)
+                            {
+                                if (sent = _recycle(path)) break;
+                                if (attempt < 5) Thread.Sleep(150);
+                            }
+                        }
+                        if (sent)
+                        {
+                            deleted++;
+                            try { if (_find(path, since) is { } receipt) receipts.Add(receipt); }
+                            catch (Exception ex) { Log.Failure(DiagnosticCategory.Library, "Recycle Bin undo receipt unavailable", ex); }
+                        }
+                        else failed++;
+                        progress?.Report(deleted + failed);
+                    }
+                    return new Result(deleted, failed);
+                });
+                if (result.Deleted > 0) { _undo.Clear(); _undo.AddRange(receipts); }
+                return result;
+            }
+            finally
+            {
+                foreach (var lease in ownership.Values) lease.Dispose();
+            }
         }
         finally { Busy = false; Changed?.Invoke(); }
     }
@@ -76,8 +99,15 @@ internal sealed class ClipDeletion
                 foreach (var receipt in receipts)
                 {
                     if (Path.Exists(receipt.OriginalPath) || ClipLibrary.IsMomentsPath(receipt.OriginalPath)) continue;
-                    try { _restore(receipt, receipt.OriginalPath); successes.Add(receipt); }
+                    try
+                    {
+                        using var ownership = MediaOwnership.Current.TryMutate(receipt.OriginalPath);
+                        if (ownership == null || Path.Exists(receipt.OriginalPath)) continue;
+                        _restore(receipt, receipt.OriginalPath);
+                        successes.Add(receipt);
+                    }
                     catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
+                    catch (ExportException) { }
                 }
                 return successes;
             });

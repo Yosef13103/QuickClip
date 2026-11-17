@@ -115,19 +115,24 @@ public partial class SettingsView
         SoundVolumeSlider.Value = Math.Clamp(settings.ClipSoundVolume, 0, 100);
         var options = (settings.ClipOverlay ?? new()).Migrate().Normalize();
         WindowsClipNotificationCheck.Visibility = Visibility.Collapsed;
-        ClipNotificationsCheck.IsChecked = settings.ClipNotificationsEnabled && (settings.ClipWindowsNotification || options.Enabled || options.WantsImage);
+        ClipNotificationsCheck.IsChecked = settings.ClipNotificationsEnabled;
         SetChoices(ClipNotificationModeCombo,
             [new("Windows notification", ClipNotificationMode.Windows), new("QuickClip overlay", ClipNotificationMode.Overlay),
              new("Windows and QuickClip overlay", ClipNotificationMode.Both)],
             options.Enabled ? settings.ClipWindowsNotification ? ClipNotificationMode.Both : ClipNotificationMode.Overlay : ClipNotificationMode.Windows);
         var events = settings.ClipEvents ?? new();
         ReplayEnabledNotice.IsChecked = events.ReplayEnabled;
+        GameStartedNotice.IsChecked = events.GameStarted;
+        GameIndicatorCheck.IsChecked = RecordingIndicator.IsEnabled(settings);
+        MicrophoneIndicatorCheck.IsChecked = settings.ShowRecordingMicrophoneIndicator;
+        SetChoices(GameIndicatorAnchorCombo, Enum.GetValues<OverlayAnchor>().Where(a => a != OverlayAnchor.Center).Select(a => new Choice(AnchorLabels[(int)a], a)), settings.GameRecordingIndicatorAnchor);
         ClipSavedNotice.IsChecked = events.Saved;
         DesktopStartedNotice.IsChecked = events.DesktopStarted;
         DesktopStoppedNotice.IsChecked = events.DesktopStopped;
         SaveFailedNotice.IsChecked = events.Failed;
         IdleSaveNotificationCheck.IsChecked = settings.ShowInactiveSaveNotifications;
         ImageOnlyCheck.IsChecked = options.WantsImage;
+        ShowSavedBannerInCaptureCheck.IsChecked = !options.HideSavedBannerFromCapture;
         DetailedSavedCheck.IsChecked = options.Style == OverlayStyle.Detailed;
         OverlayShowResolution.IsChecked = options.ShowResolution;
         OverlayShowFps.IsChecked = options.ShowFps;
@@ -140,7 +145,6 @@ public partial class SettingsView
         SetChoices(OverlayImageFitCombo,
             [new("Fit whole image", OverlayImageFit.Contain),
              new("Fill area (crop edges)", OverlayImageFit.Cover)], options.ImageFit);
-        UpdateFeedbackVisibility();
         var displays = new List<Choice> { new("Main display", "") };
         displays.AddRange(ClipNotificationOverlay.Displays().Select(d => new Choice(d.Label, d.Device)));
         if (!string.IsNullOrWhiteSpace(options.Display) && !displays.Any(d => Equals(d.Value, options.Display)))
@@ -167,6 +171,7 @@ public partial class SettingsView
         ImageOverlaySizeError.Text = "";
         OverlayImageError.Text = "";
         OverlayImageError.Visibility = Visibility.Collapsed;
+        UpdateFeedbackVisibility();
     }
 
     private static Choice[] OverlayAnimationChoices(OverlayAnchor anchor)
@@ -217,14 +222,22 @@ public partial class SettingsView
         if (ClipNotificationModeCombo.SelectedItem is not Choice { Value: ClipNotificationMode mode }) return;
         settings.ClipNotificationsEnabled = ClipNotificationsCheck.IsChecked == true;
         settings.ClipEvents = new(ReplayEnabledNotice.IsChecked == true, ClipSavedNotice.IsChecked == true,
-            DesktopStartedNotice.IsChecked == true, DesktopStoppedNotice.IsChecked == true, SaveFailedNotice.IsChecked == true);
+            DesktopStartedNotice.IsChecked == true, DesktopStoppedNotice.IsChecked == true, SaveFailedNotice.IsChecked == true,
+            GameStartedNotice.IsChecked == true);
+        if (ReferenceEquals(sender, GameIndicatorCheck))
+        {
+            settings.ShowGameRecordingIndicator = GameIndicatorCheck.IsChecked == true;
+            settings.AllowRecordingIconsInCapture = settings.ShowGameRecordingIndicator;
+        }
+        settings.ShowRecordingMicrophoneIndicator = MicrophoneIndicatorCheck.IsChecked == true;
+        settings.GameRecordingIndicatorAnchor = Value(GameIndicatorAnchorCombo, settings.GameRecordingIndicatorAnchor);
         settings.ShowInactiveSaveNotifications = IdleSaveNotificationCheck.IsChecked == true;
         settings.ClipWindowsNotification = mode is ClipNotificationMode.Windows or ClipNotificationMode.Both;
         var old = (settings.ClipOverlay ?? new()).Migrate();
         bool imageOnly = ImageOnlyCheck.IsChecked == true;
         if (imageOnly && string.IsNullOrWhiteSpace(old.ImagePath) && !ClipOverlayImage.HasDefault)
         {
-            OverlayImageError.Text = "Choose a local image or animation. Until then, an enabled banner or Windows notification is used.";
+            OverlayImageError.Text = "Choose a local image or animation. Other enabled notifications remain independent.";
             OverlayImageError.Visibility = Visibility.Visible;
         }
         else if (OverlayImageError.Text.StartsWith("Choose a local image", StringComparison.Ordinal))
@@ -247,6 +260,8 @@ public partial class SettingsView
             Enabled = mode is ClipNotificationMode.Overlay or ClipNotificationMode.Both,
             Style = DetailedSavedCheck.IsChecked == true ? OverlayStyle.Detailed : OverlayStyle.Compact,
             ImageOnly = imageOnly,
+            HideSavedBannerFromCapture = ShowSavedBannerInCaptureCheck.IsChecked != true,
+            HideImageFromCapture = false,
             ImageFit = Value(OverlayImageFitCombo, old.ImageFit),
             ShowResolution = OverlayShowResolution.IsChecked == true,
             ShowFps = OverlayShowFps.IsChecked == true,
@@ -273,10 +288,13 @@ public partial class SettingsView
         };
         UpdateFeedbackVisibility();
         settings.Save();
+        App.Host?.RefreshRecordingIndicator();
+        GameIndicatorStatus.Text = App.Host?.RecordingIndicatorStatus ?? "Recording icons are unavailable.";
     }
 
     private void UpdateFeedbackVisibility()
     {
+        GameIndicatorAnchorCombo.IsEnabled = MicrophoneIndicatorCheck.IsEnabled = GameIndicatorCheck.IsChecked == true;
         bool enabled = ClipNotificationsCheck.IsChecked == true;
         ClipNotificationModeCombo.IsEnabled = ClipEventsPanel.IsEnabled = enabled;
         bool banners = enabled && ClipNotificationModeCombo.SelectedItem is Choice
@@ -284,10 +302,16 @@ public partial class SettingsView
         bool image = enabled && ImageOnlyCheck.IsChecked == true;
         if (!banners && !image) App.Host?.HideClipOverlay();
         ClipOverlayOptions.Visibility = enabled ? Visibility.Visible : Visibility.Collapsed;
-        BannerAppearancePanel.Visibility = banners ? Visibility.Visible : Visibility.Collapsed;
-        ImageAppearancePanel.Visibility = image ? Visibility.Visible : Visibility.Collapsed;
-        SavedBannerPanel.Visibility = banners && !image ? Visibility.Visible : Visibility.Collapsed;
-        OverlayDetailsPanel.Visibility = banners && !image ? Visibility.Visible : Visibility.Collapsed;
+        BannerAppearancePanel.Visibility = banners && !IsBasicExperience ? Visibility.Visible : Visibility.Collapsed;
+        ImageAppearancePanel.Visibility = image && !IsBasicExperience ? Visibility.Visible : Visibility.Collapsed;
+        bool savedBanner = banners && ClipSavedNotice.IsChecked == true;
+        ShowSavedBannerInCaptureCheck.IsEnabled = savedBanner;
+        var options = (AppSettings.Current.ClipOverlay ?? new()).Migrate();
+        bool overlap = savedBanner && ShowSavedBannerInCaptureCheck.IsChecked == true && image && QuickClip.Shell.ClipOverlayOptions.SamePlacement(
+            options.Banner(), options.Image(), ClipNotificationOverlay.Displays());
+        OverlayOverlapWarning.Visibility = overlap ? Visibility.Visible : Visibility.Collapsed;
+        SavedBannerPanel.Visibility = savedBanner ? Visibility.Visible : Visibility.Collapsed;
+        OverlayDetailsPanel.Visibility = savedBanner && !IsBasicExperience ? Visibility.Visible : Visibility.Collapsed;
     }
 
     private async void ChooseOverlayImage_Click(object sender, RoutedEventArgs e)
@@ -315,7 +339,7 @@ public partial class SettingsView
                     QuickClip.Shell.ClipOverlayOptions.MinSeconds, QuickClip.Shell.ClipOverlayOptions.MaxSeconds)
                     .ToString("0.##", CultureInfo.CurrentCulture);
             SaveOverlayImage(dialog.FileName);
-            App.Host?.TestClipOverlay();
+            App.Host?.TestClipOverlay(image: true);
         }
         finally { button.IsEnabled = true; }
     }
@@ -329,7 +353,7 @@ public partial class SettingsView
         try { LoadClipFeedback(settings); }
         finally { _loading = wasLoading; }
         settings.Save();
-        App.Host?.TestClipOverlay();
+        App.Host?.TestClipOverlay(image: true);
     }
 
     private void SaveOverlayImage(string? path)
@@ -354,7 +378,11 @@ public partial class SettingsView
     {
         var settings = AppSettings.Current;
         var old = (settings.ClipOverlay ?? new()).Migrate();
-        settings.ClipOverlay = new() { Enabled = old.Enabled, ImageOnly = old.WantsImage, ImagePath = old.ImagePath, ImageAppearance = new() };
+        settings.ClipOverlay = new()
+        {
+            Enabled = old.Enabled, ImageOnly = old.WantsImage, ImagePath = old.ImagePath, ImageAppearance = new(),
+            HideSavedBannerFromCapture = old.HideSavedBannerFromCapture, HideImageFromCapture = false,
+        };
         settings.Save();
         bool wasLoading = _loading;
         _loading = true;
@@ -364,5 +392,10 @@ public partial class SettingsView
     }
 
     private void TestClipOverlay_Click(object sender, RoutedEventArgs e) => App.Host?.TestClipOverlay();
+    private void TestClipImage_Click(object sender, RoutedEventArgs e) => App.Host?.TestClipOverlay(image: true);
+    private void TestSavedBanner_Click(object sender, RoutedEventArgs e) => App.Host?.TestClipOverlay(savedBanner: true);
+    private void PreviewRecordingIndicator_Click(object sender, RoutedEventArgs e) =>
+        GameIndicatorStatus.Text = App.Host?.PreviewRecordingIndicator() ?? "Recording icons are unavailable.";
+
     private void TestCompactBanner_Click(object sender, RoutedEventArgs e) => App.Host?.TestClipOverlay(banner: true);
 }

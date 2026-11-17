@@ -76,13 +76,14 @@ internal static class Updater
             string json = await GetReleasesJsonAsync(cts.Token);
             Available = AppProfile.IsPersonal ? PickPersonalUpdate(json, AppVersion.Current) : PickUpdate(json, AppVersion.Current, Channel == Nightly);
             LastError = null;
-            Log.Write(Available != null ? $"Update available: {Available.Version}" : "No update available");
+            if (Available != null) Log.Event(DiagnosticCategory.Updater, "Stable update available");
+            else Log.Event(DiagnosticCategory.Updater, "No update available");
         }
         catch (Exception ex)
         {
             Available = null;
             LastError = ex is OperationCanceledException or HttpRequestException ? "couldn't reach GitHub" : ex.Message;
-            Log.Write("Update check failed: " + ex.Message);
+            Log.Failure(DiagnosticCategory.Updater, "Update check failed", ex);
         }
         finally
         {
@@ -187,40 +188,46 @@ internal static class Updater
         return best;
     }
 
-    // Personal deliberately downloads a verified package for explicit manual installation.
-    // Do not run the inherited silent installer or non-atomic portable file swap.
     internal static async Task<string> DownloadPersonalAsync(ReleaseInfo release, IProgress<double> progress, CancellationToken ct)
     {
         EnsureEnabled();
         if (!AppProfile.IsPersonal || !TryPersonalVersion(release.Tag, out var version) ||
             version != release.Version || !(version > AppVersion.Current))
             throw new InvalidOperationException("Invalid Personal update.");
-        bool installed = IsInstalledCopy;
+        bool installed = IsPersonalInstalledCopy;
         string name = $"QuickClip-Personal-{version}" + (installed ? "-setup.exe" : "-win-x64.zip");
         var asset = installed ? release.Setup : release.Portable;
         if (asset == null || asset.Url != $"https://github.com/{PersonalRepository}/releases/download/{release.Tag}/{name}" ||
             asset.Size <= 0 || asset.Size > 2L * 1024 * 1024 * 1024 ||
             asset.Sha256?.Length != 64 || !asset.Sha256.All(Uri.IsHexDigit))
             throw new InvalidOperationException("No verified Personal package is available. Open the release page instead.");
-        string work = Path.Combine(AppProfile.TempDirectory, "updates", Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(work);
-        string partial = Path.Combine(work, name + ".part");
-        string complete = Path.Combine(work, name);
+        string work = PersonalInstaller.CreateStagingDirectory();
+        return await StagePersonalDownloadAsync(Http, asset, Path.Combine(work, name), progress, ct);
+    }
+
+    internal static async Task<string> StagePersonalDownloadAsync(HttpClient client, ReleaseAsset asset, string complete,
+        IProgress<double> progress, CancellationToken ct)
+    {
+        string partial = complete + ".part";
         try
         {
-            await DownloadAsync(asset, partial, progress, ct, requireExactSize: true);
+            await DownloadAsync(asset, partial, progress, ct, requireExactSize: true, client);
             File.Move(partial, complete);
             return complete;
         }
         catch
         {
-            try { File.Delete(partial); } catch (IOException) { }
+            try { File.Delete(partial); }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
             throw;
         }
     }
 
     internal static bool CanDownloadPersonal(ReleaseInfo release) => IsEnabled && AppProfile.IsPersonal &&
-        (IsInstalledCopy ? release.Setup : release.Portable) is { Sha256.Length: 64 };
+        (IsPersonalInstalledCopy ? release.Setup : release.Portable) is { Sha256.Length: 64 };
+
+    internal static bool IsPersonalInstalledCopy => AppProfile.IsPersonal &&
+        Shell.Startup.MatchesInstallation(Environment.ProcessPath, Shell.Startup.ReadPersonalExecutable());
 
     /// <summary>This copy was installed with the setup (rather than unzipped), so updates run the new setup.</summary>
     public static bool IsInstalledCopy => File.Exists(Path.Combine(AppContext.BaseDirectory, "unins000.exe"));
@@ -291,15 +298,19 @@ internal static class Updater
         if (!IsEnabled) throw new InvalidOperationException("Updates are disabled in this development or isolated profile.");
     }
 
-    private static async Task DownloadAsync(ReleaseAsset asset, string path, IProgress<double> progress, CancellationToken ct, bool requireExactSize = false)
+    private static async Task DownloadAsync(ReleaseAsset asset, string path, IProgress<double> progress, CancellationToken ct,
+        bool requireExactSize = false, HttpClient? client = null)
     {
-        using (var response = await Http.GetAsync(asset.Url, HttpCompletionOption.ResponseHeadersRead, ct))
+        if (requireExactSize && asset.Sha256 is not { Length: 64 })
+            throw new InvalidOperationException("The Personal package has no valid SHA-256 digest.");
+        using (var response = await (client ?? Http).GetAsync(asset.Url, HttpCompletionOption.ResponseHeadersRead, ct))
         {
             response.EnsureSuccessStatusCode();
             long total = response.Content.Headers.ContentLength ?? asset.Size;
             if (requireExactSize && total != asset.Size) throw new InvalidOperationException("Unexpected package size.");
             await using var input = await response.Content.ReadAsStreamAsync(ct);
-            await using var output = File.Create(path);
+            await using var output = new FileStream(path, requireExactSize ? FileMode.CreateNew : FileMode.Create,
+                FileAccess.Write, FileShare.None);
             var buffer = new byte[1 << 16];
             long done = 0;
             int read;

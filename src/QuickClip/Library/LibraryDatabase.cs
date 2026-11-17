@@ -4,9 +4,11 @@ namespace QuickClip.Library;
 
 internal sealed class LibraryDatabase
 {
-    internal const int SchemaVersion = 2;
+    internal const int SchemaVersion = 3;
     private const int ApplicationId = 0x51434C49; // QCLI
     private readonly string _connectionString;
+    private readonly object _initializationGate = new();
+    private bool _openedOnce;
 
     public LibraryDatabase(string path)
     {
@@ -22,6 +24,19 @@ internal sealed class LibraryDatabase
     public string PathName { get; }
 
     public SqliteConnection Open()
+    {
+        if (Volatile.Read(ref _openedOnce)) return OpenCore();
+        // SQLite starts in rollback-journal mode. Concurrent initialization and
+        // WAL negotiation can contend before either caller gets its transaction.
+        lock (_initializationGate)
+        {
+            var connection = OpenCore();
+            Volatile.Write(ref _openedOnce, true);
+            return connection;
+        }
+    }
+
+    private SqliteConnection OpenCore()
     {
         Directory.CreateDirectory(Path.GetDirectoryName(PathName)!);
         var connection = new SqliteConnection(_connectionString);
@@ -72,6 +87,12 @@ internal sealed class LibraryDatabase
             {
                 Execute(connection, transaction, AnnotationSchema);
                 Execute(connection, transaction, "PRAGMA user_version=2;");
+                version = 2;
+            }
+            if (version == 2)
+            {
+                Execute(connection, transaction, DraftSchema);
+                Execute(connection, transaction, "PRAGMA user_version=3;");
             }
             transaction.Commit();
         }
@@ -116,6 +137,14 @@ internal sealed class LibraryDatabase
         using var command = Command(connection, transaction, sql, parameters);
         return command.ExecuteScalar();
     }
+
+    private const string DraftSchema = """
+        CREATE TABLE edit_drafts (
+            file_id TEXT NOT NULL, created_ticks INTEGER NOT NULL, modified_ticks INTEGER NOT NULL,
+            bytes INTEGER NOT NULL, version INTEGER NOT NULL, start REAL NOT NULL, end REAL NOT NULL, payload TEXT NOT NULL,
+            PRIMARY KEY (created_ticks, modified_ticks, bytes, file_id)
+        ) WITHOUT ROWID;
+        """;
 
     internal const string BaseSchema = """
         CREATE TABLE roots (

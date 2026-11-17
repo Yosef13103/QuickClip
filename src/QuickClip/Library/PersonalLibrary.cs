@@ -12,32 +12,50 @@ internal sealed class PersonalLibrary : IClipAnnotationActions, ILibraryInventor
     private readonly Lazy<LibraryIndex> _index = new(LibraryIndex.ForCurrentProfile);
 
     internal async Task<(List<ClipItem> Clips, LibraryScanResult Scan)> LoadAsync(
-        string root, string[] exclusions, string[]? scopes, CancellationToken token)
+        string root, string[] exclusions, string[]? scopes, CancellationToken token,
+        Action<string, double?>? progress = null)
     {
         var index = _index.Value;
+        progress?.Invoke("Waiting for library index", null);
         await _scanGate.WaitAsync(token);
         Guid id;
         LibraryScanResult scan;
         try
         {
             id = await index.RegisterRootAsync(root, exclusions: exclusions, cancellationToken: token, updateExclusions: true);
-            scan = await index.ReconcileAsync(id, new(RelativeDirectory: scopes is { Length: > 0 } ? scopes[0] : null), token);
+            progress?.Invoke("Indexing Gallery", null);
+            Action<int, int>? report = progress == null ? null : (visited, indexed) =>
+                progress($"Indexing · {indexed:N0} clips found, {visited:N0} entries checked", null);
+            scan = await index.ReconcileAsync(id, new(RelativeDirectory: scopes is { Length: > 0 } ? scopes[0] : null), token, report);
             if (scopes != null)
                 foreach (string scope in scopes.Skip(1))
                 {
-                    var next = await index.ReconcileAsync(id, new(RelativeDirectory: scope), token);
+                    var next = await index.ReconcileAsync(id, new(RelativeDirectory: scope), token, report);
                     if (!next.Complete) scan = next;
                 }
         }
         finally { _scanGate.Release(); }
 
-        var rows = await index.ReadGalleryAsync(id, null, token);
-        var clips = await Task.Run(() =>
+        progress?.Invoke("Reading indexed clips", null);
+        var clips = await ReadIndexedClipsAsync(token, id, progress);
+        return (clips, scan);
+    }
+
+    internal async Task<List<ClipItem>> ReadIndexedClipsAsync(CancellationToken token, Guid? id = null,
+        Action<string, double?>? progress = null, IReadOnlyList<string>? folders = null)
+    {
+        var rows = await _index.Value.ReadGalleryAsync(id, null, token);
+        return await Task.Run(() =>
         {
             var items = new List<ClipItem>(rows.Count);
+            int checkedRows = 0;
             foreach (var row in rows)
             {
                 token.ThrowIfCancellationRequested();
+                if (progress != null && (++checkedRows % 128 == 0 || checkedRows == rows.Count))
+                    progress($"Loading clips · {checkedRows:N0}/{rows.Count:N0}", (double)checkedRows / rows.Count);
+                if (ClipLibrary.IsMomentsPath(row.Path) ||
+                    (folders != null && !folders.Any(folder => LibraryFiles.Within(row.Path, folder)))) continue;
                 var file = new FileInfo(row.Path);
                 try
                 {
@@ -48,27 +66,38 @@ internal sealed class PersonalLibrary : IClipAnnotationActions, ILibraryInventor
             }
             return items;
         }, token);
-        return (clips, scan);
     }
 
-    internal async Task<ClipDetails?> ReadAsync(string path)
+    internal async Task<ClipDetails?> ReadAsync(string path, CancellationToken token = default)
     {
         if (!Enabled || !WithinConfiguredRoot(path)) return null;
         try
         {
-            var row = (await _index.Value.ReadGalleryAsync(null, path)).SingleOrDefault();
+            var row = (await _index.Value.ReadGalleryAsync(null, path, token)).SingleOrDefault();
             return await Task.Run(() =>
             {
-                var file = new FileInfo(path);
-                return row != null && file.Exists && ClipMediaStamp.Read(file) == row.Stamp ? row.Details : null;
-            });
+                if (row == null) return null;
+                using var file = LibraryFiles.OpenMedia(path);
+                var stamp = LibraryFiles.ReadStamp(file);
+                return stamp == new FileStamp(row.Stamp.Created.Ticks, row.Stamp.Modified.Ticks, row.Stamp.Length, row.Identity)
+                    ? row.Details : null;
+            }, token);
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            Log.Write("Could not read indexed clip details: " + ex.GetType().Name);
+            Log.Failure(DiagnosticCategory.Library, "Could not read indexed clip details", ex);
             return null;
         }
     }
+
+    internal Task<StoredClipDraft?> ReadEditDraftAsync(string path, FileStamp stamp) =>
+        _index.Value.ReadEditDraftAsync(path, stamp);
+
+    internal Task SaveEditDraftAsync(string path, FileStamp stamp, string? previous, ClipEditDraft? draft, CancellationToken token = default) =>
+        _index.Value.SaveEditDraftAsync(path, stamp, previous, draft, token);
+
+    internal Task<Dictionary<string, ClipDraftRange>> ReadDraftRangesAsync(IReadOnlyList<ClipItem> clips, CancellationToken token) =>
+        _index.Value.ReadDraftRangesAsync(clips, token);
 
     private static bool WithinConfiguredRoot(string path) => SavedRecordingFolders.ContainsMedia(AppSettings.Current, path);
 
@@ -76,18 +105,34 @@ internal sealed class PersonalLibrary : IClipAnnotationActions, ILibraryInventor
     {
         if (!Enabled || !WithinConfiguredRoot(target.Path))
             return await LegacyClipAnnotationActions.Instance.SaveDraftAsync(target, draft, token);
-        if (target.Details.IndexId == null)
-            return new(target.Path, null, "The clip is waiting to be indexed. Reopen it before saving details.");
         try
         {
-            await _index.Value.SaveGalleryDetailsAsync(target, draft, token);
-            var row = (await _index.Value.ReadGalleryAsync(null, target.Path, token)).SingleOrDefault();
-            return row != null ? new(target.Path, row.Details, null)
-                : new(target.Path, null, "Saved, but the media is no longer available.");
+            if (target.Details.IndexId == null)
+            {
+                // A freshly recorded clip can open while Gallery is still indexing it.
+                var indexed = await ReadAsync(target.Path, token);
+                if (indexed == null)
+                    return new(target.Path, null, "The clip is waiting to be indexed. Retry when Gallery has loaded it.");
+                var original = target.Details;
+                if (indexed.Title != original.Title || indexed.Game != original.Game ||
+                    indexed.IsFavorite != original.IsFavorite || !indexed.Tags.SequenceEqual(original.Tags) ||
+                    !indexed.Bookmarks.Select(mark => (mark.Seconds, mark.Label))
+                        .SequenceEqual(original.Bookmarks.Select(mark => (mark.Seconds, mark.Label))))
+                    return new(target.Path, null, "Clip details changed while it was being indexed. Revert and try again.");
+                target = target with { Details = indexed };
+                draft = draft with { Bookmarks = indexed.Bookmarks };
+            }
+            var revision = await _index.Value.SaveGalleryDetailsAsync(target, draft, token);
+            var row = (await _index.Value.ReadGalleryAsync(null, target.Path)).SingleOrDefault();
+            if (row == null || row.Details.IndexId != target.Details.IndexId)
+                return new(target.Path, null, "Saved, but the media is no longer available.");
+            if (row.Details.IndexRevision != revision)
+                return new(target.Path, null, "Saved, but clip details changed again. Revert to load the latest revision.");
+            return new(target.Path, row.Details, null);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            Log.Write("Could not save indexed clip details: " + ex.GetType().Name);
+            Log.Failure(DiagnosticCategory.Library, "Could not save indexed clip details", ex);
             return new(target.Path, null, ex is LibraryConflictException or ArgumentException ? ex.Message :
                 "Couldn’t save clip details to the index.");
         }

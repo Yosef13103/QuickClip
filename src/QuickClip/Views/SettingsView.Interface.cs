@@ -34,8 +34,10 @@ public partial class SettingsView
     private void SectionKeys(object sender, KeyEventArgs e)
     {
         if (e.OriginalSource is not RadioButton current || current.Parent != SettingsSections) return;
-        int index = SettingsSections.Children.IndexOf(current);
-        int last = SettingsSections.Children.Count - 1;
+        var visible = SettingsSections.Children.OfType<RadioButton>().Where(item => item.Visibility == Visibility.Visible).ToArray();
+        int index = Array.IndexOf(visible, current);
+        if (index < 0 || visible.Length == 0) return;
+        int last = visible.Length - 1;
         int next = e.Key switch
         {
             Key.Up or Key.Left => index == 0 ? last : index - 1,
@@ -45,7 +47,7 @@ public partial class SettingsView
             _ => -1,
         };
         if (next < 0) return;
-        var section = (RadioButton)SettingsSections.Children[next];
+        var section = visible[next];
         section.Focus();
         section.IsChecked = true;
         section.BringIntoView();

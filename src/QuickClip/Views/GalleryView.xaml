@@ -14,33 +14,36 @@
                 <Border x:Name="Card" Width="{Binding CardWidth, RelativeSource={RelativeSource AncestorType=views:GalleryView}}"
                         Margin="0,0,14,16" CornerRadius="8" Background="{DynamicResource CardBrush}"
                         Focusable="True" AutomationProperties.Name="{Binding Title}" KeyDown="Card_KeyDown"
+                        Tag="{Binding ElementName=RenameTitleBox}"
                         BorderThickness="1" BorderBrush="Transparent" Cursor="Hand"
                         MouseLeftButtonUp="Card_MouseLeftButtonUp" Loaded="Card_Loaded" DataContextChanged="Card_DataContextChanged"
                         PreviewMouseLeftButtonDown="Card_PreviewMouseLeftButtonDown" MouseMove="Card_MouseMove">
                     <Border.ContextMenu>
                         <ContextMenu Opened="ClipMenu_Opened" DataContext="{Binding PlacementTarget.DataContext, RelativeSource={RelativeSource Self}}">
-                            <MenuItem Header="Watch and edit" Click="OpenClip_Click" FontWeight="SemiBold" />
-                            <MenuItem Header="Share (copy to clipboard)" Click="ShareClip_Click" ToolTip="Share: makes a copy under the size limit in Settings (at most 60 fps, all audio mixed into one track) and copies it to the clipboard to paste anywhere. The original stays as it is." />
-                            <MenuItem Header="Open classic player" Click="PlayClip_Click" />
-                            <MenuItem Header="Edit title, game or tags…" Click="EditClipDetails_Click" Tag="details" />
-                            <MenuItem Header="Add to favorites" Click="FavoriteMenu_Click" Tag="favorite" />
+                            <MenuItem Header="Open in Editor" Click="OpenClip_Click" FontWeight="SemiBold" />
+                            <MenuItem Header="Watch in Player" Click="PlayClip_Click" />
+                            <MenuItem Header="Open with Windows default" Click="OpenWith_Click" Tag="external-player" />
+                            <MenuItem Header="Open with…" Tag="external-choices" />
                             <Separator />
-                            <!-- Filled in when the menu opens: every project, then New project -->
+                            <MenuItem Header="Share clip" Click="ShareClip_Click" />
+                            <MenuItem Header="Share with…" Tag="share-profiles" />
+                            <Separator />
+                            <MenuItem Header="Organize" Tag="organize">
+                                <MenuItem Header="Edit title, game or tags…" Click="EditClipDetails_Click" Tag="details" />
+                                <MenuItem Header="Add to favorites" Click="FavoriteMenu_Click" Tag="favorite" />
+                                <MenuItem Header="Copy to folder…" Tag="copy" Click="CopyClipsToFolder_Click" />
+                            </MenuItem>
                             <MenuItem Header="Add to project" Tag="projects">
                                 <MenuItem Header="New project…" />
                             </MenuItem>
-                            <MenuItem Header="Copy to folder…" Tag="copy" Click="CopyClipsToFolder_Click" />
-                            <Separator />
-                            <MenuItem Header="Open with default app" Click="OpenWith_Click" />
                             <MenuItem Header="Show in Explorer" Click="RevealClip_Click" />
-                            <Separator />
                             <MenuItem Header="Select" Click="SelectClip_Click" />
                             <Separator />
                             <MenuItem Header="Delete" Foreground="{DynamicResource DangerBrush}" Click="DeleteClip_Click" />
                         </ContextMenu>
                     </Border.ContextMenu>
                     <StackPanel>
-                        <Grid Height="{Binding PosterHeight, RelativeSource={RelativeSource AncestorType=views:GalleryView}}"
+                        <Grid x:Name="ClipPoster" Height="{Binding PosterHeight, RelativeSource={RelativeSource AncestorType=views:GalleryView}}"
                               ClipToBounds="True" MouseEnter="Poster_MouseEnter" MouseLeave="Poster_MouseLeave"
                               Unloaded="Poster_MouseLeave" SizeChanged="Poster_SizeChanged">
                             <Border CornerRadius="7,7,0,0" Background="{DynamicResource SurfaceBrush}" />
@@ -59,8 +62,29 @@
                                 <CheckBox IsChecked="{Binding IsSelected}" MinHeight="0" ToolTip="Select (Ctrl+click a clip also selects it)" />
                             </Border>
                         </Grid>
-                        <DockPanel Margin="11,8,11,10">
-                            <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Top" Margin="8,0,0,0">
+                        <Grid Margin="11,8,11,10">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                            </Grid.RowDefinitions>
+                            <Grid VerticalAlignment="Center" Margin="0,0,8,0">
+                                <TextBlock x:Name="DisplayTitle" Text="{Binding Title}" FontWeight="SemiBold"
+                                           VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
+                                <TextBox Style="{StaticResource RenameTextBox}" x:Name="RenameTitleBox" Visibility="Collapsed" MaxLength="256"
+                                         VerticalAlignment="Center" AutomationProperties.Name="Clip display title" PreviewKeyDown="RenameTitle_KeyDown"
+                                         LostKeyboardFocus="RenameTitle_LostKeyboardFocus" DataContextChanged="RenameTitle_DataContextChanged" />
+                            </Grid>
+                            <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                                <Button x:Name="RenameTitleButton" Content="&#xE8AC;" Click="RenameTitle_Click"
+                                        Style="{StaticResource IconButton}" Tag="{Binding ElementName=RenameTitleBox}"
+                                        VerticalAlignment="Center" Visibility="Collapsed" ToolTip="Rename clip (F2)" AutomationProperties.Name="Rename clip" />
+                                <Button x:Name="CancelRenameButton" Content="&#xE711;" Style="{StaticResource IconButton}" Visibility="Collapsed"
+                                        VerticalAlignment="Center" Focusable="False" Tag="{Binding ElementName=RenameTitleBox}"
+                                        Click="CancelRename_Click" ToolTip="Cancel rename (Esc)" AutomationProperties.Name="Cancel rename" />
                                 <Button Tag="{Binding IsFavorite}" Style="{StaticResource FavoriteButtonStyle}"
                                         Click="FavoriteCard_Click" VerticalAlignment="Center"
                                         Visibility="{Binding PersonalAnnotations, RelativeSource={RelativeSource AncestorType=views:GalleryView}, Converter={StaticResource ShowIf}}" />
@@ -68,12 +92,11 @@
                                         Focusable="True" VerticalAlignment="Center" AutomationProperties.Name="Share clip"
                                         ToolTip="Share clip · copy to clipboard" />
                                 <Button Content="⋯" Style="{StaticResource TextButton}" Padding="5,2" Width="30" FontSize="{DynamicResource QuickClipText15}"
-                                        Tag="{Binding ElementName=Card}" Click="ClipOverflow_Click"
+                                        VerticalAlignment="Center" Tag="{Binding ElementName=Card}" Click="ClipOverflow_Click"
                                         AutomationProperties.Name="Clip actions" ToolTip="Clip actions" />
                             </StackPanel>
-                            <StackPanel>
-                                <TextBlock Text="{Binding Title}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
-                                <TextBlock Text="{Binding Folder}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
+                            <StackPanel Grid.Row="1" Grid.ColumnSpan="2" Margin="0,4,0,0">
+                                <TextBlock Text="{Binding Folder}" FontSize="{DynamicResource QuickClipText12}" Foreground="{DynamicResource SubtleText}" TextTrimming="CharacterEllipsis" />
                                 <TextBlock Text="{Binding TagText}" ToolTip="{Binding TagText}" FontSize="{DynamicResource QuickClipText12}"
                                            Foreground="{DynamicResource SubtleText}" TextTrimming="CharacterEllipsis">
                                     <TextBlock.Style>
@@ -87,18 +110,31 @@
                                     </TextBlock.Style>
                                 </TextBlock>
                                 <TextBlock Margin="0,2,0,0" FontSize="{DynamicResource QuickClipText12}" Foreground="{DynamicResource SubtleText}"
-                                           TextTrimming="CharacterEllipsis" ToolTip="{Binding Created, StringFormat=F}">
+                                           TextTrimming="CharacterEllipsis" ToolTip="{Binding DateTooltip}">
                                     <Run Text="{Binding Created, Mode=OneWay, StringFormat=t}" /><Run Text="  ·  " />
                                     <Run Text="{Binding Ago, Mode=OneWay}" /><Run Text="  ·  " /><Run Text="{Binding SizeText, Mode=OneWay}" />
                                 </TextBlock>
                             </StackPanel>
-                        </DockPanel>
+                        </Grid>
                     </StackPanel>
                 </Border>
                 <DataTemplate.Triggers>
                     <Trigger SourceName="Card" Property="IsMouseOver" Value="True">
                         <Setter TargetName="Card" Property="BorderBrush" Value="{DynamicResource AccentFillColorDefaultBrush}" />
                         <Setter TargetName="PickBox" Property="Visibility" Value="Visible" />
+                    </Trigger>
+                    <MultiDataTrigger>
+                        <MultiDataTrigger.Conditions>
+                            <Condition Binding="{Binding IsMouseOver, ElementName=Card}" Value="True" />
+                            <Condition Binding="{Binding Visibility, ElementName=RenameTitleBox}" Value="Collapsed" />
+                            <Condition Binding="{Binding PersonalAnnotations, RelativeSource={RelativeSource AncestorType=views:GalleryView}}" Value="True" />
+                        </MultiDataTrigger.Conditions>
+                        <Setter TargetName="RenameTitleButton" Property="Visibility" Value="Visible" />
+                    </MultiDataTrigger>
+                    <Trigger SourceName="RenameTitleBox" Property="Visibility" Value="Visible">
+                        <Setter TargetName="RenameTitleButton" Property="Visibility" Value="Collapsed" />
+                        <Setter TargetName="CancelRenameButton" Property="Visibility" Value="Visible" />
+                        <Setter TargetName="DisplayTitle" Property="Visibility" Value="Hidden" />
                     </Trigger>
                     <!-- While anything is selected every clip shows its checkbox, and clicking a clip ticks it -->
                     <DataTrigger Binding="{Binding HasSelection, RelativeSource={RelativeSource AncestorType=views:GalleryView}}" Value="True">

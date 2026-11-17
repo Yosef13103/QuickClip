@@ -11,6 +11,56 @@ internal sealed record GameCatalogSettings
     public ImmutableArray<string> OfflineIds { get; init; } = [];
     public int? DiscoveredCount { get; init; }
     public ImmutableArray<string> RetainedIds { get; init; } = [];
+    public bool DiscoverGog { get; init; }
+    public bool? DiscoverSteam { get; init; }
+    public bool? DiscoverEpic { get; init; }
+    public ImmutableArray<CatalogSource> EnabledLaunchers { get; init; } = [];
+    public ImmutableArray<string> DisabledSourceKeys { get; init; } = [];
+    public ImmutableArray<CatalogSourceClaim>? SourceClaims { get; init; }
+    public ImmutableArray<CatalogEntry> LegacyEntries { get; init; } = [];
+    public ImmutableArray<CatalogInstallAlias> InstallAliases { get; init; } = [];
+    [System.Text.Json.Serialization.JsonIgnore]
+    internal CatalogSourceClaim? ScanPreview { get; init; }
+}
+
+internal sealed class GameCatalogIndexCache
+{
+    private GameCatalogSettings? _settings;
+    private GameCatalogIndex? _index;
+
+    public GameCatalogIndex Get(GameCatalogSettings state)
+    {
+        if (ReferenceEquals(state, _settings)) return _index!;
+        if (_settings != null && HasSameCaptureInputs(_settings, state))
+        {
+            _settings = state;
+            return _index!;
+        }
+
+        var verified = state.ScanPreview;
+        var input = CatalogClaims.Start(state) with
+        {
+            ScanPreview = verified is { VerifiedInstalls.IsEmpty: false }
+                ? verified with { Result = verified.Result with { Entries = [] } } : null,
+        };
+        var rows = CatalogClaims.Rows(input);
+        var index = new GameCatalogIndex(new(rows, [], 0, false, default), CatalogClaims.BlockedExecutables(input));
+        _settings = state;
+        return _index = index;
+    }
+
+    private static bool HasSameCaptureInputs(GameCatalogSettings prior, GameCatalogSettings current) =>
+        prior.Request == current.Request && prior.AutoScan == current.AutoScan &&
+        prior.DiscoverSteam == current.DiscoverSteam && prior.DiscoverEpic == current.DiscoverEpic &&
+        prior.DiscoverGog == current.DiscoverGog && prior.EnabledLaunchers == current.EnabledLaunchers &&
+        prior.DisabledSourceKeys == current.DisabledSourceKeys && prior.BlockedExecutables == current.BlockedExecutables &&
+        prior.SourceClaims == current.SourceClaims && prior.LegacyEntries == current.LegacyEntries &&
+        prior.InstallAliases == current.InstallAliases &&
+        (current.SourceClaims != null || ReferenceEquals(prior.Snapshot, current.Snapshot)) &&
+        PreviewEvidence(prior.ScanPreview) == PreviewEvidence(current.ScanPreview);
+
+    private static (CatalogScope?, string?, ImmutableArray<CatalogEntry>) PreviewEvidence(CatalogSourceClaim? preview) =>
+        preview is { VerifiedInstalls.IsEmpty: false } ? (preview.Scope, preview.Signature, preview.VerifiedInstalls) : default;
 }
 
 internal static class GameCatalogRuntime
@@ -33,8 +83,7 @@ internal static class GameCatalogRuntime
         });
 
     private static readonly object Gate = new();
-    private static GameCatalogSettings? _settings;
-    private static GameCatalogIndex? _index;
+    private static readonly GameCatalogIndexCache Index = new();
 
     public static CatalogMatch Match(string path, bool foreground)
     {
@@ -46,21 +95,13 @@ internal static class GameCatalogRuntime
             return new(CatalogMatchKind.Ignored);
         lock (Gate)
         {
-            if (!ReferenceEquals(settings, _settings))
-            {
-                var rows = Rows(settings);
-                _index = new(new(rows, [], 0, false, default), settings.BlockedExecutables);
-                _settings = settings;
-            }
-            var match = _index!.Match(path, foreground);
-            return match.Entry is { } entry && settings.OfflineIds.Contains(entry.Id)
-                && match.Kind is CatalogMatchKind.Game or CatalogMatchKind.Candidate
-                ? match with { Kind = CatalogMatchKind.Inactive } : match;
+            return Index.Get(settings).Match(path, foreground);
         }
     }
 
     public static ImmutableArray<CatalogEntry> Rows(GameCatalogSettings settings)
     {
+        if (settings.SourceClaims is not null) return CatalogClaims.Rows(settings);
         var rules = new Dictionary<string, CatalogRules>(StringComparer.Ordinal);
         foreach (var entry in settings.Request.Overrides) rules[entry.Id] = entry.Rules;
         var folderRoots = settings.Request.GameRoots.Select(root => CatalogPaths.LocalPath(root.Path)).OfType<string>().ToArray();

@@ -2,6 +2,9 @@ namespace QuickClip.Discovery;
 
 internal static class CatalogPaths
 {
+    internal static string FolderId(string path) => "folder:" + Convert.ToHexString(
+        System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(path.ToUpperInvariant())));
+
     // Accept ordinary drive paths only. Device namespaces, UNC and drive-relative paths
     // have different normalization and traversal behavior.
     public static string? LocalPath(string? path)
@@ -35,14 +38,26 @@ internal static class CatalogPaths
     }
 
     public static bool IsWithin(string path, string directory) =>
-        path.Equals(directory, StringComparison.OrdinalIgnoreCase) ||
-        path.StartsWith(Path.EndsInDirectorySeparator(directory) ? directory : directory + Path.DirectorySeparatorChar,
-            StringComparison.OrdinalIgnoreCase);
+        path.StartsWith(directory, StringComparison.OrdinalIgnoreCase) &&
+        (path.Length == directory.Length || Path.EndsInDirectorySeparator(directory) ||
+            path[directory.Length] == Path.DirectorySeparatorChar);
 
     public static bool IsExecutable(string path) => Path.GetExtension(path).Equals(".exe", StringComparison.OrdinalIgnoreCase);
 
+    private static readonly string WindowsDirectory = Environment.GetFolderPath(Environment.SpecialFolder.Windows);
+
+    internal const string MinecraftRuntimeRelative = @"runtime\java-runtime-epsilon\windows-x64\java-runtime-epsilon\bin\javaw.exe";
+    internal const string MinecraftLauncherFolder = "Minecraft Launcher";
+
+    internal static bool IsMinecraftBundledRuntime(string path) =>
+        path.EndsWith("\\" + MinecraftLauncherFolder + "\\" + MinecraftRuntimeRelative, StringComparison.OrdinalIgnoreCase);
+
+    public static bool IsJavaRuntime(string path) => Path.GetFileNameWithoutExtension(path) is { } name &&
+        (name.Equals("java", StringComparison.OrdinalIgnoreCase) || name.Equals("javaw", StringComparison.OrdinalIgnoreCase));
+
     public static CatalogMatchKind DefaultRole(string path)
     {
+        if (WindowsDirectory.Length > 0 && IsWithin(path, WindowsDirectory)) return CatalogMatchKind.Application;
         if (IsDiscordUpdater(path)) return CatalogMatchKind.Ignored;
         if (IsDiscordProcess(path)) return CatalogMatchKind.Companion;
         string name = Path.GetFileNameWithoutExtension(path).ToUpperInvariant();
@@ -50,10 +65,13 @@ internal static class CatalogPaths
         if (name is "STEAM" or "STEAMWEBHELPER" or "EPICGAMESLAUNCHER" or "LAUNCHER" or "GAMELAUNCHER"
             or "BATTLE.NET" or "RIOTCLIENTSERVICES" or "EADESKTOP" or "EALAUNCHER" or "GALAXYCLIENT"
             or "UBISOFTCONNECT" or "ROCKSTAR GAMES LAUNCHER" or "BOOTSTRAPPACKAGEDGAME" or "START_PROTECTED_GAME"
+            or "MCPLACEHOLDERSTUB"
             || name.EndsWith("LAUNCHER", StringComparison.Ordinal))
             return CatalogMatchKind.Launcher;
         if (name is "7ZA" or "SETUP" or "INSTALL" or "INSTALLER" or "UPDATE" or "UPDATER"
             or "7Z" or "7ZR" or "UNRAR" or "DXSETUP" or "PREREQUISITES" or "WERFAULT"
+            or "JAVAC" or "DOTNET" or "PYTHON" or "PYTHONW" or "NODE"
+            or "RUNDLL32" or "REGSVR32" or "WSCRIPT" or "CSCRIPT" or "MSIEXEC" or "MODTOOL"
             or "CRASHPAD_HANDLER" or "UNITYCRASHHANDLER32" or "UNITYCRASHHANDLER64" or "CRASHREPORTCLIENT"
             || name.EndsWith("HELPER", StringComparison.Ordinal)
             || name.EndsWith("CRASHHANDLER", StringComparison.Ordinal)

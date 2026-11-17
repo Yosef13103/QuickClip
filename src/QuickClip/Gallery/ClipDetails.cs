@@ -78,13 +78,13 @@ internal static class ClipDetailsStore
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException)
         {
-            Log.Write("Could not read saved clip details: " + ex.Message);
+            Log.Failure(DiagnosticCategory.Library, "Could not read saved clip details", ex);
         }
         DateTime fallback = file.CreationTimeUtc <= file.LastWriteTimeUtc ? file.CreationTimeUtc : file.LastWriteTimeUtc;
         return new ClipDetails((embedded ?? new DateTimeOffset(fallback)).ToLocalTime(), game);
     }
 
-    public static void Write(string mediaPath, ClipDetails details)
+    public static void Write(string mediaPath, ClipDetails details, CancellationToken token = default)
     {
         var file = new FileInfo(mediaPath);
         string path = MetadataPath(file);
@@ -93,6 +93,7 @@ internal static class ClipDetailsStore
         try
         {
             File.WriteAllText(staged, JsonSerializer.Serialize(new Entry(file.CreationTimeUtc.Ticks, file.LastWriteTimeUtc.Ticks, file.Length, details.Normalize())));
+            token.ThrowIfCancellationRequested();
             File.Move(staged, path, overwrite: true);
         }
         finally
@@ -106,7 +107,7 @@ internal static class ClipDetailsStore
         try { Write(path, details); }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            Log.Write("Could not save clip details: " + ex.Message);
+            Log.Failure(DiagnosticCategory.Library, "Could not save clip details", ex);
         }
     }
 }

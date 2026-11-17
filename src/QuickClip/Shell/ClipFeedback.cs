@@ -7,13 +7,13 @@ internal enum OverlayAnchor { TopLeft, TopCenter, TopRight, MiddleLeft, Center, 
 internal enum OverlayAnimation { Ripple, Fade, Slide, None, Grow, SoftPop, Lift }
 internal enum OverlayStyle { Compact, Badge, Detailed, ImageOnly }
 internal enum OverlayImageFit { Contain, Cover }
-internal enum ClipEvent { ReplayEnabled, Saved, DesktopStarted, DesktopStopped, Failed, Inactive }
+internal enum ClipEvent { ReplayEnabled, Saved, DesktopStarted, DesktopStopped, Failed, Inactive, GameStarted }
 internal sealed record ClipEventOptions(bool ReplayEnabled = true, bool Saved = true, bool DesktopStarted = true,
-    bool DesktopStopped = true, bool Failed = true)
+    bool DesktopStopped = true, bool Failed = true, bool GameStarted = true)
 {
     internal bool Allows(ClipEvent kind, bool inactive) => kind switch
     {
-        ClipEvent.ReplayEnabled => ReplayEnabled, ClipEvent.Saved => Saved, ClipEvent.DesktopStarted => DesktopStarted,
+        ClipEvent.ReplayEnabled => ReplayEnabled, ClipEvent.GameStarted => GameStarted, ClipEvent.Saved => Saved, ClipEvent.DesktopStarted => DesktopStarted,
         ClipEvent.DesktopStopped => DesktopStopped, ClipEvent.Failed => Failed, ClipEvent.Inactive => inactive, _ => false,
     };
 }
@@ -39,6 +39,8 @@ internal sealed record ClipOverlayOptions
     public bool ShowFps { get; init; } = true;
     public bool ShowHotkey { get; init; }
     public bool ImageOnly { get; init; }
+    public bool HideSavedBannerFromCapture { get; init; }
+    public bool HideImageFromCapture { get; init; }
     public ClipImageAppearance? ImageAppearance { get; init; }
     internal bool WantsImage => ImageOnly || Style == OverlayStyle.ImageOnly;
     public OverlayImageFit ImageFit { get; init; } = OverlayImageFit.Contain;
@@ -122,10 +124,29 @@ internal sealed record ClipOverlayOptions
     internal ClipOverlayOptions? ForEvent(ClipEvent kind)
     {
         var options = Migrate();
-        if (kind == ClipEvent.Saved && options.WantsImage && (!string.IsNullOrWhiteSpace(options.ImagePath) || ClipOverlayImage.HasDefault))
-            return options.Image();
-        if (!options.Enabled) return null;
-        return options.Banner(kind == ClipEvent.Saved && !options.WantsImage && options.Style == OverlayStyle.Detailed);
+        // Preserve the legacy preference as a hold on the saved banner until the
+        // user allows it to appear in recordings.
+        if (!options.Enabled || (kind == ClipEvent.Saved && options.HideSavedBannerFromCapture)) return null;
+        return options.Banner(kind == ClipEvent.Saved && options.Style == OverlayStyle.Detailed);
+    }
+
+    internal static bool SamePlacement(ClipOverlayOptions banner, ClipOverlayOptions image,
+        IReadOnlyList<ClipNotificationOverlay.Display> displays)
+    {
+        if (banner.Anchor != image.Anchor) return false;
+        var first = ClipNotificationOverlay.SelectDisplay(displays, banner.Display);
+        var second = ClipNotificationOverlay.SelectDisplay(displays, image.Display);
+        return first != null && second != null &&
+            StringComparer.OrdinalIgnoreCase.Equals(first.Device, second.Device);
+    }
+
+    // ImageOnly is a legacy serialized name; it now enables the independent image channel.
+    internal ClipOverlayOptions? ImageForEvent(ClipEvent kind)
+    {
+        var options = Migrate();
+        return kind == ClipEvent.Saved && options.WantsImage &&
+            (!string.IsNullOrWhiteSpace(options.ImagePath) || ClipOverlayImage.HasDefault)
+            ? options.Image() : null;
     }
 
     internal static Point Place(Rect display, double size, double margin, OverlayAnchor anchor)
@@ -157,6 +178,9 @@ internal sealed record ClipNotificationDetails(string? Game, string? Title, stri
 
 internal sealed record ClipFeedback(bool Success, bool Sound, bool Windows, bool Overlay, string Title, string Message)
 {
+    internal ClipOverlayOptions? BannerOverlay { get; init; }
+    internal ClipOverlayOptions? ImageOverlay { get; init; }
+
     internal static ClipFeedback From(AppSettings settings, bool success, string message) =>
         From(settings, success ? ClipEvent.Saved : ClipEvent.Failed, message);
 
@@ -164,19 +188,23 @@ internal sealed record ClipFeedback(bool Success, bool Sound, bool Windows, bool
     {
         bool allowed = !AppProfile.IsPersonal ||
             (settings.ClipEvents ?? new()).Allows(kind, settings.ShowInactiveSaveNotifications);
-        bool visuals = allowed && (!AppProfile.IsPersonal || settings.ClipNotificationsEnabled);
+        bool visualMaster = !AppProfile.IsPersonal || settings.ClipNotificationsEnabled;
+        bool status = allowed && visualMaster;
+        var banner = AppProfile.IsPersonal && status ? settings.ClipOverlay?.ForEvent(kind) : null;
+        var image = AppProfile.IsPersonal && visualMaster ? settings.ClipOverlay?.ImageForEvent(kind) : null;
         return new(kind is not (ClipEvent.Failed or ClipEvent.Inactive),
-            allowed && kind == ClipEvent.Saved && settings.ClipSound,
-            visuals && settings.ClipWindowsNotification,
-            AppProfile.IsPersonal && visuals && settings.ClipOverlay?.ForEvent(kind) != null,
+            kind == ClipEvent.Saved && settings.ClipSound,
+            status && settings.ClipWindowsNotification,
+            banner != null || image != null,
             kind switch
             {
                 ClipEvent.ReplayEnabled => "Instant replay enabled",
+                ClipEvent.GameStarted => "Game recording started",
                 ClipEvent.DesktopStarted => "Desktop recording started",
                 ClipEvent.DesktopStopped => "Desktop recording stopped",
                 ClipEvent.Saved => "Clip saved",
                 ClipEvent.Inactive => "No active recording",
                 _ => "Clip not saved",
-            }, message);
+            }, message) { BannerOverlay = banner, ImageOverlay = image };
     }
 }
