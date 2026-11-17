@@ -500,6 +500,7 @@ public partial class EditorView : UserControl
 
         Video.CursorQuery = (x, y) => _media?.Video == null ? VideoHost.IDC_ARROW : _crop.CursorAt(x, y);
         Video.VideoMouseDown += OnVideoMouseDown;
+        Video.VideoContextRequested += () => Dispatcher.BeginInvoke(new Action(OpenVideoContext));
         _fullscreenControlsTimer = new DispatcherTimer(TimeSpan.FromSeconds(2.5), DispatcherPriority.Background, (_, _) =>
         {
             if (_fullscreenOverlay?.Child is UIElement controls &&
@@ -542,6 +543,7 @@ public partial class EditorView : UserControl
             else if (IsVisible && _media != null) UpdateUiState();
             if (!IsVisible)
             {
+                if (_videoContext is { } menu) menu.IsOpen = false;
                 HideFullscreenOverlay();
                 _player?.SetProperty("pause", true);
             }
@@ -1849,6 +1851,7 @@ public partial class EditorView : UserControl
         ResetEditsButton.IsEnabled = _media != null && !busy && !_resettingDraft;
         Transport.IsEnabled = TracksArea.IsEnabled = Inspector.IsEnabled = SourceReady;
         PlayButton.IsEnabled = SourceReady && _previewReady;
+        ExternalPlayerButton.IsEnabled = _media != null && !busy;
         bool videoOut = (container.HasVideo || container.IsGif) && (hasVideo || _media == null);
 
         static Visibility Show(bool show) => show ? Visibility.Visible : Visibility.Collapsed;

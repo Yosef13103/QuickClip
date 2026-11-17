@@ -33,7 +33,8 @@
                             </MenuItem>
                             <MenuItem Header="Copy to folder…" Tag="copy" Click="CopyClipsToFolder_Click" />
                             <Separator />
-                            <MenuItem Header="Open with default app" Click="OpenWith_Click" />
+                            <MenuItem Header="Open in external player" Click="OpenWith_Click" Tag="external-player" />
+                            <MenuItem Header="Open with…" Tag="external-choices" />
                             <MenuItem Header="Show in Explorer" Click="RevealClip_Click" />
                             <Separator />
                             <MenuItem Header="Select" Click="SelectClip_Click" />
@@ -61,11 +62,29 @@
                                 <CheckBox IsChecked="{Binding IsSelected}" MinHeight="0" ToolTip="Select (Ctrl+click a clip also selects it)" />
                             </Border>
                         </Grid>
-                        <DockPanel Margin="11,8,11,10">
-                            <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Top" Margin="8,0,0,0">
+                        <Grid Margin="11,8,11,10">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                            </Grid.RowDefinitions>
+                            <Grid VerticalAlignment="Center" Margin="0,0,8,0">
+                                <TextBlock x:Name="DisplayTitle" Text="{Binding Title}" FontWeight="SemiBold"
+                                           VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
+                                <TextBox Style="{StaticResource RenameTextBox}" x:Name="RenameTitleBox" Visibility="Collapsed" MaxLength="256"
+                                         VerticalAlignment="Center" AutomationProperties.Name="Clip display title" PreviewKeyDown="RenameTitle_KeyDown"
+                                         LostKeyboardFocus="RenameTitle_LostKeyboardFocus" DataContextChanged="RenameTitle_DataContextChanged" />
+                            </Grid>
+                            <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
                                 <Button x:Name="RenameTitleButton" Content="&#xE8AC;" Click="RenameTitle_Click"
                                         Style="{StaticResource IconButton}" Tag="{Binding ElementName=RenameTitleBox}"
-                                        Visibility="Collapsed" ToolTip="Rename clip (F2)" AutomationProperties.Name="Rename clip" />
+                                        VerticalAlignment="Center" Visibility="Collapsed" ToolTip="Rename clip (F2)" AutomationProperties.Name="Rename clip" />
+                                <Button x:Name="CancelRenameButton" Content="&#xE711;" Style="{StaticResource IconButton}" Visibility="Collapsed"
+                                        VerticalAlignment="Center" Focusable="False" Tag="{Binding ElementName=RenameTitleBox}"
+                                        Click="CancelRename_Click" ToolTip="Cancel rename (Esc)" AutomationProperties.Name="Cancel rename" />
                                 <Button Tag="{Binding IsFavorite}" Style="{StaticResource FavoriteButtonStyle}"
                                         Click="FavoriteCard_Click" VerticalAlignment="Center"
                                         Visibility="{Binding PersonalAnnotations, RelativeSource={RelativeSource AncestorType=views:GalleryView}, Converter={StaticResource ShowIf}}" />
@@ -73,19 +92,10 @@
                                         Focusable="True" VerticalAlignment="Center" AutomationProperties.Name="Share clip"
                                         ToolTip="Share clip · copy to clipboard" />
                                 <Button Content="⋯" Style="{StaticResource TextButton}" Padding="5,2" Width="30" FontSize="{DynamicResource QuickClipText15}"
-                                        Tag="{Binding ElementName=Card}" Click="ClipOverflow_Click"
+                                        VerticalAlignment="Center" Tag="{Binding ElementName=Card}" Click="ClipOverflow_Click"
                                         AutomationProperties.Name="Clip actions" ToolTip="Clip actions" />
                             </StackPanel>
-                            <StackPanel>
-                                <Grid>
-                                    <TextBlock x:Name="DisplayTitle" Text="{Binding Title}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
-                                    <DockPanel LastChildFill="True">
-                                    <Button x:Name="CancelRenameButton" DockPanel.Dock="Right" Content="&#xE711;" Style="{StaticResource IconButton}" Visibility="Collapsed" Focusable="False" Tag="{Binding ElementName=RenameTitleBox}" Click="CancelRename_Click" ToolTip="Cancel rename (Esc)" AutomationProperties.Name="Cancel rename" />
-                                    <TextBox Style="{StaticResource RenameTextBox}" x:Name="RenameTitleBox" Visibility="Collapsed" MaxLength="256"
-                                             AutomationProperties.Name="Clip display title" PreviewKeyDown="RenameTitle_KeyDown"
-                                             LostKeyboardFocus="RenameTitle_LostKeyboardFocus" DataContextChanged="RenameTitle_DataContextChanged" />
-                                    </DockPanel>
-                                </Grid>
+                            <StackPanel Grid.Row="1" Grid.ColumnSpan="2" Margin="0,4,0,0">
                                 <TextBlock Text="{Binding Folder}" FontSize="{DynamicResource QuickClipText12}" Foreground="{DynamicResource SubtleText}" TextTrimming="CharacterEllipsis" />
                                 <TextBlock Text="{Binding TagText}" ToolTip="{Binding TagText}" FontSize="{DynamicResource QuickClipText12}"
                                            Foreground="{DynamicResource SubtleText}" TextTrimming="CharacterEllipsis">
@@ -105,7 +115,7 @@
                                     <Run Text="{Binding Ago, Mode=OneWay}" /><Run Text="  ·  " /><Run Text="{Binding SizeText, Mode=OneWay}" />
                                 </TextBlock>
                             </StackPanel>
-                        </DockPanel>
+                        </Grid>
                     </StackPanel>
                 </Border>
                 <DataTemplate.Triggers>

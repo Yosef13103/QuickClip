@@ -112,6 +112,7 @@ internal sealed class AppSettings
     public string[] LibraryExclusions { get; set; } = [];
     public bool ConfirmClipDeletion { get; set; } = true;
     public bool ConfirmSaveOverOriginal { get; set; } = true;
+    public string? ExternalPlayerPath { get; set; }
 
     // Window behaviour
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]

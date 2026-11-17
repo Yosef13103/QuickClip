@@ -661,6 +661,15 @@
                             <Button Content="Reset scale" Click="ResetScale_Click" VerticalAlignment="Bottom" Margin="0,0,0,6" />
                         </WrapPanel>
                     </StackPanel>
+                    <TextBlock Text="External player" Style="{StaticResource FieldLabel}" />
+                    <DockPanel Margin="0,2,0,6">
+                        <Button DockPanel.Dock="Right" Content="Change…" Click="ExternalPlayer_Choose" Margin="8,0,0,0"
+                                AutomationProperties.Name="Change default external player" />
+                        <TextBlock x:Name="ExternalPlayerText" VerticalAlignment="Center" TextWrapping="Wrap"
+                                   AutomationProperties.Name="Current external player" />
+                    </DockPanel>
+                    <TextBlock Text="Used when opening a saved clip outside QuickClip. Windows file associations stay unchanged."
+                               Style="{StaticResource Hint}" />
                     <CheckBox Style="{StaticResource SwitchCheckBox}" x:Name="StartupCheck" Content="Start QuickClip with Windows" Margin="0,10,0,0"
                               Checked="Startup_Changed" Unchecked="Startup_Changed" />
                     <TextBlock x:Name="StartupHint" Style="{StaticResource Hint}" Margin="0,4,0,0" Visibility="Collapsed" />

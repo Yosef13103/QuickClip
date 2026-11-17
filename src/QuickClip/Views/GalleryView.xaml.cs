@@ -725,6 +725,13 @@ public partial class GalleryView : UserControl
         string clips = count == 1 ? "" : $" {count} selected clips";
         foreach (var entry in menu.Items.OfType<MenuItem>())
         {
+            if (entry.Tag is "external-player")
+                entry.Header = "Open in " + ExternalPlayer.Label(AppSettings.Current.ExternalPlayerPath);
+            if (entry.Tag is "external-choices")
+                ExternalPlayerDialogs.Populate(entry.Items, Window.GetWindow(this), player =>
+                {
+                    if (IsAvailable(item)) ExternalPlayerDialogs.Open(Window.GetWindow(this), item.Path, player);
+                });
             if (entry.Tag is "share-profiles")
                 SharingDialogs.Populate(entry.Items, Window.GetWindow(this), profile => _ = ClipSharing.ShareAsync(item.Path, profile));
             if (entry.Tag is "details" or "favorite") entry.Visibility = PersonalAnnotations ? Visibility.Visible : Visibility.Collapsed;
@@ -937,7 +944,8 @@ public partial class GalleryView : UserControl
 
     private void OpenWith_Click(object sender, RoutedEventArgs e)
     {
-        if (ItemOf(sender) is { } item) Process.Start(new ProcessStartInfo(item.Path) { UseShellExecute = true });
+        if (ItemOf(sender) is { } item && IsAvailable(item))
+            ExternalPlayerDialogs.Open(Window.GetWindow(this), item.Path, AppSettings.Current.ExternalPlayerPath);
     }
 
     private void RevealClip_Click(object sender, RoutedEventArgs e)

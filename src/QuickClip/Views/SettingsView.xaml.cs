@@ -301,6 +301,7 @@ public partial class SettingsView : UserControl
             SoundCheck.IsChecked = s.ClipSound;
             ConfirmDeleteCheck.IsChecked = s.ConfirmClipDeletion;
             ConfirmSaveOverCheck.IsChecked = s.ConfirmSaveOverOriginal;
+            ExternalPlayerText.Text = Shell.ExternalPlayer.Label(s.ExternalPlayerPath);
             MotionBlurCheck.IsChecked = s.ShareMotionBlur;
             ShowDefaultSharing();
             ParallelMediaJobs.IsChecked = s.MediaJobConcurrency == 2;
