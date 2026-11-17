@@ -60,7 +60,7 @@ if ($pin -notmatch '^[0-9a-f]{40}$') { throw 'A full candidate SHA is required.'
 $preview = 'E:\Stuff\Personal\Personal Projects\Codes\QuickClip-Wave2-Full'
 $profile = Join-Path $preview '.quickclip-local\owner-full-preview'
 $sdk = 'E:\Stuff\Personal\Personal Projects\Codes\QuickClip\.quickclip-local\dotnet'
-foreach ($file in (Join-Path $preview '.git'), (Join-Path $profile 'settings.json'), (Join-Path $sdk 'dotnet.exe')) {
+foreach ($file in (Join-Path $preview '.git'), (Join-Path $profile 'settings\settings.json'), (Join-Path $sdk 'dotnet.exe')) {
     if (!(Test-Path -LiteralPath $file)) { throw "Required preview file missing ($file)." }
 }
 $top = git -C $preview rev-parse --show-toplevel
