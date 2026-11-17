@@ -105,7 +105,13 @@ public partial class EditorView
             {
                 var plan = BuildExportPlan("", container, limit, overwrite);
                 _ = ExportBuilder.BuildArgs(plan);
-                double estimate = TargetSizeExport.Ceiling(plan, TargetSizeExport.MaximumMB) / (double)TargetSizeExport.BytesPerMB;
+                double estimate = plan.Media.Size * Math.Min(1, plan.Duration / plan.Media.Duration) / TargetSizeExport.BytesPerMB;
+                if (plan.Crop is { } crop && plan.Media.Video is { Width: > 0, Height: > 0 } video)
+                {
+                    double ratio = Math.Clamp(crop.W * (double)crop.H / (video.Width * (double)video.Height), 0, 1);
+                    double audio = Math.Clamp(plan.Media.Audio.Sum(a => a.BitRate > 0 ? a.BitRate : 160_000L) * plan.Media.Duration / (8d * plan.Media.Size), 0, 1);
+                    estimate *= audio + (1 - audio) * ratio;
+                }
                 summary.Text = capped ? $"Up to {plan.TargetSizeMB:0.##} MB" : $"Original quality · approx. {estimate:0.##} MB of source footage";
                 if (capped && plan.TargetSizeMB < estimate * .35)
                     warning.Text = "Large size reduction — video quality may be noticeably lower.";

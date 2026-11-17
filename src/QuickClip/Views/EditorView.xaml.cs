@@ -481,6 +481,8 @@ public partial class EditorView : UserControl
         Loaded += OnLoaded;
         IsVisibleChanged += async (_, _) =>
         {
+            if (IsVisible && AppProfile.IsPersonal && _settings.BasicSettings) EncodingExpander.Visibility = Visibility.Collapsed;
+            else if (IsVisible && _media != null) UpdateUiState();
             if (!IsVisible)
             {
                 HideFullscreenOverlay();
@@ -1797,7 +1799,7 @@ public partial class EditorView : UserControl
         CropExpander.Visibility = Show(videoOut);
         FpsExpander.Visibility = Show(videoOut);
         SmoothFpsHint.Visibility = Show(FpsCombo.Items.OfType<Choice>().Any(c => c.Value is SmoothFps));
-        EncodingExpander.Visibility = Show(!container.IsGif);
+        EncodingExpander.Visibility = Show(!container.IsGif && (!AppProfile.IsPersonal || !_settings.BasicSettings));
         VideoEncodingOptions.Visibility = Show(videoEncoding);
         EncoderCombo.IsEnabled = EncoderCombo.Items.Count > 1;
         TargetSizePanel.Visibility = Show(videoEncoding && (QualityCombo.SelectedItem as Choice)?.Value as string == "size");
@@ -1899,7 +1901,7 @@ public partial class EditorView : UserControl
 
         string resolution = !videoOut ? "" : request.MaxShortSide > 0 && v != null && Math.Min(v.Width, v.Height) > request.MaxShortSide
             ? $" · {size}" : " · original size";
-        OutputHeaderText.Text = $"{c.Extension.TrimStart('.').ToUpperInvariant()}{resolution} · {tracks}";
+        OutputHeaderText.Text = $"{c.Extension.TrimStart('.').ToUpperInvariant()}{resolution}{(videoOut ? " · " + FpsHeaderText.Text : "")}";
         RevertPanel.Visibility = OptionsChanged() ? Visibility.Visible : Visibility.Collapsed;
     }
 
@@ -2370,10 +2372,10 @@ public partial class EditorView : UserControl
 
     internal async Task<string> MeasureAccordionForRenderAsync()
     {
-        double OutputY() => OutputExpander.TranslatePoint(new Point(), Inspector).Y;
+        double OutputY() => CropExpander.TranslatePoint(new Point(), Inspector).Y;
         UpdateLayout();
         double closed = OutputY();
-        EncodingExpander.IsExpanded = true;
+        OutputExpander.IsExpanded = true;
         var samples = new List<double>();
         for (int i = 0; i < 12; i++)
         {
@@ -2382,13 +2384,13 @@ public partial class EditorView : UserControl
             samples.Add(OutputY());
         }
         double opened = samples[^1];
-        EncodingExpander.IsExpanded = false;
+        OutputExpander.IsExpanded = false;
         await Task.Delay(220);
         UpdateLayout();
         int intermediate = samples.Count(y => y > closed + 1 && y < opened - 1);
         if (opened <= closed || Math.Abs(OutputY() - closed) > 1)
-            throw new InvalidOperationException("The accordion did not move Output and restore its layout.");
-        return $"accordion Output Y {closed:0.0} -> {opened:0.0} -> {OutputY():0.0}, intermediate samples={intermediate}, system motion={SystemParameters.ClientAreaAnimation}";
+            throw new InvalidOperationException("The accordion did not move Crop and restore its layout.");
+        return $"accordion Crop Y {closed:0.0} -> {opened:0.0} -> {OutputY():0.0}, intermediate samples={intermediate}, system motion={SystemParameters.ClientAreaAnimation}";
     }
 
     internal string DebugState
@@ -2415,7 +2417,7 @@ public partial class EditorView : UserControl
     internal string EncodingForRender => $"{EncodingHeaderText.Text} | revert shown: {RevertPanel.Visibility == Visibility.Visible}";
     internal void ExpandOptionsForRender()
     {
-        foreach (var group in new[] { CropExpander, FpsExpander, EncodingExpander, OutputExpander }) group.IsExpanded = true;
+        foreach (var group in new[] { CropExpander, EncodingExpander, OutputExpander }) group.IsExpanded = true;
     }
     internal string FpsChoicesForRender => string.Join(", ", FpsCombo.Items.OfType<Choice>().Select(c => c.Label));
     internal string StatusForRender => StatusText.Text;

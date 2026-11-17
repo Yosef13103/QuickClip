@@ -63,7 +63,7 @@
                         </Grid>
                         <DockPanel Margin="11,8,11,10">
                             <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Top" Margin="8,0,0,0">
-                                <Button x:Name="RenameTitleButton" Content="&#xE70F;" Click="RenameTitle_Click"
+                                <Button x:Name="RenameTitleButton" Content="&#xE8AC;" Click="RenameTitle_Click"
                                         Style="{StaticResource IconButton}" Tag="{Binding ElementName=RenameTitleBox}"
                                         Visibility="Collapsed" ToolTip="Rename clip (F2)" AutomationProperties.Name="Rename clip" />
                                 <Button Tag="{Binding IsFavorite}" Style="{StaticResource FavoriteButtonStyle}"
@@ -113,11 +113,13 @@
                     <MultiDataTrigger>
                         <MultiDataTrigger.Conditions>
                             <Condition Binding="{Binding IsMouseOver, ElementName=Card}" Value="True" />
+                            <Condition Binding="{Binding Visibility, ElementName=RenameTitleBox}" Value="Collapsed" />
                             <Condition Binding="{Binding PersonalAnnotations, RelativeSource={RelativeSource AncestorType=views:GalleryView}}" Value="True" />
                         </MultiDataTrigger.Conditions>
                         <Setter TargetName="RenameTitleButton" Property="Visibility" Value="Visible" />
                     </MultiDataTrigger>
                     <Trigger SourceName="RenameTitleBox" Property="Visibility" Value="Visible">
+                        <Setter TargetName="RenameTitleButton" Property="Visibility" Value="Collapsed" />
                         <Setter TargetName="DisplayTitle" Property="Visibility" Value="Hidden" />
                     </Trigger>
                     <!-- While anything is selected every clip shows its checkbox, and clicking a clip ticks it -->
