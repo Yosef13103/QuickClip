@@ -147,6 +147,7 @@ public partial class App : Application
         }
 #endif
         if (!AppSettings.SaveDisabled) AppSettings.Current.ApplyReplayStartupPreference();
+        _ = Task.Run(Media.MediaStaging.Recover);
         Host = new AppHost();
         Host.OpenRequested += () => ShowMain();
         Host.CanRefresh = () => _main is { IsVisible: true, CanRefreshVisiblePage: true };
@@ -320,6 +321,8 @@ public partial class App : Application
             return false;
         }
         using var quit = Log.Begin(DiagnosticCategory.General, "Application quit");
+        ClipSharing.IgnorePendingClipboardCopies();
+        await Media.MediaJobs.Current.StopAsync();
         await Recorder.Instance.StopAsync();
         Host?.Dispose();
         AppSettings.Current.Save();

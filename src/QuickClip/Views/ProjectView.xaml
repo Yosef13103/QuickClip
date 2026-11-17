@@ -89,13 +89,6 @@
             </DockPanel>
         </Border>
 
-        <!-- Export progress -->
-        <DockPanel x:Name="ExportPanel" DockPanel.Dock="Top" Margin="0,0,0,12" Visibility="Collapsed">
-            <Button DockPanel.Dock="Right" Style="{StaticResource TextButton}" Content="Cancel" Margin="12,0,0,0" Click="CancelExport_Click" />
-            <TextBlock x:Name="ExportText" DockPanel.Dock="Right" Margin="12,0,0,0" VerticalAlignment="Center" Style="{StaticResource Hint}" />
-            <ProgressBar x:Name="ExportProgress" Maximum="1" Height="6" VerticalAlignment="Center" />
-        </DockPanel>
-
         <Grid>
             <!-- Clips in play order, and the preview -->
             <Grid x:Name="Workspace">

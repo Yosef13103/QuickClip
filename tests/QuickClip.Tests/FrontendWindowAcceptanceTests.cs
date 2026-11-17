@@ -150,6 +150,85 @@ public sealed class FrontendWindowAcceptanceTests(ITestOutputHelper output)
         Assert.False(overlay.IsVisible);
     });
 
+    [OptInFact("QUICKCLIP_TEST_SHARING_WINDOWS")]
+    public Task Sharing_profile_modal_adds_a_default_and_uses_the_persisted_limit() => OnDispatcher(async () =>
+    {
+        var profile = AppSettings.Current;
+        var oldProfiles = profile.ShareProfiles;
+        var oldDefault = profile.DefaultShareProfile;
+        double oldSize = profile.ShareSizeMB;
+        bool oldSaveDisabled = AppSettings.SaveDisabled;
+        var root = new Grid();
+        var window = new Window
+        {
+            Content = root, Width = 630, Height = 480, Left = -16000, Top = -16000,
+            ShowInTaskbar = false, ShowActivated = false, WindowStartupLocation = WindowStartupLocation.Manual,
+        };
+        new ThemeResources().Apply(window.Resources, ThemeChoice.Light, overrideFluent: false);
+        try
+        {
+            AppSettings.SaveDisabled = false;
+            window.Show();
+            await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
+            var timeout = new DispatcherTimer { Interval = TimeSpan.FromSeconds(8) };
+            timeout.Tick += (_, _) => { timeout.Stop(); window.Close(); };
+            timeout.Start();
+            Exception? interactionError = null;
+            var interaction = window.Dispatcher.InvokeAsync(() =>
+            {
+                var outer = Buttons(root);
+                var save = Assert.Single(outer, button => Equals(button.Content, "Save"));
+                var add = Assert.Single(outer, button => Equals(button.Content, "Add…"));
+                var edit = window.Dispatcher.InvokeAsync(() =>
+                {
+                    var inner = root.Children.OfType<Grid>().Last();
+                    try
+                    {
+                        var fields = Visuals(inner).OfType<TextBox>().ToArray();
+                        Assert.Equal(2, fields.Length);
+                        fields[0].Text = "Fixture destination";
+                        fields[1].Text = "64";
+                        Click(Assert.Single(Buttons(inner), button => Equals(button.Content, "Apply")));
+                    }
+                    catch (Exception ex)
+                    {
+                        interactionError = ex;
+                        Click(Assert.Single(Buttons(inner), button => Equals(button.Content, "Cancel")));
+                    }
+                }, DispatcherPriority.ApplicationIdle);
+                Click(add);
+                edit.Task.GetAwaiter().GetResult();
+                Click(Assert.Single(outer, button => Equals(button.Content, "Default")));
+                Click(save);
+            }, DispatcherPriority.ApplicationIdle);
+            SharingDialogs.Manage(window);
+            timeout.Stop();
+            await interaction.Task;
+            Assert.Null(interactionError);
+            var persisted = AppSettings.Parse(File.ReadAllText(AppSettings.FilePath));
+            Assert.Equal("Fixture destination", SharingProfiles.Default(persisted).Name);
+            Assert.Equal(64, persisted.ShareSizeMB);
+        }
+        finally
+        {
+            profile.ShareProfiles = oldProfiles;
+            profile.DefaultShareProfile = oldDefault;
+            profile.ShareSizeMB = oldSize;
+            profile.TrySave();
+            AppSettings.SaveDisabled = oldSaveDisabled;
+            window.Close();
+        }
+
+        static Button[] Buttons(DependencyObject root) => Visuals(root).OfType<Button>().ToArray();
+        static void Click(Button button) => button.RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent));
+        static IEnumerable<DependencyObject> Visuals(DependencyObject node)
+        {
+            yield return node;
+            for (int i = 0; i < VisualTreeHelper.GetChildrenCount(node); i++)
+                foreach (var child in Visuals(VisualTreeHelper.GetChild(node, i))) yield return child;
+        }
+    });
+
     [System.Runtime.InteropServices.DllImport("user32.dll", EntryPoint = "GetWindowLongW")]
     private static extern int GetWindowLong(IntPtr hwnd, int index);
 

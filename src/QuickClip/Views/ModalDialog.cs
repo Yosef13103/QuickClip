@@ -61,7 +61,7 @@ internal static class ModalDialog
     }
 
     internal static bool Run(Window owner, string title, FrameworkElement content, string accept, string? cancel,
-        bool safeDefault = false, bool destructive = false, IInputElement? initialFocus = null)
+        bool safeDefault = false, bool destructive = false, IInputElement? initialFocus = null, Button? dismissOnClick = null)
     {
         var host = (Panel)owner.Content;
         var overlay = new Grid { Background = new SolidColorBrush(Color.FromArgb(140, 0, 0, 0)) };
@@ -94,11 +94,12 @@ internal static class ModalDialog
         AutomationProperties.SetName(box, title);
         var body = new StackPanel();
         body.Children.Add(new TextBlock { Text = title, FontSize = 19, FontWeight = FontWeights.SemiBold, TextWrapping = TextWrapping.Wrap });
-        body.Children.Add(new ScrollViewer
+        var scroll = new ScrollViewer
         {
             Content = content, VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
             MaxHeight = Math.Max(70, box.MaxHeight - 120), Margin = new Thickness(0, 12, 0, 20),
-        });
+        };
+        body.Children.Add(scroll);
         var buttons = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right };
         var primary = new Button { Content = accept, MinWidth = 84, Padding = new Thickness(12, 6, 12, 6) };
         var secondary = new Button { Content = cancel ?? "", MinWidth = 84, Padding = new Thickness(12, 6, 12, 6), Margin = new Thickness(0, 0, 8, 0) };
@@ -114,8 +115,11 @@ internal static class ModalDialog
         bool accepted = false;
         primary.Click += (_, _) => { accepted = true; frame.Continue = false; };
         secondary.Click += (_, _) => frame.Continue = false;
+        RoutedEventHandler dismiss = (_, _) => frame.Continue = false;
+        if (dismissOnClick != null) dismissOnClick.Click += dismiss;
         void Keys(object sender, KeyEventArgs args)
         {
+            if (!overlay.IsKeyboardFocusWithin) return;
             if (args.Key == Key.Escape)
             {
                 frame.Continue = false;
@@ -148,6 +152,8 @@ internal static class ModalDialog
             owner.Closed -= close;
             owner.PreviewKeyDown -= Keys;
             host.Children.Remove(overlay);
+            scroll.Content = null;
+            if (dismissOnClick != null) dismissOnClick.Click -= dismiss;
             foreach (var native in airspace) native.SetCurrentValue(UIElement.VisibilityProperty, Visibility.Visible);
             if (priorFocus != null && owner.IsVisible) Keyboard.Focus(priorFocus);
         }

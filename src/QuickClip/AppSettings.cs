@@ -100,6 +100,11 @@ internal sealed class AppSettings
     public Shell.ClipOverlayOptions ClipOverlay { get; set; } = new();
     public bool EnableLibraryIndex { get; set; } = AppProfile.IsPersonal;
     public double ShareSizeMB { get; set; } = 30;                // shared copies are made to fit under this
+    [JsonConverter(typeof(SharingProfiles.ListConverter))]
+    public SharingProfile[]? ShareProfiles { get; set; }
+    [JsonConverter(typeof(SharingProfiles.IdConverter))]
+    public string? DefaultShareProfile { get; set; }
+    public int MediaJobConcurrency { get; set; } = 1;
     public bool ShareMotionBlur { get; set; } = true;             // sharing a 120 fps clip blends it into 60 fps motion blur
     public string ClipsFolder { get; set; } = AppProfile.ClipsDirectory;
     public string[] AdditionalClipSources { get; set; } = [];

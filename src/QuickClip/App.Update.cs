@@ -30,7 +30,7 @@ public partial class App
     }
 
     internal string? UpdateShutdownBlock =>
-        PersonalInstaller.ShutdownBlock(_main?.HasActiveEditorExport == true, _main?.HasActiveMontageExport == true,
+        PersonalInstaller.ShutdownBlock(_main?.HasActiveEditorExport == true || Media.MediaJobs.Current.Busy, false,
             _main?.IsSavingClip == true || BackgroundActivity.Snapshot(0).Any(a => a.Label == "Saving clip"));
 
     internal async Task<bool> QuitForPersonalUpdateAsync(PersonalInstaller.Handoff handoff)

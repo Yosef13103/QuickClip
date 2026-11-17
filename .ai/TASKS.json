@@ -838,6 +838,43 @@
       ],
       "blocker": null,
       "next_action": "Exercise F5 and the tray command during editing, recording and scanning."
+    },
+    {
+      "id": "W2-SHARING",
+      "title": "Sharing profiles, verified size caps, and media jobs",
+      "kind": "implementation",
+      "depends_on": [],
+      "read": [
+        "PRODUCT Audio and media format / Editor, Gallery and storage",
+        "QUALITY Q2/Q4/Q5",
+        "docs/wave2-sharing-media-jobs.md"
+      ],
+      "scope": [
+        "Named profiles, local clipboard preparation, and staged verified size caps.",
+        "Shared app queue and source/destination ownership for future joining."
+      ],
+      "acceptance": [
+        "Verify strict caps, original and hybrid media behavior, concurrent encodes, cancellation, and ownership.",
+        "Verify isolated UI and receiving-app paste, then measure recording contention with the owner."
+      ],
+      "status": "implemented",
+      "candidate": "working_tree_uncommitted",
+      "gates": {
+        "local": "blocked",
+        "ci": "pending",
+        "review": "pending",
+        "hardware": "pending"
+      },
+      "evidence": [
+        "A baseline 1cbe852a12f581edfe597b37725348611d871b0f.",
+        "Strict Personal and Upstream builds passed. Upstream 137 passed, 14 skipped. Personal 887 passed, 23 skipped, 4 failed. All three timed-out tests pass on focused rerun. The fourth failure is a local sandbox denial for the scratch startup registry key.",
+        "Personal suite with only the scratch registry case excluded: 890 passed, 23 skipped, 0 failed.",
+        "The 13-test Personal rerun and one isolated WPF sharing modal passed. Concurrent FFmpeg processes, queueing, cancellation, HEVC and AV1 conversion, edit audio and crop, and hard caps passed.",
+        "docs/wave2-sharing-media-jobs.md",
+        ".quickclip-local/agent/evidence/W2-SHARING/"
+      ],
+      "blocker": "The sandbox denies the existing scratch startup registry fixture. The approval broker rejected Git index writes and the branch push with approval request failed.",
+      "next_action": "Commit the verified D worktree, push the scoped branch, open the stacked draft on chatgpt/wave2-owner-polish, and run full Windows quality CI. Then run the supervised clipboard, UI, and performance matrix against the exact draft head."
     }
   ]
 }

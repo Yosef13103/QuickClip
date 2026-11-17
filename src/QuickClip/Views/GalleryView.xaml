@@ -21,7 +21,8 @@
                     <Border.ContextMenu>
                         <ContextMenu Opened="ClipMenu_Opened" DataContext="{Binding PlacementTarget.DataContext, RelativeSource={RelativeSource Self}}">
                             <MenuItem Header="Watch and edit" Click="OpenClip_Click" FontWeight="SemiBold" />
-                            <MenuItem Header="Share (copy to clipboard)" Click="ShareClip_Click" ToolTip="Share: makes a copy under the size limit in Settings (at most 60 fps, all audio mixed into one track) and copies it to the clipboard to paste anywhere. The original stays as it is." />
+                            <MenuItem Header="Share saved clip" Click="ShareClip_Click" />
+                            <MenuItem Header="Share with…" Tag="share-profiles" />
                             <MenuItem Header="Open classic player" Click="PlayClip_Click" />
                             <MenuItem Header="Edit title, game or tags…" Click="EditClipDetails_Click" Tag="details" />
                             <MenuItem Header="Add to favorites" Click="FavoriteMenu_Click" Tag="favorite" />

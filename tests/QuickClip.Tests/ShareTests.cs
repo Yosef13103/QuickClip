@@ -64,7 +64,7 @@ public sealed class SharePlanTests
     {
         var r = Plan(Clip("av1", 1920, 1080, 60, 10, 4));
         Assert.Equal(VideoMode.Encode, r.VideoMode); // H.264 plays everywhere
-        Assert.Equal(8, r.TargetSizeMB, 3);
+        Assert.Equal(4, r.TargetSizeMB, 3);
     }
 
     [Theory]
@@ -105,6 +105,7 @@ public sealed class ShareTests(MediaFixture media)
 
         var shared = await MediaInfo.ProbeAsync(output);
         Assert.Equal(size, shared.Size);
+        Assert.True(shared.Size <= original.size);
         Assert.Equal("h264", shared.Video!.Codec);
         var track = Assert.Single(shared.Audio);
         Assert.Equal("Mix", track.DisplayName);
@@ -130,5 +131,59 @@ public sealed class ShareTests(MediaFixture media)
         Assert.Equal("h264", shared.Video!.Codec);
         Assert.Single(shared.Audio);
         Assert.Equal(clip.Duration, shared.Duration, 0);
+    }
+
+    [Theory]
+    [InlineData("libx265", "hevc")]
+    [InlineData("libsvtav1", "av1")]
+    public async Task Converting_a_compact_modern_codec_never_inflates_source_bytes(string encoder, string family)
+    {
+        string source = media.Out(family + "-share-input.mkv");
+        await MediaFixture.Run(["-i", media.TwoTracks, "-t", "3", "-an", "-c:v", encoder, "-b:v", "600k", source]);
+        var clip = await MediaInfo.ProbeAsync(source);
+        Assert.Equal(family, clip.Video!.Codec);
+        string output = media.Out(family + "-share-output.mp4");
+        long size = await ShareCopy.CreateAsync(clip, output, "libx264", new Attempts(), CancellationToken.None, 100);
+        var shared = await MediaInfo.ProbeAsync(output);
+        Assert.True(size <= clip.Size);
+        Assert.Equal("h264", shared.Video!.Codec);
+        Assert.Equal(clip.Duration, shared.Duration, 1);
+        Assert.True(shared.Video.Width <= clip.Video.Width && shared.Video.Height <= clip.Video.Height);
+        Assert.True(shared.Video.Fps <= clip.Video.Fps);
+        await MediaFixture.Run(["-xerror", "-i", output, "-f", "null", "-"]);
+    }
+
+    [Fact]
+    public async Task Edited_share_uses_the_selected_crop_duration_and_audio()
+    {
+        var clip = await MediaInfo.ProbeAsync(media.TwoTracks);
+        string output = media.Out("share-edited.mp4");
+        var original = ShareCopy.Plan(clip, output, "libx264");
+        var request = ShareCopy.Plan(original with
+        {
+            Start = 1, End = 4, Crop = (0, 0, 320, 180),
+            Tracks = [original.Tracks[1] with { Volume = 0.5 }],
+        }, "libx264", 1, allowCopy: true, motionBlur: false);
+        long size = await TargetSizeExport.RunAsync(request, request.SizeCeilingBytes!.Value, null, new Attempts(), null, CancellationToken.None);
+        var shared = await MediaInfo.ProbeAsync(output);
+        Assert.True(size <= request.SizeCeilingBytes);
+        Assert.True(shared.Size < clip.Size);
+        Assert.Equal((320, 180), (shared.Video!.Width, shared.Video.Height));
+        Assert.Equal(3, shared.Duration, 1);
+        Assert.Single(shared.Audio);
+        Assert.True(await MediaFixture.BandLevel(output, 0, MediaFixture.DesktopHz) > -45);
+        Assert.True(await MediaFixture.BandLevel(output, 0, MediaFixture.MicHz) < -55);
+        await MediaFixture.Run(["-xerror", "-ss", "1.5", "-i", output, "-t", "0.5", "-f", "null", "-"]);
+    }
+
+    [Fact]
+    public async Task Impossible_share_stops_before_encoding_and_leaves_no_output()
+    {
+        var clip = await MediaInfo.ProbeAsync(media.TwoTracks);
+        string output = media.Out("impossible-share.mp4");
+        var error = await Assert.ThrowsAsync<ExportException>(() =>
+            ShareCopy.CreateAsync(clip, output, "libx264", new Attempts(), CancellationToken.None, 0.001));
+        Assert.Contains("too small", error.Message);
+        Assert.False(File.Exists(output));
     }
 }

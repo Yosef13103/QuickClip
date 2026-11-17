@@ -18,7 +18,6 @@ public partial class MainWindow : Window
     private bool _savingClip;
 
     private readonly DispatcherTimer _statusTimer;
-    private readonly DispatcherTimer _shareHideTimer;
     private EditorView? _editor;
     private PlayerView? _player;
     private SettingsView? _settings;
@@ -52,13 +51,6 @@ public partial class MainWindow : Window
         Recorder.Instance.StateChanged += OnRecorderState;
         Updater.Changed += OnUpdaterChanged;
         OnUpdaterChanged();
-        ClipSharing.Changed += ShowShareStatus;
-        _shareHideTimer = new DispatcherTimer(TimeSpan.FromSeconds(15), DispatcherPriority.Background, (_, _) =>
-        {
-            _shareHideTimer!.Stop();
-            SharePanel.Visibility = Visibility.Collapsed;
-        }, Dispatcher) { IsEnabled = false };
-        if (ClipSharing.IsBusy) ShowShareStatus();
         _statusTimer = new DispatcherTimer(TimeSpan.FromSeconds(1), DispatcherPriority.Background, (_, _) => UpdateStatus(), Dispatcher);
         Loaded += (_, _) =>
         {
@@ -356,6 +348,7 @@ public partial class MainWindow : Window
     private void UpdateStatus()
     {
         RefreshBackgroundActivity();
+        RefreshMediaJobs();
         var recorder = Recorder.Instance;
         var s = AppSettings.Current;
         var hotkey = new Hotkey(s.HotkeyModifiers, s.HotkeyKey);
@@ -462,36 +455,6 @@ public partial class MainWindow : Window
         s.Save();
     }
 
-    private void ShowShareStatus()
-    {
-        if (ClipSharing.Status is not { } s) return;
-        bool working = s.Stage == ShareStage.Working;
-        SharePanel.Visibility = Visibility.Visible;
-        ShareName.Text = s.ClipName;
-        ShareName.ToolTip = s.ClipName;
-        ShareText.Text = s.Text;
-        ShareIcon.Text = s.Stage switch { ShareStage.Done => "\uE73E", ShareStage.Failed => "\uE783", _ => "\uE72D" };
-        ShareProgress.Visibility = working ? Visibility.Visible : Visibility.Collapsed;
-        ShareProgress.IsIndeterminate = working && s.Progress < 0;
-        if (s.Progress >= 0) ShareProgress.Value = s.Progress;
-        ShareShowButton.Visibility = s.Output != null ? Visibility.Visible : Visibility.Collapsed;
-        ShareCloseButton.ToolTip = working ? "Stop sharing" : "Hide";
-        _shareHideTimer.Stop();
-        if (!working) _shareHideTimer.Start(); // the result stays up for a while, then the bar is the recorder's again
-    }
-
-    private void ShareShow_Click(object sender, RoutedEventArgs e)
-    {
-        if (ClipSharing.Status?.Output is { } file && File.Exists(file))
-            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo("explorer.exe", $"/select,\"{file}\"") { UseShellExecute = true });
-    }
-
-    private void ShareClose_Click(object sender, RoutedEventArgs e)
-    {
-        if (ClipSharing.IsBusy) ClipSharing.Cancel();
-        else SharePanel.Visibility = Visibility.Collapsed;
-    }
-
     private async void SaveClip_Click(object sender, RoutedEventArgs e)
     {
         if (_savingClip || App.IsQuittingForUpdate) return;
@@ -511,7 +474,6 @@ public partial class MainWindow : Window
     }
 
     internal bool HasActiveEditorExport => _editor?.HasActiveExport == true;
-    internal bool HasActiveMontageExport => Gallery.HasActiveMontageExport;
     internal bool IsSavingClip => _savingClip;
 
     /// <summary>Closes the window; false if the user kept it open (e.g. to let an export finish).</summary>
@@ -574,8 +536,6 @@ public partial class MainWindow : Window
         ActivityProgress.IsIndeterminate = false;
         Recorder.Instance.StateChanged -= OnRecorderState;
         Updater.Changed -= OnUpdaterChanged;
-        ClipSharing.Changed -= ShowShareStatus;
-        _shareHideTimer.Stop();
         base.OnClosed(e);
         ((App)Application.Current).OnMainWindowClosed(this);
     }

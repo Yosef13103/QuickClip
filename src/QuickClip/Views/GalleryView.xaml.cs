@@ -159,7 +159,6 @@ public partial class GalleryView : UserControl
     }
 
     /// <summary>Stops watching the folder, closes the project preview and drops the thumbnails (the window is closing).</summary>
-    internal bool HasActiveMontageExport => ProjectPane.Exporting;
 
     public async Task CloseAsync()
     {
@@ -726,6 +725,8 @@ public partial class GalleryView : UserControl
         string clips = count == 1 ? "" : $" {count} selected clips";
         foreach (var entry in menu.Items.OfType<MenuItem>())
         {
+            if (entry.Tag is "share-profiles")
+                SharingDialogs.Populate(entry.Items, Window.GetWindow(this), profile => _ = ClipSharing.ShareAsync(item.Path, profile));
             if (entry.Tag is "details" or "favorite") entry.Visibility = PersonalAnnotations ? Visibility.Visible : Visibility.Collapsed;
             if (entry.Tag is "favorite") entry.Header = item.IsFavorite ? "Remove from favorites" : "Add to favorites";
             if (entry.Tag as string == "copy") entry.Header = count == 1 ? "Copy to folder…" : $"Copy{clips} to folder…";
