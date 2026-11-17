@@ -54,7 +54,7 @@ public partial class EditorView
             choices.Add((button, size));
             if (size == 0)
             {
-                var cell = new DockPanel { LastChildFill = true, Margin = new Thickness(0, 0, 0, 5) };
+                var cell = new DockPanel { LastChildFill = true, Margin = new Thickness(0, 0, 0, 5), ToolTip = "Custom size (MB)" };
                 DockPanel.SetDock(button, Dock.Left);
                 button.Margin = new Thickness(0);
                 cell.Children.Add(button);
@@ -112,7 +112,7 @@ public partial class EditorView
                     double audio = Math.Clamp(plan.Media.Audio.Sum(a => a.BitRate > 0 ? a.BitRate : 160_000L) * plan.Media.Duration / (8d * plan.Media.Size), 0, 1);
                     estimate *= audio + (1 - audio) * ratio;
                 }
-                summary.Text = capped ? $"Up to {plan.TargetSizeMB:0.##} MB" : $"Original quality · approx. {estimate:0.##} MB of source footage";
+                summary.Text = capped ? $"Up to {plan.TargetSizeMB:0.##} MB" : $"About {estimate:0.##} MB of source footage";
                 if (capped && plan.TargetSizeMB < estimate * .35)
                     warning.Text = "Large size reduction — video quality may be noticeably lower.";
                 if (overwrite) summary.Text += " · replaces this clip";

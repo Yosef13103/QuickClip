@@ -47,4 +47,12 @@ public sealed class SharingProfilesTests
         }
         finally { CultureInfo.CurrentCulture = previous; }
     }
+    [Fact]
+    public void Replacement_confirmation_defaults_to_enabled_and_persists_opt_out()
+    {
+        var settings = AppSettings.Parse("{}");
+        Assert.True(settings.ConfirmSaveOverOriginal);
+        settings.ConfirmSaveOverOriginal = false;
+        Assert.False(AppSettings.Parse(settings.ToJson()).ConfirmSaveOverOriginal);
+    }
 }

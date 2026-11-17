@@ -32,7 +32,8 @@ public sealed class ClipEditDraftTests : IDisposable
         clip.ApplyEditRange(ranges[path]);
         Assert.Equal(3.5, clip.SelectedDuration);
         Assert.Equal(6, clip.Duration);
-        Assert.True(GalleryHoverPreview.IsTrimmed(ranges[path], new System.Windows.Duration(TimeSpan.FromSeconds(6))));
+        Assert.Equal(Edited.Start, ranges[path].Start);
+        Assert.Equal(Edited.End, ranges[path].End);
         Assert.Equal("synthetic media identity fixture", File.ReadAllText(path));
 
         await reopened.SaveEditDraftAsync(path, stamp, stored.Payload, null);

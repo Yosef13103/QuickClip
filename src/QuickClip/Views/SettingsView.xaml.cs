@@ -542,6 +542,19 @@ public partial class SettingsView : UserControl
     {
         if (_loading || !IsInitialized) return;
         var s = AppSettings.Current;
+        if (sender == ConfirmSaveOverCheck)
+        {
+            bool previous = s.ConfirmSaveOverOriginal;
+            s.ConfirmSaveOverOriginal = ConfirmSaveOverCheck.IsChecked == true;
+            if (!s.TrySave())
+            {
+                s.ConfirmSaveOverOriginal = previous;
+                _loading = true;
+                try { ConfirmSaveOverCheck.IsChecked = previous; }
+                finally { _loading = false; }
+            }
+            return;
+        }
         if (sender == RecordingCheck && AppProfile.IsPersonal)
         {
             _restartTimer.Stop();
@@ -607,7 +620,6 @@ public partial class SettingsView : UserControl
         if (!AppProfile.IsPersonal || sender == CloseTrayCheck) s.CloseToTray = CloseTrayCheck.IsChecked == true;
         if (!AppProfile.IsPersonal || sender == SoundCheck) s.ClipSound = SoundCheck.IsChecked == true;
         if (!AppProfile.IsPersonal || sender == ConfirmDeleteCheck) s.ConfirmClipDeletion = ConfirmDeleteCheck.IsChecked == true;
-        if (!AppProfile.IsPersonal || sender == ConfirmSaveOverCheck) s.ConfirmSaveOverOriginal = ConfirmSaveOverCheck.IsChecked == true;
         if (!AppProfile.IsPersonal || sender == MotionBlurCheck) s.ShareMotionBlur = MotionBlurCheck.IsChecked == true;
         s.Save();
 

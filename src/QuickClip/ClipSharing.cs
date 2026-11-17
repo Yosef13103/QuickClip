@@ -80,13 +80,18 @@ internal static class ClipSharing
         long ticket = ++_lastClipboardRequest;
         uint sequence = GetClipboardSequenceNumber();
         bool copied = await TryCopyAsync(path, () => ticket == _lastClipboardRequest && GetClipboardSequenceNumber() == sequence);
-        if (copied) App.Host?.NotifyShareReady(true);
+        if (copied) App.Host?.NotifyShareReady(IsLastCopyCurrent && LastCopied == path);
         return copied;
     }
 
     private static async Task<bool> TryCopyAsync(string path, Func<bool> stillRequested)
     {
         if (!stillRequested() || !File.Exists(path)) return false;
+        IDisposable? read;
+        try { read = MediaOwnership.Current.TryAcquire([MediaSource.Capture(path)], []); }
+        catch (Exception ex) when (LibraryFiles.IsAccessError(ex) || ex is ExportException) { return false; }
+        if (read == null) return false;
+        using var ownership = read;
         try
         {
             if (!ShellClipboard.TryCopyFile(path, stillRequested)) return false;
@@ -110,7 +115,7 @@ internal static class ClipSharing
                 Clipboard.SetDataObject(data, copy: true);
                 LastCopied = path;
                 _lastCopySequence = GetClipboardSequenceNumber();
-            RecordRetention(path);
+                RecordRetention(path);
                 return true;
             }
             catch (ExternalException) { await Task.Delay(100); }
@@ -191,25 +196,39 @@ internal static class ClipSharing
             }
             else if (clipboard?.GetDataPresent("Shell IDList Array") == true) return;
             if (IsLastCopyCurrent && LastCopied != null) protectedPaths.Add(LastCopied);
+            SweepExpired(Folder, RetentionJournal, protectedPaths,
+                () => GetClipboardSequenceNumber() == sequence, DateTimeOffset.UtcNow);
+        }
+        catch (Exception ex) when (LibraryFiles.IsAccessError(ex) || ex is ExternalException or ArgumentException or ExportException)
+        { Log.Failure(DiagnosticCategory.General, "Shared copy cleanup deferred", ex); }
+    }
+
+    internal static void SweepExpired(string folder, string journal, HashSet<string> protectedPaths,
+        Func<bool> clipboardUnchanged, DateTimeOffset now)
+    {
+        try
+        {
             lock (ShareStorage)
             {
-                MediaProcessing.RequireSafeDirectory(RetentionJournal);
-                MediaProcessing.RequireSafeDirectory(Folder);
-                foreach (string receipt in Directory.EnumerateFiles(RetentionJournal, "*.json").Take(128))
+                MediaProcessing.RequireSafeDirectory(journal);
+                MediaProcessing.RequireSafeDirectory(folder);
+                foreach (string receipt in Directory.EnumerateFiles(journal, "*.json"))
                 {
-                    if (GetClipboardSequenceNumber() != sequence) return;
+                    if (!clipboardUnchanged()) return;
                     try
                     {
                         if (LibraryFiles.InspectPath(receipt, directory: false) != ClipAvailability.Available ||
                             new FileInfo(receipt).Length > 16_384) continue;
                         var entry = JsonSerializer.Deserialize<ShareReceipt>(File.ReadAllText(receipt));
-                        if (entry == null || !OwnedSharePath(Folder, entry.Path, Path.GetFileNameWithoutExtension(receipt)) ||
+                        if (entry == null || !OwnedSharePath(folder, entry.Path, Path.GetFileNameWithoutExtension(receipt)) ||
                             entry.Stamp.Identity == null || protectedPaths.Contains(entry.Path) ||
-                            !RetentionExpired(entry.UsedAt, DateTimeOffset.UtcNow)) continue;
-                        if (LibraryFiles.InspectPath(entry.Path, directory: false) != ClipAvailability.Available) continue;
+                            !RetentionExpired(entry.UsedAt, now)) continue;
+                        var availability = LibraryFiles.InspectPath(entry.Path, directory: false);
+                        if (availability == ClipAvailability.Missing) { File.Delete(receipt); continue; }
+                        if (availability != ClipAvailability.Available) continue;
                         using var lease = MediaOwnership.Current.TryMutate(entry.Path);
                         if (lease == null || MediaSource.Capture(entry.Path).Stamp != entry.Stamp) continue;
-                        if (GetClipboardSequenceNumber() != sequence) return;
+                        if (!clipboardUnchanged()) return;
                         File.Delete(entry.Path);
                         File.Delete(receipt);
                         // Never recursively delete: preserve anything else a user put in the directory.
