@@ -89,7 +89,7 @@ internal sealed class AppSettings
     public bool ShowRecordingMicrophoneIndicator { get; set; } = true;
     public Shell.OverlayAnchor GameRecordingIndicatorAnchor { get; set; } = Shell.OverlayAnchor.BottomRight;
     public bool ClipNotificationsEnabled { get; set; } = true;
-    public bool ClipWindowsNotification { get; set; } = true;
+    public bool ClipWindowsNotification { get; set; } = !AppProfile.IsPersonal;
     // Suppress expected no-game/off hotkey warnings by default in Personal, not actual capture errors.
     public bool ShowInactiveSaveNotifications { get; set; } = !AppProfile.IsPersonal;
     // First-run prompt is explicit: a new Personal profile never silently starts screen capture.
@@ -97,7 +97,7 @@ internal sealed class AppSettings
     // Presentation only. Existing profiles retain Advanced; fresh Personal profiles start in Basic.
     public bool BasicSettings { get; set; } = AppProfile.IsPersonal;
     public int? GuidedSetupStep { get; set; } = AppProfile.IsPersonal ? 0 : null;
-    public Shell.ClipOverlayOptions ClipOverlay { get; set; } = new();
+    public Shell.ClipOverlayOptions ClipOverlay { get; set; } = new() { Enabled = AppProfile.IsPersonal };
     public bool EnableLibraryIndex { get; set; } = AppProfile.IsPersonal;
     public double ShareSizeMB { get; set; } = 30;                // shared copies are made to fit under this
     public bool ShareMotionBlur { get; set; } = true;             // sharing a 120 fps clip blends it into 60 fps motion blur
@@ -174,6 +174,13 @@ internal sealed class AppSettings
             var root = legacy.RootElement;
             if (root.ValueKind == JsonValueKind.Object)
             {
+                // Preserve legacy notification choices when only one channel was serialized.
+                if (root.TryGetProperty(nameof(ClipWindowsNotification), out _) &&
+                    !root.TryGetProperty(nameof(ClipOverlay), out _))
+                    settings.ClipOverlay = new();
+                if (root.TryGetProperty(nameof(ClipOverlay), out _) &&
+                    !root.TryGetProperty(nameof(ClipWindowsNotification), out _))
+                    settings.ClipWindowsNotification = true;
                 if (!root.TryGetProperty(nameof(BasicSettings), out _)) settings.BasicSettings = false;
                 if (!root.TryGetProperty(nameof(GuidedSetupStep), out _)) settings.GuidedSetupStep = null;
                 if (settings.GuidedSetupStep is < 0 or > 8) settings.GuidedSetupStep = 0;

@@ -18,6 +18,8 @@ internal sealed class RecordingIndicator : IDisposable
     private string? _failureReported;
     private readonly ClipNotificationOverlay _preview = new();
     private DispatcherTimer? _previewTimer;
+    private DispatcherTimer? _showRetry;
+    private int _showAttempts;
     internal static bool IsEnabled(AppSettings settings) =>
         settings.ShowGameRecordingIndicator && settings.AllowRecordingIconsInCapture;
 
@@ -50,6 +52,7 @@ internal sealed class RecordingIndicator : IDisposable
             Hide();
             return;
         }
+        if (_epoch != state.Epoch) _showAttempts = 0;
         _epoch = state.Epoch;
         _signal.Configure(_epoch, state.Microphones, state.StartedAt);
         if (!IsEnabled(settings))
@@ -65,6 +68,23 @@ internal sealed class RecordingIndicator : IDisposable
             Log.Event(DiagnosticCategory.Capture, "Recording HUD unavailable", DiagnosticSeverity.Warning);
         }
         else if (_overlay.IsVisible) _failureReported = null;
+        if (_overlay.IsVisible)
+        {
+            _showRetry?.Stop();
+            _showAttempts = 0;
+        }
+        else if (_showAttempts < 3)
+        {
+            // A transient display/window initialization failure must not require
+            // opening settings or previewing the HUD to get another attempt.
+            _showRetry ??= new DispatcherTimer(DispatcherPriority.Background) { Interval = TimeSpan.FromMilliseconds(500) };
+            if (!_showRetry.IsEnabled)
+            {
+                _showRetry.Tick -= RetryShow;
+                _showRetry.Tick += RetryShow;
+                _showRetry.Start();
+            }
+        }
         if (!_overlay.IsVisible || microphone is MicrophoneIndicatorState.Hidden or MicrophoneIndicatorState.Active)
         {
             _timer?.Stop();
@@ -79,6 +99,13 @@ internal sealed class RecordingIndicator : IDisposable
             _timer.Tick += (_, _) => Sample();
         }
         _timer.Start();
+    }
+
+    private void RetryShow(object? sender, EventArgs e)
+    {
+        _showRetry?.Stop();
+        _showAttempts++;
+        Refresh();
     }
 
     internal string Preview()
@@ -142,6 +169,8 @@ internal sealed class RecordingIndicator : IDisposable
 
     private void Hide()
     {
+        _showRetry?.Stop();
+        _showAttempts = 0;
         _timer?.Stop();
         _buffer = null;
         if (_overlay.IsVisible) _overlay.Hide();

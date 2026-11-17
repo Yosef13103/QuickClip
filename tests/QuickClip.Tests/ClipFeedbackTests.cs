@@ -19,6 +19,20 @@ public sealed class ClipFeedbackTests
         Assert.Equal(new Point(x, y), ClipOverlayOptions.Place(new Rect(-1920, 100, 1920, 1080), 80, 20, Enum.Parse<OverlayAnchor>(anchor)));
 
     [Fact]
+    public void Personal_defaults_to_overlay_without_overwriting_existing_notification_choice()
+    {
+        var fresh = new AppSettings();
+        Assert.Equal(!AppProfile.IsPersonal, fresh.ClipWindowsNotification);
+        Assert.Equal(AppProfile.IsPersonal, fresh.ClipOverlay.Enabled);
+        var existing = AppSettings.Parse("""{"ClipWindowsNotification":true,"ClipOverlay":{"Enabled":false}}""");
+        Assert.True(existing.ClipWindowsNotification);
+        Assert.False(existing.ClipOverlay.Enabled);
+        var legacy = AppSettings.Parse("""{"ClipWindowsNotification":true}""");
+        Assert.True(legacy.ClipWindowsNotification);
+        Assert.False(legacy.ClipOverlay.Enabled);
+    }
+
+    [Fact]
     public void Notification_channels_round_trip_independently()
     {
         var settings = AppSettings.Parse("""
