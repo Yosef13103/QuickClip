@@ -164,7 +164,12 @@ public partial class GamesSettingsView
             return match.Kind switch
             {
                 CatalogMatchKind.Launcher => " · Launcher",
-                CatalogMatchKind.Companion or CatalogMatchKind.Application or CatalogMatchKind.Ignored => " · Blocked",
+                CatalogMatchKind.Companion => " · Blocked (companion application)",
+                CatalogMatchKind.Application => " · Blocked (non-game application)",
+                CatalogMatchKind.Ignored when _blocked.Contains(path, StringComparer.OrdinalIgnoreCase) => " · Blocked (explicit executable block)",
+                CatalogMatchKind.Ignored when IsExcluded || match.Entry?.Rules.Inclusion == CatalogInclusion.Exclude => " · Blocked (game disabled)",
+                CatalogMatchKind.Ignored when CatalogPaths.DefaultRole(path) == CatalogMatchKind.Ignored => " · Blocked (known non-game executable)",
+                CatalogMatchKind.Ignored => " · Blocked (another game exclusion or retained denial)",
                 CatalogMatchKind.Ambiguous => " · claimed by multiple catalog entries",
                 CatalogMatchKind.Inactive => " · Source not checked yet",
                 _ when _offline => " · source offline or scan incomplete",

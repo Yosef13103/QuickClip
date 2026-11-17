@@ -146,7 +146,7 @@ public partial class MainWindow
                 bitmap.Freeze();
                 _layout.Children.Add(new Border
                 {
-                    Background = new SolidColorBrush(Color.FromArgb(48, 0, 0, 0)), IsHitTestVisible = false,
+                    Background = new SolidColorBrush(Color.FromArgb(16, 0, 0, 0)), IsHitTestVisible = false,
                 });
                 var scaleTransform = new ScaleTransform();
                 var image = new Image
@@ -158,7 +158,7 @@ public partial class MainWindow
                     Margin = new Thickness(origin.X, origin.Y, 0, 0),
                 };
                 _layout.Children.Add(image);
-                var expand = new DoubleAnimation(1, 1.18, TimeSpan.FromMilliseconds(180))
+                var expand = new DoubleAnimation(1, 1.045, TimeSpan.FromMilliseconds(100))
                 {
                     EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut },
                 };

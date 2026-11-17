@@ -18,14 +18,14 @@ public partial class GamesSettingsView : UserControl
     }
 
     private sealed record RootRow(string Path, bool Steam, bool Automatic = false, bool Excluded = false, bool Epic = false,
-        string? Key = null, string? Status = null, bool Enabled = true)
+        string? Key = null, string? Status = null, bool Enabled = true, bool IsCollection = false)
     {
         public bool CanToggle => Key != null && !Excluded;
         public bool CanRefresh => CanToggle && Enabled;
         public string RemoveLabel => Excluded ? "Restore" : Automatic ? "Exclude" : "Remove";
         public string Label => ToString();
         public override string ToString() => (Excluded ? "Excluded · " : Epic ? "Detected Epic manifests · " :
-            Automatic ? "Detected Steam · " : Steam ? "Steam · " : "Game folder · ") + Path +
+            Automatic ? "Detected Steam · " : Steam ? "Steam · " : IsCollection ? "Game collection · " : "Game folder · ") + Path +
             (Status == null ? "" : " · " + Status);
     }
     private static GameDiscoveryCoordinator Discovery => GameCatalogRuntime.Discovery;
@@ -114,11 +114,12 @@ public partial class GamesSettingsView : UserControl
         _basic = basic;
         LibrarySources.Visibility = ScanDetails.Visibility = basic ? Visibility.Collapsed : Visibility.Visible;
         ScanHelp.Visibility = TargetingHelp.Visibility = basic ? Visibility.Visible : Visibility.Collapsed;
-        ScanHelp.Text = basic ? "Use Add Game if a game is missing. Manage game stores and folders in Advanced settings."
+        ScanHelp.Text = basic ? "Use Add Game for one game or a collection. Manage your added folders here; game stores are in Advanced settings."
             : "Automatic scans refresh enabled sources. You can pause and resume a scan here.";
         TargetingHelp.Text = basic ? "Games marked ready can start recording when recording is on and the display is allowed."
             : "Targeting rules apply to game detection. Manual entire-display capture includes anything visible on the approved display, including games disabled here.";
         foreach (var row in _rows) row.UseBasicPresentation(basic);
+        Render();
         ShowDiscoveryStatus();
         UpdateCount();
     }
@@ -152,7 +153,7 @@ public partial class GamesSettingsView : UserControl
 
     private void Provider_Click(object sender, RoutedEventArgs e)
     {
-        if (sender is not CheckBox { DataContext: LauncherRow { Supported: true } row } box) return;
+        if (sender is not ToggleButton { DataContext: LauncherRow { Supported: true } row } box) return;
         bool enabled = box.IsChecked == true;
         var state = State;
         SetState(row.Source switch
@@ -217,12 +218,14 @@ public partial class GamesSettingsView : UserControl
         if (steam ? request.SteamLibraryRoots.Contains(path, StringComparer.OrdinalIgnoreCase)
             : request.GameRoots.Any(root => string.Equals(root.Path, path, StringComparison.OrdinalIgnoreCase)))
         {
-            SourceError.Text = "This folder is already in your game sources.";
+            SourceError.Text = "This folder is already in your game sources. Remove it first to change its type.";
+            AddedFolders.IsExpanded = true;
             return;
         }
         SetState(State with { Request = steam ? request with { SteamLibraryRoots = request.SteamLibraryRoots.Add(path) }
             : request with { GameRoots = request.GameRoots.Add(new(path, IsCollection: true)) } });
         SourceError.Text = "";
+        AddedFolders.IsExpanded = true;
         _ = Discovery.RequestAsync(manual: true, sourceKey: new CatalogScope(
             steam ? CatalogSource.Steam : CatalogSource.Folder, path, IsCollection: !steam).Key);
     }
@@ -241,7 +244,7 @@ public partial class GamesSettingsView : UserControl
                 string.Equals(CatalogPaths.LocalPath(row.Path), root.Path, StringComparison.OrdinalIgnoreCase)) },
             DisabledSourceKeys = root.Key is { } key ? State.DisabledSourceKeys.Remove(key) : State.DisabledSourceKeys });
         Status.Text = root.Excluded ? "Exclusion removed. Scan again to find this source."
-            : root.Automatic ? "Launcher source excluded." : "Game folder removed.";
+            : root.Automatic ? "Launcher source excluded." : "Folder removed from QuickClip. Game files are unchanged.";
     }
 
     private void Add_Click(object sender, RoutedEventArgs e)
@@ -251,10 +254,13 @@ public partial class GamesSettingsView : UserControl
         var menu = new ContextMenu { PlacementTarget = button, Placement = PlacementMode.Bottom };
         var file = new MenuItem { Header = "Executable or shortcut (more accurate)…" };
         file.Click += (_, _) => PickExecutables(null);
-        var folder = new MenuItem { Header = "Add game folder…" };
+        var folder = new MenuItem { Header = "One game — installation folder…" };
         folder.Click += (_, _) => PickGameFolder();
         menu.Items.Add(file);
         menu.Items.Add(folder);
+        var collection = new MenuItem { Header = "Multiple games — collection folder…" };
+        collection.Click += (_, _) => Approve(false);
+        menu.Items.Add(collection);
         menu.IsOpen = true;
     }
 
@@ -290,7 +296,7 @@ public partial class GamesSettingsView : UserControl
 
     private void PickGameFolder()
     {
-        var dialog = new OpenFolderDialog { Title = "Add a game's installation folder" };
+        var dialog = new OpenFolderDialog { Title = "Choose ONE game's installation folder (not a collection)" };
         if (dialog.ShowDialog(Window.GetWindow(this)) != true) return;
         if (CatalogPaths.LocalPath(dialog.FolderName) is not { Length: > 3 } path)
         {
@@ -300,7 +306,8 @@ public partial class GamesSettingsView : UserControl
         var request = State.Request;
         if (request.GameRoots.Any(root => string.Equals(root.Path, path, StringComparison.OrdinalIgnoreCase)))
         {
-            ShowAddError("This folder is already in your game sources.");
+            ShowAddError("This folder is already in your game sources. Remove it from Game folders and collections before adding it with a different type.");
+            AddedFolders.IsExpanded = true;
             return;
         }
         if (request.GameRoots.Length + request.SteamLibraryRoots.Length >= 128)
@@ -309,6 +316,7 @@ public partial class GamesSettingsView : UserControl
             return;
         }
         SetState(State with { Request = request with { GameRoots = request.GameRoots.Add(new(path)) } });
+        AddedFolders.IsExpanded = true;
         Status.Text = "Game folder added. Scan queued…";
         _ = Discovery.RequestAsync(manual: true, sourceKey: new CatalogScope(CatalogSource.Folder, path).Key);
     }
@@ -526,14 +534,15 @@ public partial class GamesSettingsView : UserControl
         RootRow[] epic = state.Snapshot?.EpicManifestDirectory is { } manifestDirectory &&
             !state.Request.ExcludedDirectories.Any(root => CatalogPaths.IsWithin(manifestDirectory, root))
             ? [new(manifestDirectory, Steam: false, Automatic: true, Epic: true)] : [];
-        Roots.ItemsSource = CatalogScope.Configured(state).Where(scope => scope.Root != null)
-            .Select(scope => new RootRow(scope.Root!, scope.Kind == CatalogSource.Steam, Key: scope.Key, Status: DescribeSource(scope.Key), Enabled: enabled.Contains(scope.Key)))
+        var roots = CatalogScope.Configured(state).Where(scope => scope.Root != null)
+            .Select(scope => new RootRow(scope.Root!, scope.Kind == CatalogSource.Steam, Key: scope.Key, Status: DescribeSource(scope.Key), Enabled: enabled.Contains(scope.Key), IsCollection: scope.IsCollection))
             .Concat((state.Snapshot?.SteamLibraries ?? []).Where(path =>
                 !state.Request.SteamLibraryRoots.Contains(path, StringComparer.OrdinalIgnoreCase) &&
                 !state.Request.ExcludedDirectories.Contains(path, StringComparer.OrdinalIgnoreCase))
                 .Select(path => new RootRow(path, true, Automatic: true)))
             .Concat(epic)
-            .Concat(state.Request.ExcludedDirectories.Select(path => new RootRow(path, false, Excluded: true))).ToArray();
+            .Concat(state.Request.ExcludedDirectories.Select(path => new RootRow(path, false, Excluded: true)));
+        Roots.ItemsSource = roots.Where(root => !_basic || !root.Automatic && !root.Excluded).ToArray();
         LastScan.Text = state.Snapshot is { CompletedAt: var completed } && completed != default
             ? $"Last finished scan · {completed.ToLocalTime():g}" : "No finished scan.";
         BlockedFiles.ItemsSource = state.BlockedExecutables;

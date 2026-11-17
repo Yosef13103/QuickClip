@@ -46,6 +46,22 @@ public sealed class GamesSettingsViewTests
         Assert.True(row.DetectionReady);
     }
 
+    [Fact]
+    public void Executable_labels_distinguish_explicit_block_from_retained_denial()
+    {
+        const string renderer = @"C:\Collection\Demo\Demo.exe";
+        var entry = new CatalogEntry("folder:demo", "Demo", CatalogSource.Folder, [@"C:\Collection\Demo"],
+            [renderer], new()) { RendererExecutables = [renderer] };
+        var row = new GamesSettingsView.GameRow(entry);
+        var index = new GameCatalogIndex(new([entry], [], 0, false, default), [renderer]);
+        row.Update(entry, false, [], index);
+        var inherited = Assert.Single(row.Executables);
+        Assert.Contains("retained denial", inherited.Label);
+        Assert.False(inherited.ExplicitlyBlocked);
+        row.Update(entry, false, [renderer], index);
+        Assert.Contains("explicit executable block", Assert.Single(row.Executables).Label);
+    }
+
     [Theory]
     [InlineData(1050, 660, 1.0)]
     [InlineData(780, 480, 1.25)]
@@ -56,6 +72,7 @@ public sealed class GamesSettingsViewTests
         Arrange(page, width, height);
         Assert.True(page.Games.ActualHeight > 0);
         Assert.True(page.Search.ActualWidth > 0);
+        Assert.False(Descendants<TextBox>(page.Games).Contains(page.Search));
         Assert.True(page.AutoScan.IsChecked == true);
         page.RenderRows(Fixture(200));
         Arrange(page, width, height);
@@ -140,7 +157,7 @@ public sealed class GamesSettingsViewTests
         var discord = new GamesSettingsView.GameRow(new("manual:discord", "Discord", CatalogSource.Manual,
             [], [@"C:\Apps\Discord.exe"], new()));
         Assert.Contains("Blocked", discord.Summary);
-        Assert.EndsWith(" · Blocked", Assert.Single(discord.Executables).Label);
+        Assert.EndsWith(" · Blocked (companion application)", Assert.Single(discord.Executables).Label);
         Assert.NotNull(GamesSettingsView.ValidateManualGameExecutables([@"C:\Apps\not-video.txt"]));
     }
 
