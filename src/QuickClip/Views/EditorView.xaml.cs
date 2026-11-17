@@ -58,7 +58,6 @@ public partial class EditorView : UserControl
     private HashSet<string> _encoders = ["libx264", "libx265", "libsvtav1", "libvpx-vp9", "libopus", "libmp3lame"];
     private CancellationTokenSource? _waveCts;
     private CancellationTokenSource? _exportCts;
-    private string? _exportPath;
     private string? _lastExport;
     private List<double>? _keyframes;               // when the open video's keyframes are; null until known
     private CancellationTokenSource? _keyframeCts;
@@ -598,7 +597,6 @@ public partial class EditorView : UserControl
             player.PreviewReadyOrFailed -= OnMpvPreviewReadyOrFailed;
             await Task.Run(player.Dispose);
         }
-        if (_exportPath != null) TryDelete(_exportPath);
         foreach (var file in _stalePreviews.Concat(_tracks.Select(t => t.PreviewFile).OfType<string>())) TryDelete(file);
         return true;
     }
@@ -1809,6 +1807,7 @@ public partial class EditorView : UserControl
         CropCheck.IsEnabled = hasVideo && !busy;
         CropPanel.IsEnabled = _crop.Enabled && !busy;
         ExportButton.IsEnabled = _media != null && !busy;
+        ShareSelectionButton.IsEnabled = ShareSelectionOptionsButton.IsEnabled = hasVideo && !busy;
         SaveOverButton.IsEnabled = _media != null && !busy;
         DeleteMediaButton.IsEnabled = _media != null && !busy && !_deletingMedia;
         FavoriteButton.IsEnabled = _media != null && !busy && !_deletingMedia;
@@ -1948,9 +1947,10 @@ public partial class EditorView : UserControl
         };
     }
 
-    private ExportRequest BuildRequest(string outputPath, Container container)
+    private ExportRequest BuildRequest(string outputPath, Container container, string? quality = null)
     {
         var request = CreateDraft(outputPath, container);
+        if (quality != null) request = request with { Quality = quality };
         string chosenEncoder = request.EncoderId;
 
         // Copied as it is whenever that gives what's asked for; re-encoded (to the original's codec unless another
@@ -1968,8 +1968,11 @@ public partial class EditorView : UserControl
     private async void ExportNew_Click(object sender, RoutedEventArgs e)
     {
         if (_media == null || _exportCts != null || _deletingMedia) return;
-        if (!VerifySource(_media.Path) || !SourceReady) return;
+        string original = _media.Path;
+        if (!VerifySource(original) || !SourceReady) return;
         var container = CurrentContainer(forOverwrite: false);
+        if (PickExportLimit(container) is not { } limit) return;
+        if (!EditorSource.MatchesLoadedPreview(CurrentFile, original) || !VerifySource(original) || !SourceReady) return;
         string dir = Path.GetDirectoryName(_media.Path)!;
         var details = CurrentClipDetails();
         string suggested;
@@ -2003,7 +2006,7 @@ public partial class EditorView : UserControl
                 MessageBoxButton.OK, MessageBoxImage.Information);
             return;
         }
-        await RunExportAsync(dlg.FileName, container, overwrite: false);
+        await RunExportAsync(dlg.FileName, container, overwrite: false, limit);
     }
 
     private ClipDetails CurrentClipDetails()
@@ -2038,7 +2041,7 @@ public partial class EditorView : UserControl
 
     internal bool HasActiveExport => _exportCts != null;
 
-    private async Task RunExportAsync(string outputPath, Container container, bool overwrite)
+    private async Task RunExportAsync(string outputPath, Container container, bool overwrite, ExportLimit? limit = null, bool wait = false)
     {
         if (App.IsQuittingForUpdate || _exportPreparing || _exportCts != null || _loading || _resettingDraft) return;
         if (CurrentFile is not { } source || !VerifySource(source) || !SourceReady) return;
@@ -2058,33 +2061,37 @@ public partial class EditorView : UserControl
             if (_pendingFile != null) _ = Dispatcher.BeginInvoke(() => _ = OpenPendingFileAsync());
         }
         if (!VerifySource(source) || !SourceReady) return;
-        string? staging = null;
+        limit ??= ExportLimit.Existing;
+        if (!overwrite)
+        {
+            try
+            {
+                var plan = BuildExportPlan(outputPath, container, limit, false);
+                var detailsSnapshot = CurrentClipDetails();
+                if (AppProfile.IsPersonal)
+                    plan = plan with { CaptureTime = detailsSnapshot.CapturedAt, ClipTitle = detailsSnapshot.Title };
+                SaveSettings();
+                await QueueExportAsync(outputPath, plan, detailsSnapshot, wait);
+            }
+            catch (Exception ex) when (ex is ExportException or IOException or UnauthorizedAccessException or ArgumentException)
+            {
+                ModalDialog.Show(OwnerWindow, ex.Message, "Can't export", MessageBoxButton.OK, MessageBoxImage.Warning);
+            }
+            return;
+        }
+        MediaStaging? staging = null;
         var details = CurrentClipDetails();
         ExportRequest request;
-        List<string> args;
         try
         {
-            if (ClipLibrary.IsMomentsPath(outputPath) || (overwrite && ClipLibrary.IsMomentsPath(_media!.Path)))
+            if (ClipLibrary.IsMomentsPath(outputPath) || ClipLibrary.IsMomentsPath(source))
                 throw new ExportException("Choose an export location outside the Moments archive.");
-            if (!overwrite)
-            {
-                if (Path.Exists(outputPath)) throw new ExportException("That file already exists. Choose a new filename.");
-            }
-            staging = ClipNaming.ReserveStagingPath(Path.GetDirectoryName(outputPath)!, container.Extension);
-            request = BuildRequest(staging, container);
-            // Export as new -> ordinary playable single soundtrack.
-            // Save over -> first stream is a default mix, followed by editable stems.
-            request = request with
-            {
-                MergeAudio = !overwrite && request.Tracks.Count > 1,
-                HybridAudio = overwrite && container.HasVideo && !container.SingleAudioTrack,
-            };
+            request = BuildExportPlan(outputPath, container, limit, true);
             if (AppProfile.IsPersonal) request = request with { CaptureTime = details.CapturedAt, ClipTitle = details.Title };
-            args = ExportBuilder.BuildArgs(request);
+            _ = ExportBuilder.BuildArgs(request);
         }
         catch (Exception ex) when (ex is ExportException or IOException or UnauthorizedAccessException)
         {
-            if (staging != null) RemoveExportStaging(staging);
             ModalDialog.Show(OwnerWindow, ex.Message, "Can't export", MessageBoxButton.OK, MessageBoxImage.Warning);
             return;
         }
@@ -2092,51 +2099,49 @@ public partial class EditorView : UserControl
         SaveSettings();
         var cts = new CancellationTokenSource();
         _exportCts = cts;
-        _exportPath = staging;
         RevealButton.Visibility = Visibility.Collapsed;
         UndoButton.Visibility = Visibility.Collapsed;
         _undo = null;
         ProgressPanel.Visibility = Visibility.Visible;
         ExportProgress.Value = 0;
-        StatusText.Text = "Exporting…";
+        ExportProgress.IsIndeterminate = !SystemParameters.HighContrast && SystemParameters.ClientAreaAnimation;
+        StatusText.Text = "Preparing replacement. Follow it in Media jobs.";
         UpdateUiState();
 
-        using var activity = QuickClip.Shell.BackgroundActivity.Begin("Exporting clip");
         var sw = Stopwatch.StartNew();
-        var progress = new Progress<double>(p =>
-        {
-            activity.Report("Exporting clip", p);
-            ExportProgress.Value = p * 100;
-            StatusText.Text = $"Exporting… {p:P0}";
-        });
-
         try
         {
-            await ExportRunner.RunAsync(args, request.OutputPath, request.Duration, progress, cts.Token);
-            if (!VerifySource(source)) return;
-            if (_sourceSuspended)
-            {
-                StatusText.Text = "Export stopped while the source was being recycled.";
-                return;
-            }
-            cts.Token.ThrowIfCancellationRequested();
+            var sources = MediaProcessing.Sources(source, request.Tracks);
+            if (_sourceStamp != sources[0].Stamp) throw new ExportException("The selected clip changed before export.");
+            long ceiling = request.SizeCeilingBytes ?? request.Media.Size;
             var exportedDetails = details.ForExport(request.Start, request.End);
-            string final = outputPath;
-            if (overwrite)
+            var submission = MediaJobs.Current.Submit(new MediaJobRequest(Path.GetFileName(source), false, sources,
+                source, async (job, ct) =>
+                {
+                    string directory = Path.GetDirectoryName(outputPath)!;
+                    MediaProcessing.CheckFreeSpace(directory, ceiling);
+                    staging = MediaStaging.Reserve(directory, container.Extension);
+                    await EncodeExportAsync(request with { OutputPath = staging.Path }, ceiling, null, job, ct);
+                    return staging.Path;
+                })
             {
-                activity.Report("Finishing export");
-                StatusText.Text = "Replacing the original…";
-                DateTime? recycled;
-                _replacingSource = true;
-                (final, recycled) = await ReplaceOriginalAsync(staging!, exportedDetails);
-                if (recycled is { } when) _undo = (final, when, details);
-            }
-            else
-            {
-                cts.Token.ThrowIfCancellationRequested();
-                File.Move(staging!, final);
-                if (AppProfile.IsPersonal) ClipDetailsStore.TryWrite(final, exportedDetails);
-            }
+                Replace = async (staged, ct) => await Dispatcher.InvokeAsync(async () =>
+                {
+                    ct.ThrowIfCancellationRequested();
+                    if (!VerifySource(source) || _sourceSuspended)
+                        throw new ExportException("The original changed before publication.");
+                    StatusText.Text = "Replacing the original…";
+                    _replacingSource = true;
+                    var (final, recycled) = await ReplaceOriginalAsync(staged, exportedDetails);
+                    if (recycled is { } when) _undo = (final, when, details);
+                    return final;
+                }).Task.Unwrap(),
+            });
+            using var cancel = cts.Token.Register(() => MediaJobs.Current.Cancel(submission.Id));
+            var result = await submission.Completion;
+            if (result.State == MediaJobState.Cancelled) throw new OperationCanceledException();
+            if (result.State != MediaJobState.Completed) throw new ExportException(result.Message ?? "The export failed.");
+            string final = result.Output!;
             _lastExport = final;
             RevealButton.Visibility = Visibility.Visible;
             UndoButton.Visibility = _undo != null ? Visibility.Visible : Visibility.Collapsed;
@@ -2155,22 +2160,16 @@ public partial class EditorView : UserControl
         }
         finally
         {
-            if (staging != null) RemoveExportStaging(staging);
+            if (staging != null) await Task.Run(staging.Dispose);
             _exportCts = null;
             _replacingSource = false;
-            _exportPath = null;
             cts.Dispose();
             ProgressPanel.Visibility = Visibility.Collapsed;
+            ExportProgress.IsIndeterminate = false;
             if (MissingSourceOverlay.Visibility == Visibility.Visible) ClearMissingSourceButton.IsEnabled = true;
             UpdateUiState();
             await OpenPendingFileAsync();
         }
-    }
-
-    private static void RemoveExportStaging(string path)
-    {
-        try { File.Delete(path); }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { Log.Failure(DiagnosticCategory.Editor, "Could not remove an export staging file", ex); }
     }
 
     /// <summary>
@@ -2248,6 +2247,8 @@ public partial class EditorView : UserControl
         StatusText.Text = "Putting the original back…";
         try
         {
+            using var ownership = MediaOwnership.Current.TryMutate(clip) ??
+                throw new ExportException("Another media job is using this clip. Try again after it finishes.");
             var original = RecycleBin.FindLatest(clip, undo.RecycledUtc)
                 ?? throw new IOException("The original isn't in the Recycle Bin any more.");
             if (!await MetadataEditor.FlushAsync() || !await FlushEditDraftAsync() || !VerifySource(clip)) return;
@@ -2420,7 +2421,7 @@ public partial class EditorView : UserControl
             throw new InvalidOperationException("Editor did not restore the trim, playhead, track settings and metadata.");
     }
 
-    internal Task ExportDraftForRender(string path) => RunExportAsync(path, CurrentContainer(forOverwrite: false), overwrite: false);
+    internal Task ExportDraftForRender(string path) => RunExportAsync(path, CurrentContainer(forOverwrite: false), overwrite: false, wait: true);
 
     internal Task UndoForRender() => UndoAsync();
     internal Task SaveOverForRender(double newIn)

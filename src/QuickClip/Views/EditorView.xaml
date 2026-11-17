@@ -403,6 +403,12 @@
                             <TextBlock Text="Export as new file…" />
                         </StackPanel>
                     </Button>
+                    <DockPanel Margin="0,6,0,0">
+                        <Button x:Name="ShareSelectionOptionsButton" DockPanel.Dock="Right" Content="▾"
+                                AutomationProperties.Name="Sharing options" ToolTip="Sharing options" Click="ShareSelectionOptions_Click" />
+                        <Button x:Name="ShareSelectionButton" Content="Share current edit" Click="ShareSelection_Click"
+                                ToolTip="Share this trim, crop, and audio selection with the default profile" />
+                    </DockPanel>
                     <Button x:Name="ResetEditsButton" Content="Reset edits" Click="ResetEdits_Click" Style="{StaticResource TextButton}"
                             HorizontalAlignment="Left" Margin="0,6,0,0" Visibility="Collapsed" />
                     <TextBlock x:Name="DraftStatus" TextWrapping="Wrap" Foreground="{DynamicResource SubtleText}" />

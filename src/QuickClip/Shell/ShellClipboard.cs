@@ -15,7 +15,9 @@ internal static class ShellClipboard
     private static ComDataObject? _current;
 
     /// <summary>Call on the UI thread (OLE's clipboard needs an STA thread that pumps messages).</summary>
-    public static void CopyFile(string path)
+    public static void CopyFile(string path) => TryCopyFile(path, null);
+
+    public static bool TryCopyFile(string path, Func<bool>? stillRequested)
     {
         OleInitialize(IntPtr.Zero); // WPF only does this once something uses OLE; already done is fine
         var shellItem = new Guid("43826d1e-e718-42ee-bc55-a1e261c37bfe");
@@ -26,8 +28,9 @@ internal static class ShellClipboard
         {
             var data = (ComDataObject)item.BindToHandler(IntPtr.Zero, ref dataObjectHandler, ref dataObject);
             SetPreferredDropEffect(data, 1); // DROPEFFECT_COPY: pasting copies the file rather than moving it
-            Retry(() => OleSetClipboard(data));
+            if (!Retry(() => OleSetClipboard(data), stillRequested)) return false;
             _current = data;
+            return true;
         }
         finally
         {
@@ -54,13 +57,14 @@ internal static class ShellClipboard
     }
 
     // Clipboard watchers (Windows' clipboard history, for one) open the clipboard the moment it changes.
-    private static void Retry(Func<int> call)
+    private static bool Retry(Func<int> call, Func<bool>? stillRequested = null)
     {
         for (int attempt = 1; ; attempt++)
         {
+            if (stillRequested?.Invoke() == false) return false;
             int hr = call();
-            if (hr >= 0) return;
-            if (hr != ClipboardBusy || attempt == 20) Marshal.ThrowExceptionForHR(hr);
+            if (hr >= 0) return true;
+            if (hr != ClipboardBusy || attempt == 20 || stillRequested != null) Marshal.ThrowExceptionForHR(hr);
             Thread.Sleep(50);
         }
     }

@@ -622,21 +622,12 @@
                 <StackPanel>
                     <TextBlock Text="Sharing" Style="{StaticResource CardTitle}" />
                     <TextBlock Style="{StaticResource Hint}" Margin="0,2,0,0" TextWrapping="Wrap"
-                               Text="Share makes a copy of a clip under the size limit at up to 60 fps, with all its audio on one track, and copies it to the clipboard." />
-                    <Grid Style="{StaticResource Row}">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="160" />
-                            <ColumnDefinition Width="90" />
-                            <ColumnDefinition Width="*" />
-                        </Grid.ColumnDefinitions>
-                        <TextBlock Text="Size limit" VerticalAlignment="Center"  TextWrapping="Wrap" />
-                        <TextBox x:Name="ShareSizeBox" Grid.Column="1" Style="{StaticResource CompactBox}" Padding="8,6"
-                                 KeyDown="ShareSize_KeyDown" LostKeyboardFocus="ShareSize_Commit"
-                                 ToolTip="Shared copies are made to fit under this size" />
-                        <TextBlock Grid.Column="2" Text="MB" Margin="8,0,0,0" VerticalAlignment="Center" Style="{StaticResource Hint}"  TextWrapping="Wrap" />
-                    </Grid>
-                    <TextBlock Style="{StaticResource Hint}" Margin="160,4,0,0" TextWrapping="Wrap"
-                               Text="Smaller copies upload faster but look softer. Discord takes up to 10 MB without Nitro." />
+                               Text="Prepare an MP4 with one soundtrack and paste it or attach it manually." />
+                    <Button Content="Manage sharing profiles…" HorizontalAlignment="Left" Margin="0,8,0,0"
+                            Click="SharingProfiles_Click" />
+                    <TextBlock x:Name="DefaultSharingText" Style="{StaticResource Hint}" TextWrapping="Wrap" Margin="0,4,0,0" />
+                    <CheckBox x:Name="ParallelMediaJobs" Margin="0,10,0,0" Checked="MediaConcurrency_Changed" Unchecked="MediaConcurrency_Changed"
+                              Content="Allow two background media jobs when idle" />
                     <CheckBox Style="{StaticResource SwitchCheckBox}" x:Name="MotionBlurCheck" Margin="0,10,0,0" Checked="Changed" Unchecked="Changed">
                         <TextBlock Text="Smooth motion: blend the extra frames of clips over 60 fps (like 120 fps) into motion blur" TextWrapping="Wrap" />
                     </CheckBox>

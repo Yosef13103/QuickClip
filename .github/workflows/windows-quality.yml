@@ -1,7 +1,7 @@
 name: Windows quality
 on:
   pull_request:
-    branches: [custom/main, integration/p0-capture-games, integration/nov12-field-test, integration/v1-owner-preview-20261113, integration/v1-full-acceptance-20261113, integration/wave2-discovery-maintenance, feat/recording-status-hud, integration/wave2-full-acceptance]
+    branches: [custom/main, integration/p0-capture-games, integration/nov12-field-test, integration/v1-owner-preview-20261113, integration/v1-full-acceptance-20261113, integration/wave2-discovery-maintenance, feat/recording-status-hud, integration/wave2-full-acceptance, chatgpt/wave2-owner-polish]
   push:
     branches: [custom/main, integration/v1-owner-preview-20261113]
 permissions:

@@ -301,7 +301,8 @@ public partial class SettingsView : UserControl
             SoundCheck.IsChecked = s.ClipSound;
             ConfirmDeleteCheck.IsChecked = s.ConfirmClipDeletion;
             MotionBlurCheck.IsChecked = s.ShareMotionBlur;
-            ShowShareSize();
+            ShowDefaultSharing();
+            ParallelMediaJobs.IsChecked = s.MediaJobConcurrency == 2;
             ShellCheck.IsChecked = SafeIsRegistered();
             if (ShellIntegration.IsMenuPackageInstalled())
             {
@@ -717,26 +718,27 @@ public partial class SettingsView : UserControl
         AppSettings.Current.Save();
     }
 
-    private void ShowShareSize() =>
-        ShareSizeBox.Text = AppSettings.Current.ShareSizeMB.ToString("0.##", System.Globalization.CultureInfo.CurrentCulture);
+    private void ShowDefaultSharing() =>
+        DefaultSharingText.Text = $"Default · {SharingProfiles.Default(AppSettings.Current)}";
 
-    private void ShareSize_KeyDown(object sender, KeyEventArgs e)
+    private void SharingProfiles_Click(object sender, RoutedEventArgs e)
     {
-        if (e.Key == Key.Escape) ShowShareSize();
-        if (e.Key is Key.Enter or Key.Escape) Keyboard.ClearFocus();
+        SharingDialogs.Manage(Window.GetWindow(this));
+        ShowDefaultSharing();
     }
 
-    /// <summary>The share size limit, from 1 MB up; anything that isn't a number goes back to what it was.</summary>
-    private void ShareSize_Commit(object sender, KeyboardFocusChangedEventArgs e)
+    private void MediaConcurrency_Changed(object sender, RoutedEventArgs e)
     {
+        if (_loading || !IsLoaded) return;
         var s = AppSettings.Current;
-        if (double.TryParse(ShareSizeBox.Text.Replace("MB", "", StringComparison.OrdinalIgnoreCase).Trim(),
-                System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.CurrentCulture, out var mb) && mb > 0)
-        {
-            s.ShareSizeMB = Math.Clamp(Math.Round(mb, 1), 1, 4000);
-            s.Save();
-        }
-        ShowShareSize();
+        int next = ParallelMediaJobs.IsChecked == true ? 2 : 1;
+        if (next == s.MediaJobConcurrency) return;
+        int old = s.MediaJobConcurrency;
+        s.MediaJobConcurrency = next;
+        if (s.TrySave()) return;
+        s.MediaJobConcurrency = old;
+        ParallelMediaJobs.IsChecked = old == 2;
+        ModalDialog.Show(Window.GetWindow(this), "Could not save the media job setting.", "QuickClip");
     }
 
     /// <summary>Bitrate, memory and clip size for the current choices.</summary>

@@ -367,6 +367,12 @@ public partial class PlayerView : UserControl
         if (Current is { } clip) _ = ClipSharing.ShareAsync(clip.Path);
     }
 
+    private void ShareOptions_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is FrameworkElement anchor && Current is { } clip)
+            SharingDialogs.OpenMenu(anchor, profile => _ = ClipSharing.ShareAsync(clip.Path, profile));
+    }
+
     private void Edit_Click(object sender, RoutedEventArgs e)
     {
         if (Current is { } clip) EditRequested?.Invoke(clip.Path);

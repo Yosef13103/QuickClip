@@ -133,6 +133,8 @@ internal static class ClipLibrary
         && !path.Contains(".quickclip-tmp", StringComparison.OrdinalIgnoreCase);
 
     public static bool IsMomentsPath(string path) => ContainsMomentsDirectory(Path.GetFullPath(path));
+    public static bool IsSharedCopyPath(string path) =>
+        IsWithin(Path.GetFullPath(path), Path.TrimEndingDirectorySeparator(AppProfile.SharedDirectory));
 
     private static bool ContainsMomentsDirectory(string path) => path.Split('\\', '/')
         .Any(part => part.TrimEnd(' ', '.').Equals(MomentsArchive, StringComparison.OrdinalIgnoreCase));
@@ -158,7 +160,7 @@ internal static class ClipLibrary
     public static List<ClipItem> Scan(string root, string[]? exclusions = null, IReadOnlyDictionary<string, ClipItem>? previous = null)
     {
         var clips = new List<ClipItem>();
-        if (!Directory.Exists(root) || IsMomentsPath(root)) return clips;
+        if (IsMomentsPath(root) || IsSharedCopyPath(root) || !Directory.Exists(root)) return clips;
         var options = new EnumerationOptions
         {
             RecurseSubdirectories = true,
@@ -172,7 +174,7 @@ internal static class ClipLibrary
             ShouldRecursePredicate = (ref FileSystemEntry entry) =>
             {
                 string relative = Path.GetRelativePath(root, entry.ToFullPath());
-                return !IsWithin(relative, ProjectLibrary.FolderName) && !IsExcluded(relative, exclusions);
+                return !IsWithin(relative, ProjectLibrary.FolderName) && !IsExcluded(relative, exclusions) && !IsSharedCopyPath(entry.ToFullPath());
             },
         };
         foreach (var path in files)
