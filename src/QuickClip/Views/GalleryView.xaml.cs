@@ -739,6 +739,7 @@ public partial class GalleryView : UserControl
         // Snapshot before populating dynamic submenus.
         foreach (var entry in MenuEntries(menu.Items).ToArray())
         {
+            entry.DataContext = item;
             if (entry.Tag is "external-player")
                 entry.Header = AppSettings.Current.ExternalPlayerPath == null ? "Open with Windows default" : "Open in " + ExternalPlayer.Label(AppSettings.Current.ExternalPlayerPath);
             if (entry.Tag is "external-choices")

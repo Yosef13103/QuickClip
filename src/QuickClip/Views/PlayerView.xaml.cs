@@ -121,6 +121,8 @@ public partial class PlayerView : UserControl
         PlayButton.IsEnabled = SeekBar.IsEnabled = FullScreenButton.IsEnabled = true;
         _clips = [.. clips];
         _index = index;
+        PreviousButton.IsEnabled = FloatingPrevious.IsEnabled = index > 0;
+        NextButton.IsEnabled = FloatingNext.IsEnabled = index < _clips.Count - 1;
         _openedAt = Environment.TickCount64;
         if (_player == null) _openWhenLoaded = true;
         else _ = OpenAsync(index);
