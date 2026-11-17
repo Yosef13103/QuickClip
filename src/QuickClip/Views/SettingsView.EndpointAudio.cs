@@ -13,7 +13,6 @@ public partial class SettingsView
     private string? _endpointError;
     private bool _endpointsLoaded;
     private int _statusRequest;
-    private readonly List<FrameworkElement> _advancedEndpointControls = [];
 
     private void ShowEndpointMode()
     {
@@ -74,7 +73,6 @@ public partial class SettingsView
     {
         ClearMicrophoneMeters(_endpointMeters);
         EndpointRows.Children.Clear();
-        _advancedEndpointControls.Clear();
         for (int i = 0; i < tracks.Count; i++)
         {
             var track = tracks[i];
@@ -92,7 +90,6 @@ public partial class SettingsView
                 remaining.RemoveAt(index);
                 CommitEndpoints(settings => settings.EndpointTracks = remaining, rebuild: true);
             }, icon: true));
-            _advancedEndpointControls.Add(actions);
             row.Children.Add(actions);
 
             var enabled = new CheckBox { IsChecked = track.Enabled, VerticalAlignment = VerticalAlignment.Top, Margin = new Thickness(0, 7, 0, 0), ToolTip = "Record this device" };
@@ -103,15 +100,44 @@ public partial class SettingsView
             row.Children.Add(enabled);
 
             var fields = new StackPanel { Margin = new Thickness(8, 0, 4, 0) };
-            var label = new TextBox { Text = track.Label, ToolTip = "Name of this track in saved clips", Padding = new Thickness(5, 4, 5, 4) };
+            var rename = new Button { Content = caption, Style = (Style)FindResource("TextButton"),
+                ToolTip = "Rename this track" };
+            AutomationProperties.SetName(rename, $"Rename {FlowName(track.Flow)} track {i + 1}");
+            rename.HorizontalAlignment = HorizontalAlignment.Left;
+            var label = new TextBox { Text = track.Label, Visibility = Visibility.Collapsed,
+                ToolTip = "Name of this track in saved clips", Padding = new Thickness(5, 4, 5, 4) };
             AutomationProperties.SetName(label, $"Name of {FlowName(track.Flow)} track {i + 1}");
-            label.LostKeyboardFocus += (_, _) => UpdateEndpoint(track, t => t with { Label = label.Text });
+            string savedLabel = track.Label;
+            rename.Click += (_, _) =>
+            {
+                label.Text = savedLabel;
+                rename.Visibility = Visibility.Collapsed;
+                label.Visibility = Visibility.Visible;
+                label.Focus();
+                label.SelectAll();
+            };
+            void FinishRename(bool save)
+            {
+                if (!ReferenceEquals(row.Parent, EndpointRows) || label.Visibility != Visibility.Visible) return;
+                string text = label.Text.Trim();
+                rename.Visibility = Visibility.Visible;
+                label.Visibility = Visibility.Collapsed;
+                if (!save) return;
+                UpdateEndpoint(track, t => t with { Label = text });
+                savedLabel = AppSettings.Current.EndpointTracks.FirstOrDefault(t =>
+                    EndpointAudio.SameDevice(t.Flow, t.DeviceId, track.Flow, track.DeviceId))?.Label ?? savedLabel;
+                rename.Content = string.IsNullOrWhiteSpace(savedLabel) ? FlowName(track.Flow) : savedLabel;
+            }
+            label.LostKeyboardFocus += (_, _) => FinishRename(save: true);
             label.KeyDown += (_, e) =>
             {
-                if (e.Key == Key.Enter) label.MoveFocus(new TraversalRequest(FocusNavigationDirection.Next));
+                if (e.Key is not (Key.Enter or Key.Escape)) return;
+                e.Handled = true;
+                FinishRename(save: e.Key == Key.Enter);
+                rename.Focus();
             };
+            fields.Children.Add(rename);
             fields.Children.Add(label);
-            _advancedEndpointControls.Add(label);
             string deviceText = $"{i + 1} · {FlowName(track.Flow)} · " +
                 (device != null ? EndpointName(device) : availabilityChecked ? "Missing device (selection kept)" : "Availability not checked");
             fields.Children.Add(new TextBlock

@@ -42,7 +42,9 @@ public partial class MainWindow : Window
         Width = Math.Min(Width, SystemParameters.WorkArea.Width * 0.95);
         Height = Math.Min(Height, SystemParameters.WorkArea.Height * 0.95);
 
-        Gallery.OpenRequested += path => _ = OpenInEditorAsync(path);
+        Gallery.OpenRequested += path => _ = AppProfile.IsPersonal
+            ? OpenGalleryCardAsync(path, null) : OpenInEditorAsync(path);
+        Gallery.CardOpenRequested += (path, card) => _ = OpenGalleryCardAsync(path, card);
         Gallery.PlayRequested += async (clips, index) =>
         {
             if (await ShowPageAsync(PlayerPage)) PlayerPage.Play(clips, index);
@@ -77,6 +79,12 @@ public partial class MainWindow : Window
         {
             if (WhatsNew.Visibility != Visibility.Visible)
             {
+                if (e.Key == System.Windows.Input.Key.Escape && _galleryOpening != null)
+                {
+                    CancelGalleryOpen();
+                    e.Handled = true;
+                    return;
+                }
                 if (e.Key == System.Windows.Input.Key.F5 && System.Windows.Input.Keyboard.Modifiers == 0 &&
                     !e.IsRepeat && CanRefreshVisiblePage)
                 {
@@ -92,7 +100,12 @@ public partial class MainWindow : Window
             }
             e.Handled = true;
         };
-        Deactivated += (_, _) => Gallery.StopHoverPreview();
+        Deactivated += (_, _) =>
+        {
+            Gallery.StopHoverPreview();
+            _editor?.DismissFullscreenControls();
+            _player?.DismissFullscreenControls();
+        };
         StateChanged += (_, _) =>
         {
             if (WindowState != WindowState.Minimized) return;
@@ -105,7 +118,8 @@ public partial class MainWindow : Window
 
     public async Task OpenInEditorAsync(string path)
     {
-        var clips = Gallery.IsVisible ? Gallery.EditorNavigationPaths() : Array.Empty<string>();
+        var clips = Gallery.IsVisible ? Gallery.EditorNavigationPaths() :
+            _player?.IsVisible == true ? _player.EditorNavigationPaths() : Array.Empty<string>();
         if (await ShowPageAsync(EditorPage))
         {
             EditorPage.SetNavigationClips(clips);
@@ -197,11 +211,17 @@ public partial class MainWindow : Window
 
     private async Task<bool> ShowPageAsync(UIElement page)
     {
-        var current = Pages.Children.OfType<UIElement>().FirstOrDefault(child => child.Visibility == Visibility.Visible);
+        CancelGalleryOpen();
+        var current = Pages.Children.OfType<UIElement>().FirstOrDefault(child => child.Visibility == Visibility.Visible && child != _galleryStagedEditor);
         if (current != null) SetNavigation(current);
         if (_closing) return false;
         using var operation = Log.Begin(DiagnosticCategory.General, "Page navigation");
         long request = ++_pageRequest;
+        if (page == _galleryStagedEditor && _galleryOpenTask is { } staged)
+        {
+            await staged;
+            if (_closing || request != _pageRequest) return false;
+        }
         bool saved = true;
         if (current != page)
         {
@@ -247,7 +267,8 @@ public partial class MainWindow : Window
             _player.Unload();
         }
         foreach (UIElement child in Pages.Children)
-            child.Visibility = child == page ? Visibility.Visible : Visibility.Collapsed;
+            if (child != _galleryStagedEditor || child == page)
+                child.Visibility = child == page ? Visibility.Visible : Visibility.Collapsed;
         SetNavigation(page);
         if (page == _editor)
         {
@@ -514,7 +535,19 @@ public partial class MainWindow : Window
         e.Cancel = true;
         if (_closing) return;
         _closing = true;
+        CancelGalleryOpen();
         using var operation = Log.Begin(DiagnosticCategory.General, "Window close");
+        if (_galleryOpenTask is { IsCompleted: false } preparing)
+        {
+            try { await preparing.WaitAsync(TimeSpan.FromSeconds(2)); }
+            catch (TimeoutException)
+            {
+                operation?.Cancel();
+                _closing = false;
+                _closeResult?.TrySetResult(false);
+                return;
+            }
+        }
         if (_navigationFlush is { IsCompleted: false } navigation) await navigation;
         if ((!await Gallery.FlushAnnotationsAsync() &&
                 !ModalDialog.ConfirmAction(this, "Some Gallery changes could not be saved. Discard them and close?",

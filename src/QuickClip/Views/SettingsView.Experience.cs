@@ -141,8 +141,6 @@ public partial class SettingsView
         AudioHint.Visibility = Visibility.Collapsed;
         EndpointDetailHint.Visibility = EndpointOrderLabel.Visibility = Visibility.Collapsed;
         EndpointModeCheck.Content = "Choose specific audio devices";
-        foreach (var item in _advancedEndpointControls)
-            item.Visibility = Visibility.Visible;
         foreach (var meter in _endpointMeters.Concat(_legacyMeters))
             meter.Save.Visibility = basic ? Visibility.Collapsed : Visibility.Visible;
         var settings = AppSettings.Current;

@@ -127,18 +127,30 @@ public sealed class FrontendWindowAcceptanceTests(ITestOutputHelper output)
     }
 
     [OptInFact("QUICKCLIP_TEST_FRONTEND_WINDOWS")]
-    public Task Hud_preview_uses_display_affinity_or_stays_hidden() => OnDispatcher(async () =>
+    public Task Hud_preview_uses_a_layered_nonactivating_window_without_capture_affinity() => OnDispatcher(async () =>
     {
         var display = Assert.Single(ClipNotificationOverlay.Displays(), item => item.Primary);
         using var overlay = new ClipNotificationOverlay();
         overlay.ShowRecordingIndicator(display.Device, OverlayAnchor.TopRight, MicrophoneIndicatorState.Active);
         await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
-        output.WriteLine($"visible={overlay.IsVisible}, opaque={overlay.IndicatorOpaque}, layeredWin32={overlay.IndicatorLayeredError}, status={overlay.IndicatorFailure ?? "excluded by Windows API"}");
-        if (overlay.IsVisible) Assert.Null(overlay.IndicatorFailure);
-        else Assert.False(string.IsNullOrWhiteSpace(overlay.IndicatorFailure));
+        Assert.True(overlay.IsVisible, overlay.IndicatorFailure);
+        var styles = OverlayWindowStyles(overlay.WindowHandle);
+        const int required = 0x00080000 | 0x08000000 | 0x20; // layered, no-activate, transparent
+        Assert.Equal(required, styles & required);
+        Assert.True(ReadAffinity(overlay.WindowHandle, out uint affinity));
+        Assert.Equal(0u, affinity);
+        output.WriteLine("Layered, transparent input, no activation, ordinary capture affinity.");
         overlay.Hide();
         Assert.False(overlay.IsVisible);
     });
+
+    [System.Runtime.InteropServices.DllImport("user32.dll", EntryPoint = "GetWindowLongW")]
+    private static extern int GetWindowLong(IntPtr hwnd, int index);
+
+    private static int OverlayWindowStyles(IntPtr hwnd) => GetWindowLong(hwnd, -20);
+
+    [System.Runtime.InteropServices.DllImport("user32.dll", EntryPoint = "GetWindowDisplayAffinity")]
+    private static extern bool ReadAffinity(IntPtr hwnd, out uint affinity);
 
     private static async Task OnDispatcher(Func<Task> run)
     {

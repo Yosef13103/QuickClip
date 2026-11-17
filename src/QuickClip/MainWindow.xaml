@@ -111,9 +111,11 @@
         </DockPanel>
 
         <!-- Pages: the player and editor are created the first time they're needed and then kept (their video windows must persist) -->
-        <Grid x:Name="Pages" Grid.Row="1" Grid.Column="1">
-            <views:GalleryView x:Name="Gallery" />
-        </Grid>
+        <AdornerDecorator Grid.Row="1" Grid.Column="1">
+            <Grid x:Name="Pages" ClipToBounds="True">
+                <views:GalleryView x:Name="Gallery" />
+            </Grid>
+        </AdornerDecorator>
 
         <!-- Recording status -->
         <Border x:Name="StatusBar" Grid.Row="2" Grid.Column="1" Background="{DynamicResource PanelBrush}" BorderBrush="{DynamicResource DividerBrush}" BorderThickness="1" CornerRadius="10" Margin="8,3,8,8" Padding="12,7,8,7">

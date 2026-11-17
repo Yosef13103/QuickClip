@@ -557,19 +557,22 @@
         "All required gates pass at exact integrated candidate or authorized documented deferral (not hidden failure); prepare PR/release recommendation only, owner separately approves merge/version/publication."
       ],
       "effort": "high",
-      "status": "not_started",
+      "status": "in_progress",
       "candidate": null,
       "gates": {
-        "local": "pending",
+        "local": "pass",
         "ci": "pending",
         "review": "pending",
         "hardware": "pending"
       },
       "evidence": [
-        "Owner explicitly deferred W2-D. Combined integration initiated, not accepted."
+        "Owner explicitly deferred W2-D. Combined integration initiated, not accepted.",
+        "Draft #88 continues integrated review. Strict Release Personal 881 passed / 22 skipped; Upstream 74 passed / 14 skipped. Generated-media WPF and opt-in theme/HUD checks passed.",
+        "Owner footage failed overlay exclusion (black rectangles). Candidate retires affinity and requires ordinary recorded-overlay consent for legacy affected overlays. Cross-process input, capture, matched benchmarks and the installed updater on this candidate require separate evidence.",
+        "docs/wave2-owner-followup-2.md#final-stabilization-candidate-in-draft-88"
       ],
       "blocker": null,
-      "next_action": null
+      "next_action": "Review #88 and run supervised acceptance at the pinned draft head."
     },
     {
       "id": "W2-R2-EDIT",
@@ -629,6 +632,7 @@
         "hardware": "pending"
       },
       "evidence": [
+        "Draft #88 final generated-media WPF passed navigation during pending metadata debounce and close/recovery with a never-settling write; focused save and contention regressions passed.",
         "WPF repro failed on the baseline; fixed case, contended SQLite and synthetic close/recovery covered.",
         "docs/owner-field-polish.md#local-regression-evidence"
       ],
@@ -661,6 +665,7 @@
         "hardware": "pending"
       },
       "evidence": [
+        "Draft #88 final focused diagnostic regressions passed. Prior disposable forced termination, second session, and disabled writer checks remain documented in owner-field-polish.md.",
         "Release tray process retained flushed events after termination; rotation and storage contention have fixtures.",
         "docs/owner-field-polish.md#local-regression-evidence"
       ],
@@ -693,6 +698,7 @@
         "hardware": "pending"
       },
       "evidence": [
+        "Draft #88 final WPF regression passed Gallery rename, Editor return with trim preserved, reverse rename, restart, export and replace/Undo with generated media.",
         "Generated-media WPF interaction, restart, export, save over original and Undo passed.",
         "docs/owner-field-polish.md#local-regression-evidence"
       ],
@@ -725,6 +731,7 @@
         "hardware": "pending"
       },
       "evidence": [
+        "Draft #88 final WPF regression passed Gallery card staging, truthful rail, source-verified playback restart, rapid source switching and fullscreen client layout.",
         "Generated-media WPF source switching includes a superseded media probe; owner timing and GPU behavior remain pending.",
         "docs/owner-field-polish.md#local-regression-evidence"
       ],
@@ -757,6 +764,7 @@
         "hardware": "pending"
       },
       "evidence": [
+        "Draft #88 keeps exact-path Minesweeper repair and the owner-approved Minecraft Launcher runtime suffix. Synthetic eligibility passes; actual launcher-proxy association and gameplay capture are still pending.",
         "Owner catalog showed a verified collection-root executable without exact gameplay association. Synthetic issue and dismissal tests cover that path.",
         "docs/owner-field-polish.md#local-regression-evidence"
       ],
@@ -789,6 +797,7 @@
         "hardware": "pending"
       },
       "evidence": [
+        "Draft #88 final opt-in WPF test passed actual popup entries, import, Light/custom switching, settings reload, duplicate detection and rename rollback. Original owner symptom unreproduced.",
         "Isolated WPF popup test passed for imported themes, duplicate rename and locked settings rollback. Owner occurrence remains unconfirmed.",
         "docs/owner-field-polish.md#local-regression-evidence"
       ],
@@ -821,6 +830,7 @@
         "hardware": "pending"
       },
       "evidence": [
+        "Draft #88 keeps existing guarded page-specific refresh. Physical refresh during recording and with an active edit remains pending.",
         "Source audit and shared Gallery/Editor regression coverage. Direct owner interaction is pending.",
         "docs/owner-field-polish.md#local-regression-evidence"
       ],

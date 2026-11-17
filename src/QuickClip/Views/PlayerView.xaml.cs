@@ -24,6 +24,7 @@ public partial class PlayerView : UserControl
     private readonly DispatcherTimer _childWindowTimer;
     private readonly DispatcherTimer _hideTimer;
     private MpvPlayer? _player;
+    private Popup? _fullscreenPopup;
     private PreviewAudio? _audio;
     private List<ClipItem> _clips = [];
     private int _index = -1;
@@ -42,6 +43,7 @@ public partial class PlayerView : UserControl
     public event Action? TitleChanged;
 
     public string? ClipTitle => Current?.Title;
+    internal string[] EditorNavigationPaths() => _clips.Select(clip => clip.Path).ToArray();
 
     private ClipItem? Current => _index >= 0 && _index < _clips.Count ? _clips[_index] : null;
 
@@ -64,8 +66,25 @@ public partial class PlayerView : UserControl
             Seek(SeekBar.Value);
         }));
         PreviewKeyDown += OnPreviewKeyDown;
+        ControlBar.PreviewKeyDown += (_, e) =>
+        {
+            if (_fullScreen && e.Key is Key.Escape or Key.F11)
+            {
+                e.Handled = true;
+                if (!e.IsRepeat) FullScreenRequested?.Invoke(false);
+            }
+        };
+        Root.SizeChanged += (_, _) =>
+        {
+            if (_fullscreenPopup?.IsOpen == true) Controls.FullscreenPopup.UpdateWidth(_fullscreenPopup, ControlBar, Root.ActualWidth);
+        };
         // Hidden with the window (minimized to the tray, say): don't keep playing unseen.
-        IsVisibleChanged += (_, e) => { if (e.NewValue is false) _player?.SetProperty("pause", true); };
+        IsVisibleChanged += (_, e) =>
+        {
+            if (e.NewValue is not false) return;
+            DismissFullscreenControls();
+            _player?.SetProperty("pause", true);
+        };
         Loaded += OnLoaded;
     }
 
@@ -96,18 +115,32 @@ public partial class PlayerView : UserControl
         get => _fullScreen;
         set
         {
+            if (_fullScreen == value) return;
             _fullScreen = value;
+            SetFloatingControls(value);
             Header.Visibility = value ? Visibility.Collapsed : Visibility.Visible;
             FullScreenButton.Content = value ? ExitFullScreenGlyph : FullScreenGlyph;
-            FullScreenButton.ToolTip = value ? "Exit full screen (F or Esc)" : "Full screen (F)";
+            FullScreenButton.ToolTip = value ? "Exit full screen (F11 or Esc)" : "Full screen (F11)";
             ShowControls();
         }
     }
 
+#if DEBUG
+    internal bool TrySaveFrameForRender(string path) =>
+        _player?.Command("screenshot-to-file", path, "window") == true;
+
+    internal bool VerifyFullscreenLayoutForRender() =>
+        _fullScreen && _fullscreenPopup?.IsOpen == true && !Root.Children.Contains(ControlBar) &&
+        Math.Abs(Video.ActualWidth - Root.ActualWidth) < 1 && Math.Abs(Video.ActualHeight - Root.ActualHeight) < 1;
+
+    internal bool VerifyRestoredLayoutForRender() =>
+        !_fullScreen && _fullscreenPopup == null && Root.Children.Contains(ControlBar) && Header.IsVisible;
+#endif
+
     public async Task CloseAsync()
     {
         _childWindowTimer.Stop();
-        _hideTimer.Stop();
+        DismissFullscreenControls();
         // mpv tears down its child window during shutdown, which needs this thread to keep pumping.
         var player = _player;
         _player = null;
@@ -400,8 +433,40 @@ public partial class PlayerView : UserControl
 
     private void ControlBar_MouseMove(object sender, MouseEventArgs e) => ShowControls();
 
+    private void SetFloatingControls(bool enabled)
+    {
+        if (enabled)
+        {
+            Root.Children.Remove(ControlBar);
+            _fullscreenPopup = new Popup
+            {
+                PlacementTarget = Root, Placement = PlacementMode.Custom, AllowsTransparency = true,
+                StaysOpen = true, Child = ControlBar, CustomPopupPlacementCallback = Controls.FullscreenPopup.Place,
+            };
+            Controls.FullscreenPopup.UpdateWidth(_fullscreenPopup, ControlBar, Root.ActualWidth);
+            _player?.CommandAsync("show-text", "Esc or F11 to exit fullscreen", "1600");
+        }
+        else if (_fullscreenPopup is { } popup)
+        {
+            popup.IsOpen = false;
+            popup.Child = null;
+            _fullscreenPopup = null;
+            ControlBar.ClearValue(WidthProperty);
+            Root.Children.Add(ControlBar);
+            _dragging = false;
+            Root.Focus();
+        }
+    }
+
+    internal void DismissFullscreenControls()
+    {
+        _hideTimer.Stop();
+        if (_fullscreenPopup != null) _fullscreenPopup.IsOpen = false;
+    }
+
     private void ShowControls()
     {
+        if (_fullScreen && IsVisible && _fullscreenPopup?.IsOpen == false) _fullscreenPopup.IsOpen = true;
         if (_controlsHidden)
         {
             _controlsHidden = false;
@@ -409,15 +474,14 @@ public partial class PlayerView : UserControl
             Video.RefreshCursor();
         }
         _hideTimer.Stop();
-        if (_fullScreen && !_paused) _hideTimer.Start();
+        if (_fullScreen && IsVisible) _hideTimer.Start();
     }
 
     private void HideControls()
     {
-        _hideTimer.Stop();
-        if (!_fullScreen || _paused || ControlBar.IsMouseOver) return;
+        if (!_fullScreen || ControlBar.IsMouseOver || ControlBar.IsKeyboardFocusWithin || ControlBar.IsMouseCaptureWithin) return;
+        DismissFullscreenControls();
         _controlsHidden = true;
-        ControlBar.Visibility = Visibility.Collapsed;
         Video.RefreshCursor();
     }
 

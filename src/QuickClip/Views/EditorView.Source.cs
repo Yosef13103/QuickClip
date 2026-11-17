@@ -15,6 +15,25 @@ public partial class EditorView
     private long _previewEntry;
     private DispatcherTimer? _previewProgressTimer;
 
+    private readonly TaskCompletionSource<bool> _previewInitialization = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    private TaskCompletionSource<bool>? _preparedPreview;
+
+    internal async Task<bool> PreparePreviewAsync(string path, CancellationToken token)
+    {
+        if (!await _previewInitialization.Task.WaitAsync(token)) return false;
+        var ready = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        _preparedPreview = ready;
+        try
+        {
+            await OpenAsync(path, token);
+            token.ThrowIfCancellationRequested();
+            if (!SourceReady || !EditorSource.MatchesLoadedPreview(CurrentFile, path)) return false;
+            return _previewReady || _previewEntry != 0 && await ready.Task.WaitAsync(token) &&
+                SourceReady && EditorSource.MatchesLoadedPreview(CurrentFile, path);
+        }
+        finally { _preparedPreview = null; }
+    }
+
     private void ShowPreviewLoading()
     {
         Video.Visibility = Visibility.Hidden;
@@ -47,6 +66,7 @@ public partial class EditorView
             long.TryParse(_player.GetString("playlist/0/id"), out _previewEntry)) return;
         HidePreviewProgress();
         EmptySourceHint.Text = "Preview not available for this file";
+        _preparedPreview?.TrySetResult(false);
     }
 
     private void OnMpvPreviewReadyOrFailed(long entryId, int error)
@@ -64,12 +84,14 @@ public partial class EditorView
                 Video.Visibility = Visibility.Hidden;
                 EmptySourceHint.Visibility = Visibility.Visible;
                 EmptySourceHint.Text = "Preview not available for this file";
+                _preparedPreview?.TrySetResult(false);
                 Log.Event(DiagnosticCategory.Editor, "mpv playback ended with an error", DiagnosticSeverity.Error, error);
                 return;
             }
 
             if (!EditorSource.MatchesLoadedPreview(_player?.GetString("path"), _media.Path)) return;
             _previewReady = true;
+            _preparedPreview?.TrySetResult(true);
             _idle = false;
             Video.Visibility = Visibility.Visible;
             PlayButton.IsEnabled = true;

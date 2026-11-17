@@ -330,7 +330,7 @@ internal sealed class AppHost : IDisposable
         if (savedBanner || image)
         {
             if (savedBanner)
-                _ = ShowOverlayAsync(options.Banner(options.Style == OverlayStyle.Detailed), "Clip saved", true, details, saved: true);
+                _ = ShowOverlayAsync(options.Banner(options.Style == OverlayStyle.Detailed) with { HideSavedBannerFromCapture = false }, "Clip saved", true, details, saved: true);
             if (image)
                 _ = ShowOverlayAsync(options.Image(), "Clip saved", true, details, saved: true, imageChannel: true);
             return;
@@ -351,16 +351,9 @@ internal sealed class AppHost : IDisposable
         {
             var overlay = imageChannel ? (_clipImageOverlay ??= new ClipNotificationOverlay()) : _clipOverlay;
             await overlay.ShowAsync(options, title, success, details, message, missingImageFallback,
-                saved, WarnNotificationExclusionUnavailable);
+                saved);
         }
         catch (Exception ex) { Log.Failure(DiagnosticCategory.General, "Clip overlay unavailable", ex); }
-    }
-
-    private void WarnNotificationExclusionUnavailable(bool image, int error)
-    {
-        Log.Failure(DiagnosticCategory.General, "Windows rejected notification capture exclusion", new System.ComponentModel.Win32Exception(error));
-        string notification = image ? "The clip notification image" : "The saved-clip banner";
-        Notify("Notification capture exclusion unavailable", $"{notification} may appear in recordings (Win32 {error}).", warning: true);
     }
 
     private void UpdateTooltip()

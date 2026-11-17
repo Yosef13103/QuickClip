@@ -154,17 +154,24 @@
                     </TextBlock>
                 </Button.ToolTip>
             </Button>
-            <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center" Margin="8,0,4,0">
-                <Button x:Name="PreviousClipButton" Style="{StaticResource IconButton}" Content="&#xE76B;" IsEnabled="False"
-                        Click="PreviousClip_Click" ToolTip="Previous clip in Gallery" AutomationProperties.Name="Previous clip" />
-                <Button x:Name="NextClipButton" Style="{StaticResource IconButton}" Content="&#xE76C;" IsEnabled="False"
-                        Click="NextClip_Click" ToolTip="Next clip in Gallery" AutomationProperties.Name="Next clip" />
-            </StackPanel>
-            <StackPanel Margin="14,0,0,0" VerticalAlignment="Center">
-                <TextBlock x:Name="FileNameText" FontSize="{DynamicResource QuickClipText15}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" Text="No file open" />
-                <TextBlock x:Name="FileInfoText" FontSize="{DynamicResource QuickClipText12}" Foreground="{DynamicResource SubtleText}" TextTrimming="CharacterEllipsis"
-                           Text="Open a video or audio file, or drop one onto this window." />
-            </StackPanel>
+            <DockPanel Margin="12,0,8,0" VerticalAlignment="Center" LastChildFill="True">
+                <Button x:Name="PreviousClipButton" DockPanel.Dock="Left" Style="{StaticResource IconButton}" IsEnabled="False"
+                        Click="PreviousClip_Click" ToolTip="Previous clip in Gallery order" AutomationProperties.Name="Previous clip">
+                    <Path Data="M9,2 L4,7 L9,12" StrokeThickness="1.6" StrokeLineJoin="Round"
+                          Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}" />
+                </Button>
+                <Button x:Name="NextClipButton" DockPanel.Dock="Right" Style="{StaticResource IconButton}" IsEnabled="False"
+                        Click="NextClip_Click" ToolTip="Next clip in Gallery order" AutomationProperties.Name="Next clip">
+                    <Path Data="M4,2 L9,7 L4,12" StrokeThickness="1.6" StrokeLineJoin="Round"
+                          Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}" />
+                </Button>
+                <StackPanel Margin="6,0" VerticalAlignment="Center">
+                    <TextBlock x:Name="FileNameText" FontSize="{DynamicResource QuickClipText15}" FontWeight="SemiBold" TextAlignment="Center"
+                               TextTrimming="CharacterEllipsis" Text="No file open" />
+                    <TextBlock x:Name="FileInfoText" FontSize="{DynamicResource QuickClipText12}" Foreground="{DynamicResource SubtleText}"
+                               TextAlignment="Center" TextTrimming="CharacterEllipsis" Text="Open a video or audio file, or drop one onto this window." />
+                </StackPanel>
+            </DockPanel>
         </DockPanel>
 
         <!-- Video -->
@@ -356,7 +363,7 @@
                                                 <ColumnDefinition Width="82" />
                                             </Grid.ColumnDefinitions>
                                             <Slider Minimum="0" Maximum="200" Value="{Binding VolumePercent}" SmallChange="1" LargeChange="10"
-                                                    Style="{StaticResource CompactTrackVolume}" Focusable="False" VerticalAlignment="Center" IsMoveToPointEnabled="True"
+                                                    Style="{StaticResource CompactTrackVolume}" AutomationProperties.Name="Track volume" VerticalAlignment="Center" IsMoveToPointEnabled="True"
                                                     MouseDoubleClick="VolumeSlider_DoubleClick" ToolTip="Volume (double-click for 100%)" />
                                             <TextBlock Grid.Column="1" Text="{Binding VolumeText}" FontSize="{DynamicResource QuickClipText11}" Foreground="{DynamicResource SubtleText}"
                                                        VerticalAlignment="Center" TextAlignment="Right" />

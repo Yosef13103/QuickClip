@@ -18,9 +18,12 @@ internal sealed class RecordingIndicator : IDisposable
     private string? _failureReported;
     private readonly ClipNotificationOverlay _preview = new();
     private DispatcherTimer? _previewTimer;
+    internal static bool IsEnabled(AppSettings settings) =>
+        settings.ShowGameRecordingIndicator && settings.AllowRecordingIconsInCapture;
+
     internal string Status => _overlay.IndicatorFailure ?? (_overlay.IsVisible
-        ? (_overlay.IndicatorOpaque ? $"Visible using compact opaque fallback (layered Win32 {_overlay.IndicatorLayeredError}); test saved clips." : "Visible; verify exclusion in a saved clip.")
-        : "Icons appear during actual replay recording.");
+        ? "Visible on the recorded display. Icons may appear in footage."
+        : "Icons appear during replay recording after you enable them.");
 
     internal RecordingIndicator()
     {
@@ -49,7 +52,7 @@ internal sealed class RecordingIndicator : IDisposable
         }
         _epoch = state.Epoch;
         _signal.Configure(_epoch, state.Microphones, state.StartedAt);
-        if (!settings.ShowGameRecordingIndicator)
+        if (!IsEnabled(settings))
         {
             Hide();
             return;
@@ -94,15 +97,14 @@ internal sealed class RecordingIndicator : IDisposable
         }
         _previewTimer.Stop();
         _previewTimer.Start();
-        return _preview.IndicatorOpaque ? $"Preview uses compact opaque fallback (layered Win32 {_preview.IndicatorLayeredError}). Test actual capture exclusion."
-            : "Preview on primary display for four seconds.";
+        return "Preview on primary display for four seconds.";
     }
 
     private void Sample()
     {
         var settings = AppSettings.Current;
         var state = Recorder.Instance.Feedback;
-        if (state?.Epoch != _epoch || !settings.ShowGameRecordingIndicator || !settings.ShowRecordingMicrophoneIndicator)
+        if (state?.Epoch != _epoch || !IsEnabled(settings) || !settings.ShowRecordingMicrophoneIndicator)
         {
             Refresh(state);
             return;

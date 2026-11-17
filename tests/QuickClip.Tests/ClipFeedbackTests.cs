@@ -218,7 +218,7 @@ public sealed class ClipFeedbackTests
     [InlineData(true, false)]
     [InlineData(false, true)]
     [InlineData(true, true)]
-    public void Only_saved_banner_exclusion_is_effective_even_with_legacy_image_flag(bool hideBanner, bool hideImage)
+    public void Legacy_banner_hold_does_not_suppress_images_or_other_banners(bool hideBanner, bool hideImage)
     {
         var legacy = AppSettings.Parse("{}").ClipOverlay;
         Assert.False(legacy.HideSavedBannerFromCapture);
@@ -232,9 +232,19 @@ public sealed class ClipFeedbackTests
             },
         };
         var options = AppSettings.Parse(settings.ToJson()).ClipOverlay;
-        Assert.Equal(hideBanner, options.ForEvent(ClipEvent.Saved)!.ExcludeFromCapture(saved: true));
-        Assert.False((options with { ImageOnly = true }).ImageForEvent(ClipEvent.Saved)!.ExcludeFromCapture(saved: true));
-        Assert.False(options.ForEvent(ClipEvent.GameStarted)!.ExcludeFromCapture(saved: false));
+        Assert.Equal(hideBanner, options.ForEvent(ClipEvent.Saved) == null);
+        Assert.NotNull((options with { ImageOnly = true }).ImageForEvent(ClipEvent.Saved));
+        Assert.NotNull(options.ForEvent(ClipEvent.GameStarted));
+    }
+
+    [Fact]
+    public void Legacy_recording_icons_require_consent_to_ordinary_capture()
+    {
+        var settings = AppSettings.Parse("""{"ShowGameRecordingIndicator":true,"ShowRecordingMicrophoneIndicator":true}""");
+        Assert.False(RecordingIndicator.IsEnabled(settings));
+        Assert.True(settings.ShowRecordingMicrophoneIndicator);
+        settings.AllowRecordingIconsInCapture = true;
+        Assert.True(RecordingIndicator.IsEnabled(AppSettings.Parse(settings.ToJson())));
     }
 
     private static byte[] GifFixture() => Convert.FromHexString(
@@ -281,8 +291,8 @@ public sealed class ClipFeedbackTests
                         await overlay.ShowAsync(options with { HideImageFromCapture = true }, "Excluded image", true, saved: true);
                         Assert.True(overlay.IsVisible);
                         Assert.Equal(SystemParameters.ClientAreaAnimation, overlay.IsAnimatingImage);
-                        await overlay.ShowAsync(new ClipOverlayOptions { HideSavedBannerFromCapture = true }, "Excluded banner", true, saved: true);
-                        Assert.True(overlay.IsVisible);
+                        await overlay.ShowAsync(new ClipOverlayOptions { HideSavedBannerFromCapture = true }, "Held banner", true, saved: true);
+                        Assert.False(overlay.IsVisible);
                         Assert.False(overlay.IsAnimatingImage);
                         await overlay.ShowAsync(options, "Expires", true);
                         Assert.Equal(SystemParameters.ClientAreaAnimation, overlay.IsAnimatingImage);
@@ -435,12 +445,12 @@ public sealed class ClipFeedbackTests
     }
 
     [Fact]
-    public void Exclusion_disables_saved_banner_motion_only()
+    public void Legacy_banner_hold_preserves_ordinary_animation()
     {
         var options = new ClipOverlayOptions { Enabled = true, ImageOnly = true, ImagePath = "sample.gif",
             Animation = OverlayAnimation.Slide, HideSavedBannerFromCapture = true,
             ImageAppearance = new() { Animation = OverlayAnimation.Fade } };
-        Assert.Equal(OverlayAnimation.None, options.ForEvent(ClipEvent.Saved)!.Animation);
+        Assert.Null(options.ForEvent(ClipEvent.Saved));
         Assert.Equal(OverlayAnimation.Slide, options.ForEvent(ClipEvent.GameStarted)!.Animation);
         Assert.Equal(OverlayAnimation.Fade, options.ImageForEvent(ClipEvent.Saved)!.Animation);
         Assert.Equal(OverlayAnimation.Slide, (options with { HideSavedBannerFromCapture = false }).ForEvent(ClipEvent.Saved)!.Animation);
@@ -475,7 +485,7 @@ public sealed class ClipFeedbackTests
                 ClipSound = sound,
                 ClipWindowsNotification = true,
                 ClipOverlay = new() { Enabled = true, ImageOnly = image, ImagePath = "fixture.gif",
-                    Style = OverlayStyle.Detailed, HideSavedBannerFromCapture = true, ImageAppearance = new() },
+                    Style = OverlayStyle.Detailed, ImageAppearance = new() },
             }.ToJson());
             var saved = ClipFeedback.From(settings, ClipEvent.Saved, "Fixture");
             Assert.Equal(sound, saved.Sound);
@@ -483,8 +493,6 @@ public sealed class ClipFeedbackTests
             Assert.Equal(AppProfile.IsPersonal && master && text, saved.BannerOverlay != null);
             Assert.Equal(AppProfile.IsPersonal && master && image, saved.ImageOverlay != null);
             Assert.Equal(saved.BannerOverlay != null || saved.ImageOverlay != null, saved.Overlay);
-            if (saved.BannerOverlay is { } banner) Assert.True(banner.ExcludeFromCapture(true));
-            if (saved.ImageOverlay is { } celebration) Assert.False(celebration.ExcludeFromCapture(true));
             var started = ClipFeedback.From(settings, ClipEvent.GameStarted, "Fixture");
             Assert.False(started.Sound);
             Assert.Null(started.ImageOverlay);

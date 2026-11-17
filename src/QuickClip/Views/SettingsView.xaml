@@ -719,8 +719,8 @@
 
                     <StackPanel x:Name="ClipOverlayPanel" Margin="0,12,0,0">
                         <CheckBox Style="{StaticResource SwitchCheckBox}" x:Name="ClipNotificationsCheck" Content="Show visual notifications" Focusable="True" Click="ClipFeedback_Changed" />
-                        <CheckBox Style="{StaticResource SwitchCheckBox}" x:Name="GameIndicatorCheck" Content="Recording status icons" Focusable="True" Margin="0,8,0,0" Click="ClipFeedback_Changed" />
-                        <TextBlock Style="{StaticResource Hint}" TextWrapping="Wrap" Text="Small replay and microphone icons on the recorded display. Some capture methods may replace these icons with black patches instead of removing them. Disable the icons if this happens." />
+                        <CheckBox Style="{StaticResource SwitchCheckBox}" x:Name="GameIndicatorCheck" Content="Recording status icons (can appear in footage)" Focusable="True" Margin="0,8,0,0" Click="ClipFeedback_Changed" />
+                        <TextBlock Style="{StaticResource Hint}" TextWrapping="Wrap" Text="Small replay and microphone icons on the recorded display. Enable them to show ordinary icons that can appear in footage." />
                         <CheckBox Style="{StaticResource SwitchCheckBox}" x:Name="MicrophoneIndicatorCheck" Content="Show microphone signal status" Focusable="True" Margin="0,8,0,0" Click="ClipFeedback_Changed" />
                         <TextBlock Style="{StaticResource Hint}" TextWrapping="Wrap" Text="One microphone icon: checks for sound for 10 seconds at recording start. Red if any selected input has not been verified; white once all have produced sound. White stays for the session, even when you stop talking. Hidden when none is selected." />
                         <StackPanel x:Name="AdvancedNotificationOptions">
@@ -748,11 +748,11 @@
                                     <TextBlock Text="Clip saved" FontWeight="SemiBold" FontSize="{DynamicResource QuickClipText16}" />
                                     <TextBlock Style="{StaticResource Hint}" Text="Image and text notifications are independent. Turn off the clip-saved text notification above to keep only the image, sound, or both." Margin="0,4,0,8" />
                                     <CheckBox x:Name="ImageOnlyCheck" Style="{StaticResource SwitchCheckBox}" Content="Show an image or animation when a clip is saved" Click="ClipFeedback_Changed" />
-                                    <CheckBox x:Name="HideSavedBannerFromCaptureCheck" Style="{StaticResource SwitchCheckBox}" Margin="0,6,0,0" Click="ClipFeedback_Changed">
-                                        <TextBlock Text="Hide saved-clip banner from recordings (experimental)" TextWrapping="Wrap" />
+                                    <CheckBox x:Name="ShowSavedBannerInCaptureCheck" Style="{StaticResource SwitchCheckBox}" Margin="0,6,0,0" Click="ClipFeedback_Changed">
+                                        <TextBlock Text="Show saved banner on screen, including in recordings" TextWrapping="Wrap" />
                                     </CheckBox>
                                     <TextBlock Style="{StaticResource Hint}" Margin="0,4,0,0"
-                                               Text="Custom images remain visible in recordings. Banner exclusion may leave a black patch in desktop clips; turn it off if this happens." />
+                                               Text="Capture exclusion was retired after it left black patches. Previously excluded banners stay off until you enable them here. Windows notifications, images and sound have separate controls." />
                                     <TextBlock x:Name="OverlayOverlapWarning" Foreground="{DynamicResource WarningBrush}" TextWrapping="Wrap"
                                                FontSize="{DynamicResource QuickClipText12}" Margin="0,6,0,0" Visibility="Collapsed"
                                                Text="Both notifications use the same display and position. The image may cover part of the banner." />
@@ -832,8 +832,6 @@
                                     <ComboBox x:Name="OverlayAnchorCombo" SelectionChanged="ClipFeedback_Changed" AutomationProperties.Name="Indicator position" />
                                     <TextBlock Text="Animation" Margin="0,8,0,0" />
                                     <ComboBox x:Name="OverlayAnimationCombo" SelectionChanged="ClipFeedback_Changed" AutomationProperties.Name="Indicator animation" />
-                                    <TextBlock x:Name="ExcludedBannerAnimationHint" Style="{StaticResource Hint}" TextWrapping="Wrap"
-                                               Visibility="Collapsed" Text="Saved banners are static while capture exclusion is enabled. Other status banners retain your chosen animation." />
                                 </StackPanel>
                                 <StackPanel Grid.Column="1" Margin="6,0,0,0">
                                     <TextBlock Text="Size (DIP, 24–240)" TextWrapping="Wrap" />

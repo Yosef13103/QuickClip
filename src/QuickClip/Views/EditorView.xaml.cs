@@ -152,9 +152,11 @@ public partial class EditorView : UserControl
     private Window OwnerWindow => Window.GetWindow(this) ?? Application.Current.MainWindow;
 
     /// <summary>Opens a file now, or as soon as the player is ready.</summary>
-    public async Task OpenAsync(string path)
+    public Task OpenAsync(string path) => OpenAsync(path, default);
+
+    private async Task OpenAsync(string path, CancellationToken cancellationToken)
     {
-        if (_closed) return;
+        if (_closed || cancellationToken.IsCancellationRequested) return;
         path = Path.GetFullPath(path);
         // Gallery may request a different clip while the previous probe or a confirmed
         // Recycle Bin deletion is still running. Never silently drop the newer request.
@@ -167,7 +169,7 @@ public partial class EditorView : UserControl
         {
             if (EditorSource.Check(path, _sourceStamp, out _) == EditorSourceState.Replaced && CanOpenAnother())
             {
-                await OpenFileAsync(path, flushCurrent: true);
+                await OpenFileAsync(path, flushCurrent: true, cancellationToken);
                 return;
             }
             await RefreshSourceAsync();
@@ -180,7 +182,7 @@ public partial class EditorView : UserControl
             _pendingFile = path;
             return;
         }
-        if (CanOpenAnother()) await OpenFileAsync(path);
+        if (CanOpenAnother()) await OpenFileAsync(path, cancellationToken: cancellationToken);
     }
 
     private void QueueSource(string path)
@@ -279,14 +281,24 @@ public partial class EditorView : UserControl
         _fullscreen = on;
         FullscreenRequested?.Invoke(on);
         ApplyMode();
-        if (on) RevealFullscreenControls();
-        else _fullscreenControlsTimer.Stop();
+        if (on)
+        {
+            Root.Focus();
+            _player?.CommandAsync("show-text", "Esc or F11 to exit fullscreen", "1600");
+            RevealFullscreenControls();
+        }
+        else
+        {
+            _fullscreenControlsTimer.Stop();
+            HideFullscreenOverlay();
+            ShowMessage(null);
+        }
     }
 
     private void RevealFullscreenControls()
     {
-        if (!_fullscreen) return;
-        Transport.Visibility = ViewSeek.Visibility = Visibility.Visible;
+        if (!_fullscreen || !IsVisible) return;
+        if (_fullscreenOverlay?.IsOpen != true) OpenFullscreenOverlay();
         _fullscreenControlsTimer.Stop();
         _fullscreenControlsTimer.Start();
     }
@@ -349,8 +361,9 @@ public partial class EditorView : UserControl
         FullscreenButton.Content = _fullscreen ? "\uE73F" : "\uE740";
         FullscreenButton.ToolTip = _fullscreen ? "Exit fullscreen (Esc / F11)" : "Fullscreen (F11)";
         System.Windows.Automation.AutomationProperties.SetName(FullscreenButton, _fullscreen ? "Exit fullscreen" : "Fullscreen");
-        Transport.Visibility = Visibility.Visible;
-        ViewSeek.Visibility = _viewMode || _fullscreen ? Visibility.Visible : Visibility.Collapsed;
+        Root.Margin = _fullscreen ? new Thickness(0) : new Thickness(12);
+        Transport.Visibility = _fullscreen ? Visibility.Collapsed : Visibility.Visible;
+        ViewSeek.Visibility = _viewMode && !_fullscreen ? Visibility.Visible : Visibility.Collapsed;
         InspectorGap.Width = new GridLength(editing ? 8 : 0);
         InspectorColumn.MinWidth = editing ? 250 : 0;
         InspectorColumn.Width = new GridLength(editing ? Math.Min(_inspectorWidth, Math.Max(250, Root.ActualWidth - 350)) : 0);
@@ -369,6 +382,14 @@ public partial class EditorView : UserControl
         ViewSeek.IsEnabled = _media != null && SourceReady;
         ViewSeek.Maximum = Math.Max(0, _timeline.Duration);
         ViewSeek.Value = _timeline.Position;
+        if (_fullscreen && _fullscreenSeek != null && _fullscreenPlay != null)
+        {
+            _fullscreenSeek.IsEnabled = _media != null && SourceReady;
+            _fullscreenSeek.Maximum = Math.Max(0, _timeline.Duration);
+            if (!_fullscreenSeek.IsMouseCaptureWithin) _fullscreenSeek.Value = _timeline.Position;
+            _fullscreenPlay.Content = _paused ? PlayGlyph : PauseGlyph;
+            _fullscreenPlay.IsEnabled = _previewReady && SourceReady;
+        }
         _updatingViewSeek = false;
     }
 
@@ -425,11 +446,18 @@ public partial class EditorView : UserControl
         Video.VideoMouseDown += OnVideoMouseDown;
         _fullscreenControlsTimer = new DispatcherTimer(TimeSpan.FromSeconds(2.5), DispatcherPriority.Background, (_, _) =>
         {
-            if (Transport.IsMouseOver || ViewSeek.IsMouseOver || Transport.IsKeyboardFocusWithin || ViewSeek.IsKeyboardFocusWithin) return;
+            if (_fullscreenOverlay?.Child is UIElement controls &&
+                (controls.IsMouseOver || controls.IsKeyboardFocusWithin || controls.IsMouseCaptureWithin)) return;
             _fullscreenControlsTimer!.Stop();
-            if (_fullscreen) Transport.Visibility = ViewSeek.Visibility = Visibility.Hidden;
+            HideFullscreenOverlay();
+            if (_fullscreen) ShowMessage(null);
         }, Dispatcher) { IsEnabled = false };
         Root.MouseMove += (_, _) => RevealFullscreenControls();
+        Root.SizeChanged += (_, _) =>
+        {
+            if (_fullscreenOverlay?.IsOpen == true && _fullscreenOverlay.Child is FrameworkElement surface)
+                Controls.FullscreenPopup.UpdateWidth(_fullscreenOverlay, surface, Root.ActualWidth);
+        };
         Video.VideoMouseMove += (x, y) =>
         {
             RevealFullscreenControls();
@@ -454,7 +482,11 @@ public partial class EditorView : UserControl
         Loaded += OnLoaded;
         IsVisibleChanged += async (_, _) =>
         {
-            if (!IsVisible) _player?.SetProperty("pause", true);
+            if (!IsVisible)
+            {
+                HideFullscreenOverlay();
+                _player?.SetProperty("pause", true);
+            }
             else
             {
                 await RefreshSourceAsync();
@@ -496,6 +528,7 @@ public partial class EditorView : UserControl
         }
         catch (Exception ex)
         {
+            _previewInitialization.TrySetResult(false);
             Log.Failure(DiagnosticCategory.Editor, "mpv init failed", ex);
             if (!_closed)
                 ModalDialog.Show(OwnerWindow, "The video preview could not be started:\n\n" + ex.Message, "QuickClip", MessageBoxButton.OK, MessageBoxImage.Warning);
@@ -514,6 +547,7 @@ public partial class EditorView : UserControl
         // Personal clips start with looping off; looping is an explicit per-editor choice.
         LoopToggle.IsChecked = AppProfile.IsPersonal ? false : _settings.Loop;
         _uiReady = true;
+        _previewInitialization.TrySetResult(true);
 
         if (_pendingFile != null)
         {
@@ -542,6 +576,8 @@ public partial class EditorView : UserControl
         if (!await TryLeaveClipAsync(closing: true)) return false;
         _draftTimer.Stop();
         _closed = true;
+        HideFullscreenOverlay();
+        _fullscreenControlsTimer.Stop();
         Loaded -= OnLoaded;
         DetachSourceEvents();
         SaveSettings();
@@ -660,7 +696,7 @@ public partial class EditorView : UserControl
         return p.X >= 0 && p.Y >= 0 && p.X <= element.ActualWidth && p.Y <= element.ActualHeight;
     }
 
-    private async Task OpenFileAsync(string path, bool flushCurrent = false)
+    private async Task OpenFileAsync(string path, bool flushCurrent = false, CancellationToken cancellationToken = default)
     {
         if (_loading || _deletingMedia || _exportPreparing || _resettingDraft)
         {
@@ -677,7 +713,8 @@ public partial class EditorView : UserControl
             if (_pendingFile != null && !_replacingSource) return;
             path = Path.GetFullPath(path);
             using var operation = Log.Begin(DiagnosticCategory.Editor, "Editor source probe");
-            using var opening = new CancellationTokenSource();
+            if (cancellationToken.IsCancellationRequested) return;
+            using var opening = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             _openingSource = opening;
             var token = opening.Token;
             _probingSource = true;
@@ -1204,6 +1241,7 @@ public partial class EditorView : UserControl
                 _paused = value is true;
                 if (_paused) QueueEditDraft();
                 PlayButton.Content = _paused ? PlayGlyph : PauseGlyph;
+                if (_fullscreenPlay != null) _fullscreenPlay.Content = PlayButton.Content;
                 break;
             case "eof-reached":
                 bool wasEof = _eof;
@@ -1409,6 +1447,8 @@ public partial class EditorView : UserControl
     private void OnPreviewKeyDown(object sender, KeyEventArgs e)
     {
         if (TimelineDivider.IsKeyboardFocused && e.Key is Key.Up or Key.Down) return;
+        if (Keyboard.FocusedElement is Slider &&
+            e.Key is Key.Left or Key.Right or Key.Up or Key.Down or Key.PageUp or Key.PageDown or Key.Home or Key.End) return;
         if (MetadataEditor.IsKeyboardFocusWithin || FavoriteButton.IsKeyboardFocused && e.Key == Key.Space) return;
         if (Keyboard.FocusedElement is TextBox)
         {
@@ -1471,7 +1511,7 @@ public partial class EditorView : UserControl
     private void OnVideoMouseDown(int x, int y)
     {
         Root.Focus();
-        if (_crop.Enabled) _crop.MouseDown(x, y);
+        if (!_fullscreen && _crop.Enabled) _crop.MouseDown(x, y);
         else TogglePlay();
     }
 
@@ -2296,6 +2336,14 @@ public partial class EditorView : UserControl
     internal double TrimEndForRender => _timeline.Out;
     internal void SetTrimForRender(double end) => _timeline.SetOut(end);
     internal bool ViewingForRender => _viewMode;
+    internal bool VerifyFullscreenLayoutForRender() =>
+        _fullscreen && _fullscreenOverlay?.IsOpen == true && Transport.Visibility == Visibility.Collapsed &&
+        ViewSeek.Visibility == Visibility.Collapsed && Math.Abs(Video.ActualWidth - Root.ActualWidth) < 1 &&
+        Math.Abs(Video.ActualHeight - Root.ActualHeight) < 1 && Root.Margin == new Thickness(0);
+
+    internal bool VerifyRestoredLayoutForRender() =>
+        !_fullscreen && _fullscreenOverlay?.IsOpen != true && Transport.IsVisible && Root.Margin == new Thickness(12);
+
     internal bool FullscreenForRender => _fullscreen && EditorHeader.Visibility == Visibility.Collapsed;
 
     internal async Task<string> MeasureAccordionForRenderAsync()

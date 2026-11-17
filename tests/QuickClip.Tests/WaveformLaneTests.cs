@@ -5,12 +5,13 @@ using QuickClip.Controls;
 
 namespace QuickClip.Tests;
 
+[Collection("WPF controls")]
 public sealed class WaveformLaneTests
 {
     [Fact]
-    public void Seek_events_bubble_only_to_the_owning_editor_tree()
+    public async Task Seek_events_bubble_only_to_the_owning_editor_tree()
     {
-        Exception? failure = null;
+        var complete = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var thread = new Thread(() =>
         {
             try
@@ -44,12 +45,12 @@ public sealed class WaveformLaneTests
                 Assert.Single(receivedB);
                 Assert.Equal((9.0, true), receivedB[0]);
                 Assert.Equal(2, receivedA.Count);
+                complete.SetResult();
             }
-            catch (Exception ex) { failure = ex; }
+            catch (Exception ex) { complete.SetException(ex); }
         }) { IsBackground = true };
         thread.SetApartmentState(ApartmentState.STA);
         thread.Start();
-        Assert.True(thread.Join(TimeSpan.FromSeconds(10)), "STA test thread did not complete");
-        if (failure != null) throw new Xunit.Sdk.XunitException(failure.ToString());
+        await complete.Task.WaitAsync(TimeSpan.FromSeconds(10));
     }
 }

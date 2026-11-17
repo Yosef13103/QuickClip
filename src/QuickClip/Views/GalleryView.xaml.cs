@@ -83,6 +83,7 @@ public partial class GalleryView : UserControl
 
     /// <summary>The user wants to edit a file.</summary>
     public event Action<string>? OpenRequested;
+    internal event Action<string, FrameworkElement>? CardOpenRequested;
 
     /// <summary>The user wants to watch a clip; the folder's other clips come along for previous/next.</summary>
     public event Action<IReadOnlyList<ClipItem>, int>? PlayRequested;
@@ -678,7 +679,7 @@ public partial class GalleryView : UserControl
         if (_dragged || IsCardControl(e.OriginalSource, sender) || ItemOf(sender) is not { } item) return;
         // While clips are being picked, a click picks; Ctrl+click always does.
         if (HasSelection || Keyboard.Modifiers.HasFlag(ModifierKeys.Control)) item.IsSelected = !item.IsSelected;
-        else OpenClip(item);
+        else OpenClip(item, sender as FrameworkElement);
     }
 
     private bool IsAvailable(ClipItem item)
@@ -690,10 +691,15 @@ public partial class GalleryView : UserControl
         return false;
     }
 
-    private void OpenClip(ClipItem item)
+    private void OpenClip(ClipItem item, FrameworkElement? card = null)
     {
-        if (IsAvailable(item)) OpenRequested?.Invoke(item.Path);
+        if (!IsAvailable(item)) return;
+        if (AppProfile.IsPersonal && card != null && CardOpenRequested is { } open)
+            open(item.Path, card);
+        else OpenRequested?.Invoke(item.Path);
     }
+
+    internal void ShowEditorOpenStatus(string message) => ShowStatus(message);
 
     private void Play(ClipItem? item)
     {

@@ -27,6 +27,50 @@ public partial class MainWindow
         Log.Event(DiagnosticCategory.Editor, "Draft smoke waiting for Gallery");
         await WaitForAsync(() => Gallery.DraftCardForRender(editorFile) != null, "Gallery did not load the fixture.");
         Log.Event(DiagnosticCategory.Editor, "Draft smoke opening Editor");
+        if (phase == "presentation")
+        {
+            await WaitForAsync(() => Gallery.DraftCardForRender(editorFile)?.Thumbnail != null,
+                "Gallery thumbnail did not load.");
+            UpdateLayout();
+            var item = Gallery.DraftCardForRender(editorFile);
+            var card = FindCard(Gallery, item) ?? throw new InvalidOperationException("Gallery card was not realized.");
+            var opening = OpenGalleryCardAsync(editorFile, card);
+            if (!Gallery.IsVisible || GalleryNav.IsChecked != true || EditorNav.IsChecked == true)
+                throw new InvalidOperationException("Gallery lost its rail selection before the preview was ready.");
+            UpdateLayout();
+            if (SystemParameters.ClientAreaAnimation &&
+                System.Windows.Documents.AdornerLayer.GetAdornerLayer(Gallery)?.GetAdorners(Gallery)?.Length is not > 0)
+                throw new InvalidOperationException("Gallery card transition was not attached.");
+            SaveVisual(Path.Combine(dir, "gallery-opening.png"));
+            await opening;
+            if (!EditorPage.IsVisible || EditorNav.IsChecked != true || !EditorPage.PreviewReadyForRender)
+                throw new InvalidOperationException("Editor did not wait for the loaded playlist entry.");
+            EditorPage.ToggleFullscreenForRender();
+            await System.Windows.Threading.Dispatcher.Yield(System.Windows.Threading.DispatcherPriority.ApplicationIdle);
+            if (!EditorPage.VerifyFullscreenLayoutForRender() || !EditorPage.SavePreviewForRender(Path.Combine(dir, "fullscreen-frame.png")))
+                throw new InvalidOperationException("Fullscreen did not fill the Editor client or expose a decoded frame.");
+            SaveVisual(Path.Combine(dir, "fullscreen-layout.png"));
+            EditorPage.ExitFullscreen();
+            await System.Windows.Threading.Dispatcher.Yield(System.Windows.Threading.DispatcherPriority.ApplicationIdle);
+            if (!EditorPage.VerifyRestoredLayoutForRender())
+                throw new InvalidOperationException("Fullscreen controls or layout did not restore.");
+            var player = PlayerPage;
+            if (item == null || !await ShowPageAsync(player))
+                throw new InvalidOperationException("Could not open the standalone player.");
+            player.Play([item], 0);
+            SetFullScreen(true);
+            await System.Windows.Threading.Dispatcher.Yield(System.Windows.Threading.DispatcherPriority.ApplicationIdle);
+            await WaitForAsync(() => player.TrySaveFrameForRender(Path.Combine(dir, "player-fullscreen-frame.png")),
+                "The standalone player did not present a decoded frame.");
+            if (!player.VerifyFullscreenLayoutForRender())
+                throw new InvalidOperationException("The standalone player reserved space for fullscreen controls.");
+            SetFullScreen(false);
+            if (!player.VerifyRestoredLayoutForRender())
+                throw new InvalidOperationException("The standalone player controls did not restore.");
+
+            File.WriteAllText(Path.Combine(dir, "editor-draft-presentation.txt"), "Passed");
+            return;
+        }
         await OpenInEditorAsync(editorFile);
         var editor = EditorPage;
         await WaitForAsync(() => editor.PreviewReadyForRender, "Editor preview did not load.");
@@ -112,6 +156,14 @@ public partial class MainWindow
         }
         else throw new ArgumentException("Expected write, read, replace or close-pending.");
         File.WriteAllText(Path.Combine(dir, "editor-draft-" + phase + ".txt"), "Passed");
+    }
+
+    private static FrameworkElement? FindCard(DependencyObject root, ClipItem? item)
+    {
+        if (root is Border { Name: "Card" } card && ReferenceEquals(card.DataContext, item)) return card;
+        for (int i = 0; i < VisualTreeHelper.GetChildrenCount(root); i++)
+            if (FindCard(VisualTreeHelper.GetChild(root, i), item) is { } found) return found;
+        return null;
     }
 
     private sealed class StalledAnnotationWrite : IClipAnnotationActions

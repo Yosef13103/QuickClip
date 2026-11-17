@@ -121,18 +121,13 @@ internal sealed record ClipOverlayOptions
             Seconds = image.Seconds, Animation = image.Animation }).Normalize();
     }
 
-    // Retain the old serialized field for compatibility, but never exclude custom images.
-    internal bool ExcludeFromCapture(bool saved) => !WantsImage && saved && HideSavedBannerFromCapture;
-
     internal ClipOverlayOptions? ForEvent(ClipEvent kind)
     {
         var options = Migrate();
-        if (!options.Enabled) return null;
-        var banner = options.Banner(kind == ClipEvent.Saved && options.Style == OverlayStyle.Detailed);
-        // The non-layered exclusion fallback cannot animate its silhouette.
-        // Keep the stored animation for ordinary status banners and future non-excluded saves.
-        return kind == ClipEvent.Saved && options.HideSavedBannerFromCapture
-            ? banner with { Animation = OverlayAnimation.None } : banner;
+        // Preserve the legacy preference as a hold on the saved banner until the
+        // user allows it to appear in recordings.
+        if (!options.Enabled || (kind == ClipEvent.Saved && options.HideSavedBannerFromCapture)) return null;
+        return options.Banner(kind == ClipEvent.Saved && options.Style == OverlayStyle.Detailed);
     }
 
     internal static bool SamePlacement(ClipOverlayOptions banner, ClipOverlayOptions image,

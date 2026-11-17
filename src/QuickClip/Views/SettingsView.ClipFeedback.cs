@@ -123,7 +123,7 @@ public partial class SettingsView
         var events = settings.ClipEvents ?? new();
         ReplayEnabledNotice.IsChecked = events.ReplayEnabled;
         GameStartedNotice.IsChecked = events.GameStarted;
-        GameIndicatorCheck.IsChecked = settings.ShowGameRecordingIndicator;
+        GameIndicatorCheck.IsChecked = RecordingIndicator.IsEnabled(settings);
         MicrophoneIndicatorCheck.IsChecked = settings.ShowRecordingMicrophoneIndicator;
         SetChoices(GameIndicatorAnchorCombo, Enum.GetValues<OverlayAnchor>().Where(a => a != OverlayAnchor.Center).Select(a => new Choice(AnchorLabels[(int)a], a)), settings.GameRecordingIndicatorAnchor);
         ClipSavedNotice.IsChecked = events.Saved;
@@ -132,7 +132,7 @@ public partial class SettingsView
         SaveFailedNotice.IsChecked = events.Failed;
         IdleSaveNotificationCheck.IsChecked = settings.ShowInactiveSaveNotifications;
         ImageOnlyCheck.IsChecked = options.WantsImage;
-        HideSavedBannerFromCaptureCheck.IsChecked = options.HideSavedBannerFromCapture;
+        ShowSavedBannerInCaptureCheck.IsChecked = !options.HideSavedBannerFromCapture;
         DetailedSavedCheck.IsChecked = options.Style == OverlayStyle.Detailed;
         OverlayShowResolution.IsChecked = options.ShowResolution;
         OverlayShowFps.IsChecked = options.ShowFps;
@@ -224,7 +224,11 @@ public partial class SettingsView
         settings.ClipEvents = new(ReplayEnabledNotice.IsChecked == true, ClipSavedNotice.IsChecked == true,
             DesktopStartedNotice.IsChecked == true, DesktopStoppedNotice.IsChecked == true, SaveFailedNotice.IsChecked == true,
             GameStartedNotice.IsChecked == true);
-        settings.ShowGameRecordingIndicator = GameIndicatorCheck.IsChecked == true;
+        if (ReferenceEquals(sender, GameIndicatorCheck))
+        {
+            settings.ShowGameRecordingIndicator = GameIndicatorCheck.IsChecked == true;
+            settings.AllowRecordingIconsInCapture = settings.ShowGameRecordingIndicator;
+        }
         settings.ShowRecordingMicrophoneIndicator = MicrophoneIndicatorCheck.IsChecked == true;
         settings.GameRecordingIndicatorAnchor = Value(GameIndicatorAnchorCombo, settings.GameRecordingIndicatorAnchor);
         settings.ShowInactiveSaveNotifications = IdleSaveNotificationCheck.IsChecked == true;
@@ -256,7 +260,7 @@ public partial class SettingsView
             Enabled = mode is ClipNotificationMode.Overlay or ClipNotificationMode.Both,
             Style = DetailedSavedCheck.IsChecked == true ? OverlayStyle.Detailed : OverlayStyle.Compact,
             ImageOnly = imageOnly,
-            HideSavedBannerFromCapture = HideSavedBannerFromCaptureCheck.IsChecked == true,
+            HideSavedBannerFromCapture = ShowSavedBannerInCaptureCheck.IsChecked != true,
             HideImageFromCapture = false,
             ImageFit = Value(OverlayImageFitCombo, old.ImageFit),
             ShowResolution = OverlayShowResolution.IsChecked == true,
@@ -301,12 +305,9 @@ public partial class SettingsView
         BannerAppearancePanel.Visibility = banners && !IsBasicExperience ? Visibility.Visible : Visibility.Collapsed;
         ImageAppearancePanel.Visibility = image && !IsBasicExperience ? Visibility.Visible : Visibility.Collapsed;
         bool savedBanner = banners && ClipSavedNotice.IsChecked == true;
-        HideSavedBannerFromCaptureCheck.IsEnabled = savedBanner;
-        bool excluded = savedBanner && HideSavedBannerFromCaptureCheck.IsChecked == true;
-        OverlayAnimationCombo.IsEnabled = !excluded;
-        ExcludedBannerAnimationHint.Visibility = excluded ? Visibility.Visible : Visibility.Collapsed;
+        ShowSavedBannerInCaptureCheck.IsEnabled = savedBanner;
         var options = (AppSettings.Current.ClipOverlay ?? new()).Migrate();
-        bool overlap = savedBanner && image && QuickClip.Shell.ClipOverlayOptions.SamePlacement(
+        bool overlap = savedBanner && ShowSavedBannerInCaptureCheck.IsChecked == true && image && QuickClip.Shell.ClipOverlayOptions.SamePlacement(
             options.Banner(), options.Image(), ClipNotificationOverlay.Displays());
         OverlayOverlapWarning.Visibility = overlap ? Visibility.Visible : Visibility.Collapsed;
         SavedBannerPanel.Visibility = savedBanner ? Visibility.Visible : Visibility.Collapsed;

@@ -37,11 +37,17 @@ public sealed class RecordingSettingsViewTests
                 var reorder = Assert.IsType<StackPanel>(track.Children[0]);
                 Assert.All(reorder.Children.OfType<Button>(), button => Assert.Same(view.FindResource("IconButton"), button.Style));
                 var fields = Assert.IsType<StackPanel>(track.Children[2]);
-                Assert.Equal(saved.Label, Assert.IsType<TextBox>(fields.Children[0]).Text);
-                Assert.Contains("Missing device (selection kept)", Assert.IsType<TextBlock>(fields.Children[1]).Text);
+                var rename = Assert.IsType<Button>(fields.Children[0]);
+                Assert.Equal(saved.Label, rename.Content);
+                var nameEditor = Assert.IsType<TextBox>(fields.Children[1]);
+                Assert.Equal(Visibility.Collapsed, nameEditor.Visibility);
+                rename.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                Assert.Equal(saved.Label, nameEditor.Text);
+                Assert.Equal(Visibility.Visible, nameEditor.Visibility);
+                Assert.Contains("Missing device (selection kept)", Assert.IsType<TextBlock>(fields.Children[2]).Text);
                 if (AppProfile.IsPersonal)
                 {
-                    var meter = Assert.IsType<StackPanel>(fields.Children[2]);
+                    var meter = Assert.IsType<StackPanel>(fields.Children[3]);
                     Assert.Equal("microphone Saved mic activity", AutomationProperties.GetName(meter.Children[0]));
                     var actions = Assert.IsType<WrapPanel>(meter.Children[2]);
                     Assert.All(actions.Children.OfType<Button>(), button => Assert.Same(view.FindResource("TextButton"), button.Style));
