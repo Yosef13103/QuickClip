@@ -1,6 +1,6 @@
 # Sharing, capped exports, and media jobs
 
-D starts at A's verified code candidate `1cbe852a12f581edfe597b37725348611d871b0f`. The draft stacks onto #88, whose branch advanced independently. At A checkpoint `e08948f1029bde92494c51bd6c79527c78d722a3`, reconcile the D settings fields with A's notification defaults in `AppSettings.cs`. Recheck both profiles and the Gallery open transition after integration. C owns broader appearance and theme work. Keep D's existing theme resources, Settings card, share actions, export modal, and status bar job action when reconciling the UI.
+D starts at A's verified code candidate `1cbe852a12f581edfe597b37725348611d871b0f`. The draft stacks onto #88, whose branch advanced independently. A's checkpoint `e08948f1029bde92494c51bd6c79527c78d722a3` and D both edit `AppSettings.cs`. The local three-way merge reported no textual conflict. Verify that the combined checkout keeps A's notification defaults and D's sharing settings, and recheck the Gallery open transition after integration. C owns broader appearance and theme work. Keep D's existing theme resources, Settings card, share actions, export modal, and status bar job action when reconciling the UI.
 
 ## Sharing and export
 

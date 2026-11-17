@@ -858,7 +858,7 @@
         "Verify isolated UI and receiving-app paste, then measure recording contention with the owner."
       ],
       "status": "implemented",
-      "candidate": "working_tree_uncommitted",
+      "candidate": "2df7df75924178f179fd20d0a0caff6abb29bef1",
       "gates": {
         "local": "blocked",
         "ci": "pending",
@@ -873,8 +873,8 @@
         "docs/wave2-sharing-media-jobs.md",
         ".quickclip-local/agent/evidence/W2-SHARING/"
       ],
-      "blocker": "The sandbox denies the existing scratch startup registry fixture. The approval broker rejected Git index writes and the branch push with approval request failed.",
-      "next_action": "Commit the verified D worktree, push the scoped branch, open the stacked draft on chatgpt/wave2-owner-polish, and run full Windows quality CI. Then run the supervised clipboard, UI, and performance matrix against the exact draft head."
+      "blocker": "The local sandbox denies the existing scratch startup registry fixture. Full verification requires hosted Windows quality CI.",
+      "next_action": "Verify both hosted Windows quality jobs in the draft stacked on chatgpt/wave2-owner-polish. Then run the supervised clipboard, UI, and performance matrix against the exact draft head."
     }
   ]
 }
