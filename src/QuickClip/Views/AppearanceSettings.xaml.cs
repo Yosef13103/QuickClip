@@ -20,6 +20,7 @@ public partial class AppearanceSettings : UserControl
             Visibility = Visibility.Collapsed;
             return;
         }
+        CustomEditor.Saved += ApplySavedTheme;
         Loaded += (_, _) => RefreshSelection();
     }
 
@@ -57,46 +58,6 @@ public partial class AppearanceSettings : UserControl
         finally { _loading = previousLoading; }
     }
 
-    private void OpenDesigner_Click(object sender, RoutedEventArgs e)
-    {
-        if (!AppProfile.IsPersonal || Application.Current is not App || Window.GetWindow(this) is not { } owner) return;
-        CreateThemeDesigner(owner).ShowDialog();
-    }
-
-    internal Window CreateThemeDesigner(Window owner)
-    {
-        var settings = AppSettings.Current;
-        var choice = ThemeResources.ThemeChoiceFrom(settings.Theme);
-        var editor = new CustomThemeEditor
-        {
-            Margin = new Thickness(20),
-            InitialTheme = choice == ThemeChoice.Custom
-                ? ThemeResources.ReadSaved(settings.CustomThemeJson)
-                : new ThemeDocument("Custom", ThemePalette.Get(choice)),
-        };
-        editor.Saved += ApplySavedTheme;
-        var window = new Window
-        {
-            Title = "QuickClip theme designer",
-            Owner = owner, ShowInTaskbar = false,
-            Width = Math.Min(920, SystemParameters.WorkArea.Width * .9),
-            Height = Math.Min(720, SystemParameters.WorkArea.Height * .9),
-            MinWidth = Math.Min(580, SystemParameters.WorkArea.Width * .9),
-            MinHeight = Math.Min(400, SystemParameters.WorkArea.Height * .9),
-            WindowStartupLocation = WindowStartupLocation.CenterOwner,
-            Content = new ScrollViewer { VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
-                HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled, Content = editor },
-        };
-        window.SetResourceReference(Control.BackgroundProperty, "BackgroundBrush");
-        window.SetResourceReference(Control.ForegroundProperty, "PrimaryTextBrush");
-        window.Closed += (_, _) =>
-        {
-            editor.Saved -= ApplySavedTheme;
-            window.Content = null;
-        };
-        return window;
-    }
-
     private void ApplySavedTheme()
     {
         if (Application.Current is not App app) return;
@@ -131,7 +92,7 @@ public partial class AppearanceSettings : UserControl
             ThemePalette.ReadabilityWarnings(custom.Palette).Any()))
         {
             RefreshSelection();
-            ModalDialog.Show(Window.GetWindow(this), "Save a readable palette in the theme designer first.", "Custom theme");
+            ModalDialog.Show(Window.GetWindow(this), "Save a readable palette under Custom palette first.", "Custom theme");
             return;
         }
         string? previous = settings.Theme, previousJson = settings.CustomThemeJson;
@@ -149,6 +110,8 @@ public partial class AppearanceSettings : UserControl
         {
             operation?.Complete();
             ApplyAndRefresh(app, settings);
+            if (option.Choice == ThemeChoice.Custom && ThemeResources.ReadSaved(option.Json) is { } theme)
+                CustomEditor.LoadDraft(theme);
             RemoveThemeButton.IsEnabled = option.Choice == ThemeChoice.Custom;
         }
         else
@@ -195,6 +158,7 @@ public partial class AppearanceSettings : UserControl
         }
         operation?.Complete();
         ApplyAndRefresh(app, settings);
+        CustomEditor.LoadDraft(renamed);
         return null;
     }
 
@@ -202,10 +166,16 @@ public partial class AppearanceSettings : UserControl
     {
         if (Application.Current is not App app || ThemePicker.SelectedItem is not Option { Choice: ThemeChoice.Custom } option ||
             !ModalDialog.AskConfirmation(Window.GetWindow(this), $"Remove {option.Label} from your saved themes?", "Remove theme", "Remove")) return;
+        if (!RemoveTheme(app, ThemeResources.ReadSaved(option.Json)?.Name))
+            ModalDialog.Show(Window.GetWindow(this), "Could not remove the saved theme.", "Settings");
+    }
+
+    internal bool RemoveTheme(App app, string? name)
+    {
+        if (string.IsNullOrWhiteSpace(name)) return false;
         var settings = AppSettings.Current;
         var old = settings.SavedCustomThemes;
         string? json = settings.CustomThemeJson, choice = settings.Theme;
-        var name = ThemeResources.ReadSaved(option.Json)?.Name;
         settings.SavedCustomThemes = SavedThemes.Normalize(old, json).Where(item =>
             !string.Equals(ThemeResources.ReadSaved(item)?.Name, name, StringComparison.OrdinalIgnoreCase)).ToArray();
         settings.CustomThemeJson = null;
@@ -216,10 +186,10 @@ public partial class AppearanceSettings : UserControl
             settings.SavedCustomThemes = old;
             settings.CustomThemeJson = json;
             settings.Theme = choice;
-            ModalDialog.Show(Window.GetWindow(this), "Could not remove the saved theme.", "Settings");
-            return;
+            return false;
         }
         operation?.Complete();
         ApplyAndRefresh(app, settings);
+        return true;
     }
 }

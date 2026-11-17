@@ -90,3 +90,9 @@ finally {
     $env:DOTNET_ROOT = $previousSdk
 }
 ```
+
+## Wave 2 release preparation
+
+The public Wave 2 settings use the inline Custom palette expander. This reverses the designer presentation changes in `b6f99ac` for the four theme view files. Existing theme storage, picker refresh, semantic resources, scaling and rollback remain in use. The designer work stays available in history for branch C. When bringing C back, reconcile these four view files with C's designer activation and retain the current storage and picker behavior. Branch D has no dependency on this restoration.
+
+See the [multi-version benchmark protocol](wave2-performance-protocol.md#interactive-multi-version-runner) for preparation, measurement, reporting and resume. Physical benchmarks still require the disposable signed-in Windows account, owner-supervised capture and uncontaminated workloads.

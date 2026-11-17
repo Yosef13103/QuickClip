@@ -345,6 +345,7 @@
         "hardware": "pending"
       },
       "evidence": [
+        "Interactive stock release and pinned candidate orchestration with separate controlled/preferred series; owner physical measurement pending. See docs/wave2-performance-protocol.md.",
         "PR #80 adds process sampler and three-way baseline protocol; original e9bccdc, stable 6de4ad6, combined branch pending measurements."
       ],
       "blocker": null,
@@ -797,6 +798,7 @@
         "hardware": "pending"
       },
       "evidence": [
+        "Release preparation restores the inline palette; focused theme and WPF picker tests passed. Designer work remains in history and branch C.",
         "Draft #88 final opt-in WPF test passed actual popup entries, import, Light/custom switching, settings reload, duplicate detection and rename rollback. Original owner symptom unreproduced.",
         "Isolated WPF popup test passed for imported themes, duplicate rename and locked settings rollback. Owner occurrence remains unconfirmed.",
         "docs/owner-field-polish.md#local-regression-evidence"

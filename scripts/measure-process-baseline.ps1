@@ -17,11 +17,13 @@ param(
     [ValidateRange(0,300)][int]$WarmupSeconds = 15,
     [ValidateRange(500,10000)][int]$IntervalMs = 1000,
     [ValidatePattern('^[a-zA-Z0-9_-]{1,48}$')][string]$RunLabel = 'run1',
+    [string]$OutputDirectory,
     [switch]$Nvidia
 )
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
 $directory = Join-Path $root ('.quickclip-local\benchmarks\process-' + [DateTime]::UtcNow.ToString('yyyyMMdd-HHmmss') + '-' + [Guid]::NewGuid().ToString('N').Substring(0,8))
+if ($OutputDirectory) { $directory = $OutputDirectory }
 $process = Get-Process -Id $TargetProcessId -ErrorAction Stop
 $started = $process.StartTime
 $logicalCpus = [Environment]::ProcessorCount

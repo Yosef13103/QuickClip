@@ -46,19 +46,10 @@ public sealed class FrontendWindowAcceptanceTests(ITestOutputHelper output)
             {
                 string path = Path.Combine(fixture.FullName, name + ".json");
                 using (var file = File.Create(path)) new ThemeDocument(name, ThemePalette.Get(choice)).Write(file);
-                var designer = view.CreateThemeDesigner(window);
-                designer.ShowActivated = false;
-                designer.WindowStartupLocation = WindowStartupLocation.Manual;
-                designer.Left = designer.Top = -16000;
-                try
-                {
-                    designer.Show();
-                    await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
-                    var editor = Assert.IsType<CustomThemeEditor>(Assert.IsType<ScrollViewer>(designer.Content).Content);
-                    editor.ImportTheme(path);
-                }
-                finally { designer.Close(); }
-                Assert.Null(designer.Content);
+                view.PaletteExpander.IsExpanded = true;
+                await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
+                Assert.True(view.CustomEditor.IsVisible);
+                view.CustomEditor.ImportTheme(path);
                 File.Delete(path);
             }
             Assert.Equal(2, profile.SavedCustomThemes.Length);
@@ -93,6 +84,21 @@ public sealed class FrontendWindowAcceptanceTests(ITestOutputHelper output)
             var renamedProfile = AppSettings.Parse(File.ReadAllText(AppSettings.FilePath));
             Assert.DoesNotContain(renamedProfile.SavedCustomThemes,
                 json => ThemeResources.ReadSaved(json)?.Name == active.Name);
+
+            const string inlineName = "New Inline Theme";
+            var editor = view.CustomEditor;
+            editor.LoadDraft(new ThemeDocument(inlineName, ThemePalette.Get(ThemeChoice.Dark)));
+            editor.SaveButton.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            await VerifyThemePopupAsync(view.ThemePicker, inlineName, "Renamed Fixture", duplicate);
+            string exported = Path.Combine(fixture.FullName, "export.json");
+            editor.ExportTheme(exported);
+            using (var stream = File.OpenRead(exported))
+                Assert.Equal(inlineName, ThemeDocument.Read(stream).Name);
+            Assert.True(view.RemoveTheme(app, inlineName));
+            Assert.Equal(nameof(ThemeChoice.Dark), profile.Theme);
+            Assert.DoesNotContain(AppSettings.Parse(File.ReadAllText(AppSettings.FilePath)).SavedCustomThemes,
+                json => ThemeResources.ReadSaved(json)?.Name == inlineName);
+            await VerifyThemePopupAsync(view.ThemePicker, "Renamed Fixture", duplicate);
         }
         finally
         {
