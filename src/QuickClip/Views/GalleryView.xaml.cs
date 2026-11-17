@@ -87,6 +87,8 @@ public partial class GalleryView : UserControl
 
     /// <summary>The user wants to watch a clip; the folder's other clips come along for previous/next.</summary>
     public event Action<IReadOnlyList<ClipItem>, int>? PlayRequested;
+    internal event Action? PlaybackLibraryChanged;
+    internal ClipItem[] PlaybackLibrarySnapshot() => _clips.ToArray();
 
     /// <summary>Some clips are ticked (each card then shows its checkbox, and clicking a card ticks it).</summary>
     public bool HasSelection
@@ -340,6 +342,7 @@ public partial class GalleryView : UserControl
         finally
         {
             _loading = false;
+            if (!_released && _clips.Count > 0) PlaybackLibraryChanged?.Invoke();
             if (_reloadQueued && !_released)
             {
                 _reloadQueued = false;
@@ -718,15 +721,26 @@ public partial class GalleryView : UserControl
     /// <summary>What a clip's menu or a drag acts on: every selected clip if this one is selected, else just it.</summary>
     private List<string> ClipsFor(ClipItem item) => item.IsSelected ? SelectedPaths() : [item.Path];
 
+    private static IEnumerable<MenuItem> MenuEntries(ItemCollection items)
+    {
+        foreach (var entry in items.OfType<MenuItem>())
+        {
+            yield return entry;
+            if (entry.Tag is "organize")
+                foreach (var child in MenuEntries(entry.Items)) yield return child;
+        }
+    }
+
     private void ClipMenu_Opened(object sender, RoutedEventArgs e)
     {
         if (sender is not ContextMenu menu || menu.DataContext is not ClipItem item) return;
         int count = ClipsFor(item).Count;
         string clips = count == 1 ? "" : $" {count} selected clips";
-        foreach (var entry in menu.Items.OfType<MenuItem>())
+        // Snapshot before populating dynamic submenus.
+        foreach (var entry in MenuEntries(menu.Items).ToArray())
         {
             if (entry.Tag is "external-player")
-                entry.Header = "Open in " + ExternalPlayer.Label(AppSettings.Current.ExternalPlayerPath);
+                entry.Header = AppSettings.Current.ExternalPlayerPath == null ? "Open with Windows default" : "Open in " + ExternalPlayer.Label(AppSettings.Current.ExternalPlayerPath);
             if (entry.Tag is "external-choices")
                 ExternalPlayerDialogs.Populate(entry.Items, Window.GetWindow(this), player =>
                 {

@@ -20,23 +20,23 @@
                         PreviewMouseLeftButtonDown="Card_PreviewMouseLeftButtonDown" MouseMove="Card_MouseMove">
                     <Border.ContextMenu>
                         <ContextMenu Opened="ClipMenu_Opened" DataContext="{Binding PlacementTarget.DataContext, RelativeSource={RelativeSource Self}}">
-                            <MenuItem Header="Watch and edit" Click="OpenClip_Click" FontWeight="SemiBold" />
-                            <MenuItem Header="Share saved clip" Click="ShareClip_Click" />
-                            <MenuItem Header="Share with…" Tag="share-profiles" />
-                            <MenuItem Header="Open classic player" Click="PlayClip_Click" />
-                            <MenuItem Header="Edit title, game or tags…" Click="EditClipDetails_Click" Tag="details" />
-                            <MenuItem Header="Add to favorites" Click="FavoriteMenu_Click" Tag="favorite" />
+                            <MenuItem Header="Open in Editor" Click="OpenClip_Click" FontWeight="SemiBold" />
+                            <MenuItem Header="Watch in Player" Click="PlayClip_Click" />
+                            <MenuItem Header="Open with Windows default" Click="OpenWith_Click" Tag="external-player" />
+                            <MenuItem Header="Open with…" Tag="external-choices" />
                             <Separator />
-                            <!-- Filled in when the menu opens: every project, then New project -->
+                            <MenuItem Header="Share clip" Click="ShareClip_Click" />
+                            <MenuItem Header="Share with…" Tag="share-profiles" />
+                            <Separator />
+                            <MenuItem Header="Organize" Tag="organize">
+                                <MenuItem Header="Edit title, game or tags…" Click="EditClipDetails_Click" Tag="details" />
+                                <MenuItem Header="Add to favorites" Click="FavoriteMenu_Click" Tag="favorite" />
+                                <MenuItem Header="Copy to folder…" Tag="copy" Click="CopyClipsToFolder_Click" />
+                            </MenuItem>
                             <MenuItem Header="Add to project" Tag="projects">
                                 <MenuItem Header="New project…" />
                             </MenuItem>
-                            <MenuItem Header="Copy to folder…" Tag="copy" Click="CopyClipsToFolder_Click" />
-                            <Separator />
-                            <MenuItem Header="Open in external player" Click="OpenWith_Click" Tag="external-player" />
-                            <MenuItem Header="Open with…" Tag="external-choices" />
                             <MenuItem Header="Show in Explorer" Click="RevealClip_Click" />
-                            <Separator />
                             <MenuItem Header="Select" Click="SelectClip_Click" />
                             <Separator />
                             <MenuItem Header="Delete" Foreground="{DynamicResource DangerBrush}" Click="DeleteClip_Click" />

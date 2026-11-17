@@ -102,7 +102,9 @@
             <StackPanel DockPanel.Dock="Top">
                 <RadioButton x:Name="GalleryNav" Style="{StaticResource RailItem}" Tag="&#xE8A9;" Content="Gallery" GroupName="Nav"
                              IsChecked="True" Click="Nav_Click" ToolTip="Your clips" />
-                <RadioButton x:Name="EditorNav" Style="{StaticResource RailItem}" Tag="&#xE70F;" Content="Editor" GroupName="Nav"
+                <RadioButton x:Name="PlayerNav" Style="{StaticResource RailItem}" Tag="&#xE768;" Content="Player" GroupName="Nav"
+                              Click="Nav_Click" ToolTip="Watch saved clips without editing" />
+                 <RadioButton x:Name="EditorNav" Style="{StaticResource RailItem}" Tag="&#xE70F;" Content="Editor" GroupName="Nav"
                              Click="Nav_Click" ToolTip="Trim, crop and export a clip" />
                 <RadioButton x:Name="SettingsNav" Style="{StaticResource RailItem}" Tag="&#xE713;" Content="Settings" GroupName="Nav"
                              Click="Nav_Click" ToolTip="Recording, audio, hotkey and startup" />

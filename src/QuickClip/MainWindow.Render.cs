@@ -55,7 +55,7 @@ public partial class MainWindow
             if (!EditorPage.VerifyRestoredLayoutForRender())
                 throw new InvalidOperationException("Fullscreen controls or layout did not restore.");
             var player = PlayerPage;
-            if (item == null || !await ShowPageAsync(player))
+            if (item == null || !await ShowPageAsync(player) || AppProfile.IsPersonal && PlayerNav.IsChecked != true)
                 throw new InvalidOperationException("Could not open the standalone player.");
             player.Play([item], 0);
             SetFullScreen(true);

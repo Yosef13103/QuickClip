@@ -57,14 +57,25 @@
         <controls:VideoHost x:Name="Video" Grid.Row="1" />
 
         <!-- Playback controls (hide themselves in full screen while playing) -->
-        <StackPanel x:Name="ControlBar" Grid.Row="2" Background="{DynamicResource PanelBrush}" MouseMove="ControlBar_MouseMove">
-            <Grid Margin="14,8,14,0">
-                <Slider x:Name="SeekBar" Minimum="0" Maximum="1" IsMoveToPointEnabled="True" Focusable="False"
+        <Border x:Name="ControlBar" Grid.Row="2" CornerRadius="10" Background="{DynamicResource PanelBrush}"
+                BorderBrush="{DynamicResource DividerBrush}" BorderThickness="1" Padding="10" MouseMove="ControlBar_MouseMove">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <Button x:Name="FloatingPrevious" Grid.Column="0" Visibility="Collapsed" Style="{StaticResource IconButton}"
+                        VerticalAlignment="Center" Margin="0,0,8,0" Content="&#xE76B;" Click="Previous_Click"
+                        AutomationProperties.Name="Previous clip" ToolTip="Previous clip (Page Up)" />
+                <StackPanel Grid.Column="1">
+            <Grid Margin="8,0,8,0">
+                <Slider x:Name="SeekBar" Style="{StaticResource ThemedMediaSlider}" Minimum="0" Maximum="1" IsMoveToPointEnabled="True" Focusable="False"
                         ValueChanged="SeekBar_ValueChanged" PreviewMouseMove="SeekBar_MouseMove" />
                 <!-- Bookmarks, including earlier saves from the same replay session. Never intercept seeking. -->
                 <controls:SeekMarkerOverlay x:Name="SeekMarkers" IsHitTestVisible="False" />
             </Grid>
-            <DockPanel Margin="10,2,14,8">
+            <DockPanel Margin="4,5,4,0">
                 <StackPanel DockPanel.Dock="Left" Orientation="Horizontal" VerticalAlignment="Center">
                     <Button x:Name="PlayButton" Style="{StaticResource IconButton}" Content="&#xE768;" Padding="16,6" Click="Play_Click"
                             ToolTip="Play / pause (Space)" />
@@ -79,6 +90,11 @@
                 </StackPanel>
                 <Grid />
             </DockPanel>
-        </StackPanel>
+                </StackPanel>
+                <Button x:Name="FloatingNext" Grid.Column="2" Visibility="Collapsed" Style="{StaticResource IconButton}"
+                        VerticalAlignment="Center" Margin="8,0,0,0" Content="&#xE76C;" Click="Next_Click"
+                        AutomationProperties.Name="Next clip" ToolTip="Next clip (Page Down)" />
+            </Grid>
+        </Border>
     </Grid>
 </UserControl>

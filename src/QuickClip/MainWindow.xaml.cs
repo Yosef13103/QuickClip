@@ -44,6 +44,12 @@ public partial class MainWindow : Window
         Gallery.OpenRequested += path => _ = AppProfile.IsPersonal
             ? OpenGalleryCardAsync(path, null) : OpenInEditorAsync(path);
         Gallery.CardOpenRequested += (path, card) => _ = OpenGalleryCardAsync(path, card);
+        PlayerNav.Visibility = AppProfile.IsPersonal ? Visibility.Visible : Visibility.Collapsed;
+        Gallery.PlaybackLibraryChanged += () =>
+        {
+            if (_player is { IsVisible: true, HasPlaylist: false } player)
+                player.PlayLibrary(Gallery.PlaybackLibrarySnapshot());
+        };
         Gallery.PlayRequested += async (clips, index) =>
         {
             if (await ShowPageAsync(PlayerPage)) PlayerPage.Play(clips, index);
@@ -188,10 +194,18 @@ public partial class MainWindow : Window
         }
     }
 
-    private void Nav_Click(object sender, RoutedEventArgs e)
+    private async void Nav_Click(object sender, RoutedEventArgs e)
     {
         if (!IsInitialized) return;
-        _ = ShowPageAsync(sender == EditorNav ? EditorPage : sender == SettingsNav ? SettingsPage : Gallery);
+        if (sender == PlayerNav && AppProfile.IsPersonal)
+        {
+            var player = PlayerPage;
+            if (player.IsVisible) return;
+            if (await ShowPageAsync(player))
+                player.PlayLibrary(Gallery.PlaybackLibrarySnapshot());
+            return;
+        }
+        await ShowPageAsync(sender == EditorNav ? EditorPage : sender == SettingsNav ? SettingsPage : Gallery);
     }
 
     private bool _renderOffscreenForEditor() =>
@@ -245,7 +259,8 @@ public partial class MainWindow : Window
 
     private void SetNavigation(UIElement page)
     {
-        GalleryNav.IsChecked = page == Gallery || page == _player;
+        GalleryNav.IsChecked = page == Gallery || (!AppProfile.IsPersonal && page == _player);
+        PlayerNav.IsChecked = AppProfile.IsPersonal && page == _player;
         EditorNav.IsChecked = page == _editor;
         SettingsNav.IsChecked = page == _settings;
     }
