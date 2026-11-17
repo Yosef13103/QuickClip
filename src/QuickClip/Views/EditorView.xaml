@@ -13,35 +13,6 @@
             </ResourceDictionary.MergedDictionaries>
             <GridLength x:Key="TrackHeaderWidth">224</GridLength>
             <BooleanToVisibilityConverter x:Key="ShowIf" />
-            <Style x:Key="CompactTrackVolume" TargetType="Slider" BasedOn="{StaticResource {x:Type Slider}}">
-                <Setter Property="MinHeight" Value="0" />
-                <Setter Property="Height" Value="16" />
-                <Setter Property="Margin" Value="0" />
-                <Setter Property="Template">
-                    <Setter.Value>
-                        <ControlTemplate TargetType="Slider">
-                            <Grid Background="Transparent">
-                                <Border Height="4" CornerRadius="2" Margin="6,0" VerticalAlignment="Center" Background="{DynamicResource BorderBrush}" />
-                                <Track x:Name="PART_Track" VerticalAlignment="Center">
-                                    <Track.DecreaseRepeatButton>
-                                        <RepeatButton Command="{x:Static Slider.DecreaseLarge}" Focusable="False">
-                                            <RepeatButton.Template><ControlTemplate TargetType="RepeatButton"><Border Background="Transparent"><Border Background="{DynamicResource AccentBrush}" Height="4" CornerRadius="2" VerticalAlignment="Center" /></Border></ControlTemplate></RepeatButton.Template>
-                                        </RepeatButton>
-                                    </Track.DecreaseRepeatButton>
-                                    <Track.Thumb>
-                                        <Thumb Width="12" Height="12" Focusable="False">
-                                            <Thumb.Template><ControlTemplate TargetType="Thumb"><Ellipse Fill="{DynamicResource AccentBrush}" Stroke="{DynamicResource PanelBrush}" StrokeThickness="1" /></ControlTemplate></Thumb.Template>
-                                        </Thumb>
-                                    </Track.Thumb>
-                                    <Track.IncreaseRepeatButton>
-                                        <RepeatButton Command="{x:Static Slider.IncreaseLarge}" Focusable="False"><RepeatButton.Template><ControlTemplate TargetType="RepeatButton"><Border Background="Transparent" /></ControlTemplate></RepeatButton.Template></RepeatButton>
-                                    </Track.IncreaseRepeatButton>
-                                </Track>
-                            </Grid>
-                        </ControlTemplate>
-                    </Setter.Value>
-                </Setter>
-            </Style>
             <Style x:Key="OptionsGroup" TargetType="Expander" BasedOn="{StaticResource {x:Type Expander}}">
                 <Setter Property="IsExpanded" Value="False" />
                 <Setter Property="Margin" Value="0,6,0,0" />
@@ -125,22 +96,7 @@
                               Data="M2,3 L22,3 L22,17 L2,17 Z M5,7 L6,7 M9,7 L10,7 M13,7 L14,7 M17,7 L19,7 M5,10 L6,10 M9,10 L10,10 M13,10 L14,10 M17,10 L19,10 M7,14 L17,14" />
                     </DataTemplate>
                 </Button.ContentTemplate>
-                <Button.ToolTip>
-                    <TextBlock LineHeight="20">
-                        <Bold>Keyboard shortcuts</Bold><LineBreak />
-                        Space — play / pause<LineBreak />
-                        ← / → — previous / next frame<LineBreak />
-                        Shift+← / → — 1 second · Ctrl+← / → — 5 seconds<LineBreak />
-                        I / O — set in / out at the playhead<LineBreak />
-                        Shift+I / Shift+O — jump to in / out<LineBreak />
-                        Home / End — start / end of file<LineBreak />
-                        Ctrl+B — bookmark the playhead<LineBreak />
-                        L — loop selection · C — crop on/off · M — mute<LineBreak />
-                        + / − / 0 — zoom timeline in / out / fit<LineBreak />
-                        Wheel over tracks — scroll · Ctrl+wheel — zoom · Shift+wheel — pan<LineBreak />
-                        Ctrl+E — export as new file · Ctrl+S — save over original
-                    </TextBlock>
-                </Button.ToolTip>
+                <Button.ToolTip>Keyboard shortcuts</Button.ToolTip>
             </Button>
             <DockPanel Margin="12,0,8,0" VerticalAlignment="Center" LastChildFill="True">
                 <Button x:Name="PreviousClipButton" DockPanel.Dock="Left" Style="{StaticResource IconButton}" IsEnabled="False"
@@ -351,7 +307,7 @@
                                                 <ColumnDefinition Width="82" />
                                             </Grid.ColumnDefinitions>
                                             <Slider Minimum="0" Maximum="200" Value="{Binding VolumePercent}" SmallChange="1" LargeChange="10"
-                                                    Style="{StaticResource CompactTrackVolume}" AutomationProperties.Name="Track volume" VerticalAlignment="Center" IsMoveToPointEnabled="True"
+                                                    Style="{StaticResource ThemedMediaSlider}" AutomationProperties.Name="Track volume" VerticalAlignment="Center" IsMoveToPointEnabled="True"
                                                     MouseDoubleClick="VolumeSlider_DoubleClick" ToolTip="Volume (double-click for 100%)" />
                                             <TextBlock Grid.Column="1" Text="{Binding VolumeText}" FontSize="{DynamicResource QuickClipText11}" Foreground="{DynamicResource SubtleText}"
                                                        VerticalAlignment="Center" TextAlignment="Right" />
@@ -372,7 +328,7 @@
                 <TextBlock x:Name="SoundDropText" HorizontalAlignment="Center" VerticalAlignment="Center" FontSize="{DynamicResource QuickClipText13}" Text="Drop to add as a sound" />
             </Grid>
         </Grid>
-        <Slider x:Name="ViewSeek" Grid.Row="4" Grid.Column="0" Margin="0,4,0,8"
+        <Slider Style="{StaticResource ThemedMediaSlider}" x:Name="ViewSeek" Grid.Row="4" Grid.Column="0" Margin="0,4,0,8"
                 AutomationProperties.Name="Playback position" IsMoveToPointEnabled="True"
                 Visibility="Collapsed" ValueChanged="ViewSeek_Changed" />
 

@@ -1357,25 +1357,25 @@ public partial class GalleryView : UserControl
 
     internal ClipItem? DraftCardForRender(string path) => _clips.FirstOrDefault(clip => clip.Path == path);
 
-    internal async Task VerifyHoverTrimForRenderAsync(ClipItem item)
+    internal async Task VerifyHoverOriginalForRenderAsync(ClipItem item)
     {
         var poster = FindPoster(Rows) ?? throw new InvalidOperationException("The draft card poster was not realized.");
         await _hoverPreview.StartForRenderAsync(poster, item);
         bool played = false;
         try
         {
-            for (int i = 0; i < 120 && _hoverPreview.IsActive; i++)
+            for (int i = 0; i < 120 && _hoverPreview.IsActive && !played; i++)
             {
                 if (_hoverPreview.VisiblePositionForRender is { } position)
                 {
-                    if (position < 0.98 || position > 4.6)
-                        throw new InvalidOperationException($"Hover played outside the saved trim at {position:0.00} s.");
-                    played |= position > 1.1;
+                    if (position > 5.5)
+                        throw new InvalidOperationException($"Hover played beyond its preview interval at {position:0.00} s.");
+                    played |= position > 0.1;
                 }
                 await Task.Delay(40);
             }
-            if (!played || _hoverPreview.IsActive)
-                throw new InvalidOperationException("Hover playback failed to play and stop within the saved trim.");
+            if (!played)
+                throw new InvalidOperationException("Original hover playback failed for a trimmed card.");
         }
         finally { _hoverPreview.Stop(); }
 

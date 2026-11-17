@@ -79,9 +79,12 @@
                             <StackPanel>
                                 <Grid>
                                     <TextBlock x:Name="DisplayTitle" Text="{Binding Title}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
-                                    <TextBox x:Name="RenameTitleBox" Visibility="Collapsed" MaxLength="256"
+                                    <DockPanel LastChildFill="True">
+                                    <Button x:Name="CancelRenameButton" DockPanel.Dock="Right" Content="&#xE711;" Style="{StaticResource IconButton}" Visibility="Collapsed" Focusable="False" Tag="{Binding ElementName=RenameTitleBox}" Click="CancelRename_Click" ToolTip="Cancel rename (Esc)" AutomationProperties.Name="Cancel rename" />
+                                    <TextBox Style="{StaticResource RenameTextBox}" x:Name="RenameTitleBox" Visibility="Collapsed" MaxLength="256"
                                              AutomationProperties.Name="Clip display title" PreviewKeyDown="RenameTitle_KeyDown"
                                              LostKeyboardFocus="RenameTitle_LostKeyboardFocus" DataContextChanged="RenameTitle_DataContextChanged" />
+                                    </DockPanel>
                                 </Grid>
                                 <TextBlock Text="{Binding Folder}" FontSize="{DynamicResource QuickClipText12}" Foreground="{DynamicResource SubtleText}" TextTrimming="CharacterEllipsis" />
                                 <TextBlock Text="{Binding TagText}" ToolTip="{Binding TagText}" FontSize="{DynamicResource QuickClipText12}"
@@ -120,6 +123,7 @@
                     </MultiDataTrigger>
                     <Trigger SourceName="RenameTitleBox" Property="Visibility" Value="Visible">
                         <Setter TargetName="RenameTitleButton" Property="Visibility" Value="Collapsed" />
+                        <Setter TargetName="CancelRenameButton" Property="Visibility" Value="Visible" />
                         <Setter TargetName="DisplayTitle" Property="Visibility" Value="Hidden" />
                     </Trigger>
                     <!-- While anything is selected every clip shows its checkbox, and clicking a clip ticks it -->

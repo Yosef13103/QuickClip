@@ -345,10 +345,67 @@ public partial class EditorView : UserControl
 
     private void Shortcuts_Click(object sender, RoutedEventArgs e)
     {
-        var text = (sender as Button)?.ToolTip is TextBlock help
-            ? new TextRange(help.ContentStart, help.ContentEnd).Text.Trim() : "Space plays or pauses.";
-        ModalDialog.Show(OwnerWindow, text + (AppProfile.IsPersonal ? "\nF11 — fullscreen · Esc — exit" : "\nF11 — fullscreen · Shift+F11 — view mode · Esc — exit"),
-            "Keyboard shortcuts");
+        if (OwnerWindow is not { Content: Panel } owner) return;
+        var panel = new StackPanel();
+        Section("\uE768", "Playback");
+        Row("Play / pause", "Space");
+        Row("Previous / next frame", "←", "→");
+        Row("Seek 1 second", "Shift", "← / →");
+        Row("Seek 5 seconds", "Ctrl", "← / →");
+        Row("Start / end of clip", "Home", "End");
+        Row("Mute / unmute", "M");
+        Section("\uE8C6", "Editing");
+        Row("Set start / end", "I", "O");
+        Row("Jump to start / end of selection", "Shift", "I / O");
+        Row("Loop selection", "L");
+        Row("Toggle crop", "C");
+        Row("Bookmark playhead", "Ctrl", "B");
+        Row("Zoom timeline in / out / fit", "+", "−", "0");
+        Row("Scroll tracks", "Wheel");
+        Row("Zoom timeline", "Ctrl", "Wheel");
+        Row("Pan timeline", "Shift", "Wheel");
+        Section("\uE8E5", "Files & view");
+        Row("Open a clip", "Ctrl", "O");
+        Row("Export as new file", "Ctrl", "E");
+        Row("Save over original", "Ctrl", "S");
+        Row("Undo replacement", "Ctrl", "Z");
+        Row("Fullscreen", "F11");
+        if (!AppProfile.IsPersonal) Row("Switch view mode", "Shift", "F11");
+        Row("Exit fullscreen / view mode", "Esc");
+        ModalDialog.Run(owner, "Keyboard shortcuts", panel, "Done", null, accent: true, wide: true);
+
+        void Section(string glyph, string title)
+        {
+            var header = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 12, 0, 6) };
+            var icon = new TextBlock { Text = glyph, Margin = new Thickness(0, 0, 9, 0), VerticalAlignment = VerticalAlignment.Center };
+            icon.SetResourceReference(TextBlock.FontFamilyProperty, "IconFont");
+            icon.SetResourceReference(TextBlock.ForegroundProperty, "AccentBrush");
+            header.Children.Add(icon);
+            header.Children.Add(new TextBlock { Text = title, FontWeight = FontWeights.SemiBold });
+            panel.Children.Add(header);
+        }
+
+        void Row(string description, params string[] keys)
+        {
+            var row = new Grid { Margin = new Thickness(0, 2, 0, 2) };
+            row.ColumnDefinitions.Add(new ColumnDefinition());
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            row.Children.Add(new TextBlock { Text = description, TextWrapping = TextWrapping.Wrap,
+                VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 8, 0) });
+            var caps = new WrapPanel { HorizontalAlignment = HorizontalAlignment.Right };
+            Grid.SetColumn(caps, 1);
+            row.Children.Add(caps);
+            foreach (string key in keys)
+            {
+                var cap = new Border { CornerRadius = new CornerRadius(4), BorderThickness = new Thickness(1),
+                    Margin = new Thickness(3, 0, 0, 0), Padding = new Thickness(6, 3, 6, 3),
+                    Child = new TextBlock { Text = key, FontWeight = FontWeights.Medium } };
+                cap.SetResourceReference(Border.BackgroundProperty, "ElevatedSurfaceBrush");
+                cap.SetResourceReference(Border.BorderBrushProperty, "BorderBrush");
+                caps.Children.Add(cap);
+            }
+            panel.Children.Add(row);
+        }
     }
 
     private void ApplyMode()

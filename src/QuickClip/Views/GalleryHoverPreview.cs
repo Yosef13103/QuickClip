@@ -13,8 +13,7 @@ internal sealed class GalleryHoverPreview
     private Border? _surface;
     private Grid? _poster;
     private CancellationTokenSource? _pending;
-    private ClipDraftRange? _range;
-    private DispatcherTimer? _trimTimer;
+    private DispatcherTimer? _previewTimer;
 
     internal bool IsActive => _poster != null;
 
@@ -37,23 +36,6 @@ internal sealed class GalleryHoverPreview
             }
             var surface = _surface ??= CreateSurface();
             var media = (MediaElement)surface.Child;
-            if (item.EditRange is { } candidate)
-            {
-                var state = await Task.Run(() => EditorSource.Check(item.Path, candidate.Source, out _), pending.Token);
-                pending.Token.ThrowIfCancellationRequested();
-                if (!IsCurrentPoster(poster, item, requireHover))
-                {
-                    Stop(poster);
-                    return;
-                }
-                if (state != EditorSourceState.Ready)
-                {
-                    if (item.EditRange == candidate) item.ApplyEditRange(null);
-                    Stop(poster);
-                    return;
-                }
-                _range = candidate;
-            }
             poster.Children.Insert(2, surface);
             media.Source = new Uri(item.Path);
             media.Pause();
@@ -74,8 +56,7 @@ internal sealed class GalleryHoverPreview
     {
         if (_poster is not { } active || (poster != null && active != poster)) return;
         _poster = null;
-        _range = null;
-        _trimTimer?.Stop();
+        _previewTimer?.Stop();
         active.DataContextChanged -= PosterChanged;
         _pending?.Cancel();
         _pending = null;
@@ -106,29 +87,25 @@ internal sealed class GalleryHoverPreview
         media.MediaOpened += (_, _) =>
         {
             if (_poster == null) return;
-            if (_range is { } range && IsTrimmed(range, media.NaturalDuration))
-            {
-                media.Position = TimeSpan.FromSeconds(range.Start);
-                _trimTimer ??= new DispatcherTimer(TimeSpan.FromMilliseconds(20), DispatcherPriority.Render,
-                    (_, _) =>
-                    {
-                        if (_range is not { } bounds || media.Position.TotalSeconds >= bounds.End)
-                            Stop();
-                        else if (surface.Opacity == 0 && media.Position.TotalSeconds >= bounds.Start)
-                            surface.Opacity = 1;
-                    }, media.Dispatcher) { IsEnabled = false };
-                _trimTimer.Start();
-            }
-            else surface.Opacity = 1;
+            surface.Opacity = 1;
+            media.Play();
+            _previewTimer ??= new DispatcherTimer(TimeSpan.FromMilliseconds(200), DispatcherPriority.Background,
+                (_, _) =>
+                {
+                    if (_poster != null && media.Position.TotalSeconds >= 5)
+                        media.Position = TimeSpan.Zero;
+                }, media.Dispatcher);
+            _previewTimer.Start();
+        };
+        media.MediaEnded += (_, _) =>
+        {
+            if (_poster == null) return;
+            media.Position = TimeSpan.Zero;
             media.Play();
         };
-        media.MediaEnded += (_, _) => Stop();
         media.MediaFailed += (_, _) => Stop();
         return surface;
     }
-
-    internal static bool IsTrimmed(ClipDraftRange range, Duration duration) =>
-        range.Start > 0 || !duration.HasTimeSpan || range.End < duration.TimeSpan.TotalSeconds - 0.001;
 
     private bool IsCurrentPoster(Grid poster, ClipItem item, bool requireHover) =>
         poster == _poster && poster.IsVisible && poster.DataContext == item &&

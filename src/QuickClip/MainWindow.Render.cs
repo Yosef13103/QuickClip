@@ -102,7 +102,7 @@ public partial class MainWindow
             if (!await ShowPageAsync(Gallery) || Gallery.DraftCardForRender(editorFile)?.Title != "Persisted fixture")
                 throw new InvalidOperationException("Editor rename did not update Gallery.");
             UpdateLayout();
-            await Gallery.VerifyHoverTrimForRenderAsync(Gallery.DraftCardForRender(editorFile)!);
+            await Gallery.VerifyHoverOriginalForRenderAsync(Gallery.DraftCardForRender(editorFile)!);
             string other = Path.Combine(AppSettings.Current.ClipsFolder, "fixture-b.mp4");
             var opening = OpenInEditorAsync(other);
             await WaitForAsync(() => editor.ProbingSourceForRender || opening.IsCompleted, "The next preview probe did not start.");

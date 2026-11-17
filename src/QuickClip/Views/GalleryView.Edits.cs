@@ -69,6 +69,12 @@ public partial class GalleryView
         e.Handled = true;
     }
 
+    private void CancelRename_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is FrameworkElement { Tag: TextBox box } && _rename?.Box == box) EndRename(box);
+        e.Handled = true;
+    }
+
     private async void BeginRename(TextBox box)
     {
         if (!PersonalAnnotations || _editingAnnotations || _released || box.DataContext is not ClipItem clip) return;
