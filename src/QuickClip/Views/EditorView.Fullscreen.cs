@@ -27,7 +27,7 @@ public partial class EditorView
             var panel = new StackPanel();
             panel.SetResourceReference(Panel.BackgroundProperty, "PanelBrush");
             panel.SetResourceReference(TextBlock.ForegroundProperty, "PrimaryTextBrush");
-            var seekRow = new Grid { Margin = new Thickness(14, 8, 14, 0) };
+            var seekRow = new Grid { Margin = new Thickness(8, 0, 8, 0) };
             var seek = new Slider { Minimum = 0, IsMoveToPointEnabled = true, Focusable = false };
             AutomationProperties.SetName(seek, "Fullscreen playback position");
             if (TryFindResource("ThemedMediaSlider") is Style sliderStyle) seek.Style = sliderStyle;
@@ -41,7 +41,7 @@ public partial class EditorView
             seekRow.Children.Add(markers);
             panel.Children.Add(seekRow);
 
-            var actions = new DockPanel { Margin = new Thickness(10, 2, 14, 8) };
+            var actions = new DockPanel { Margin = new Thickness(4, 5, 4, 0) };
             var left = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
             var play = FullscreenAction("Play / pause (Space)", PlayGlyph, TogglePlay);
             play.Padding = new Thickness(16, 6, 16, 6);
@@ -83,10 +83,15 @@ public partial class EditorView
             _fullscreenTime = time;
             _fullscreenDuration = duration;
             _fullscreenMarkers = markers;
+            var surface = new Border { CornerRadius = new CornerRadius(10), BorderThickness = new Thickness(1),
+                Padding = new Thickness(10), Child = panel };
+            surface.SetResourceReference(Border.BackgroundProperty, "PanelBrush");
+            surface.SetResourceReference(Border.BorderBrushProperty, "DividerBrush");
+            panel.Background = Brushes.Transparent;
             _fullscreenOverlay = new Popup
             {
                 PlacementTarget = Root, Placement = PlacementMode.Custom, AllowsTransparency = true,
-                StaysOpen = true, Child = panel, CustomPopupPlacementCallback = FullscreenPopup.Place,
+                StaysOpen = true, Child = surface, CustomPopupPlacementCallback = FullscreenPopup.Place,
             };
         }
 

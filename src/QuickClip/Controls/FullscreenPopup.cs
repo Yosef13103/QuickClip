@@ -11,7 +11,7 @@ internal static class FullscreenPopup
 
     internal static void UpdateWidth(Popup popup, FrameworkElement content, double availableWidth)
     {
-        content.Width = Math.Clamp(availableWidth * .42, 140, 520);
+        content.Width = Math.Max(1, Math.Min(Math.Max(420, availableWidth * .5), Math.Min(620, availableWidth - 28)));
         // A popup owns a separate HWND. Force it to recalculate its position
         // when the full-screen client's size or DPI changes.
         popup.HorizontalOffset = .01;

@@ -244,32 +244,73 @@
         <Setter Property="Background" Value="{DynamicResource SurfaceBrush}" />
         <Setter Property="BorderBrush" Value="{DynamicResource BorderBrush}" />
     </Style>
-    <Style x:Key="ThemedMediaSlider" TargetType="Slider" BasedOn="{StaticResource {x:Type Slider}}">
-        <Setter Property="MinHeight" Value="0" />
-        <Setter Property="Height" Value="16" />
+    <!-- Keep the entire media thumb inside its hit area, independent of OS theme metrics. -->
+    <Style x:Key="ThemedMediaSlider" TargetType="Slider">
+        <Setter Property="OverridesDefaultStyle" Value="True" />
+        <Setter Property="Foreground" Value="{DynamicResource PrimaryTextBrush}" />
+        <Setter Property="Height" Value="24" />
+        <Setter Property="MinHeight" Value="24" />
         <Setter Property="Margin" Value="0" />
+        <Setter Property="VerticalAlignment" Value="Center" />
         <Setter Property="Template">
             <Setter.Value>
                 <ControlTemplate TargetType="Slider">
-                    <Grid Background="Transparent">
-                        <Border Height="4" CornerRadius="2" Margin="6,0" VerticalAlignment="Center" Background="{DynamicResource BorderBrush}" />
-                        <Track x:Name="PART_Track" VerticalAlignment="Center" Minimum="{TemplateBinding Minimum}" Maximum="{TemplateBinding Maximum}" Value="{Binding Value, RelativeSource={RelativeSource TemplatedParent}, Mode=TwoWay}" Orientation="{TemplateBinding Orientation}" IsDirectionReversed="{TemplateBinding IsDirectionReversed}">
+                    <Grid x:Name="Surface" Background="Transparent" SnapsToDevicePixels="True">
+                        <Border Height="4" CornerRadius="2" Margin="8,0" VerticalAlignment="Center"
+                                Background="{DynamicResource BorderBrush}" />
+                        <Track x:Name="PART_Track" VerticalAlignment="Stretch" HorizontalAlignment="Stretch"
+                               Minimum="{TemplateBinding Minimum}" Maximum="{TemplateBinding Maximum}"
+                               Value="{Binding Value, RelativeSource={RelativeSource TemplatedParent}, Mode=TwoWay}"
+                               Orientation="{TemplateBinding Orientation}" IsDirectionReversed="{TemplateBinding IsDirectionReversed}">
                             <Track.DecreaseRepeatButton>
-                                <RepeatButton Command="{x:Static Slider.DecreaseLarge}" Focusable="False">
-                                    <RepeatButton.Template><ControlTemplate TargetType="RepeatButton"><Border Background="Transparent"><Border Background="{DynamicResource AccentBrush}" Height="4" CornerRadius="2" VerticalAlignment="Center" /></Border></ControlTemplate></RepeatButton.Template>
+                                <RepeatButton Command="{x:Static Slider.DecreaseLarge}" Focusable="False" OverridesDefaultStyle="True">
+                                    <RepeatButton.Template>
+                                        <ControlTemplate TargetType="RepeatButton">
+                                            <Grid Background="Transparent">
+                                                <Border Background="{DynamicResource AccentBrush}" Height="4" Margin="8,0,0,0"
+                                                        CornerRadius="2" VerticalAlignment="Center" />
+                                            </Grid>
+                                        </ControlTemplate>
+                                    </RepeatButton.Template>
                                 </RepeatButton>
                             </Track.DecreaseRepeatButton>
                             <Track.Thumb>
-                                <Thumb Width="12" Height="12" Focusable="False">
-                                    <Thumb.Template><ControlTemplate TargetType="Thumb"><Ellipse x:Name="Knob" Fill="{DynamicResource AccentBrush}" Stroke="{DynamicResource PanelBrush}" StrokeThickness="1" /><ControlTemplate.Triggers><Trigger Property="IsMouseOver" Value="True"><Setter TargetName="Knob" Property="Fill" Value="{DynamicResource AccentHoverBrush}" /></Trigger><Trigger Property="IsDragging" Value="True"><Setter TargetName="Knob" Property="Fill" Value="{DynamicResource AccentHoverBrush}" /></Trigger></ControlTemplate.Triggers></ControlTemplate></Thumb.Template>
+                                <Thumb Width="16" Height="16" Focusable="False" VerticalAlignment="Center" OverridesDefaultStyle="True">
+                                    <Thumb.Template>
+                                        <ControlTemplate TargetType="Thumb">
+                                            <Grid Background="Transparent">
+                                                <Ellipse x:Name="Knob" Width="14" Height="14" HorizontalAlignment="Center" VerticalAlignment="Center"
+                                                         Fill="{DynamicResource AccentBrush}" Stroke="{DynamicResource PanelBrush}" StrokeThickness="1" />
+                                            </Grid>
+                                            <ControlTemplate.Triggers>
+                                                <Trigger Property="IsMouseOver" Value="True">
+                                                    <Setter TargetName="Knob" Property="Fill" Value="{DynamicResource AccentHoverBrush}" />
+                                                </Trigger>
+                                                <Trigger Property="IsDragging" Value="True">
+                                                    <Setter TargetName="Knob" Property="Fill" Value="{DynamicResource AccentHoverBrush}" />
+                                                    <Setter TargetName="Knob" Property="Width" Value="16" />
+                                                    <Setter TargetName="Knob" Property="Height" Value="16" />
+                                                </Trigger>
+                                            </ControlTemplate.Triggers>
+                                        </ControlTemplate>
+                                    </Thumb.Template>
                                 </Thumb>
                             </Track.Thumb>
                             <Track.IncreaseRepeatButton>
-                                <RepeatButton Command="{x:Static Slider.IncreaseLarge}" Focusable="False"><RepeatButton.Template><ControlTemplate TargetType="RepeatButton"><Border Background="Transparent" /></ControlTemplate></RepeatButton.Template></RepeatButton>
+                                <RepeatButton Command="{x:Static Slider.IncreaseLarge}" Focusable="False" OverridesDefaultStyle="True">
+                                    <RepeatButton.Template>
+                                        <ControlTemplate TargetType="RepeatButton"><Border Background="Transparent" /></ControlTemplate>
+                                    </RepeatButton.Template>
+                                </RepeatButton>
                             </Track.IncreaseRepeatButton>
                         </Track>
+                        <Border x:Name="FocusRing" Visibility="Collapsed" IsHitTestVisible="False" CornerRadius="4"
+                                BorderBrush="{DynamicResource AccentBrush}" BorderThickness="1" />
                     </Grid>
-                    <ControlTemplate.Triggers><Trigger Property="IsEnabled" Value="False"><Setter Property="Opacity" Value=".45" /></Trigger></ControlTemplate.Triggers>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsKeyboardFocused" Value="True"><Setter TargetName="FocusRing" Property="Visibility" Value="Visible" /></Trigger>
+                        <Trigger Property="IsEnabled" Value="False"><Setter TargetName="Surface" Property="Opacity" Value=".45" /></Trigger>
+                    </ControlTemplate.Triggers>
                 </ControlTemplate>
             </Setter.Value>
         </Setter>

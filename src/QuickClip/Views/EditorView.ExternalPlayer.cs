@@ -42,6 +42,7 @@ public partial class EditorView
             if (CanOpenSavedClip(path)) ExternalPlayerDialogs.Open(OwnerWindow, path, player);
         });
         menu.Items.Add(players);
+        menu.Items.Add(new Separator());
         Add("Share saved clip", () => _ = ClipSharing.ShareAsync(path));
         Add("Show in Explorer", () =>
         {
