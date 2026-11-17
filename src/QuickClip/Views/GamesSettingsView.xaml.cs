@@ -18,7 +18,8 @@ public partial class GamesSettingsView : UserControl
     }
 
     private sealed record RootRow(string Path, bool Steam, bool Automatic = false, bool Excluded = false, bool Epic = false,
-        string? Key = null, string? Status = null, bool Enabled = true, bool IsCollection = false)
+        string? Key = null, string? Status = null, bool Enabled = true, bool IsCollection = false,
+        bool HasPreviousExclusion = false)
     {
         public bool CanToggle => Key != null && !Excluded;
         public bool CanRefresh => CanToggle && Enabled;
@@ -26,7 +27,8 @@ public partial class GamesSettingsView : UserControl
         public string Label => ToString();
         public override string ToString() => (Excluded ? "Excluded · " : Epic ? "Detected Epic manifests · " :
             Automatic ? "Detected Steam · " : Steam ? "Steam · " : IsCollection ? "Game collection · " : "Game folder · ") + Path +
-            (Status == null ? "" : " · " + Status);
+            (Status == null ? "" : " · " + Status) +
+            (HasPreviousExclusion ? " · Previous game exclusion retained" : "");
     }
     private static GameDiscoveryCoordinator Discovery => GameCatalogRuntime.Discovery;
     private bool _basic;
@@ -230,6 +232,18 @@ public partial class GamesSettingsView : UserControl
         AddedFolders.IsExpanded = true;
         _ = Discovery.RequestAsync(manual: true, sourceKey: new CatalogScope(
             steam ? CatalogSource.Steam : CatalogSource.Folder, path, IsCollection: !steam).Key);
+    }
+
+    private void RestoreCollectionExclusion_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not Button { DataContext: RootRow { HasPreviousExclusion: true } root } ||
+            CatalogClaims.CollectionRootExclusion(State, root.Path) is not { } prior) return;
+        if (!ModalDialog.ConfirmAction(Window.GetWindow(this),
+            $"A previous game-level exclusion for this folder can still block its executables.\n\n{root.Path}\n\n" +
+            $"Restore this one rule ({prior.DeniedExecutables.Length:N0} remembered executable paths)? Other explicit blocks, game exclusions and normal detection rules still apply.",
+            "Restore previous game exclusion", "Restore", "Cancel", destructive: false)) return;
+        SetState(CatalogClaims.RestoreCollectionRootExclusion(State, root.Path));
+        Status.Text = "Previous game exclusion restored to normal detection rules.";
     }
 
     private void RemoveRoot_Click(object sender, RoutedEventArgs e)
@@ -537,7 +551,9 @@ public partial class GamesSettingsView : UserControl
             !state.Request.ExcludedDirectories.Any(root => CatalogPaths.IsWithin(manifestDirectory, root))
             ? [new(manifestDirectory, Steam: false, Automatic: true, Epic: true)] : [];
         var roots = CatalogScope.Configured(state).Where(scope => scope.Root != null)
-            .Select(scope => new RootRow(scope.Root!, scope.Kind == CatalogSource.Steam, Key: scope.Key, Status: DescribeSource(scope.Key), Enabled: enabled.Contains(scope.Key), IsCollection: scope.IsCollection))
+            .Select(scope => new RootRow(scope.Root!, scope.Kind == CatalogSource.Steam, Key: scope.Key, Status: DescribeSource(scope.Key), Enabled: enabled.Contains(scope.Key), IsCollection: scope.IsCollection,
+                HasPreviousExclusion: scope.Kind == CatalogSource.Folder && scope.IsCollection &&
+                    CatalogClaims.CollectionRootExclusion(state, scope.Root!) != null))
             .Concat((state.Snapshot?.SteamLibraries ?? []).Where(path =>
                 !state.Request.SteamLibraryRoots.Contains(path, StringComparer.OrdinalIgnoreCase) &&
                 !state.Request.ExcludedDirectories.Contains(path, StringComparer.OrdinalIgnoreCase))

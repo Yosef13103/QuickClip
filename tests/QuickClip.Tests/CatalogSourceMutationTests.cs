@@ -6,6 +6,43 @@ namespace QuickClip.Tests;
 public sealed class CatalogSourceMutationTests
 {
     [Fact]
+    public async Task Restoring_previous_single_game_exclusion_on_collection_preserves_independent_denials()
+    {
+        using var fixture = new Scratch();
+        string collection = fixture.Install("Collection", createExecutable: false);
+        string first = fixture.Install(@"Collection\First");
+        string second = fixture.Install(@"Collection\Second");
+        string third = fixture.Install(@"Collection\Third");
+        string firstExe = Path.Combine(first, "First.exe");
+        string secondExe = Path.Combine(second, "Second.exe");
+        string thirdExe = Path.Combine(third, "Third.exe");
+        string id = CatalogPaths.FolderId(collection);
+        string secondId = CatalogPaths.FolderId(second);
+        var state = new GameCatalogSettings { AutoScan = false, BlockedExecutables = [thirdExe], Request = new()
+        {
+            GameRoots = [new(collection, true)],
+            Overrides = [
+                new(id, new("Remembered name", Inclusion: CatalogInclusion.Exclude)) { DeniedExecutables = [firstExe, secondExe, thirdExe] },
+                new(secondId, new(Inclusion: CatalogInclusion.Exclude)) { DeniedExecutables = [secondExe] },
+            ],
+        } };
+        using var coordinator = new GameDiscoveryCoordinator(() => state, (next, _) => state = next);
+        await coordinator.RequestAsync(manual: true);
+        CatalogMatchKind Kind(string path) => new GameCatalogIndex(new(GameCatalogRuntime.Rows(state), [], 0, false, default),
+            CatalogClaims.BlockedExecutables(state)).Match(path, true).Kind;
+        Assert.Equal(CatalogMatchKind.Ignored, Kind(firstExe));
+        Assert.NotNull(CatalogClaims.CollectionRootExclusion(state, collection));
+        state = CatalogClaims.Reconfigure(CatalogClaims.RestoreCollectionRootExclusion(state, collection));
+        state = AppSettings.Parse(new AppSettings { Games = state }.ToJson()).Games;
+        Assert.Null(CatalogClaims.CollectionRootExclusion(state, collection));
+        Assert.Equal("Remembered name", state.Request.Overrides.Single(item => item.Id == id).Rules.DisplayName);
+        Assert.Empty(state.Request.Overrides.Single(item => item.Id == id).DeniedExecutables);
+        Assert.Equal(CatalogMatchKind.Game, Kind(firstExe));
+        Assert.Equal(CatalogMatchKind.Ignored, Kind(secondExe));
+        Assert.Equal(CatalogMatchKind.Ignored, Kind(thirdExe));
+    }
+
+    [Fact]
     public async Task Adding_a_root_does_not_rescan_the_already_verified_root()
     {
         var fixture = Directory.CreateTempSubdirectory("quickclip-source-mutation-");

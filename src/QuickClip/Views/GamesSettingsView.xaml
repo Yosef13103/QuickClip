@@ -128,6 +128,9 @@
                             <WrapPanel DockPanel.Dock="Right">
                                 <Button Content="Refresh" Click="RefreshSource_Click" IsEnabled="{Binding CanRefresh}" Margin="0,0,4,0" />
                                 <Button Content="{Binding RemoveLabel}" Click="RemoveRoot_Click" Margin="0,0,4,0" />
+                                <Button Content="Restore previous exclusion…" Click="RestoreCollectionExclusion_Click"
+                                        Visibility="{Binding HasPreviousExclusion, Converter={StaticResource ShowManualActions}}"
+                                        ToolTip="Restore this folder's earlier game-level exclusion; other blocks remain in effect." Margin="0,0,4,0" />
                             </WrapPanel>
                             <TextBlock Text="{Binding Label}" TextWrapping="Wrap" VerticalAlignment="Center" Margin="0,0,8,0" />
                         </DockPanel></DataTemplate></ListBox.ItemTemplate>

@@ -265,6 +265,28 @@ internal static class CatalogClaims
         return settings.BlockedExecutables.Concat(denies.SelectMany(rule => rule.DeniedExecutables.Concat(paths[rule.Id])));
     }
 
+    // A collection may previously have been registered (and disabled) as one game.
+    // Its old folder override can still deny all those executables after a type change.
+    // Only an explicit owner action may restore that exact rule.
+    internal static CatalogOverride? CollectionRootExclusion(GameCatalogSettings settings, string path)
+    {
+        if (CatalogPaths.LocalPath(path) is not { } normalized ||
+            !settings.Request.GameRoots.Any(root => root.IsCollection &&
+                Paths.Equals(CatalogPaths.LocalPath(root.Path), normalized))) return null;
+        var rule = settings.Request.Overrides.LastOrDefault(item => item.Id == CatalogPaths.FolderId(normalized));
+        return rule?.Rules.Inclusion == CatalogInclusion.Exclude ? rule : null;
+    }
+
+    internal static GameCatalogSettings RestoreCollectionRootExclusion(GameCatalogSettings settings, string path)
+    {
+        if (CollectionRootExclusion(settings, path) is not { } rule) return settings;
+        return settings with { Request = settings.Request with
+        {
+            Overrides = settings.Request.Overrides.RemoveAll(item => item.Id == rule.Id)
+                .Add(rule with { Rules = rule.Rules with { Inclusion = CatalogInclusion.Default }, DeniedExecutables = [] }),
+        } };
+    }
+
     private static GameCatalogSettings RememberDenials(GameCatalogSettings settings)
     {
         if (!settings.Request.Overrides.Any(rule => rule.Rules.Inclusion == CatalogInclusion.Exclude)) return settings;
