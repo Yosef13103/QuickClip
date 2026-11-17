@@ -14,11 +14,6 @@ public partial class EditorView
         internal static readonly ExportLimit Existing = new(null, false, true);
     }
 
-    private sealed record LimitChoice(string Name, double? MB)
-    {
-        public override string ToString() => Name;
-    }
-
     private void ShareSelection_Click(object sender, RoutedEventArgs e) => SubmitEditedShare(null);
 
     private void ShareSelectionOptions_Click(object sender, RoutedEventArgs e)
@@ -37,99 +32,87 @@ public partial class EditorView
         _ = ClipSharing.ShareAsync(path, profile, snapshot);
     }
 
-    private ExportLimit? PickExportLimit(Container container)
+    private ExportLimit? PickExportLimit(Container container, bool overwrite = false)
     {
-        if (OwnerWindow is not { Content: Panel } owner) return ExportLimit.Existing;
+        if (OwnerWindow is not { Content: Panel } owner) return overwrite ? null : ExportLimit.Existing;
         ExportRequest current = CreateDraft("", container);
         var panel = new StackPanel();
-        var choices = new ComboBox { Margin = new Thickness(0, 4, 0, 6) };
-        choices.ItemsSource = new LimitChoice[]
-        {
-            new("Original", null), new("Up to 10 MB", 10), new("Up to 30 MB", 30), new("Up to 50 MB", 50),
-            new("Up to 100 MB", 100), new("Custom MB", 0),
-        };
-        AutomationProperties.SetName(choices, "File size");
-        panel.Children.Add(new TextBlock { Text = "File size" });
-        panel.Children.Add(choices);
-        var custom = new TextBox { Text = SharingDialogs.Format(current.TargetSizeMB), MaxLength = 24 };
+        panel.Children.Add(new TextBlock { Text = "File size", FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 0, 0, 8) });
+        var presets = new System.Windows.Controls.Primitives.UniformGrid { Columns = 3 };
+        panel.Children.Add(presets);
+        var choices = new List<(RadioButton Button, double? MB)>();
+        var group = Guid.NewGuid().ToString("N");
+        var custom = new TextBox { Text = SharingDialogs.Format(current.TargetSizeMB), MaxLength = 24,
+            MinWidth = 48, Margin = new Thickness(6, 0, 4, 0), VerticalContentAlignment = VerticalAlignment.Center };
         AutomationProperties.SetName(custom, "Custom size in MB");
-        panel.Children.Add(custom);
-        var summary = new TextBlock { TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 8, 0, 0) };
+        foreach (double? size in new double?[] { null, 10, 30, 50, 100, 0 })
+        {
+            var button = new RadioButton { GroupName = group, Content = size == null ? "Original" : size == 0 ? "Custom" : $"{size} MB",
+                Margin = new Thickness(0, 0, 4, 5), Padding = new Thickness(7, 10, 7, 10),
+                HorizontalContentAlignment = HorizontalAlignment.Center };
+            if (owner.TryFindResource("ExportSizeTile") is Style tile) button.Style = tile;
+            choices.Add((button, size));
+            if (size == 0)
+            {
+                var cell = new DockPanel { LastChildFill = true, Margin = new Thickness(0, 0, 0, 5) };
+                DockPanel.SetDock(button, Dock.Left);
+                button.Margin = new Thickness(0);
+                cell.Children.Add(button);
+                cell.Children.Add(custom);
+                presets.Children.Add(cell);
+            }
+            else presets.Children.Add(button);
+        }
+        var adaptive = new CheckBox { Content = "Lower resolution if needed", Margin = new Thickness(0, 10, 0, 0),
+            ToolTip = "Allow a smaller video resolution to keep more detail within the chosen file size." };
+        panel.Children.Add(adaptive);
+        var summary = new TextBlock { TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 12, 0, 0) };
+        summary.SetResourceReference(TextBlock.ForegroundProperty, "SubtleText");
         panel.Children.Add(summary);
-        var advanced = new Expander { Header = "Advanced options", Margin = new Thickness(0, 10, 0, 0) };
-        var options = new StackPanel();
-        var adaptive = new CheckBox { Content = "Allow lower resolution to fit", Margin = new Thickness(0, 4, 0, 0) };
-        options.Children.Add(adaptive);
-        var editAdvanced = new Button { Content = "Edit format, encoder, video and audio options…", HorizontalAlignment = HorizontalAlignment.Left,
-            Margin = new Thickness(0, 6, 0, 0) };
-        options.Children.Add(editAdvanced);
-        advanced.Content = options;
-        panel.Children.Add(advanced);
-
-        bool showAdvanced = false;
-        editAdvanced.Click += (_, _) => showAdvanced = true;
-        choices.SelectionChanged += (_, _) => Refresh();
-        custom.TextChanged += (_, _) => Refresh();
+        var warning = new TextBlock { TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 6, 0, 0) };
+        warning.SetResourceReference(TextBlock.ForegroundProperty, "WarningBrush");
+        panel.Children.Add(warning);
+        ExportLimit? accepted = null;
+        foreach (var choice in choices) choice.Button.Checked += (_, _) => Refresh();
+        custom.GotKeyboardFocus += (_, _) => choices[^1].Button.IsChecked = true;
+        custom.TextChanged += (_, _) => { choices[^1].Button.IsChecked = true; Refresh(); };
         adaptive.Checked += (_, _) => Refresh();
         adaptive.Unchecked += (_, _) => Refresh();
-        choices.SelectedIndex = current.Quality == "size" ? 5 : 0;
-        while (ModalDialog.Run(owner, "Export clip", panel, "Choose file…", "Cancel", initialFocus: choices, dismissOnClick: editAdvanced))
-        {
-            if (Read() is { } limit)
-            {
-                try { _ = ExportBuilder.BuildArgs(BuildExportPlan("", container, limit, false)); return limit; }
-                catch (ExportException ex) { summary.Text = ex.Message; }
-            }
-        }
-        if (showAdvanced)
-        {
-            OutputExpander.IsExpanded = EncodingExpander.IsExpanded = FpsExpander.IsExpanded = true;
-            FormatCombo.BringIntoView();
-            FormatCombo.Focus();
-        }
-        return null;
+        choices[current.Quality == "size" ? choices.Count - 1 : 0].Button.IsChecked = true;
+        Refresh();
+        return ModalDialog.Run(owner, overwrite ? "Save over original" : "Export clip", panel,
+            overwrite ? "Save" : "Export", "Cancel", initialFocus: choices.First(x => x.Button.IsChecked == true).Button,
+            accent: true, wide: true, validate: () => { accepted = Refresh(); return accepted != null; }) ? accepted : null;
 
-        ExportLimit? Read()
+        ExportLimit? Refresh()
         {
-            double? value = ((LimitChoice)choices.SelectedItem).MB;
-            if (value != 0) return new(value, value.HasValue && adaptive.IsChecked == true, false);
-            return SharingProfiles.TryLimit(custom.Text, out double size) ? new(size, adaptive.IsChecked == true, false) : null;
-        }
-
-        void Refresh()
-        {
-            bool capped = (choices.SelectedItem as LimitChoice)?.MB != null;
-            custom.Visibility = (choices.SelectedItem as LimitChoice)?.MB == 0 ? Visibility.Visible : Visibility.Collapsed;
+            var selected = choices.FirstOrDefault(x => x.Button.IsChecked == true);
+            double? value = selected.MB;
+            bool capped = value.HasValue;
             adaptive.Visibility = capped ? Visibility.Visible : Visibility.Collapsed;
-            if (Read() is not { } limit) { summary.Text = "Enter a positive size up to 4000 MB."; return; }
+            warning.Text = "";
+            if (value == 0)
+            {
+                if (!SharingProfiles.TryLimit(custom.Text, out double size))
+                {
+                    summary.Text = "Enter a size between 0 and 4000 MB (greater than zero).";
+                    return null;
+                }
+                value = size;
+            }
+            var limit = new ExportLimit(value, capped && adaptive.IsChecked == true, false);
             try
             {
-                var plan = BuildExportPlan("", container, limit, false);
+                var plan = BuildExportPlan("", container, limit, overwrite);
                 _ = ExportBuilder.BuildArgs(plan);
-                string format = container.Extension.TrimStart('.').ToUpperInvariant();
-                var v = plan.Media.Video;
-                int width = plan.Crop?.W ?? v?.Width ?? 0, height = plan.Crop?.H ?? v?.Height ?? 0;
-                int side = plan.MaxShortSide;
-                if (plan.Container.IsGif && side == 0) side = 480;
-                if (side > 0 && Math.Min(width, height) > side)
-                {
-                    double scale = side / (double)Math.Min(width, height);
-                    width = (int)Math.Round(width * scale / 2) * 2;
-                    height = (int)Math.Round(height * scale / 2) * 2;
-                }
-                double fps = plan.Fps > 0 ? plan.Fps : v?.Fps ?? 0;
-                string video = width > 0 && container.HasVideo ? $" · {width}×{height} · {fps:0.##} fps" : "";
-                double estimate = plan.Media.Size * Math.Min(1, plan.Duration / plan.Media.Duration) / TargetSizeExport.BytesPerMB;
-                string size = capped
-                    ? $"Up to {SharingDialogs.Format(plan.TargetSizeMB)} MB (verified before saving)."
-                    : $"Source footage estimate: {estimate:0.##} MB. Export size varies with encoding.";
-                string quality = plan.VideoMode == VideoMode.Copy ? "Video copied when possible." :
-                    container.IsAudioOnly ? "Audio exported with the options selected in the editor." : "Video will be re-encoded.";
-                summary.Text = $"{Fmt.Time(plan.Duration, false)} · {format}{video}\n{size}\n{quality}" +
-                    (capped ? " Smaller caps can reduce quality. The job may take up to three attempts." : "") +
-                    (limit.Adaptive ? " The job may use a smaller resolution or a slower CPU encoder." : "");
+                double estimate = TargetSizeExport.Ceiling(plan, TargetSizeExport.MaximumMB) / (double)TargetSizeExport.BytesPerMB;
+                summary.Text = capped ? $"Up to {plan.TargetSizeMB:0.##} MB" : $"Original quality · approx. {estimate:0.##} MB of source footage";
+                if (capped && plan.TargetSizeMB < estimate * .35)
+                    warning.Text = "Large size reduction — video quality may be noticeably lower.";
+                if (overwrite) summary.Text += " · replaces this clip";
+                return limit;
             }
-            catch (ExportException ex) { summary.Text = ex.Message; }
+            catch (ExportException ex) { summary.Text = ex.Message; return null; }
         }
     }
 

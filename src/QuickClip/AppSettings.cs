@@ -111,6 +111,7 @@ internal sealed class AppSettings
     public string ClipFilenameTemplate { get; set; } = Gallery.ClipNaming.DefaultTemplate;
     public string[] LibraryExclusions { get; set; } = [];
     public bool ConfirmClipDeletion { get; set; } = true;
+    public bool ConfirmSaveOverOriginal { get; set; } = true;
 
     // Window behaviour
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]

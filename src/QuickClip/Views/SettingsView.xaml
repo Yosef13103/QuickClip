@@ -673,6 +673,7 @@
                         <TextBlock Text="Closing the window keeps QuickClip running in the tray" TextWrapping="Wrap" />
                     </CheckBox>
                     <CheckBox Style="{StaticResource SwitchCheckBox}" x:Name="ConfirmDeleteCheck" Content="Confirm before sending clips to the Recycle Bin" Margin="0,8,0,0" Checked="Changed" Unchecked="Changed" />
+                    <CheckBox Style="{StaticResource SwitchCheckBox}" x:Name="ConfirmSaveOverCheck" Content="Confirm before replacing the original clip" Margin="0,8,0,0" Checked="Changed" Unchecked="Changed" />
                     </StackPanel>
                     <TextBlock Text="Notifications" Style="{StaticResource CardTitle}" />
                     <WrapPanel Margin="0,8,0,0">

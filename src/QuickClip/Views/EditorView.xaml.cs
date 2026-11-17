@@ -2024,19 +2024,40 @@ public partial class EditorView : UserControl
     {
         if (_media == null || _exportCts != null || _deletingMedia) return;
         if (!VerifySource(_media.Path) || !SourceReady) return;
+        string original = _media.Path;
         var container = CurrentContainer(forOverwrite: true);
+        if (PickExportLimit(container, overwrite: true) is not { } limit) return;
+        if (!EditorSource.MatchesLoadedPreview(CurrentFile, original) || !VerifySource(original) || !SourceReady) return;
         string fileName = Path.GetFileName(_media.Path);
         int tracks = _tracks.Count(t => t.Include);
         string layout = tracks > 1 && container.HasVideo && !container.SingleAudioTrack
             ? "The saved file will play a complete mixed soundtrack by default AND retain separate audio tracks for future editing."
             : "The saved file will retain the selected audio.";
         string warning = $"Replace \"{fileName}\" with the edited clip?\n\n{layout}\n\nThe original will be moved to the Recycle Bin.";
-        if (!ModalDialog.ConfirmAction(OwnerWindow, warning, "Save over original",
-            "Replace original", "Keep original", destructive: true)) return;
+        if (_settings.ConfirmSaveOverOriginal)
+        {
+            if (OwnerWindow is { IsVisible: true, Content: Panel } owner)
+            {
+                var content = new StackPanel();
+                content.Children.Add(new TextBlock { Text = warning, TextWrapping = TextWrapping.Wrap });
+                var remember = new CheckBox { Content = "Don't ask again", Margin = new Thickness(0, 14, 0, 0) };
+                content.Children.Add(remember);
+                if (!ModalDialog.Run(owner, "Save over original", content, "Replace original", "Keep original",
+                    safeDefault: true, destructive: true)) return;
+                if (remember.IsChecked == true)
+                {
+                    _settings.ConfirmSaveOverOriginal = false;
+                    if (!_settings.TrySave()) _settings.ConfirmSaveOverOriginal = true;
+                }
+            }
+            else if (!ModalDialog.ConfirmAction(OwnerWindow, warning, "Save over original",
+                "Replace original", "Keep original", destructive: true)) return;
+        }
+        if (!EditorSource.MatchesLoadedPreview(CurrentFile, original) || !VerifySource(original) || !SourceReady) return;
 
         string dir = Path.GetDirectoryName(_media.Path)!;
         string temp = UniquePath(dir, Path.GetFileNameWithoutExtension(_media.Path) + ".quickclip-tmp", Path.GetExtension(_media.Path));
-        await RunExportAsync(temp, container, overwrite: true);
+        await RunExportAsync(temp, container, overwrite: true, limit);
     }
 
     internal bool HasActiveExport => _exportCts != null;
