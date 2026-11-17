@@ -66,9 +66,16 @@ public partial class GamesSettingsView
                 Entry.Source == CatalogSource.Xbox || Entry.Provenance.Contains(CatalogSource.Xbox)
                     ? "Game found · needs gameplay executable" : "Launcher",
             _ when !Entry.Executables.IsEmpty && Entry.Executables.All(path =>
-                Match(path).Kind is CatalogMatchKind.Ignored or CatalogMatchKind.Application or CatalogMatchKind.Companion) => "Blocked",
+                Match(path).Kind is CatalogMatchKind.Ignored or CatalogMatchKind.Application or CatalogMatchKind.Companion) => BlockedSummary(),
             _ => DetectionReady ? "Ready to record" : "Needs checking",
         };
+        private string BlockedSummary()
+        {
+            var reasons = Entry.Executables.Select(path => ExecutableRole(path)).Distinct(StringComparer.Ordinal).ToArray();
+            // Do not imply that a retained game-level denial is a per-file block.
+            return reasons is [var reason] && reason.StartsWith(" · Blocked (", StringComparison.Ordinal)
+                ? reason[3..] : "Blocked · multiple rules";
+        }
         private string? Availability => _offline ? "Source unavailable or scan incomplete · games remembered" :
             Entry.Executables.IsEmpty ? "No executable found · check the source and rescan" :
             _unavailable.Length > 0 ? "Executable unavailable · check the drive or edit executables" : null;

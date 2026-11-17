@@ -57,6 +57,7 @@ public sealed class GamesSettingsViewTests
         row.Update(entry, false, [], index);
         var inherited = Assert.Single(row.Executables);
         Assert.Contains("retained denial", inherited.Label);
+        Assert.Contains("retained denial", row.Summary);
         Assert.False(inherited.ExplicitlyBlocked);
         row.Update(entry, false, [renderer], index);
         Assert.Contains("explicit executable block", Assert.Single(row.Executables).Label);

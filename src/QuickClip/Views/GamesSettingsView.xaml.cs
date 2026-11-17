@@ -204,6 +204,8 @@ public partial class GamesSettingsView : UserControl
                 "Choose a folder containing multiple games",
         };
         if (dialog.ShowDialog(Window.GetWindow(this)) != true) return;
+        AddedFolders.IsExpanded = true;
+        SourceError.Text = "";
         if (CatalogPaths.LocalPath(dialog.FolderName) is not { Length: > 3 } path)
         {
             SourceError.Text = "Choose a folder on a local drive.";

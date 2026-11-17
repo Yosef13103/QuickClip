@@ -63,7 +63,7 @@
             <CheckBox Style="{StaticResource SwitchCheckBox}" x:Name="AutoScan" Content="Automatically discover installed games" Click="AutoScan_Click" Margin="0,8,0,0" />
             <TextBlock x:Name="ScanHelp" TextWrapping="Wrap" Style="{StaticResource Hint}" Visibility="Collapsed" />
             <StackPanel x:Name="LibrarySources">
-            <Expander Header="Game libraries and folders" Margin="0,6,0,6">
+            <Expander Header="Game stores" Margin="0,6,0,6">
                 <StackPanel>
                     <Button Content="Enable all supported game stores" Click="EnableStores_Click" HorizontalAlignment="Left" Margin="0,4,0,6" />
                     <ItemsControl x:Name="Launchers" AutomationProperties.Name="Game stores">
@@ -83,7 +83,6 @@
                                                     <Setter Property="Padding" Value="4" />
                                                     <Style.Triggers>
                                                         <Trigger Property="IsChecked" Value="True"><Setter Property="Opacity" Value="1" /></Trigger>
-                                                        <Trigger Property="IsMouseOver" Value="True"><Setter Property="Opacity" Value="1" /></Trigger>
                                                     </Style.Triggers>
                                                 </Style>
                                             </ToggleButton.Style>
