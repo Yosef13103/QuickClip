@@ -622,7 +622,7 @@
                 <StackPanel>
                     <TextBlock Text="Sharing" Style="{StaticResource CardTitle}" />
                     <TextBlock Style="{StaticResource Hint}" Margin="0,2,0,0" TextWrapping="Wrap"
-                               Text="Prepare an MP4 with one soundtrack and paste it or attach it manually." />
+                               Text="Prepare an MP4 with one soundtrack and paste it or attach it manually. Temporary shared copies expire after 24 hours, except files still on the clipboard." />
                     <Button Content="Manage sharing profiles…" HorizontalAlignment="Left" Margin="0,8,0,0"
                             Click="SharingProfiles_Click" />
                     <TextBlock x:Name="DefaultSharingText" Style="{StaticResource Hint}" TextWrapping="Wrap" Margin="0,4,0,0" />

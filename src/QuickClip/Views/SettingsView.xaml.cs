@@ -614,7 +614,7 @@ public partial class SettingsView : UserControl
         UpdateEstimates();
         UpdateSetupPresetStatus();
         bool recordingSetting = sender != StartTrayCheck && sender != CloseTrayCheck && sender != SoundCheck
-                                && sender != MotionBlurCheck && sender != ConfirmDeleteCheck;
+                                && sender != MotionBlurCheck && sender != ConfirmDeleteCheck && sender != ConfirmSaveOverCheck;
         if (sender == RecordingCheck || sender == SourceCombo)
         {
             _restartTimer.Stop();

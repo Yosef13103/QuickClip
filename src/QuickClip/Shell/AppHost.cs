@@ -27,6 +27,7 @@ internal sealed class AppHost : IDisposable
     private readonly Dictionary<RecordingBadge, IntPtr> _statusIcons = [];
     private bool _iconAdded;
     private DispatcherTimer? _updateTimer;
+    private DispatcherTimer? _shareCleanupTimer;
     private bool _sourceBalloonShown;
     private string? _lastSourceGuidance;
     private bool _updateBalloonShown;   // the last notification was about an update
@@ -80,6 +81,9 @@ internal sealed class AppHost : IDisposable
         _ = recorder.ApplySettingsAsync();
         if (AppProfile.IsPersonal) GameCatalogRuntime.Discovery.Start();
 
+        _shareCleanupTimer = new DispatcherTimer(TimeSpan.FromHours(1), DispatcherPriority.Background,
+            (_, _) => ClipSharing.CleanupExpired(), _dispatcher);
+        _dispatcher.BeginInvoke(DispatcherPriority.Background, new Action(ClipSharing.CleanupExpired));
         if (!Updater.IsEnabled) return;
         // Look for a new release shortly after start (not during it), then once a day while running.
         _updateTimer = new DispatcherTimer(TimeSpan.FromSeconds(20), DispatcherPriority.Background, async (_, _) =>
@@ -146,6 +150,18 @@ internal sealed class AppHost : IDisposable
         data.szInfo = Truncate(text, 255);
         data.dwInfoFlags = (warning ? NIIF_WARNING : NIIF_INFO) | NIIF_NOSOUND;
         Shell_NotifyIcon(NIM_MODIFY, ref data);
+    }
+
+    internal void NotifyShareReady(bool copied)
+    {
+        var settings = AppSettings.Current;
+        if (!settings.ClipNotificationsEnabled) return;
+        const string title = "Share ready";
+        string message = copied ? "Video copied to clipboard. Paste it into another app." :
+            "Video prepared. Use Media jobs to copy it or attach it.";
+        if (settings.ClipWindowsNotification) Notify(title, message);
+        if (settings.ClipOverlay is { Enabled: true, HideSavedBannerFromCapture: false } overlay)
+            _ = ShowOverlayAsync(overlay.Banner() with { Seconds = Math.Max(3, overlay.Seconds) }, title, true, null, message);
     }
 
     private void OnReplaySaved(ReplaySaveReceipt receipt) => _dispatcher.BeginInvoke(() =>
@@ -579,6 +595,7 @@ internal sealed class AppHost : IDisposable
     {
         if (AppProfile.IsPersonal) GameCatalogRuntime.Discovery.Dispose();
         _updateTimer?.Stop();
+        _shareCleanupTimer?.Stop();
         _captureAlertTimer?.Stop();
         Recorder.Instance.ReplaySaved -= OnReplaySaved;
         Recorder.Instance.SaveFailed -= OnSaveFailed;
