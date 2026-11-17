@@ -23,6 +23,7 @@ public partial class EditorView
     {
         if (_closed || !IsVisible || CurrentFile is not { } path || !SourceReady || !_previewReady) return;
         if (_videoContext is { } old) old.IsOpen = false;
+        RevealFullscreenControls();
         var menu = new ContextMenu { PlacementTarget = Video, Placement = PlacementMode.MousePoint };
         _videoContext = menu;
         void Add(string label, Action action) => SharingDialogs.Add(menu.Items, label, () =>
@@ -48,7 +49,11 @@ public partial class EditorView
             start.ArgumentList.Add($"/select,{path}");
             Process.Start(start)?.Dispose();
         });
-        menu.Closed += (_, _) => { if (ReferenceEquals(_videoContext, menu)) _videoContext = null; };
+        menu.Closed += (_, _) =>
+        {
+            if (ReferenceEquals(_videoContext, menu)) _videoContext = null;
+            if (_fullscreen && IsVisible) RevealFullscreenControls();
+        };
         menu.IsOpen = true;
     }
 }

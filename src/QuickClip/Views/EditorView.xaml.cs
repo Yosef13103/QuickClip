@@ -289,7 +289,7 @@ public partial class EditorView : UserControl
         else
         {
             _fullscreenControlsTimer.Stop();
-            HideFullscreenOverlay();
+            ReleaseFullscreenOverlay();
             ShowMessage(null);
         }
     }
@@ -445,6 +445,8 @@ public partial class EditorView : UserControl
             if (!_fullscreenSeek.IsMouseCaptureWithin) _fullscreenSeek.Value = _timeline.Position;
             _fullscreenPlay.Content = _paused ? PlayGlyph : PauseGlyph;
             _fullscreenPlay.IsEnabled = _previewReady && SourceReady;
+            if (_fullscreenTime != null) _fullscreenTime.Text = Fmt.Time(_timeline.Position, millis: false);
+            if (_fullscreenDuration != null) _fullscreenDuration.Text = " / " + Fmt.Time(_timeline.Duration, millis: false);
         }
         _updatingViewSeek = false;
     }
@@ -498,16 +500,23 @@ public partial class EditorView : UserControl
         _timeline.PositionChanged += () => { if (_paused) QueueEditDraft(); };
         _crop.Changed += OnCropChanged;
 
-        Video.CursorQuery = (x, y) => _media?.Video == null ? VideoHost.IDC_ARROW : _crop.CursorAt(x, y);
+        Video.CursorQuery = (x, y) => _fullscreen ? (_fullscreenControlsHidden ? -1 : VideoHost.IDC_ARROW)
+            : _media?.Video == null ? VideoHost.IDC_ARROW : _crop.CursorAt(x, y);
         Video.VideoMouseDown += OnVideoMouseDown;
         Video.VideoContextRequested += () => Dispatcher.BeginInvoke(new Action(OpenVideoContext));
         _fullscreenControlsTimer = new DispatcherTimer(TimeSpan.FromSeconds(2.5), DispatcherPriority.Background, (_, _) =>
         {
+            if (_videoContext?.IsOpen == true) return;
             if (_fullscreenOverlay?.Child is UIElement controls &&
                 (controls.IsMouseOver || controls.IsKeyboardFocusWithin || controls.IsMouseCaptureWithin)) return;
             _fullscreenControlsTimer!.Stop();
             HideFullscreenOverlay();
-            if (_fullscreen) ShowMessage(null);
+            if (_fullscreen)
+            {
+                _fullscreenControlsHidden = true;
+                Video.RefreshCursor();
+                ShowMessage(null);
+            }
         }, Dispatcher) { IsEnabled = false };
         Root.MouseMove += (_, _) => RevealFullscreenControls();
         Root.SizeChanged += (_, _) =>
@@ -517,7 +526,11 @@ public partial class EditorView : UserControl
         };
         Video.VideoMouseMove += (x, y) =>
         {
-            RevealFullscreenControls();
+            if ((x, y) != _fullscreenLastMouse)
+            {
+                _fullscreenLastMouse = (x, y);
+                RevealFullscreenControls();
+            }
             if (!_fullscreen && _crop.Enabled) _crop.MouseMove(x, y);
         };
         Video.VideoMouseUp += (_, _) => { if (_crop.Enabled) _crop.MouseUp(); };
@@ -636,7 +649,7 @@ public partial class EditorView : UserControl
         if (!await TryLeaveClipAsync(closing: true)) return false;
         _draftTimer.Stop();
         _closed = true;
-        HideFullscreenOverlay();
+        ReleaseFullscreenOverlay();
         _fullscreenControlsTimer.Stop();
         Loaded -= OnLoaded;
         DetachSourceEvents();
@@ -2421,12 +2434,13 @@ public partial class EditorView : UserControl
     internal void SetTrimForRender(double end) => _timeline.SetOut(end);
     internal bool ViewingForRender => _viewMode;
     internal bool VerifyFullscreenLayoutForRender() =>
-        _fullscreen && _fullscreenOverlay?.IsOpen == true && Transport.Visibility == Visibility.Collapsed &&
+        _fullscreen && _fullscreenOverlay?.IsOpen == true && _fullscreenTime != null && _fullscreenDuration != null &&
+        _fullscreenMarkers != null && _fullscreenSeek != null && _fullscreenPlay != null && Transport.Visibility == Visibility.Collapsed &&
         ViewSeek.Visibility == Visibility.Collapsed && Math.Abs(Video.ActualWidth - Root.ActualWidth) < 1 &&
         Math.Abs(Video.ActualHeight - Root.ActualHeight) < 1 && Root.Margin == new Thickness(0);
 
     internal bool VerifyRestoredLayoutForRender() =>
-        !_fullscreen && _fullscreenOverlay?.IsOpen != true && Transport.IsVisible && Root.Margin == new Thickness(12);
+        !_fullscreen && _fullscreenOverlay == null && !_fullscreenControlsHidden && Transport.IsVisible && Root.Margin == new Thickness(12);
 
     internal bool FullscreenForRender => _fullscreen && EditorHeader.Visibility == Visibility.Collapsed;
 
