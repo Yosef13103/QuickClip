@@ -14,7 +14,17 @@ public partial class GamesSettingsView : UserControl
     private sealed record LauncherRow(CatalogSource Source, string Name, bool Enabled, bool Supported, string Status)
     {
         public bool CanRefresh => Enabled && Supported;
-        public string RefreshName => $"Refresh {Name}";
+        public string LogoKey => Source.ToString();
+        public string TileName => Source switch
+        {
+            CatalogSource.Xbox => "Xbox / Game Pass",
+            CatalogSource.Ubisoft => "Ubisoft",
+            CatalogSource.Rockstar => "Rockstar",
+            CatalogSource.Origin => "Origin",
+            _ => Name,
+        };
+        public string TileTooltip => $"{Name} · {(Enabled ? "Enabled" : "Disabled")}\n{Status}\nClick to {(Enabled ? "disable" : "enable")} discovery";
+        public string RefreshName => $"Refresh {Name} game library";
     }
 
     private sealed record RootRow(string Path, bool Steam, bool Automatic = false, bool Excluded = false, bool Epic = false,
@@ -543,9 +553,7 @@ public partial class GamesSettingsView : UserControl
             bool active = enabled.Contains(key);
             return new LauncherRow(source, LocalLaunchers.Name(source), active, supported,
                 !supported ? "Unsupported" : active ? DescribeSource(key) : "Disabled");
-        }).Concat([
-            new LauncherRow(CatalogSource.Manual, "Other Microsoft Store installs", false, false, "Unsupported · Add Game for accessible executables"),
-        ]).ToArray();
+        }).ToArray();
         if (!_launchers.SequenceEqual(launchers)) Launchers.ItemsSource = _launchers = launchers;
         RootRow[] epic = state.Snapshot?.EpicManifestDirectory is { } manifestDirectory &&
             !state.Request.ExcludedDirectories.Any(root => CatalogPaths.IsWithin(manifestDirectory, root))

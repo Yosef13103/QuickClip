@@ -7,6 +7,7 @@
         <ResourceDictionary>
             <ResourceDictionary.MergedDictionaries>
                 <ResourceDictionary Source="/QuickClip;component/Themes/Styles.xaml" />
+                <ResourceDictionary Source="/QuickClip;component/Themes/StoreLogos.xaml" />
             </ResourceDictionary.MergedDictionaries>
             <Style x:Key="GameHeadingButton" TargetType="ToggleButton" BasedOn="{StaticResource {x:Type ToggleButton}}">
                 <Setter Property="Background" Value="Transparent" />
@@ -29,6 +30,89 @@
                                 </Trigger>
                                 <Trigger Property="IsKeyboardFocused" Value="True">
                                     <Setter TargetName="HeadingSurface" Property="BorderBrush" Value="{DynamicResource AccentBrush}" />
+                                </Trigger>
+                            </ControlTemplate.Triggers>
+                        </ControlTemplate>
+                    </Setter.Value>
+                </Setter>
+            </Style>
+            <Style x:Key="StoreTile" TargetType="ToggleButton">
+                <Setter Property="MinWidth" Value="0" />
+                <Setter Property="MinHeight" Value="0" />
+                <Setter Property="Cursor" Value="Hand" />
+                <Setter Property="Template">
+                    <Setter.Value>
+                        <ControlTemplate TargetType="ToggleButton">
+                            <Border x:Name="TileSurface" Background="{DynamicResource SurfaceBrush}"
+                                    BorderBrush="{DynamicResource DividerBrush}" BorderThickness="1" CornerRadius="9">
+                                <Grid Margin="5,14,5,5">
+                                    <Grid.RowDefinitions>
+                                        <RowDefinition Height="*" />
+                                        <RowDefinition Height="Auto" />
+                                        <RowDefinition Height="Auto" />
+                                    </Grid.RowDefinitions>
+                                    <Path x:Name="Logo" Style="{StaticResource StoreLogo}" Fill="{DynamicResource PrimaryTextBrush}"
+                                          Opacity=".36" HorizontalAlignment="Center" VerticalAlignment="Center" Margin="0,0,0,3" />
+                                    <TextBlock x:Name="StoreName" Grid.Row="1" Text="{Binding TileName}" TextAlignment="Center"
+                                               TextWrapping="Wrap" FontSize="{DynamicResource QuickClipText12}" Foreground="{DynamicResource SubtleTextBrush}"
+                                               Margin="0,0,0,3" />
+                                    <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Center">
+                                        <Ellipse x:Name="StateDot" Width="5" Height="5" Fill="{DynamicResource SubtleTextBrush}" Margin="0,0,4,0" VerticalAlignment="Center" />
+                                        <TextBlock x:Name="StateLabel" Text="Disabled" Foreground="{DynamicResource SubtleTextBrush}" FontSize="{DynamicResource QuickClipText11}" />
+                                    </StackPanel>
+                                </Grid>
+                            </Border>
+                            <ControlTemplate.Triggers>
+                                <Trigger Property="IsChecked" Value="True">
+                                    <Setter TargetName="TileSurface" Property="BorderBrush" Value="{DynamicResource AccentBrush}" />
+                                    <Setter TargetName="Logo" Property="Opacity" Value="1" />
+                                    <Setter TargetName="StoreName" Property="Foreground" Value="{DynamicResource PrimaryTextBrush}" />
+                                    <Setter TargetName="StateDot" Property="Fill" Value="{DynamicResource AccentBrush}" />
+                                    <Setter TargetName="StateLabel" Property="Text" Value="Enabled" />
+                                    <Setter TargetName="StateLabel" Property="Foreground" Value="{DynamicResource AccentBrush}" />
+                                </Trigger>
+                                <Trigger Property="IsMouseOver" Value="True">
+                                    <Setter TargetName="TileSurface" Property="Background" Value="{DynamicResource ElevatedSurfaceBrush}" />
+                                </Trigger>
+                                <Trigger Property="IsKeyboardFocused" Value="True">
+                                    <Setter TargetName="TileSurface" Property="BorderBrush" Value="{DynamicResource PrimaryTextBrush}" />
+                                    <Setter TargetName="TileSurface" Property="BorderThickness" Value="2" />
+                                </Trigger>
+                                <Trigger Property="IsEnabled" Value="False">
+                                    <Setter TargetName="TileSurface" Property="Opacity" Value=".55" />
+                                    <Setter TargetName="StateLabel" Property="Text" Value="Unavailable" />
+                                </Trigger>
+                            </ControlTemplate.Triggers>
+                        </ControlTemplate>
+                    </Setter.Value>
+                </Setter>
+            </Style>
+            <Style x:Key="StoreRefresh" TargetType="Button">
+                <Setter Property="Width" Value="23" />
+                <Setter Property="Height" Value="23" />
+                <Setter Property="MinWidth" Value="0" />
+                <Setter Property="MinHeight" Value="0" />
+                <Setter Property="Cursor" Value="Hand" />
+                <Setter Property="Template">
+                    <Setter.Value>
+                        <ControlTemplate TargetType="Button">
+                            <Border x:Name="RefreshSurface" Background="Transparent" CornerRadius="5">
+                                <Path x:Name="RefreshGlyph" Width="12" Height="12" Stretch="Uniform"
+                                      Stroke="{DynamicResource SubtleTextBrush}" StrokeThickness="1.5" StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round"
+                                      Data="M 11,4 A 5,5 0 1 0 12,8 M 11,1 L 11,4 L 8,4"
+                                      HorizontalAlignment="Center" VerticalAlignment="Center" />
+                            </Border>
+                            <ControlTemplate.Triggers>
+                                <Trigger Property="IsMouseOver" Value="True">
+                                    <Setter TargetName="RefreshSurface" Property="Background" Value="{DynamicResource ElevatedSurfaceBrush}" />
+                                    <Setter TargetName="RefreshGlyph" Property="Stroke" Value="{DynamicResource AccentBrush}" />
+                                </Trigger>
+                                <Trigger Property="IsKeyboardFocused" Value="True">
+                                    <Setter TargetName="RefreshSurface" Property="BorderBrush" Value="{DynamicResource AccentBrush}" />
+                                    <Setter TargetName="RefreshSurface" Property="BorderThickness" Value="1" />
+                                </Trigger>
+                                <Trigger Property="IsEnabled" Value="False">
+                                    <Setter TargetName="RefreshGlyph" Property="Opacity" Value=".28" />
                                 </Trigger>
                             </ControlTemplate.Triggers>
                         </ControlTemplate>
@@ -66,33 +150,20 @@
             <Expander Header="Game stores" Margin="0,6,0,6">
                 <StackPanel>
                     <Button Content="Enable all supported game stores" Click="EnableStores_Click" HorizontalAlignment="Left" Margin="0,4,0,6" />
+                    <TextBlock Text="Click a store to enable or disable discovery. Refresh rescans only that store."
+                               Style="{StaticResource Hint}" TextWrapping="Wrap" Margin="0,0,0,5" />
                     <ItemsControl x:Name="Launchers" AutomationProperties.Name="Game stores">
                         <ItemsControl.ItemsPanel><ItemsPanelTemplate><WrapPanel /></ItemsPanelTemplate></ItemsControl.ItemsPanel>
                         <ItemsControl.ItemTemplate>
                             <DataTemplate>
-                                <Border Width="114" Height="102" Margin="3" Padding="6" CornerRadius="8"
-                                        Background="{DynamicResource SurfaceBrush}" BorderBrush="{DynamicResource DividerBrush}" BorderThickness="1">
-                                    <Grid>
-                                        <Grid.RowDefinitions><RowDefinition Height="*" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
-                                        <ToggleButton IsChecked="{Binding Enabled, Mode=OneWay}" IsEnabled="{Binding Supported}"
-                                                      Click="Provider_Click" ToolTip="{Binding Status}" AutomationProperties.Name="{Binding Name}"
-                                                      HorizontalContentAlignment="Center" VerticalContentAlignment="Center">
-                                            <ToggleButton.Style>
-                                                <Style TargetType="ToggleButton" BasedOn="{StaticResource {x:Type ToggleButton}}">
-                                                    <Setter Property="Opacity" Value=".48" />
-                                                    <Setter Property="Padding" Value="4" />
-                                                    <Style.Triggers>
-                                                        <Trigger Property="IsChecked" Value="True"><Setter Property="Opacity" Value="1" /></Trigger>
-                                                    </Style.Triggers>
-                                                </Style>
-                                            </ToggleButton.Style>
-                                            <TextBlock Text="{Binding Name}" TextWrapping="Wrap" TextAlignment="Center" FontWeight="SemiBold" />
-                                        </ToggleButton>
-                                        <Button Grid.Row="1" Style="{StaticResource IconButton}" Content="&#xE72C;" Click="RefreshLauncher_Click"
-                                                IsEnabled="{Binding CanRefresh}" ToolTip="{Binding RefreshName}" AutomationProperties.Name="{Binding RefreshName}"
-                                                HorizontalAlignment="Center" Margin="0,3,0,0" />
-                                    </Grid>
-                                </Border>
+                                <Grid MinWidth="96" MinHeight="96" Width="100" Margin="3">
+                                    <ToggleButton Style="{StaticResource StoreTile}" IsChecked="{Binding Enabled, Mode=OneWay}"
+                                                  IsEnabled="{Binding Supported}" Click="Provider_Click"
+                                                  ToolTip="{Binding TileTooltip}" AutomationProperties.Name="{Binding Name}" />
+                                    <Button Style="{StaticResource StoreRefresh}" Click="RefreshLauncher_Click" IsEnabled="{Binding CanRefresh}"
+                                            ToolTip="{Binding RefreshName}" ToolTipService.ShowOnDisabled="True"
+                                            AutomationProperties.Name="{Binding RefreshName}" HorizontalAlignment="Right" VerticalAlignment="Top" Margin="0,3,3,0" />
+                                </Grid>
                             </DataTemplate>
                         </ItemsControl.ItemTemplate>
                     </ItemsControl>

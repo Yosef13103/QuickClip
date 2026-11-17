@@ -12,6 +12,19 @@ namespace QuickClip.Tests;
 public sealed class GamesSettingsViewTests
 {
     [Fact]
+    public Task Store_logos_are_local_nonempty_vectors_for_every_supported_tile() => OnSta(() =>
+    {
+        var page = new GamesSettingsView();
+        string[] names = ["Steam", "Epic", "Gog", "Xbox", "Ea", "Riot", "BattleNet", "Ubisoft", "Rockstar", "Heroic", "Origin", "Amazon", "Itch"];
+        foreach (string name in names)
+        {
+            var geometry = Assert.IsAssignableFrom<Geometry>(page.FindResource("StoreLogo" + name));
+            Assert.False(geometry.Bounds.IsEmpty);
+            Assert.True(geometry.Bounds.Width > 0 && geometry.Bounds.Height > 0);
+        }
+    });
+
+    [Fact]
     public void Game_files_show_ready_and_blocked_using_the_runtime_match()
     {
         const string renderer = @"C:\Collection\osu!lazer\osu!.exe";
