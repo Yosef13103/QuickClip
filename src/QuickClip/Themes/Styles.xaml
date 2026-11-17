@@ -55,36 +55,6 @@
             </DataTrigger>
         </Style.Triggers>
     </Style>
-            <Style x:Key="ThemedMediaSlider" TargetType="Slider" BasedOn="{StaticResource {x:Type Slider}}">
-                <Setter Property="MinHeight" Value="0" />
-                <Setter Property="Height" Value="16" />
-                <Setter Property="Margin" Value="0" />
-                <Setter Property="Template">
-                    <Setter.Value>
-                        <ControlTemplate TargetType="Slider">
-                            <Grid Background="Transparent">
-                                <Border Height="4" CornerRadius="2" Margin="6,0" VerticalAlignment="Center" Background="{DynamicResource BorderBrush}" />
-                                <Track x:Name="PART_Track" VerticalAlignment="Center" Minimum="{TemplateBinding Minimum}" Maximum="{TemplateBinding Maximum}" Value="{Binding Value, RelativeSource={RelativeSource TemplatedParent}, Mode=TwoWay}" Orientation="{TemplateBinding Orientation}" IsDirectionReversed="{TemplateBinding IsDirectionReversed}">
-                                    <Track.DecreaseRepeatButton>
-                                        <RepeatButton Command="{x:Static Slider.DecreaseLarge}" Focusable="False">
-                                            <RepeatButton.Template><ControlTemplate TargetType="RepeatButton"><Border Background="Transparent"><Border Background="{DynamicResource AccentBrush}" Height="4" CornerRadius="2" VerticalAlignment="Center" /></Border></ControlTemplate></RepeatButton.Template>
-                                        </RepeatButton>
-                                    </Track.DecreaseRepeatButton>
-                                    <Track.Thumb>
-                                        <Thumb Width="12" Height="12" Focusable="False">
-                                            <Thumb.Template><ControlTemplate TargetType="Thumb"><Ellipse x:Name="Knob" Fill="{DynamicResource AccentBrush}" Stroke="{DynamicResource PanelBrush}" StrokeThickness="1" /><ControlTemplate.Triggers><Trigger Property="IsMouseOver" Value="True"><Setter TargetName="Knob" Property="Fill" Value="{DynamicResource AccentHoverBrush}" /></Trigger><Trigger Property="IsDragging" Value="True"><Setter TargetName="Knob" Property="Fill" Value="{DynamicResource AccentHoverBrush}" /></Trigger></ControlTemplate.Triggers></ControlTemplate></Thumb.Template>
-                                        </Thumb>
-                                    </Track.Thumb>
-                                    <Track.IncreaseRepeatButton>
-                                        <RepeatButton Command="{x:Static Slider.IncreaseLarge}" Focusable="False"><RepeatButton.Template><ControlTemplate TargetType="RepeatButton"><Border Background="Transparent" /></ControlTemplate></RepeatButton.Template></RepeatButton>
-                                    </Track.IncreaseRepeatButton>
-                                </Track>
-                            </Grid>
-                            <ControlTemplate.Triggers><Trigger Property="IsEnabled" Value="False"><Setter Property="Opacity" Value=".45" /></Trigger></ControlTemplate.Triggers>
-                        </ControlTemplate>
-                    </Setter.Value>
-                </Setter>
-            </Style>
     <Style x:Key="ExportSizeTile" TargetType="RadioButton">
         <Setter Property="Foreground" Value="{DynamicResource PrimaryTextBrush}" />
         <Setter Property="Background" Value="{DynamicResource SurfaceBrush}" />
@@ -273,6 +243,36 @@
         <Setter Property="Foreground" Value="{DynamicResource AccentBrush}" />
         <Setter Property="Background" Value="{DynamicResource SurfaceBrush}" />
         <Setter Property="BorderBrush" Value="{DynamicResource BorderBrush}" />
+    </Style>
+    <Style x:Key="ThemedMediaSlider" TargetType="Slider" BasedOn="{StaticResource {x:Type Slider}}">
+        <Setter Property="MinHeight" Value="0" />
+        <Setter Property="Height" Value="16" />
+        <Setter Property="Margin" Value="0" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="Slider">
+                    <Grid Background="Transparent">
+                        <Border Height="4" CornerRadius="2" Margin="6,0" VerticalAlignment="Center" Background="{DynamicResource BorderBrush}" />
+                        <Track x:Name="PART_Track" VerticalAlignment="Center" Minimum="{TemplateBinding Minimum}" Maximum="{TemplateBinding Maximum}" Value="{Binding Value, RelativeSource={RelativeSource TemplatedParent}, Mode=TwoWay}" Orientation="{TemplateBinding Orientation}" IsDirectionReversed="{TemplateBinding IsDirectionReversed}">
+                            <Track.DecreaseRepeatButton>
+                                <RepeatButton Command="{x:Static Slider.DecreaseLarge}" Focusable="False">
+                                    <RepeatButton.Template><ControlTemplate TargetType="RepeatButton"><Border Background="Transparent"><Border Background="{DynamicResource AccentBrush}" Height="4" CornerRadius="2" VerticalAlignment="Center" /></Border></ControlTemplate></RepeatButton.Template>
+                                </RepeatButton>
+                            </Track.DecreaseRepeatButton>
+                            <Track.Thumb>
+                                <Thumb Width="12" Height="12" Focusable="False">
+                                    <Thumb.Template><ControlTemplate TargetType="Thumb"><Ellipse x:Name="Knob" Fill="{DynamicResource AccentBrush}" Stroke="{DynamicResource PanelBrush}" StrokeThickness="1" /><ControlTemplate.Triggers><Trigger Property="IsMouseOver" Value="True"><Setter TargetName="Knob" Property="Fill" Value="{DynamicResource AccentHoverBrush}" /></Trigger><Trigger Property="IsDragging" Value="True"><Setter TargetName="Knob" Property="Fill" Value="{DynamicResource AccentHoverBrush}" /></Trigger></ControlTemplate.Triggers></ControlTemplate></Thumb.Template>
+                                </Thumb>
+                            </Track.Thumb>
+                            <Track.IncreaseRepeatButton>
+                                <RepeatButton Command="{x:Static Slider.IncreaseLarge}" Focusable="False"><RepeatButton.Template><ControlTemplate TargetType="RepeatButton"><Border Background="Transparent" /></ControlTemplate></RepeatButton.Template></RepeatButton>
+                            </Track.IncreaseRepeatButton>
+                        </Track>
+                    </Grid>
+                    <ControlTemplate.Triggers><Trigger Property="IsEnabled" Value="False"><Setter Property="Opacity" Value=".45" /></Trigger></ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
     </Style>
     <Style x:Key="ThemedNavigationItem" TargetType="ListBoxItem">
         <Setter Property="Foreground" Value="{DynamicResource PrimaryTextBrush}" />
