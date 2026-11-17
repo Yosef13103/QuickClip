@@ -25,6 +25,32 @@ public sealed class GamesSettingsViewTests
     });
 
     [Fact]
+    public Task Store_tile_template_distinguishes_checked_state_without_native_button_chrome() => OnSta(() =>
+    {
+        var page = new GamesSettingsView();
+        var tile = new System.Windows.Controls.Primitives.ToggleButton
+        {
+            Style = (Style)page.FindResource("StoreTile"),
+            DataContext = new { LogoKey = "Steam", TileName = "Steam" },
+            IsChecked = false,
+            Width = 100,
+            Height = 96,
+        };
+        Arrange(tile, 100, 96);
+        tile.ApplyTemplate();
+        var logo = Assert.IsType<System.Windows.Shapes.Path>(tile.Template.FindName("Logo", tile));
+        var label = Assert.IsType<TextBlock>(tile.Template.FindName("StateLabel", tile));
+        Assert.NotNull(logo.Data);
+        Assert.Equal("Disabled", label.Text);
+        Assert.True(logo.Opacity < 1);
+        tile.IsChecked = true;
+        Assert.Equal("Enabled", label.Text);
+        Assert.Equal(1d, logo.Opacity);
+        tile.IsChecked = false;
+        Assert.Equal("Disabled", label.Text);
+    });
+
+    [Fact]
     public void Game_files_show_ready_and_blocked_using_the_runtime_match()
     {
         const string renderer = @"C:\Collection\osu!lazer\osu!.exe";
