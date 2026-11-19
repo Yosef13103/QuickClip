@@ -456,7 +456,8 @@ public partial class GalleryView : UserControl
     private async Task SearchAsync()
     {
         var filter = new GalleryClipFilter(ClipSearchBox.Text.Trim(), TagSearchBox.Text.Trim(),
-            FavoritesFilter.IsChecked == true, FavoritesSort.IsChecked == true);
+            FavoritesFilter.IsChecked == true, FavoritesSort.IsChecked == true)
+        { ExactTags = _exactTags, MatchAllTags = _matchAllTags };
         string folder = _folder;
         var clips = _clips;
         _searchCancellation?.Cancel();
@@ -495,6 +496,10 @@ public partial class GalleryView : UserControl
     {
         ClipSearchBox.Clear();
         TagSearchBox.Clear();
+        _exactTags = [];
+        _matchAllTags = true;
+        RefreshTagFilterButton();
+        OrganizationFilter_Changed(this, new RoutedEventArgs());
         FavoritesFilter.IsChecked = FavoritesSort.IsChecked = false;
     }
 
