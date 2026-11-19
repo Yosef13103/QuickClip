@@ -44,6 +44,7 @@ internal sealed class GameCatalogIndex
     private CatalogMatch MatchKnown(string path, List<CatalogEntry> candidates, bool isForeground)
     {
         if (_blocked.Contains(path)) return new(CatalogMatchKind.Ignored);
+        if (CatalogPaths.IsProtectedExecutable(path)) return new(CatalogMatchKind.Application);
 
         // An exact selection wins. For overlapping folder claims, prefer the
         // deepest verified install, while equal claims remain ambiguous.
@@ -72,7 +73,7 @@ internal sealed class GameCatalogIndex
         var entry = match!;
         if (candidates.FirstOrDefault(candidate => candidate.Rules.Inclusion == CatalogInclusion.Exclude) is { } excluded)
             return new(CatalogMatchKind.Ignored, excluded);
-        bool attached = IsExplicitAttachment(entry, path);
+        bool attached = IsExplicitSelection(entry, path);
         if (CatalogPaths.DefaultRole(path) is var role && role != CatalogMatchKind.Unknown && !attached)
             return new(role, entry);
         foreach (var candidate in candidates)
@@ -106,6 +107,11 @@ internal sealed class GameCatalogIndex
     internal static bool IsExplicitAttachment(CatalogEntry entry, string path) =>
         !CatalogPaths.IsProtectedExecutable(path) &&
         entry.Rules.AttachedExecutables.Contains(path, StringComparer.OrdinalIgnoreCase);
+
+    internal static bool IsExplicitSelection(CatalogEntry entry, string path) =>
+        IsExplicitAttachment(entry, path) ||
+        !CatalogPaths.IsProtectedExecutable(path) && entry.Source == CatalogSource.Manual &&
+            entry.Executables.Contains(path, StringComparer.OrdinalIgnoreCase);
 
     private static bool HasGameEvidence(CatalogEntry entry, string path) =>
         IsExplicitAttachment(entry, path) ||

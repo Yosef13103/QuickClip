@@ -216,19 +216,34 @@ internal static class CatalogClaims
         foreach (var group in providers)
         {
             var linked = group.OrderByDescending(item => item.Verified).DistinctBy(item => item.Entry.Id).ToArray();
-            // Valve's 2024 anniversary update folded both Episodes and Lost Coast
-            // into HL2. Their legacy manifests may still claim exactly the same renderer.
-            // Only merge this known family at the same verified installation, not other
-            // Source games, unrelated shared executables or separate legacy installations.
-            if (linked.Any(item => item.Verified && item.Entry.Source == CatalogSource.Steam &&
-                    item.Entry.Id == "steam:220" && item.Entry.InstallDirectories.Length == 1 &&
-                    item.Entry.Executables.Contains(Path.Combine(group.Key, "hl2.exe"), Paths)))
+            // Multiple verified titles can describe the same installed game/edition.
+            // Identical eligible executable sets at one exact install root are
+            // enough to share recording ownership, even within a single store.
+            // A partial overlap, offline claim, or different install stays distinct.
+            HashSet<string> Eligible(Contribution part) =>
+                (part.Entry.Source == CatalogSource.Steam ? part.Entry.Executables :
+                    part.Entry.RendererExecutables ?? (part.Entry.Source == CatalogSource.Epic ? part.Entry.Executables : []))
+                .Where(path => CatalogPaths.DefaultRole(path) == CatalogMatchKind.Unknown &&
+                    !CatalogPaths.IsProtectedExecutable(path) &&
+                    !part.Entry.DetectedLaunchers.Contains(path, Paths))
+                .ToHashSet(Paths);
+            foreach (var store in linked.Where(item => item.Verified && item.Entry.InstallDirectories.Length == 1)
+                .GroupBy(item => item.Entry.Source))
             {
-                foreach (var episode in linked.Where(item => item.Entry.Source == CatalogSource.Steam &&
-                    item.Entry.Id is "steam:380" or "steam:420" or "steam:340" &&
-                    item.Entry.InstallDirectories.Length == 1 &&
-                    item.Entry.Executables.Contains(Path.Combine(group.Key, "hl2.exe"), Paths)))
-                    sharedIds[episode.Entry.Id] = "steam:220";
+                var remaining = store.OrderByDescending(item => Paths.Equals(item.Entry.Name, Path.GetFileName(group.Key)))
+                    .ThenBy(item => item.Entry.Id, StringComparer.Ordinal).ToList();
+                while (remaining.Count > 0)
+                {
+                    var canonical = remaining[0];
+                    remaining.RemoveAt(0);
+                    var eligible = Eligible(canonical);
+                    if (eligible.Count == 0) continue;
+                    foreach (var alias in remaining.Where(item => eligible.SetEquals(Eligible(item))).ToArray())
+                    {
+                        sharedIds[alias.Entry.Id] = canonical.Entry.Id;
+                        remaining.Remove(alias);
+                    }
+                }
             }
             // Multiple product IDs from one launcher at that root may identify different editions.
             if (linked.Length < 2 || linked.Any(item => item.Entry.InstallDirectories.Length != 1) ||

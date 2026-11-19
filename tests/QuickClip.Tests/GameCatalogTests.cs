@@ -9,7 +9,7 @@ public sealed class GameCatalogTests : IDisposable
     private readonly DirectoryInfo _fixture = Directory.CreateTempSubdirectory("quickclip-catalog-");
 
     [Fact]
-    public async Task Verified_Steam_Source_installations_consolidate_only_the_known_HL2_family()
+    public async Task Verified_Steam_installations_consolidate_identical_eligible_paths_at_one_root()
     {
         string hl2 = FileAt("Steam", "steamapps", "common", "Half-Life 2", "hl2.exe");
         FileAt("Steam", "steamapps", "common", "Half-Life 2", "hl2", "gameinfo.txt");
@@ -43,7 +43,17 @@ public sealed class GameCatalogTests : IDisposable
         Assert.Equal(CatalogMatchKind.Unknown, unified.Match(At("Unrelated", "bin", "hammer.exe"), true).Kind);
         Assert.Equal(CatalogMatchKind.Ignored, (await Scan([new("steam:380", new(Inclusion: CatalogInclusion.Exclude))])).Match(hl2, true).Kind);
         File.WriteAllText(At("Steam", "steamapps", "appmanifest_999.acf"), Manifest("999", "Half-Life 2"));
-        Assert.Equal(CatalogMatchKind.Ambiguous, (await Scan()).Match(hl2, true).Kind);
+        Assert.Equal("steam:220", (await Scan()).Match(hl2, true).Entry?.Id);
+        string shared = FileAt("Steam", "steamapps", "common", "Custom Game", "play.exe");
+        string separate = FileAt("Steam", "steamapps", "common", "Another Game", "play.exe");
+        foreach (var id in new[] { "10001", "10002" })
+            File.WriteAllText(At("Steam", "steamapps", $"appmanifest_{id}.acf"), Manifest(id, "Custom Game"));
+        File.WriteAllText(At("Steam", "steamapps", "appmanifest_10003.acf"), Manifest("10003", "Another Game"));
+        var generic = await Scan();
+        Assert.Equal(CatalogMatchKind.Game, generic.Match(shared, true).Kind);
+        Assert.Equal("steam:10001", generic.Match(shared, true).Entry?.Id);
+        Assert.Contains("steam:10002", generic.Match(shared, true).Entry!.AliasIds);
+        Assert.Equal("steam:10003", generic.Match(separate, true).Entry?.Id);
     }
     [Fact]
     public async Task Steamworks_prerequisites_are_not_catalog_games_or_eligible_paths()

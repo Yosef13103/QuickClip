@@ -205,7 +205,7 @@ public sealed class GamesSettingsViewTests
     }
 
     [Fact]
-    public void Manual_file_validation_accepts_large_collections_and_saved_non_games_show_blocked()
+    public void Manual_file_validation_accepts_large_collections_and_exact_non_games_show_ready()
     {
         var collection = Enumerable.Range(0, 128)
             .Select(i => $@"C:\TestLibrary\Game{i:000}.exe").ToArray();
@@ -213,8 +213,8 @@ public sealed class GamesSettingsViewTests
         Assert.Null(GamesSettingsView.ValidateManualGameExecutables([@"C:\Apps\Discord.exe"]));
         var discord = new GamesSettingsView.GameRow(new("manual:discord", "Discord", CatalogSource.Manual,
             [], [@"C:\Apps\Discord.exe"], new()));
-        Assert.Contains("Blocked", discord.Summary);
-        Assert.EndsWith(" · Blocked (companion application)", Assert.Single(discord.Executables).Label);
+        Assert.DoesNotContain("Blocked", discord.Summary);
+        Assert.EndsWith(" · Ready to record", Assert.Single(discord.Executables).Label);
         Assert.NotNull(GamesSettingsView.ValidateManualGameExecutables([@"C:\Apps\not-video.txt"]));
     }
 

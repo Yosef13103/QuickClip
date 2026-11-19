@@ -28,6 +28,7 @@ internal sealed class ClipNotificationOverlay : IDisposable
     private Task<ClipOverlayImage.Asset?>? _imageLoad;
     private bool _disposed;
     private DispatcherTimer? _timer;
+    private DispatcherTimer? _indicatorZOrderTimer;
     private IntPtr _handle;
     private (string Device, OverlayAnchor Anchor, Rect Bounds, Rect WorkArea, uint Dpi, bool HasMicrophone)? _indicatorPlacement;
     private System.Windows.Shapes.Path? _indicatorMicrophoneGlyph;
@@ -410,6 +411,7 @@ internal sealed class ClipNotificationOverlay : IDisposable
 
     internal void Hide()
     {
+        _indicatorZOrderTimer?.Stop();
         _indicatorPlacement = null;
         _indicatorMicrophoneGlyph = null;
         _showRevision++;
@@ -522,6 +524,43 @@ internal sealed class ClipNotificationOverlay : IDisposable
             }
             IndicatorFailure = null;
             _indicatorPlacement = placement;
+            // Explorer can raise its taskbar above other topmost windows when clicked.
+            // Keep the intended physical corner; do not activate or move the HUD.
+            if (_indicatorZOrderTimer == null)
+            {
+                _indicatorZOrderTimer = new DispatcherTimer(DispatcherPriority.Background)
+                    { Interval = TimeSpan.FromMilliseconds(500) };
+                _indicatorZOrderTimer.Tick += (_, _) => MaintainIndicatorZOrder();
+            }
+            _indicatorZOrderTimer.Start();
+        }
+        finally { if (prior != IntPtr.Zero) SetThreadDpiAwarenessContext(prior); }
+    }
+
+    private void MaintainIndicatorZOrder()
+    {
+        if (!IsVisible || _indicatorPlacement == null || _handle == IntPtr.Zero) return;
+        var prior = SetThreadDpiAwarenessContext(new IntPtr(-4));
+        try
+        {
+            if (!GetWindowRect(_handle, out var hud)) return;
+            // Only check windows above us; only an overlapping Explorer taskbar
+            // justifies raising the HUD. Avoid competing with other topmost apps.
+            var name = new System.Text.StringBuilder(64);
+            var above = GetWindow(_handle, 3); // GW_HWNDPREV
+            for (int i = 0; above != IntPtr.Zero && i < 128; i++, above = GetWindow(above, 3))
+            {
+                name.Clear();
+                if (GetClassName(above, name, name.Capacity) == 0 ||
+                    name.ToString() is not ("Shell_TrayWnd" or "Shell_SecondaryTrayWnd") ||
+                    !IsWindowVisible(above) || !GetWindowRect(above, out var taskbar)) continue;
+                if (hud.Left < taskbar.Right && taskbar.Left < hud.Right &&
+                    hud.Top < taskbar.Bottom && taskbar.Top < hud.Bottom)
+                {
+                    SetWindowPos(_handle, new IntPtr(-1), 0, 0, 0, 0, 0x0213); // no size/move/activate/owner reorder
+                    break;
+                }
+            }
         }
         finally { if (prior != IntPtr.Zero) SetThreadDpiAwarenessContext(prior); }
     }
@@ -614,5 +653,9 @@ internal sealed class ClipNotificationOverlay : IDisposable
     [DllImport("user32.dll")] private static extern IntPtr SetThreadDpiAwarenessContext(IntPtr context);
     [DllImport("user32.dll", EntryPoint = "GetWindowLongW")] private static extern int GetWindowLong(IntPtr window, int index);
     [DllImport("user32.dll", EntryPoint = "SetWindowLongW")] private static extern int SetWindowLong(IntPtr window, int index, int value);
+    [DllImport("user32.dll")] private static extern IntPtr GetWindow(IntPtr window, uint command);
+    [DllImport("user32.dll")] private static extern bool GetWindowRect(IntPtr window, out NativeRect rect);
+    [DllImport("user32.dll")] private static extern bool IsWindowVisible(IntPtr window);
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)] private static extern int GetClassName(IntPtr window, System.Text.StringBuilder name, int capacity);
     [DllImport("user32.dll", SetLastError = true)] private static extern bool SetWindowPos(IntPtr window, IntPtr order, int x, int y, int width, int height, uint flags);
 }
