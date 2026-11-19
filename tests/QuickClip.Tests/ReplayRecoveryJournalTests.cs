@@ -105,5 +105,27 @@ public sealed class ReplayRecoveryJournalTests : IDisposable
         a.Verify(); b.Verify(); output.Verify();
     }
 
+    [Fact]
+    public void Hardlinked_original_is_not_mutated_or_hidden()
+    {
+        var a = FileAt("a");
+        var b = FileAt("b");
+        var output = FileAt("combined");
+        var transaction = ReplayRecoveryJournal.Prepare(Journal, output, [a, b]);
+        string link = Path.Combine(_root.FullName, "project-alias.mp4");
+        Assert.True(CreateHardLinkW(link, a.Path, IntPtr.Zero),
+            $"Could not create the disposable hardlink (Windows error {System.Runtime.InteropServices.Marshal.GetLastWin32Error()}).");
+        Assert.Equal(a.Stamp.Identity, MediaSource.Capture(link).Stamp.Identity);
+        Assert.Throws<ExportException>(() => transaction.Stage(default));
+        a.Verify(); b.Verify(); output.Verify();
+        Assert.Equal(a.Stamp.Identity, MediaSource.Capture(link).Stamp.Identity);
+        Assert.All(transaction.Items, item => Assert.False(File.Exists(item.Escrow)));
+    }
+
+    [System.Runtime.InteropServices.DllImport("kernel32.dll", ExactSpelling = true,
+        CharSet = System.Runtime.InteropServices.CharSet.Unicode, SetLastError = true)]
+    [return: System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.Bool)]
+    private static extern bool CreateHardLinkW(string newFile, string existingFile, IntPtr security);
+
     public void Dispose() => _root.Delete(recursive: true);
 }
