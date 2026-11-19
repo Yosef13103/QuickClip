@@ -22,6 +22,7 @@ internal sealed record MediaJobRequest(string Name, bool Share, IReadOnlyList<Me
     internal bool Visible { get; init; } = true;
     // Hidden jobs validate immutable sources and commit metadata, not media output.
     internal bool MetadataOnly { get; init; }
+    internal bool ProtectEditorSources { get; init; }
 }
 
 internal sealed class MediaJobContext(Action<MediaJobState, double?> report, SemaphoreSlim hardware)
@@ -74,6 +75,8 @@ internal sealed class MediaJobs
         if (request.MetadataOnly && (request.Visible || request.Replace != null || request.Mutations.Count > 0 ||
             request.AdditionalDestinations.Count > 0))
             throw new ExportException("Metadata-only jobs cannot publish or replace media.");
+        if (request.ProtectEditorSources && request.Replace == null)
+            throw new ExportException("Editor protection requires a replacement transaction.");
         if (request.Mutations.Count > 0 && request.Replace == null)
             throw new ExportException("Source mutations require a replacement transaction.");
         if (request.Mutations.Any(path => !request.Sources.Any(source =>
@@ -86,7 +89,7 @@ internal sealed class MediaJobs
                 throw new ExportException("The media queue is full. Cancel a job or wait for one to finish.");
             if (!request.MetadataOnly && request.Replace == null && Path.Exists(request.Destination))
                 throw new ExportException("The destination already exists. Choose a new filename.");
-            var lease = _ownership.TryAcquire(request.Sources, request.MetadataOnly ? [] : request.Mutations.Append(request.Destination).Concat(request.AdditionalDestinations)) ??
+            var lease = _ownership.TryAcquire(request.Sources, request.MetadataOnly ? [] : request.Mutations.Append(request.Destination).Concat(request.AdditionalDestinations), request.ProtectEditorSources) ??
                 throw new ExportException("A source or destination is reserved by another media operation.");
             var entry = new Entry(request, lease);
             _entries.Add(entry);

@@ -295,6 +295,8 @@ public partial class EditorView
         DeleteStalePreviews();
         MetadataEditor.Clear();
         _media = null;
+        _replayEditorPin?.Dispose();
+        _replayEditorPin = null;
         _sourceStamp = null;
         _openedDraft = null;
         ClearEditDraft();

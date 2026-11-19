@@ -53,6 +53,37 @@ public sealed class MediaMutationJobsTests(MediaFixture media)
     }
 
     [Fact]
+    public async Task Replay_replacement_and_editor_pins_exclude_each_other_without_affecting_ordinary_operations()
+    {
+        var owner = new MediaOwnership();
+        var jobs = new MediaJobs(owner, () => 1);
+        var source = MediaSource.Capture(media.TwoTracks);
+        var request = new MediaJobRequest("Replay replacement", false, [source], media.Out("pin-union.mp4"),
+            (_, _) => Task.FromResult("combined"))
+        {
+            Mutations = [source.Path], ProtectEditorSources = true,
+            Replace = (_, _) =>
+            {
+                using var pin = owner.TryPinEditor(source);
+                Assert.Null(pin);
+                return Task.FromResult("combined");
+            },
+        };
+        using (var pin = owner.TryPinEditor(source))
+        {
+            Assert.NotNull(pin);
+            Assert.Throws<ExportException>(() => jobs.Submit(request));
+            using var ordinary = owner.TryMutate(source.Path);
+            Assert.NotNull(ordinary);
+        }
+        var job = jobs.Submit(request);
+        Assert.Equal(MediaJobState.Completed, (await job.Completion.WaitAsync(TimeSpan.FromSeconds(10))).State);
+        using var after = owner.TryPinEditor(source);
+        Assert.NotNull(after);
+        await jobs.StopAsync();
+    }
+
+    [Fact]
     public void Mutation_admission_requires_a_transaction_and_exact_source_snapshot()
     {
         var jobs = new MediaJobs(new MediaOwnership(), () => 1);
