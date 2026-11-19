@@ -187,6 +187,25 @@ internal sealed class PersonalLibrary : IClipAnnotationActions, ILibraryInventor
         return _index.Value.SetTagColorAsync(tag, color, token);
     }
 
+    internal Task<LibraryCollection[]> ReadCollectionsAsync(CancellationToken token)
+    {
+        if (!Enabled) throw new LibraryConflictException("Collections require the library index.");
+        return _index.Value.ReadCollectionsAsync(token);
+    }
+
+    internal Task<LibraryCollection> CreateCollectionAsync(LibraryCollection definition, CancellationToken token)
+    {
+        if (!Enabled) throw new LibraryConflictException("Collections require the library index.");
+        return _index.Value.CreateCollectionAsync(definition, token);
+    }
+
+    internal Task<long> AssignCollectionAsync(ClipAnnotationTarget target, Guid? collectionId, CancellationToken token)
+    {
+        if (!Enabled || !WithinConfiguredRoot(target.Path))
+            throw new LibraryConflictException("The recording is outside the configured library.");
+        return _index.Value.AssignCollectionAsync(target, collectionId, token);
+    }
+
     internal Task<int> ApplyTagDeltaAsync(IReadOnlyCollection<ClipAnnotationTarget> targets,
         IReadOnlyCollection<string> add, IReadOnlyCollection<string> remove, CancellationToken token,
         bool replaceOnlyPresent = false, bool? hidden = null)
