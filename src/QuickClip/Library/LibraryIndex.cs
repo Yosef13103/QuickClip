@@ -393,15 +393,16 @@ internal sealed partial class LibraryIndex
         string clipId = Id(Guid.NewGuid());
         Execute(connection, transaction, """
             INSERT INTO clips(id,root_id,path,path_key,file_id,created_ticks,modified_ticks,bytes,captured_ticks,captured_offset,
-                date_source,duration_ticks,availability,legacy_metadata,title,title_key,game,game_key,title_edited,game_edited)
+                date_source,duration_ticks,availability,legacy_metadata,title,title_key,game,game_key,title_edited,game_edited,game_id)
             VALUES($id,$root,$path,$key,$identity,$created,$modified,$bytes,$captured,$offset,$source,$duration,0,
-                $legacy,$title,$titleKey,$game,$gameKey,$titleEdited,$gameEdited);
+                $legacy,$title,$titleKey,$game,$gameKey,$titleEdited,$gameEdited,$gameId);
             """, ("$id", clipId), ("$root", Id(root.Id)), ("$path", observation.Path), ("$key", key),
             ("$identity", stamp.Identity), ("$created", stamp.Created), ("$modified", stamp.Modified), ("$bytes", stamp.Bytes),
             ("$captured", captured.UtcTicks), ("$offset", (int)captured.Offset.TotalMinutes), ("$source", (int)source),
             ("$duration", ticks), ("$legacy", (int)(observation.Legacy?.Status ?? LegacyMetadataStatus.None)),
             ("$title", title), ("$titleKey", LibraryFiles.TextKey(title)), ("$game", game), ("$gameKey", LibraryFiles.TextKey(game)),
-            ("$titleEdited", legacy?.Title != null ? 1 : 0), ("$gameEdited", legacy != null ? 1 : 0));
+            ("$titleEdited", legacy?.Title != null ? 1 : 0), ("$gameEdited", legacy != null ? 1 : 0),
+            ("$gameId", QuickClip.Discovery.GameRecordingPolicy.IsId(legacy?.GameId, 256) ? legacy?.GameId : null));
         if (legacy != null)
             WriteGalleryAnnotations(connection, transaction, clipId, legacy.Normalize(), ticks);
     }

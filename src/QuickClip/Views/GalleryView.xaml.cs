@@ -420,8 +420,9 @@ public partial class GalleryView : UserControl
 
     private void RebuildFolders(bool preserveScroll = false)
     {
-        var folders = new List<Folder> { new(ClipLibrary.AllClips, _clips.Count, _clips.FirstOrDefault()?.Created ?? DateTime.MinValue) };
-        folders.AddRange(_clips.GroupBy(c => c.Folder, StringComparer.OrdinalIgnoreCase)
+        var visible = _clips.ToArray();
+        var folders = new List<Folder> { new(ClipLibrary.AllClips, visible.Length, visible.FirstOrDefault()?.Created ?? DateTime.MinValue) };
+        folders.AddRange(visible.GroupBy(c => c.Folder, StringComparer.OrdinalIgnoreCase)
             .Select(g => new Folder(g.First().Folder, g.Count(), g.Max(c => c.Created)))
             .OrderByDescending(f => f.Latest));
         if (folders.All(f => !string.Equals(f.Name, _folder, StringComparison.OrdinalIgnoreCase))) _folder = ClipLibrary.AllClips;
@@ -455,8 +456,9 @@ public partial class GalleryView : UserControl
 
     private async Task SearchAsync()
     {
-        var filter = new GalleryClipFilter(ClipSearchBox.Text.Trim(), TagSearchBox.Text.Trim(),
-            FavoritesFilter.IsChecked == true, FavoritesSort.IsChecked == true);
+        var filter = new GalleryClipFilter(ClipSearchBox.Text.Trim(), "",
+            FavoritesFilter.IsChecked == true, FavoritesSort.IsChecked == true)
+        { ExactTags = _exactTags, MatchAllTags = _matchAllTags };
         string folder = _folder;
         var clips = _clips;
         _searchCancellation?.Cancel();
@@ -479,22 +481,16 @@ public partial class GalleryView : UserControl
     private void RefreshKnownTags()
     {
         KnownTags = ClipTagChoices.Match(_clips.SelectMany(clip => clip.Details.Tags), "", []).ToArray();
-        ExistingTagsCombo.ItemsSource = new[] { "Tags…" }.Concat(KnownTags);
-        ExistingTagsCombo.SelectedIndex = 0;
-        ExistingTagsCombo.IsEnabled = KnownTags.Count > 0;
-    }
-
-    private void ExistingTags_Changed(object sender, SelectionChangedEventArgs e)
-    {
-        if (ExistingTagsCombo.SelectedIndex <= 0 || ExistingTagsCombo.SelectedItem is not string tag) return;
-        TagSearchBox.Text = tag;
-        ExistingTagsCombo.SelectedIndex = 0;
+        RefreshTagFilterButton();
     }
 
     private void ClearFilters_Click(object sender, RoutedEventArgs e)
     {
         ClipSearchBox.Clear();
-        TagSearchBox.Clear();
+        _exactTags = [];
+        _matchAllTags = true;
+        RefreshTagFilterButton();
+        OrganizationFilter_Changed(this, new RoutedEventArgs());
         FavoritesFilter.IsChecked = FavoritesSort.IsChecked = false;
     }
 
@@ -524,7 +520,7 @@ public partial class GalleryView : UserControl
         }
         RefreshKnownTags();
         if (regroup || _filter.FavoritesFirst) _renderedColumns = 0;
-        if (regroup) RebuildFolders(preserveScroll: true);
+        if (regroup) { RebuildFolders(preserveScroll: true); PlaybackLibraryChanged?.Invoke(); }
         else ShowFolder(preserveScroll: true);
     }
 
@@ -808,7 +804,16 @@ public partial class GalleryView : UserControl
         favorite.Click += async (_, _) => await UpdateAnnotationsAsync(CurrentClips.Where(clip => clip.IsSelected).ToArray(), favorite: true);
         var unfavorite = new MenuItem { Header = "Remove from favorites" };
         unfavorite.Click += async (_, _) => await UpdateAnnotationsAsync(CurrentClips.Where(clip => clip.IsSelected).ToArray(), favorite: false);
-        menu.Items.Add(tag);
+        if (PersonalLibrary.Enabled)
+        {
+            var manage = new MenuItem { Header = "Manage tags…" };
+            manage.Click += async (_, _) => await ManageSelectedTagsAsync();
+            menu.Items.Add(manage);
+            var replace = new MenuItem { Header = "Replace tag…" };
+            replace.Click += async (_, _) => await ManageSelectedTagsAsync(replace: true);
+            menu.Items.Add(replace);
+        }
+        else menu.Items.Add(tag);
         menu.Items.Add(favorite);
         menu.Items.Add(unfavorite);
         menu.IsOpen = true;

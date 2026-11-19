@@ -4,7 +4,7 @@ namespace QuickClip.Library;
 
 internal sealed class LibraryDatabase
 {
-    internal const int SchemaVersion = 3;
+    internal const int SchemaVersion = 5;
     private const int ApplicationId = 0x51434C49; // QCLI
     private readonly string _connectionString;
     private readonly object _initializationGate = new();
@@ -93,6 +93,23 @@ internal sealed class LibraryDatabase
             {
                 Execute(connection, transaction, DraftSchema);
                 Execute(connection, transaction, "PRAGMA user_version=3;");
+                version = 3;
+            }
+            if (version == 3)
+            {
+                Execute(connection, transaction, OrganizationSchema);
+                Execute(connection, transaction, "PRAGMA user_version=4;");
+                version = 4;
+            }
+            if (version == 4)
+            {
+                // B has an independently numbered v4. Do not pretend its schema
+                // is E1; integration needs an explicit migration for both layouts.
+                if (Convert.ToInt64(Scalar(connection, transaction, "SELECT count(*) FROM pragma_table_info('tags') WHERE name='color';")) != 1 ||
+                    Convert.ToInt64(Scalar(connection, transaction, "SELECT count(*) FROM pragma_table_info('clips') WHERE name='hidden';")) != 1)
+                    throw new InvalidDataException("This preview requires the E1 library schema. Keep the replay-consolidation database separate.");
+                Execute(connection, transaction, CollectionSchema);
+                Execute(connection, transaction, "PRAGMA user_version=5;");
             }
             transaction.Commit();
         }
@@ -137,6 +154,28 @@ internal sealed class LibraryDatabase
         using var command = Command(connection, transaction, sql, parameters);
         return command.ExecuteScalar();
     }
+
+    // E1 draft migration. Reconcile with B's independently numbered replay
+    // schema before either feature uses a production database.
+    private const string OrganizationSchema = """
+        ALTER TABLE clips ADD COLUMN hidden INTEGER NOT NULL DEFAULT 0 CHECK(hidden IN (0,1));
+        CREATE INDEX clips_hidden ON clips(hidden,captured_ticks DESC,id);
+        ALTER TABLE tags ADD COLUMN color TEXT;
+        """;
+
+    private const string CollectionSchema = """
+        CREATE TABLE collections (
+            id TEXT PRIMARY KEY, name TEXT NOT NULL, name_key TEXT NOT NULL,
+            game_id TEXT NOT NULL DEFAULT '', color TEXT, folder_leaf TEXT, folder_key TEXT,
+            CHECK((folder_leaf IS NULL) = (folder_key IS NULL)),
+            UNIQUE(game_id,name_key)
+        );
+        CREATE TABLE clip_collections (
+            clip_id TEXT PRIMARY KEY REFERENCES clips(id) ON DELETE CASCADE,
+            collection_id TEXT NOT NULL REFERENCES collections(id)
+        ) WITHOUT ROWID;
+        CREATE INDEX clip_collections_reverse ON clip_collections(collection_id,clip_id);
+        """;
 
     private const string DraftSchema = """
         CREATE TABLE edit_drafts (

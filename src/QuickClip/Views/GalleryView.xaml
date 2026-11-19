@@ -97,18 +97,29 @@
                             </StackPanel>
                             <StackPanel Grid.Row="1" Grid.ColumnSpan="2" Margin="0,4,0,0">
                                 <TextBlock Text="{Binding Folder}" FontSize="{DynamicResource QuickClipText12}" Foreground="{DynamicResource SubtleText}" TextTrimming="CharacterEllipsis" />
-                                <TextBlock Text="{Binding TagText}" ToolTip="{Binding TagText}" FontSize="{DynamicResource QuickClipText12}"
-                                           Foreground="{DynamicResource SubtleText}" TextTrimming="CharacterEllipsis">
-                                    <TextBlock.Style>
-                                        <Style TargetType="TextBlock">
-                                            <Style.Triggers>
-                                                <DataTrigger Binding="{Binding TagText}" Value="">
-                                                    <Setter Property="Visibility" Value="Collapsed" />
-                                                </DataTrigger>
-                                            </Style.Triggers>
-                                        </Style>
-                                    </TextBlock.Style>
-                                </TextBlock>
+                                <ItemsControl ItemsSource="{Binding TagBadges}" ToolTip="{Binding TagText}" ClipToBounds="True" Margin="0,2,0,3">
+                                    <ItemsControl.ItemsPanel><ItemsPanelTemplate><StackPanel Orientation="Horizontal" /></ItemsPanelTemplate></ItemsControl.ItemsPanel>
+                                    <ItemsControl.ItemTemplate><DataTemplate>
+                                        <Button Background="{Binding Fill}" Foreground="{Binding Ink}" BorderBrush="{Binding Fill}"
+                                            BorderThickness="1" Padding="5,1" Margin="0,0,4,0" Click="TagChip_Click"
+                                            ToolTip="{Binding Tooltip}" AutomationProperties.Name="{Binding Tooltip}"
+                                            FontSize="{DynamicResource QuickClipText12}" MaxWidth="120" Cursor="Hand">
+                                            <Button.Template><ControlTemplate TargetType="Button">
+                                                <Border x:Name="Chip" CornerRadius="5" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}" Padding="{TemplateBinding Padding}">
+                                                    <ContentPresenter VerticalAlignment="Center" HorizontalAlignment="Center" />
+                                                </Border>
+                                                <ControlTemplate.Triggers>
+                                                    <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="Chip" Property="Opacity" Value="0.84" /></Trigger>
+                                                    <Trigger Property="IsKeyboardFocused" Value="True"><Setter TargetName="Chip" Property="BorderBrush" Value="{DynamicResource AccentFillColorDefaultBrush}" /></Trigger>
+                                                </ControlTemplate.Triggers>
+                                            </ControlTemplate></Button.Template>
+                                            <TextBlock Text="{Binding Name}" TextTrimming="CharacterEllipsis" MaxWidth="108" />
+                                        </Button>
+                                    </DataTemplate></ItemsControl.ItemTemplate>
+                                    <ItemsControl.Style><Style TargetType="ItemsControl"><Style.Triggers>
+                                        <DataTrigger Binding="{Binding TagText}" Value=""><Setter Property="Visibility" Value="Collapsed" /></DataTrigger>
+                                    </Style.Triggers></Style></ItemsControl.Style>
+                                </ItemsControl>
                                 <TextBlock Margin="0,2,0,0" FontSize="{DynamicResource QuickClipText12}" Foreground="{DynamicResource SubtleText}"
                                            TextTrimming="CharacterEllipsis" ToolTip="{Binding DateTooltip}">
                                     <Run Text="{Binding Created, Mode=OneWay, StringFormat=t}" /><Run Text="  ·  " />
@@ -293,18 +304,20 @@
                             <TextBox x:Name="ClipSearchBox" Width="130" MaxLength="120" TextChanged="OrganizationFilter_Changed"
                                      AutomationProperties.Name="Search clip titles, filenames and games" />
                         </StackPanel>
-                        <StackPanel Orientation="Horizontal" Margin="0,0,10,4">
-                            <TextBlock Text="Tag" VerticalAlignment="Center" Margin="0,0,6,0" />
-                            <TextBox x:Name="TagSearchBox" Width="95" MaxLength="32" TextChanged="OrganizationFilter_Changed"
-                                     AutomationProperties.Name="Filter by tag" />
-                            <ComboBox x:Name="ExistingTagsCombo" Width="115" Margin="4,0,0,0" MaxDropDownHeight="250"
-                                      AutomationProperties.Name="Browse existing tags" SelectionChanged="ExistingTags_Changed"
-                                      ScrollViewer.CanContentScroll="True" VirtualizingPanel.IsVirtualizing="True">
-                                <ComboBox.ItemsPanel>
-                                    <ItemsPanelTemplate><VirtualizingStackPanel /></ItemsPanelTemplate>
-                                </ComboBox.ItemsPanel>
-                            </ComboBox>
+                        <StackPanel Orientation="Horizontal" Margin="0,0,8,4">
+                            <Button x:Name="MultiTagFilterButton" Content="Tags ▾" Click="MultiTagFilter_Click" Style="{StaticResource TextButton}"
+                                    ToolTip="Filter by one or more tags" AutomationProperties.Name="Tag filters" />
+                            <Button Content="&#xE790;" Click="TagColors_Click" Style="{StaticResource IconButton}" ToolTip="Tag colors" AutomationProperties.Name="Tag colors" />
+                            <Button Content="&#xE713;" Click="LibraryTags_Click" Style="{StaticResource IconButton}" ToolTip="Rename or merge library tags" AutomationProperties.Name="Manage library tags" />
                         </StackPanel>
+                        <ItemsControl x:Name="ActiveTagFilters" Visibility="Collapsed" Margin="0,0,6,4">
+                            <ItemsControl.ItemsPanel><ItemsPanelTemplate><WrapPanel /></ItemsPanelTemplate></ItemsControl.ItemsPanel>
+                            <ItemsControl.ItemTemplate><DataTemplate>
+                                <Button Click="ActiveTag_Click" Style="{StaticResource TextButton}" Margin="0,0,4,0" ToolTip="Remove this tag filter" AutomationProperties.Name="{Binding}">
+                                    <StackPanel Orientation="Horizontal"><TextBlock Text="{Binding}" /><TextBlock Text=" ×" /></StackPanel>
+                                </Button>
+                            </DataTemplate></ItemsControl.ItemTemplate>
+                        </ItemsControl>
                         <CheckBox Style="{StaticResource SwitchCheckBox}" x:Name="FavoritesFilter" Content="Favorites only" VerticalAlignment="Center" Margin="0,0,10,4"
                                   Checked="OrganizationFilter_Changed" Unchecked="OrganizationFilter_Changed" />
                         <CheckBox Style="{StaticResource SwitchCheckBox}" x:Name="FavoritesSort" Content="Favorites first within each day" VerticalAlignment="Center" Margin="0,0,10,4"

@@ -2,7 +2,17 @@ namespace QuickClip.Gallery;
 
 internal sealed record GalleryClipFilter(string Search, string Tag, bool FavoritesOnly, bool FavoritesFirst)
 {
-    public bool IsFiltered => Search.Length > 0 || Tag.Length > 0 || FavoritesOnly;
+    internal string[] ExactTags { get; init; } = [];
+    internal bool MatchAllTags { get; init; } = true;
+    public bool IsFiltered => Search.Length > 0 || Tag.Length > 0 || FavoritesOnly || ExactTags.Length > 0;
+
+    internal bool MatchesTags(ClipDetails details)
+    {
+        if (ExactTags.Length == 0) return true;
+        bool HasTag(string tag) => details.Tags.Any(value =>
+            string.Equals(value.Normalize(), tag.Normalize(), StringComparison.OrdinalIgnoreCase));
+        return MatchAllTags ? ExactTags.All(HasTag) : ExactTags.Any(HasTag);
+    }
 
     public IReadOnlyList<ClipItem> Apply(IEnumerable<ClipItem> clips, string folder, CancellationToken token = default)
     {
@@ -13,7 +23,7 @@ internal sealed record GalleryClipFilter(string Search, string Tag, bool Favorit
             var details = clip.Details;
             if (folder != ClipLibrary.AllClips && !string.Equals(details.Game, folder, StringComparison.OrdinalIgnoreCase))
                 continue;
-            if (!details.MatchesOrganizationFilter(Tag, FavoritesOnly)) continue;
+            if (!details.MatchesOrganizationFilter(Tag, FavoritesOnly) || !MatchesTags(details)) continue;
             if (Search.Length > 0 && !Contains(details.Title) && !Contains(details.Game) && !Contains(clip.File.Name))
                 continue;
             matches.Add(clip);

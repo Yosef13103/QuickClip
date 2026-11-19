@@ -10,7 +10,8 @@ internal sealed partial class LibraryIndex
     internal sealed record GalleryRow(string Path, ClipMediaStamp Stamp, ClipDetails Details, double? Duration, string? Identity);
     private sealed record BookmarkRow(string Id, long Ticks, string? Label, string? Session);
 
-    internal Task<List<GalleryRow>> ReadGalleryAsync(Guid? root, string? path, CancellationToken token = default) =>
+    internal Task<List<GalleryRow>> ReadGalleryAsync(Guid? root, string? path, CancellationToken token = default,
+        string? exactTag = null) =>
         Run(token, cancellation =>
         {
             using var connection = _database.Open();
@@ -20,12 +21,20 @@ internal sealed partial class LibraryIndex
                     (SELECT json_group_array(name) FROM
                         (SELECT t.name FROM clip_tags ct JOIN tags t ON t.id=ct.tag_id WHERE ct.clip_id=c.id ORDER BY t.name_key)),
                     (SELECT json_group_array(json_object('Id',id,'Ticks',offset_ticks,'Label',label,'Session',session_id))
-                        FROM bookmarks WHERE clip_id=c.id), c.file_id
+                        FROM bookmarks WHERE clip_id=c.id), c.file_id,c.hidden,
+                    (SELECT json_group_object(t.name_key,t.color) FROM clip_tags ct JOIN tags t ON t.id=ct.tag_id
+                        WHERE ct.clip_id=c.id AND t.color IS NOT NULL),
+                    c.game_id,d.id,d.name,d.game_id,d.color,d.folder_leaf
                 FROM clips c JOIN roots r ON r.id=c.root_id
+                LEFT JOIN clip_collections cc ON cc.clip_id=c.id
+                LEFT JOIN collections d ON d.id=cc.collection_id
                 WHERE r.availability=0 AND c.availability=0
                     AND ($root IS NULL OR c.root_id=$root) AND ($path IS NULL OR c.path_key=$path)
+                    AND ($tag IS NULL OR EXISTS(SELECT 1 FROM clip_tags ct JOIN tags t ON t.id=ct.tag_id
+                        WHERE ct.clip_id=c.id AND t.name_key=$tag))
                 ORDER BY c.captured_ticks DESC,c.id;
-                """, ("$root", root?.ToString("N")), ("$path", path == null ? null : LibraryFiles.PathKey(path)));
+                """, ("$root", root?.ToString("N")), ("$path", path == null ? null : LibraryFiles.PathKey(path)),
+                ("$tag", exactTag == null ? null : LibraryFiles.TextKey(exactTag)));
             using var reader = command.ExecuteReader();
             var rows = new List<GalleryRow>();
             while (reader.Read())
@@ -36,6 +45,13 @@ internal sealed partial class LibraryIndex
                     IndexId = Guid.Parse(reader.GetString(0)),
                     IndexRevision = reader.GetInt64(10),
                     IsFavorite = reader.GetBoolean(9),
+                    IsHidden = reader.GetBoolean(15),
+                    GameId = ReadText(reader, 17),
+                    Collection = reader.IsDBNull(18) ? null : new LibraryCollection(
+                        Guid.Parse(reader.GetString(18)), reader.GetString(19),
+                        reader.GetString(20) is { Length: > 0 } scope ? scope : null,
+                        ReadText(reader, 21), ReadText(reader, 22)),
+                    TagColors = JsonSerializer.Deserialize<Dictionary<string, string>>(reader.GetString(16)) ?? new(),
                     Tags = JsonSerializer.Deserialize<string[]>(reader.GetString(12)) ?? [],
                     Bookmarks = (JsonSerializer.Deserialize<BookmarkRow[]>(reader.GetString(13)) ?? [])
                         .Select(mark => new Gallery.ClipBookmark(TimeSpan.FromTicks(mark.Ticks).TotalSeconds, mark.Label ?? "Marker")

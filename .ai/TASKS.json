@@ -876,6 +876,37 @@
       ],
       "blocker": "The local sandbox denies the existing scratch startup registry fixture. Full verification requires hosted Windows quality CI.",
       "next_action": "Verify both hosted Windows quality jobs in the draft stacked on chatgpt/wave2-owner-polish. Then run the supervised clipboard, UI, and performance matrix against the exact draft head."
+    },
+    {
+      "id": "W2-E2",
+      "title": "Collections and scoped organization",
+      "kind": "implementation",
+      "depends_on": [],
+      "read": [
+        "docs/collections-and-tags.md",
+        "PRODUCT library identity and archive invariants",
+        "QUALITY migration and acceptance"
+      ],
+      "scope": [
+        "Stable optional collection membership, game scope and virtual organization; physical destination preferences inert until B integration."
+      ],
+      "acceptance": [
+        "Scoped definitions and exclusive memberships preserve annotations, identities and files; reject stale and incompatible migrations; integrated UI/physical routing later gates."
+      ],
+      "effort": "high",
+      "status": "in_progress",
+      "candidate": "37d76c07a060d4871e169746c035a40058bdab0f",
+      "gates": {
+        "local": "pending",
+        "ci": "pending",
+        "review": "pending",
+        "hardware": "pending"
+      },
+      "evidence": [
+        "First collection model, migration, guarded assignment and fixture tests committed; no local build or owner library access."
+      ],
+      "blocker": "Actual B/E1/E2 schema reconciliation and physical publication/recovery needed before filesystem organization.",
+      "next_action": "Validate first slice in CI; wire unified manager, game association/alias resolution, scoped tags, Gallery hierarchy and current collection selection."
     }
   ]
 }

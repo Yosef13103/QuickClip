@@ -1,0 +1,19 @@
+# E2 — Collections and Tags (owner-approved scope)
+
+## Product contract
+
+- Ordinary tags: many per recording; global by default; optional game-specific availability. Tag names/colors are presentation, not capture permission or physical paths. Preserve existing tags and colors.
+- Collections: zero or one per clip, global or scoped to stable game catalog identity, optional color and opt-in physical subfolder. Examples: Half-Life 2 / Episode 1, Episode 2; Terraria / Vanilla, Calamity. Ordinary tags remain independently assignable/filterable. A collection is displayed as a distinct tag-like chip, not a duplicated ordinary tag.
+- Unified management surface, explicit scope and collection type, optional folder mapping. Existing tags remain global/virtual. No arbitrary default tags on all game recordings. Optional remembered current collection per game, None by default; selection affects subsequent saves only, never starts or redirects capture. Shared executable/episode context requires owner selection, not an inferred episode.
+- Gallery game parent includes all recordings; expandable child collections and Uncategorized. Search/favorite/tag filters intersect selection. Use stable ids, not display names, for routing. Scoped ordinary tag names must not conflate same-named definitions from different games.
+- Physical organization off by default. Opt-in new recordings use safe, explicitly configured collection subdirectory of the same game's approved recording root. Existing-recording organization is a separate preview+confirmation operation. No implicit moves after changing colors, tag names, scope, collection assignment, or folder preferences. Never duplicate media or build a hierarchy from arbitrary tags.
+
+## First implementation boundary
+
+This draft is stacked on E1. Library schema 5 adds stable collection definitions and a one-to-one clip membership relation. Game scope checks the clip's stored catalog id; global collections also support unclassified/imported media. Scoped collection assignment requires explicit game association when absent; do not guess via a filename or game name. New replay sidecar stores the observed game id for import into existing index game_id. This metadata is for organization only. Collection assignment uses exact media identity + revision fence, existing library root boundary, no media mutation. Optional folder leaf validates Windows-safe names and overlapping collection destinations but is inert; it grants no actual filesystem access. Existing hidden-preview column retained; hidden clips are visible. Definition creation/list and single assignment/clear only; management/edit/delete, bulk assignment, catalog alias reconciliation, legacy game association UI, scoped ordinary tag definitions/assignments, unified manager, Gallery hierarchy, active selection and save routing remain pending.
+
+## Integration gates
+
+B independently uses v4. E2 rejects incompatible v4 rather than pretending it is E1, but final integrated migration must support the actual B/E1/E2 layouts, including existing owner test databases. Do not use production library for this draft. Confirm backup before migration; confirm old metadata roundtrip and restored recordings; preserve indexed ids, sidecars, drafts, project refs, provenance, recovery journals and excluded roots.
+
+Implement physical publication/moves only after B lifecycle/publication/recovery integration. Validate root, exclusions, safe path components, reparse/volume/identity and destination collision without overwrites; coordinate live editors, media jobs, replay replacement, undo/recovery and same-volume rename transaction/compensation. Cross-volume moves need independently proven copy/verify/recover semantics or explicit refusal. No filesystem move, recursive scan, archive access or real media mutation is authorized by this draft.
