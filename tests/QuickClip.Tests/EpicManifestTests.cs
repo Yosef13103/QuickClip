@@ -147,6 +147,42 @@ public sealed class EpicManifestTests : IDisposable
         Assert.Equal(CatalogMatchKind.Unknown, directIndex.Match(unrelated, true).Kind);
     }
 
+    [Fact]
+    public async Task Verified_fortnite_shipping_path_merges_nested_collection_claim_and_keeps_helpers_blocked()
+    {
+        string manifests = _fixture.CreateSubdirectory("Manifests").FullName;
+        string install = _fixture.CreateSubdirectory("Fortnite").FullName;
+        string project = Path.Combine(install, "FortniteGame");
+        string bin = Directory.CreateDirectory(Path.Combine(project, "Binaries", "Win64")).FullName;
+        string launch = Path.Combine(bin, "FortniteLauncher.exe");
+        string shipping = Path.Combine(bin, "FortniteClient-Win64-Shipping.exe");
+        string helper = Path.Combine(bin, "FortniteClient-Win64-Shipping_EAC.exe");
+        File.WriteAllBytes(launch, [1]);
+        File.WriteAllBytes(shipping, [1]);
+        File.WriteAllBytes(helper, [1]);
+        File.WriteAllBytes(Path.Combine(manifests, "fortnite.item"),
+            Manifest(install, @"FortniteGame\Binaries\Win64\FortniteLauncher.exe", app: "Fortnite"));
+        var request = new CatalogRequest { DiscoverEpic = true, GameRoots = [new(install, true)] };
+        var settings = new GameCatalogSettings { Request = request, AutoScan = false, DiscoverEpic = true };
+        var provider = new CatalogScope(CatalogSource.Epic);
+        var collection = new CatalogScope(CatalogSource.Folder, install, true);
+        using var providerScan = GameCatalogService.CreateScan(provider.Request(request), epicManifests: () => manifests);
+        var epic = await providerScan.ContinueAsync(20, TimeSpan.FromSeconds(5), default);
+        Assert.False(epic.InProgress);
+        Assert.Contains(shipping, Assert.Single(epic.Entries).RendererExecutables!.Value);
+        settings = CatalogClaims.Apply(settings, provider, epic, preview: false);
+        var folder = await GameCatalogService.ScanAsync(collection.Request(request));
+        Assert.False(folder.InProgress);
+        settings = CatalogClaims.Apply(settings, collection, folder, preview: false);
+        var rows = CatalogClaims.Rows(settings);
+        Assert.Single(rows.Where(row => row.Executables.Contains(shipping)));
+        var row = Assert.Single(rows, row => row.Id == "epic:fortnite");
+        var index = new GameCatalogIndex(new(rows, [], 0, false, default));
+        Assert.Equal(CatalogMatchKind.Game, index.Match(shipping, true).Kind);
+        Assert.NotEqual(CatalogMatchKind.Game, index.Match(launch, true).Kind);
+        Assert.NotEqual(CatalogMatchKind.Game, index.Match(helper, true).Kind);
+    }
+
     private static byte[] Manifest(string install, string relative, bool incomplete = false, bool executable = true,
         string? main = null, string app = "FixtureApp") =>
         JsonSerializer.SerializeToUtf8Bytes(new

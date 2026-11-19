@@ -86,6 +86,8 @@ internal static class CatalogPaths
         if (IsDiscordProcess(path)) return CatalogMatchKind.Companion;
         string name = Path.GetFileNameWithoutExtension(path).ToUpperInvariant();
         if (name == "ZOOM") return CatalogMatchKind.Companion;
+        if (name is "FORTNITECLIENT-WIN64-SHIPPING_EAC" or "FORTNITECLIENT-WIN64-SHIPPING_EAC_EOS" or "FORTNITECLIENT-WIN64-SHIPPING_BE")
+            return CatalogMatchKind.Application;
         if (name is "STEAM" or "STEAMWEBHELPER" or "EPICGAMESLAUNCHER" or "LAUNCHER" or "GAMELAUNCHER"
             or "BATTLE.NET" or "RIOTCLIENTSERVICES" or "EADESKTOP" or "EALAUNCHER" or "GALAXYCLIENT"
             or "UBISOFTCONNECT" or "ROCKSTAR GAMES LAUNCHER" or "BOOTSTRAPPACKAGEDGAME" or "START_PROTECTED_GAME"
