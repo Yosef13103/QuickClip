@@ -111,6 +111,57 @@ public partial class GalleryView
         }
     }
 
+    private async Task SetSelectedHiddenAsync(bool hidden)
+    {
+        if (!PersonalLibrary.Enabled || _released || _loading || _editingAnnotations ||
+            !SelectionActions.IsEnabled || !await FlushAnnotationsAsync() ||
+            _released || _loading || _editingAnnotations) return;
+        var clips = CurrentClips.Where(clip => clip.IsSelected && clip.Details.IsHidden != hidden).ToArray();
+        if (clips.Length == 0) return;
+        if (clips.Length > 256 || clips.Any(clip => clip.Details.IndexId == null || !IsAvailable(clip)))
+        {
+            ShowStatus("Select up to 256 available indexed clips.");
+            return;
+        }
+        _hoverPreview.Stop();
+        _editingAnnotations = true;
+        GalleryDetailsEditor.IsEnabled = false;
+        try
+        {
+            var targets = clips.Select(ClipAnnotationTarget.For).ToArray();
+            var job = WithProgressAsync(hidden ? "Hiding clips" : "Unhiding clips", targets.Length, _ =>
+                PersonalLibrary.Current.ApplyTagDeltaAsync(targets, [], [], _lifetime.Token, hidden: hidden));
+            _annotationJob = job;
+            int changed = await job;
+            if (_released) return;
+            var refresh = new List<ClipAnnotationResult>();
+            foreach (var target in targets)
+            {
+                var details = await PersonalLibrary.Current.ReadAsync(target.Path, _lifetime.Token);
+                if (details is not null && details.IndexId == target.Details.IndexId)
+                    refresh.Add(new(target.Path, details, null));
+            }
+            if (_released) return;
+            ApplyClipDetails(refresh);
+            if (refresh.Count != targets.Length) await ReloadAsync(rereadIndex: true);
+            ShowStatus(hidden ? $"Hid {changed:N0} clip(s). Use Hidden clips only to restore visibility." :
+                $"Restored visibility for {changed:N0} clip(s).");
+        }
+        catch (OperationCanceledException) when (_lifetime.IsCancellationRequested) { }
+        catch (Exception ex)
+        {
+            Log.Failure(DiagnosticCategory.Library, "Clip visibility update failed", ex);
+            if (!_released) ShowStatus(ex is LibraryConflictException or ArgumentException ? ex.Message :
+                "Could not change clip visibility. Refresh before retrying.");
+        }
+        finally
+        {
+            _annotationJob = null;
+            _editingAnnotations = false;
+            GalleryDetailsEditor.IsEnabled = true;
+        }
+    }
+
     private sealed record TagChoice(string Name, int Count)
     {
         public string Label => $"{Name}  ·  {Count:N0}";
