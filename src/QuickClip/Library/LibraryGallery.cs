@@ -46,7 +46,7 @@ internal sealed partial class LibraryIndex
                     IndexRevision = reader.GetInt64(10),
                     IsFavorite = reader.GetBoolean(9),
                     IsHidden = reader.GetBoolean(15),
-                    IndexedGameId = ReadText(reader, 17),
+                    GameId = ReadText(reader, 17),
                     Collection = reader.IsDBNull(18) ? null : new LibraryCollection(
                         Guid.Parse(reader.GetString(18)), reader.GetString(19),
                         reader.GetString(20) is { Length: > 0 } scope ? scope : null,
