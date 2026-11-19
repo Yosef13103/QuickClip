@@ -83,14 +83,14 @@ public partial class GamesSettingsView
         internal DetectionIssue Issue { get; private set; }
         internal bool IssueIgnored { get; private set; }
         public bool HasIssue => Issue != DetectionIssue.None;
-        public bool IssueIsBlocking => Issue is DetectionIssue.MissingExecutable or DetectionIssue.OwnershipConflict;
+        public bool IssueIsBlocking => Issue == DetectionIssue.MissingExecutable || Issue == DetectionIssue.OwnershipConflict && !DetectionReady;
         public string DismissIssueLabel => IssueIgnored ? "Unignore issue" : "Ignore issue";
         public string IssueRepairLabel => Issue switch
         {
             DetectionIssue.SourceUnavailable => "Rescan source",
             DetectionIssue.MinecraftJava => "Fix detection…",
             DetectionIssue.MissingExecutable => "Locate game executable…",
-            DetectionIssue.OwnershipConflict => "Choose gameplay executable…",
+            DetectionIssue.OwnershipConflict => "Choose recording owner…",
             _ => "Register gameplay executable…",
         };
         public string IssueReason => Issue switch
@@ -119,15 +119,15 @@ public partial class GamesSettingsView
         private DetectionIssue ClassifyIssue(bool scanning)
         {
             if (IsExcluded || Entry.Rules.Classification is AppClassification.Application or AppClassification.Companion or
-                AppClassification.Launcher || DetectionReady) return DetectionIssue.None;
+                AppClassification.Launcher) return DetectionIssue.None;
 
             var matches = Entry.Executables.Select(Match).ToArray();
-            if (matches.Any(match => GameDetector.HasCatalogEligibility(match) && match.Entry?.Id != Entry.Id)) return DetectionIssue.None;
+            if (matches.Any(match => match.Kind == CatalogMatchKind.Ambiguous)) return DetectionIssue.OwnershipConflict;
+            if (DetectionReady || matches.Any(match => GameDetector.HasCatalogEligibility(match) && match.Entry?.Id != Entry.Id)) return DetectionIssue.None;
             if (MinecraftProxy && matches.Any(match => match.Kind == CatalogMatchKind.Launcher))
                 return DetectionIssue.MinecraftJava;
             if (matches.Length > 0 && matches.All(match => match.Kind is CatalogMatchKind.Launcher or CatalogMatchKind.Ignored or
                 CatalogMatchKind.Application or CatalogMatchKind.Companion)) return DetectionIssue.None;
-            if (matches.Any(match => match.Kind == CatalogMatchKind.Ambiguous)) return DetectionIssue.OwnershipConflict;
             if (matches.Any(match => match.Kind == CatalogMatchKind.Candidate)) return DetectionIssue.UnassociatedExecutable;
             if (matches.Length > 0 && _unavailable.Length >= matches.Length) return DetectionIssue.MissingExecutable;
             if (scanning) return Issue is DetectionIssue.SourceUnavailable or DetectionIssue.MissingExecutable
@@ -196,11 +196,16 @@ public partial class GamesSettingsView
                 CatalogMatchKind.Ambiguous => " · claimed by multiple catalog entries",
                 CatalogMatchKind.Inactive => " · Source not checked yet",
                 _ when _offline => " · source offline or scan incomplete",
+                _ when GameDetector.HasCatalogEligibility(match) && match.Entry?.Id != Entry.Id => $" · Records as {match.Entry?.DisplayName}",
                 _ when GameDetector.HasCatalogEligibility(match) => Entry.Rules.Activation == CatalogActivation.ForegroundOnly
                     ? " · Ready in foreground" : " · Ready to record",
                 _ => " · Not ready to record",
             };
         }
+
+        public string IssueImpact => Issue == DetectionIssue.OwnershipConflict
+            ? "Shared files cannot start automatic recording until ownership is resolved. Other eligible files still work."
+            : "Automatic recording is unavailable for this entry.";
 
         private CatalogMatch Match(string path) => GameDetector.ApplyProcessRole(path,
             (_catalog ??= new(new([Entry], [], 0, false, default), _blocked)).Match(path, true));
