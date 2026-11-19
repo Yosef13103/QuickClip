@@ -1,6 +1,6 @@
 # Wave 3 preparation — two tracks, one source contract
 
-Owner decision: investigate isolated game capture first, then companion capture. Both research tracks can proceed independently; do not start production native architecture changes before Wave 2 settles. A single optional webcam/video picture-in-picture and optional multi-monitor capture are stretch goals, not completion requirements. No multiple cameras/videos or mandatory multi-display. The current roadmap remains the ledger reference until the integration owner reconciles it. This note records research decisions, not dispatch or acceptance.
+Owner decision: investigate isolated game capture first, then companion capture. Both research tracks can proceed independently; do not start production native architecture changes before Wave 2 settles. A single optional webcam/video picture-in-picture is a stretch goal. Owner decision 2026-11-19: simultaneous multi-monitor capture/composition is removed from scope; preserve single-display selection and authorization. No multiple cameras/videos. The current roadmap remains the ledger reference until the integration owner reconciles it. This note records research decisions, not dispatch or acceptance.
 
 ## Evidence at pinned snapshots
 
@@ -46,7 +46,7 @@ Detection/activity policy can be researched now independently of acquisition. Di
 
 ## Shared source contract, not a prescribed class hierarchy
 
-Separate selection policy from acquisition: exact source identity + authorization generation -> backend capability and acquisition -> bounded GPU frame lease (adapter, dimensions, format/color space, monotonic timestamp, generation) -> optional GPU composition -> existing single video encoder and replay ring. Stop/revoke invalidates generation before save publication, release surfaces on source switch, no stale frame or hidden monitor substitution. Preserve default DDA path fast and no optional compositor if unused. Explicit single source initially. Only one optional PiP video/webcam, user-controlled positioning and size, no implicit mic/audio, no running camera when off. Multi-monitor optional future experiment, not required to finish Wave 3. No forced OBS rewrite, no companion capture before source policy safety proven.
+Separate selection policy from acquisition: exact source identity + authorization generation -> backend capability and acquisition -> bounded GPU frame lease (adapter, dimensions, format/color space, monotonic timestamp, generation) -> optional GPU composition -> existing single video encoder and replay ring. Stop/revoke invalidates generation before save publication, release surfaces on source switch, no stale frame or hidden monitor substitution. Preserve default DDA path fast and no optional compositor if unused. Explicit single source initially. Only one optional PiP video/webcam, user-controlled positioning and size, no implicit mic/audio, no running camera when off. Simultaneous multi-monitor composition is out of scope. No forced OBS rewrite, no companion capture before source policy safety proven.
 
 ## Follow-up: concrete D3D11 bridge candidates and dependency gate
 
