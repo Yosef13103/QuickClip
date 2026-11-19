@@ -52,13 +52,15 @@ function Quit-Fixture([Diagnostics.Process]$Process) {
     # Send the same --quit IPC message directly, after checking the actual parent.
     # This only runs in the previously verified clean disposable profile.
     if ($Process.HasExited -or $Process.MainModule.FileName -ine $exe) { throw 'Wrong fixture process.' }
+    $null = $Process.Handle
     $pipe = [IO.Pipes.NamedPipeClientStream]::new('.', ('QuickClip.Personal.Instance.'+[Environment]::UserName), [IO.Pipes.PipeDirection]::Out)
     try {
         $pipe.Connect(10000)
         $bytes = [Text.Encoding]::UTF8.GetBytes('--quit')
         $pipe.Write($bytes,0,$bytes.Length)
     } finally { $pipe.Dispose() }
-    if (!$Process.WaitForExit(30000) -or $Process.ExitCode -ne 0) { throw 'Application did not exit cleanly.' }
+    if (!$Process.WaitForExit(30000)) { throw "Application PID $($Process.Id) did not exit in time." }
+    if ($Process.ExitCode -ne 0) { throw "Application PID $($Process.Id) exited with code $($Process.ExitCode)." }
 }
 
 try {
