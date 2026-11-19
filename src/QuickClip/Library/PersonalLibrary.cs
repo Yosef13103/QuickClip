@@ -181,6 +181,12 @@ internal sealed class PersonalLibrary : IClipAnnotationActions, ILibraryInventor
         }).ToArray();
     }
 
+    internal Task<int> SetTagColorAsync(string tag, string? color, CancellationToken token)
+    {
+        if (!Enabled) throw new LibraryConflictException("Tag colors require the library index.");
+        return _index.Value.SetTagColorAsync(tag, color, token);
+    }
+
     internal Task<int> ApplyTagDeltaAsync(IReadOnlyCollection<ClipAnnotationTarget> targets,
         IReadOnlyCollection<string> add, IReadOnlyCollection<string> remove, CancellationToken token,
         bool replaceOnlyPresent = false, bool? hidden = null)
