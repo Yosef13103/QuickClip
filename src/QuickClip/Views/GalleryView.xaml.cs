@@ -88,7 +88,7 @@ public partial class GalleryView : UserControl
     /// <summary>The user wants to watch a clip; the folder's other clips come along for previous/next.</summary>
     public event Action<IReadOnlyList<ClipItem>, int>? PlayRequested;
     internal event Action? PlaybackLibraryChanged;
-    internal ClipItem[] PlaybackLibrarySnapshot() => _clips.ToArray();
+    internal ClipItem[] PlaybackLibrarySnapshot() => _clips.Where(clip => !clip.Details.IsHidden).ToArray();
 
     /// <summary>Some clips are ticked (each card then shows its checkbox, and clicking a card ticks it).</summary>
     public bool HasSelection
@@ -420,8 +420,9 @@ public partial class GalleryView : UserControl
 
     private void RebuildFolders(bool preserveScroll = false)
     {
-        var folders = new List<Folder> { new(ClipLibrary.AllClips, _clips.Count, _clips.FirstOrDefault()?.Created ?? DateTime.MinValue) };
-        folders.AddRange(_clips.GroupBy(c => c.Folder, StringComparer.OrdinalIgnoreCase)
+        var visible = _clips.Where(clip => clip.Details.IsHidden == _filter.HiddenOnly).ToArray();
+        var folders = new List<Folder> { new(ClipLibrary.AllClips, visible.Length, visible.FirstOrDefault()?.Created ?? DateTime.MinValue) };
+        folders.AddRange(visible.GroupBy(c => c.Folder, StringComparer.OrdinalIgnoreCase)
             .Select(g => new Folder(g.First().Folder, g.Count(), g.Max(c => c.Created)))
             .OrderByDescending(f => f.Latest));
         if (folders.All(f => !string.Equals(f.Name, _folder, StringComparison.OrdinalIgnoreCase))) _folder = ClipLibrary.AllClips;
@@ -457,7 +458,7 @@ public partial class GalleryView : UserControl
     {
         var filter = new GalleryClipFilter(ClipSearchBox.Text.Trim(), TagSearchBox.Text.Trim(),
             FavoritesFilter.IsChecked == true, FavoritesSort.IsChecked == true)
-        { ExactTags = _exactTags, MatchAllTags = _matchAllTags };
+        { ExactTags = _exactTags, MatchAllTags = _matchAllTags, HiddenOnly = HiddenClipsFilter.IsChecked == true };
         string folder = _folder;
         var clips = _clips;
         _searchCancellation?.Cancel();
@@ -467,8 +468,10 @@ public partial class GalleryView : UserControl
         {
             var matches = await Task.Run(() => filter.Apply(clips, folder, cancellation.Token), cancellation.Token);
             if (cancellation.IsCancellationRequested || _released) return;
+            bool visibilityChanged = _filter.HiddenOnly != filter.HiddenOnly;
             _filter = filter;
-            ApplyRows(matches, preserveScroll: true);
+            if (visibilityChanged) { ClearSelection(); RebuildFolders(preserveScroll: false); }
+            else ApplyRows(matches, preserveScroll: true);
         }
         catch (OperationCanceledException) { }
         finally
@@ -500,7 +503,7 @@ public partial class GalleryView : UserControl
         _matchAllTags = true;
         RefreshTagFilterButton();
         OrganizationFilter_Changed(this, new RoutedEventArgs());
-        FavoritesFilter.IsChecked = FavoritesSort.IsChecked = false;
+        FavoritesFilter.IsChecked = FavoritesSort.IsChecked = HiddenClipsFilter.IsChecked = false;
     }
 
     internal event Action<string, ClipDetails>? DetailsCommitted;
@@ -517,7 +520,8 @@ public partial class GalleryView : UserControl
         {
             if (!saved.TryGetValue(clip.Path, out var details)) continue;
             if (clip.Details.IndexId == details.IndexId && clip.Details.IndexRevision > details.IndexRevision) continue;
-            regroup |= clip.Folder != details.Game;
+            regroup |= clip.Folder != details.Game || clip.Details.IsHidden != details.IsHidden;
+            if (clip.Details.IsHidden != details.IsHidden) clip.IsSelected = false;
             clip.ApplyDetails(details);
         }
         if (saved.Count == 0) return;
@@ -529,7 +533,7 @@ public partial class GalleryView : UserControl
         }
         RefreshKnownTags();
         if (regroup || _filter.FavoritesFirst) _renderedColumns = 0;
-        if (regroup) RebuildFolders(preserveScroll: true);
+        if (regroup) { RebuildFolders(preserveScroll: true); PlaybackLibraryChanged?.Invoke(); }
         else ShowFolder(preserveScroll: true);
     }
 
@@ -821,6 +825,9 @@ public partial class GalleryView : UserControl
             var replace = new MenuItem { Header = "Replace tag…" };
             replace.Click += async (_, _) => await ManageSelectedTagsAsync(replace: true);
             menu.Items.Add(replace);
+            var visibility = new MenuItem { Header = _filter.HiddenOnly ? "Unhide clips" : "Hide clips" };
+            visibility.Click += async (_, _) => await SetSelectedHiddenAsync(!_filter.HiddenOnly);
+            menu.Items.Add(visibility);
         }
         else menu.Items.Add(tag);
         menu.Items.Add(favorite);
