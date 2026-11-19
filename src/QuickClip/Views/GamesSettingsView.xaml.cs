@@ -294,7 +294,7 @@ public partial class GamesSettingsView : UserControl
 
     private void Edit_Click(object sender, RoutedEventArgs e)
     {
-        if (sender is FrameworkElement { DataContext: GameRow { IsManual: true } row })
+        if (sender is FrameworkElement { DataContext: GameRow row })
         {
             row.ActionError = null;
             PickExecutables(row.Entry);
@@ -379,22 +379,49 @@ public partial class GamesSettingsView : UserControl
                 "Confirm shortcut target", "Use executable", "Cancel", destructive: false)) return;
         }
         var paths = selections.Select(item => item.Executable).Distinct(StringComparer.OrdinalIgnoreCase).ToImmutableArray();
-        if (paths.FirstOrDefault(path => GameDetector.ApplyProcessRole(path, new(CatalogPaths.DefaultRole(path))).Kind
-            != CatalogMatchKind.Unknown) is { } nonGame)
+        if (paths.FirstOrDefault(CatalogPaths.IsProtectedExecutable) is { } protectedPath)
         {
-            Error($"{Path.GetFileName(nonGame)} is a launcher or other non-game executable. Select the executable that renders the game itself.");
+            Error($"{Path.GetFileName(protectedPath)} is a protected or unsupported executable.");
             return;
         }
+        if (paths.Any(path => GameDetector.ApplyProcessRole(path, new(CatalogPaths.DefaultRole(path))).Kind != CatalogMatchKind.Unknown) &&
+            !ModalDialog.ConfirmAction(owner,
+                "One or more selected files look like a launcher or non-game app. Add anyway only if you want recording to target a window actually owned by that exact executable. Selecting an updater does not select the app it launches.",
+                "Non-game executable warning", "Add anyway", "Cancel", destructive: false, warning: true)) return;
         if (paths.Any(CatalogPaths.IsJavaRuntime) && !ModalDialog.ConfirmAction(owner,
             "This Java executable can run more than one app. Only add it if this exact file is dedicated to your game. For a shared Java installation, use manual recording on an allowed display.",
             "Confirm dedicated Java executable", "Add dedicated executable", "Cancel", destructive: false)) return;
         var state = State;
         var request = state.Request;
-        var existing = _rows.FirstOrDefault(row => row.IsManual && row.Entry.Id != entry?.Id &&
+        var existing = _rows.FirstOrDefault(row => (row.IsManual || row.Entry.Rules.AttachedExecutables.Intersect(paths, StringComparer.OrdinalIgnoreCase).Any()) && row.Entry.Id != entry?.Id &&
             row.Entry.Executables.Intersect(paths, StringComparer.OrdinalIgnoreCase).Any());
         if (existing != null)
         {
             Error($"A selected file is already in {existing.Entry.DisplayName}.");
+            return;
+        }
+        if (entry == null)
+        {
+            var owners = _rows.Where(row => !row.IsManual && row.Entry.Executables.Intersect(paths, StringComparer.OrdinalIgnoreCase).Any()).ToArray();
+            if (owners.Length > 0)
+            {
+                if (owners.Length != 1 || !paths.All(path => owners[0].Entry.Executables.Contains(path, StringComparer.OrdinalIgnoreCase)))
+                {
+                    Error("Choose the existing game entry and attach the executable there to resolve ownership.");
+                    return;
+                }
+                if (!ModalDialog.ConfirmAction(owner, $"Attach these files to {owners[0].Entry.DisplayName} instead of creating a duplicate?",
+                    "Existing game", "Attach", "Cancel", destructive: false)) return;
+                entry = owners[0].Entry;
+            }
+        }
+        if (entry is { Source: not CatalogSource.Manual })
+        {
+            SaveRules(entry, entry.Rules with
+            {
+                AttachedExecutables = [.. entry.Rules.AttachedExecutables.Union(paths, StringComparer.OrdinalIgnoreCase)],
+            });
+            Status.Text = "Exact executable attachment saved. Explicit blocks still apply.";
             return;
         }
         string name = entry?.DisplayName ?? suggestedName ?? ManualGameInput.FriendlyName(paths[0]);
@@ -408,6 +435,9 @@ public partial class GamesSettingsView : UserControl
         SetState(state with { Request = request with
         {
             ManualEntries = request.ManualEntries.RemoveAll(item => item.Id == id).Add(new(id, name, paths)),
+            Overrides = request.Overrides.RemoveAll(item => item.Id == "manual:" + id.ToString("N"))
+                .Add(new("manual:" + id.ToString("N"), (entry?.Rules ?? new CatalogRules()) with { AttachedExecutables = paths })
+                { DeniedExecutables = request.Overrides.LastOrDefault(item => item.Id == "manual:" + id.ToString("N"))?.DeniedExecutables ?? [] }),
         } });
         Search.Text = "";
         Games.SelectedItem = _rows.FirstOrDefault(row => row.Entry.Id == "manual:" + id.ToString("N"));
@@ -452,6 +482,26 @@ public partial class GamesSettingsView : UserControl
         var launchers = entry.Rules.LauncherExecutables;
         SaveRules(entry, entry.Rules with { LauncherExecutables = launchers.Contains(path, StringComparer.OrdinalIgnoreCase)
             ? launchers.RemoveAll(value => string.Equals(value, path, StringComparison.OrdinalIgnoreCase)) : launchers.Add(path) });
+    }
+
+    private void DetachExecutable_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not Button { DataContext: GameRow row, CommandParameter: string path } ||
+            row.IsManual || !row.Entry.Rules.AttachedExecutables.Contains(path, StringComparer.OrdinalIgnoreCase)) return;
+        var request = State.Request;
+        var ids = row.Entry.AliasIds.Prepend(row.Entry.Id).ToHashSet(StringComparer.Ordinal);
+        SetState(State with { Request = request with
+        {
+            Overrides = [.. request.Overrides.Select(item => ids.Contains(item.Id) ? item with
+            {
+                Rules = item.Rules with
+                {
+                    AttachedExecutables = item.Rules.AttachedExecutables.RemoveAll(value =>
+                        string.Equals(value, path, StringComparison.OrdinalIgnoreCase)),
+                },
+            } : item)],
+        } });
+        Status.Text = "Executable attachment removed; discovery and explicit blocks still apply.";
     }
 
     private void BlockFile_Click(object sender, RoutedEventArgs e)
@@ -718,7 +768,7 @@ public partial class GamesSettingsView : UserControl
             initial = null;
         }
         string? name = row.Issue == DetectionIssue.MinecraftJava ? "Minecraft Java Edition" : row.Entry.DisplayName;
-        PickExecutables(row.IsManual ? row.Entry : null, initial, row.IsManual ? null : name);
+        PickExecutables(row.Issue == DetectionIssue.MinecraftJava && !row.IsManual ? null : row.Entry, initial, name);
     }
 
     private void UpdateCount()
@@ -736,7 +786,7 @@ public partial class GamesSettingsView : UserControl
     private async void Details_Click(object sender, RoutedEventArgs e)
     {
         if (sender is not ToggleButton { DataContext: GameRow row }) return;
-        if (!ToggleDetails(row) || !row.IsManual || row.CheckingExecutables || row.Entry.Executables.IsEmpty) return;
+        if (!ToggleDetails(row) || row.CheckingExecutables || row.Entry.Executables.IsEmpty) return;
         var paths = row.Entry.Executables;
         row.CheckingExecutables = true;
         try

@@ -20,6 +20,7 @@ internal sealed record CatalogRules(
 {
     public ImmutableArray<string> LauncherExecutables { get; init; } = [];
     public ImmutableArray<string> ApprovedExecutables { get; init; } = [];
+    public ImmutableArray<string> AttachedExecutables { get; init; } = [];
 }
 
 internal sealed record ManualCatalogEntry(Guid Id, string DisplayName, ImmutableArray<string> Executables);

@@ -71,6 +71,13 @@ internal static class CatalogPaths
         entry.Id.Equals("steam:228980", StringComparison.OrdinalIgnoreCase) ||
         (!entry.InstallDirectories.IsEmpty && entry.InstallDirectories.All(IsRedistributablePath));
 
+    internal static bool IsProtectedExecutable(string path) =>
+        LocalPath(path) == null || !IsExecutable(path) || IsRedistributablePath(path) ||
+        (WindowsDirectory.Length > 0 && IsWithin(path, WindowsDirectory)) ||
+        Path.GetFileNameWithoutExtension(path).ToUpperInvariant() is
+            "QUICKCLIP" or "SYSTEM" or "REGISTRY" or "CSRSS" or "LSASS" or "WINLOGON" or "WININIT" or
+            "SERVICES" or "SMSS" or "SVCHOST" or "DWM" or "EXPLORER";
+
     public static CatalogMatchKind DefaultRole(string path)
     {
         if (IsRedistributablePath(path)) return CatalogMatchKind.Ignored;

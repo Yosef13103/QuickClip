@@ -32,12 +32,13 @@ internal static class ModalDialog
     internal static bool ConfirmDelete(Window? owner, string title, string paths)
         => ConfirmAction(owner, paths, title, "Move to Recycle Bin", "Keep clips", destructive: true);
 
-    internal static bool ConfirmAction(Window? owner, string message, string title, string accept, string cancel, bool destructive)
+    internal static bool ConfirmAction(Window? owner, string message, string title, string accept, string cancel, bool destructive, bool warning = false)
     {
         if (owner is not { IsVisible: true, Content: Panel })
             return MessageBox.Show(message, title, MessageBoxButton.YesNo, MessageBoxImage.Warning, MessageBoxResult.No) == MessageBoxResult.Yes;
-        return Run(owner, title, new TextBlock { Text = message, TextWrapping = TextWrapping.Wrap },
-            accept, cancel, safeDefault: true, destructive: destructive);
+        var text = new TextBlock { Text = message, TextWrapping = TextWrapping.Wrap };
+        if (warning) text.SetResourceReference(TextBlock.ForegroundProperty, "WarningBrush");
+        return Run(owner, title, text, accept, cancel, safeDefault: true, destructive: destructive);
     }
 
     internal static bool AskConfirmation(Window? owner, string message, string title, string action)

@@ -255,7 +255,16 @@ internal static class CatalogClaims
 
         bool hasFolderOverrides = rules.Keys.Any(id => id.StartsWith("folder:", StringComparison.Ordinal));
         var rows = contributions.GroupBy(Identity, StringComparer.Ordinal)
-            .Select(group => Project(group.Key, group.ToArray(), rules, hasFolderOverrides));
+            .Select(group => Project(group.Key, group.ToArray(), rules, hasFolderOverrides))
+            .Select(row =>
+            {
+                var attached = AllowedPaths(row.Rules.AttachedExecutables).Where(path => !CatalogPaths.IsProtectedExecutable(path)).ToArray();
+                return row with
+                {
+                    Executables = [.. row.Executables.Concat(attached).Distinct(Paths)],
+                    UnverifiedExecutables = [.. row.UnverifiedExecutables.Except(attached, Paths)],
+                };
+            });
         var manual = settings.Request.ManualEntries.Select(entry =>
         {
             string id = "manual:" + entry.Id.ToString("N");
@@ -275,7 +284,7 @@ internal static class CatalogClaims
         var blocked = settings.BlockedExecutables.Concat(staleRedistributables);
         if (denies.Length == 0) return blocked;
         var paths = CachedExecutables(settings);
-        return blocked.Concat(denies.SelectMany(rule => rule.DeniedExecutables.Concat(paths[rule.Id])));
+        return blocked.Concat(denies.SelectMany(rule => rule.DeniedExecutables.Concat(rule.Rules.AttachedExecutables).Concat(paths[rule.Id])));
     }
 
     // A collection may previously have been registered (and disabled) as one game.
@@ -307,7 +316,7 @@ internal static class CatalogClaims
         var rules = settings.Request.Overrides.Select(rule =>
         {
             if (rule.Rules.Inclusion != CatalogInclusion.Exclude) return rule;
-            var known = rule.DeniedExecutables.Concat(paths[rule.Id]).Distinct(Paths).ToImmutableArray();
+            var known = rule.DeniedExecutables.Concat(rule.Rules.AttachedExecutables).Concat(paths[rule.Id]).Distinct(Paths).ToImmutableArray();
             return known.Length == rule.DeniedExecutables.Length ? rule : rule with { DeniedExecutables = known };
         }).ToImmutableArray();
         return settings.Request.Overrides.SequenceEqual(rules) ? settings : settings with { Request = settings.Request with { Overrides = rules } };
@@ -336,6 +345,7 @@ internal static class CatalogClaims
                 value is AppClassification.Launcher or AppClassification.Application or AppClassification.Companion, rule.Classification),
             LauncherExecutables = [.. overrides.SelectMany(item => item.LauncherExecutables).Distinct(Paths)],
             ApprovedExecutables = [.. overrides.SelectMany(item => item.ApprovedExecutables).Distinct(Paths)],
+            AttachedExecutables = [.. overrides.SelectMany(item => item.AttachedExecutables).Distinct(Paths)],
         };
         var livePaths = live.SelectMany(entry => entry.Executables).ToHashSet(Paths);
         var executables = preferred.Executables.Concat(all.SelectMany(entry => entry.Executables)).Distinct(Paths).ToImmutableArray();

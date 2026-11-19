@@ -33,6 +33,39 @@ public sealed class CatalogExecutableApprovalTests
     public void Game_name_uses_usable_metadata_or_exact_executable_stem(string product, string description, string expected) =>
         Assert.Equal(expected, ManualGameInput.FriendlyName(Selected, product, description));
 
+    [Fact]
+    public void Explicit_non_game_attachment_only_promotes_the_selected_path_and_preserves_blocks()
+    {
+        const string discord = @"C:\Fixture\Discord\Update.exe";
+        const string other = @"D:\Fixture\Discord\Update.exe";
+        var entry = Entry() with
+        {
+            Executables = [discord, other],
+            Rules = new() { AttachedExecutables = [discord] },
+        };
+        var index = Index(entry);
+        Assert.Equal(CatalogMatchKind.Game, index.Match(discord, true).Kind);
+        Assert.Equal(CatalogMatchKind.Game, QuickClip.Recording.GameDetector.ApplyProcessRole(discord, index.Match(discord, true)).Kind);
+        Assert.NotEqual(CatalogMatchKind.Game, index.Match(other, true).Kind);
+        Assert.Equal(CatalogMatchKind.Ignored, Index(entry, [discord]).Match(discord, true).Kind);
+        Assert.Equal(CatalogMatchKind.Ignored, Index(entry with
+        {
+            Rules = entry.Rules with { Inclusion = CatalogInclusion.Exclude },
+        }).Match(discord, true).Kind);
+        Assert.Equal(CatalogMatchKind.Launcher, Index(entry with
+        {
+            Rules = entry.Rules with { LauncherExecutables = [discord] },
+        }).Match(discord, true).Kind);
+        var shared = new GameCatalogIndex(new([entry, entry with { Id = "steam:second" }], [], 0, false, default));
+        Assert.Equal(CatalogMatchKind.Ambiguous, shared.Match(discord, true).Kind);
+        string protectedExe = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Windows), "System32", "notepad.exe");
+        Assert.True(CatalogPaths.IsProtectedExecutable(protectedExe));
+        Assert.NotEqual(CatalogMatchKind.Game, Index(entry with
+        {
+            Executables = [protectedExe], Rules = new() { AttachedExecutables = [protectedExe] },
+        }).Match(protectedExe, true).Kind);
+    }
+
     private static GameCatalogIndex Index(CatalogEntry entry, IEnumerable<string>? blocked = null) =>
         new(new([entry], [], 0, false, default), blocked);
 
