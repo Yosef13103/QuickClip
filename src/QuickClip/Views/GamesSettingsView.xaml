@@ -299,7 +299,7 @@
                             <StackPanel Margin="12,6,12,8">
                                 <StackPanel Margin="0,0,0,6" Visibility="{Binding HasIssue, Converter={StaticResource ShowManualActions}}">
                                     <TextBlock Text="{Binding IssueReason}" TextWrapping="Wrap" />
-                                    <TextBlock Text="Automatic recording is unavailable for this entry." Style="{StaticResource Hint}" />
+                                    <TextBlock Text="{Binding IssueImpact}" Style="{StaticResource Hint}" />
                                     <TextBlock Text="{Binding IssueTechnicalDetail}" Style="{StaticResource Hint}"
                                                Visibility="{Binding ShowAdvanced, Converter={StaticResource ShowManualActions}}" />
                                     <WrapPanel Margin="0,4,0,0">
