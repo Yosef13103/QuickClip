@@ -97,7 +97,7 @@
                             </StackPanel>
                             <StackPanel Grid.Row="1" Grid.ColumnSpan="2" Margin="0,4,0,0">
                                 <TextBlock Text="{Binding Folder}" FontSize="{DynamicResource QuickClipText12}" Foreground="{DynamicResource SubtleText}" TextTrimming="CharacterEllipsis" />
-                                <ItemsControl ItemsSource="{Binding TagBadges}" ToolTip="{Binding TagText}" ClipToBounds="True">
+                                <ItemsControl ItemsSource="{Binding TagBadges}" ToolTip="{Binding TagText}" ClipToBounds="True" Margin="0,2,0,3">
                                     <ItemsControl.ItemsPanel><ItemsPanelTemplate><StackPanel Orientation="Horizontal" /></ItemsPanelTemplate></ItemsControl.ItemsPanel>
                                     <ItemsControl.ItemTemplate><DataTemplate>
                                         <Button Background="{Binding Fill}" Foreground="{Binding Ink}" BorderBrush="{Binding Fill}"
