@@ -23,6 +23,10 @@ Remaining verification, not blanket reimplementation: actual v1.0→1.1 in-place
 - E Gallery hierarchy, folder/tag organization and hidden clips follows B; owner wants improved tagging after B. Existing SQLite tags, favorites and bookmarks already shipped. Audit the existing UX and agree the additional scope rather than rebuild tags. Preserve identities, annotations, recovery, paths and media ownership. E can precede C if owner prioritizes library workflow.
 - Historical W2-D dynamic replay resizing is independently deferred, not the lettered D sharing workstream.
 
+### Startup update UX follow-up (owner request 2026-11-19)
+- Existing stable Personal updater already checks ~20s after startup and every 24h when enabled, with tray notification and explicit install via Settings. Preserve verified download, installer handoff, recovery, shutdown/active-job and profile isolation guards.
+- Add a release-notes prompt for a new stable version: Update (existing verified install flow), Cancel (dismiss for this session), Skip this update (persist exact version; newer versions still prompt). Respect existing Settings Updates automatic-check toggle; manual checks may show skipped versions and let owner update voluntarily. Show notes from already validated GitHub release selection, plain/safe rendering and fallback for unavailable notes. Defer intrusive prompt while recording or busy, no unexpected focus steal or automatic restart, no duplicate prompts. New isolated/CI profiles remain update-disabled. Test persistence, version comparison, manual override, startup/tray, timeout/offline and update-busy guards. Do not expand the accepted v1.2.1 runtime scope merely to add this UX.
+
 ## Wave 3 — Capture architecture and companion applications (dormant, not dispatched)
 
 Activation requires owner-approved W2 reconciliation/closed scope and real baseline. First research gate W3-RESEARCH; no production hook until scope, license, permissions, prototype and fallback are supported. Companion activity research can run independently; serial native writes. GPU optimization follows measured evidence; integrate W3 before W4.
