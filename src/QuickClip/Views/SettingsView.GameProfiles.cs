@@ -125,7 +125,10 @@ public partial class SettingsView
         void SetField(TextBlock label, string name, bool overridden, Button reset)
         {
             label.Text = row == null ? name : $"{name} ({(overridden ? "override" : "inherited")})";
-            reset.Visibility = row != null && overridden ? Visibility.Visible : Visibility.Collapsed;
+            reset.Visibility = row != null ? Visibility.Visible : Visibility.Collapsed;
+            reset.Content = overridden ? "Reset to All Games" : "Keep this value";
+            System.Windows.Automation.AutomationProperties.SetName(reset,
+                overridden ? $"Reset {name} override" : $"Keep {name} independent of All Games");
         }
     }
 
@@ -208,15 +211,16 @@ public partial class SettingsView
     private void ResetGameField_Click(object sender, RoutedEventArgs e)
     {
         if (sender is not Button { Tag: string field }) return;
+        var effective = EditingVideo();
         SaveProfileChange(p => field switch
         {
-            "Aspect" => p with { Aspect = null },
-            "Resolution" => p with { ResolutionShortSide = null },
-            "Buffer" => p with { ReplaySeconds = null },
-            "Quality" => p with { Quality = null },
-            "Fps" => p with { Fps = null },
-            "Encoder" => p with { EncoderId = null, Codec = null },
-            "Nvenc" => p with { NvencPreset = null },
+            "Aspect" => p with { Aspect = p.Aspect == null ? effective.Aspect : null },
+            "Resolution" => p with { ResolutionShortSide = p.ResolutionShortSide == null ? effective.Resolution : null },
+            "Buffer" => p with { ReplaySeconds = p.ReplaySeconds == null ? effective.ReplaySeconds : null },
+            "Quality" => p with { Quality = p.Quality == null ? effective.Quality : null },
+            "Fps" => p with { Fps = p.Fps == null ? effective.Fps : null },
+            "Encoder" => p with { EncoderId = p.EncoderId == null && p.Codec == null ? effective.EncoderId : null, Codec = null },
+            "Nvenc" => p with { NvencPreset = p.NvencPreset == null ? effective.NvencPreset : null },
             "Bitrate" => p with { Bitrate = null },
             _ => p,
         });
