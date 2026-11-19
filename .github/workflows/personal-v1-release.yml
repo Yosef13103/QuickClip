@@ -136,7 +136,7 @@ jobs:
           fi
           gh release create "$tag" release-assets/*.zip release-assets/*.exe release-assets/SHA256SUMS.txt \
             --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
-            --title 'QuickClip Personal v1.2.1 — Reliable updates and recovery' \
+            --title 'QuickClip Personal v1.2.1' \
             --notes-file docs/releases/personal-v1.2.1.md --latest
           echo 'published=true' >> "$GITHUB_OUTPUT"
 
