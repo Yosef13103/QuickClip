@@ -30,6 +30,7 @@ internal sealed class Recorder
     private Guid _replaySession;
     private long _replayGeneration;
     private int _replayBufferSeconds;
+    private RecordingVideoOptions? _activeVideoOptions;
     private ImmutableArray<EndpointTrack> _runningEndpointPlan = [];
     private readonly GameDetector _games = new();
     private readonly ForegroundGameHandoff _gameHandoff = new();
@@ -176,6 +177,37 @@ internal sealed class Recorder
             }
         }
         StateChanged?.Invoke(State);
+    });
+
+    // A saved profile edit may restart only the current authorized game graph.
+    // Re-read its effective settings under the same gate as source transitions.
+    internal Task RefreshActiveProfileAsync() => Task.Run(() =>
+    {
+        RecorderState before, after;
+        lock (_gate)
+        {
+            if (!AppProfile.IsPersonal || !AppSettings.Current.RecordingEnabled ||
+                _lifecycle.Mode != RecordingMode.GameTriggered || !IsRunning || _sessionGameId == null) return;
+            before = State;
+            try
+            {
+                var settings = AppSettings.Current;
+                var next = RecordingVideoOptions.Resolve(settings, RecordingVideoOptions.LoadPolicy(_sessionGameId, settings));
+                if (next == _activeVideoOptions) return;
+                StopCore(forgetGame: false);
+                ReconcilePersonal();
+                StartPolling();
+            }
+            catch (Exception ex)
+            {
+                // Do not continue recording silently with a rejected profile.
+                _lifecycle.FailActive("The current game's recording profile could not be applied.");
+                Error = _lifecycle.Error;
+                Log.Essential(DiagnosticCategory.Capture, "Applying game recording profile failed", ex);
+            }
+            after = State;
+        }
+        if (after != before) StateChanged?.Invoke(after);
     });
 
     // Permission changes re-evaluate the active source without unconditionally
@@ -427,6 +459,7 @@ internal sealed class Recorder
             Interlocked.Increment(ref _replayGeneration);
             IsRunning = true;
             _replayBufferSeconds = videoOptions.ReplaySeconds;
+            _activeVideoOptions = videoOptions;
             _family = family;
             _captureTarget = null;
             _desktopSource = backend switch
@@ -479,6 +512,7 @@ internal sealed class Recorder
         if (stopNative) CaptureEngine.Stop();
         _runningEndpointPlan = [];
         _replaySession = Guid.Empty;
+        _activeVideoOptions = null;
         _replayMarkers.Clear();
         (_sessionGame, _sessionGameId, _sessionDisplay, _desktopSource) = (null, null, null, null);
         _actualMonitorName = null;
@@ -733,8 +767,6 @@ internal sealed class Recorder
             {
                 ClipDetailsStore.TryWrite(path, new ClipDetails(capture, folder)
                 {
-                    // Game-triggered monitor capture also has a DesktopSource; the game id distinguishes it from manual desktop.
-                    Tags = GameDefaultTags.ForSavedReplay(gameId, gameId == null),
                     Bookmarks = receipt.Markers.Select(mark => new ClipBookmark(mark.Offset.TotalSeconds, mark.Marker.Label ?? "Marker")
                     { SessionId = mark.Marker.SessionId }).ToArray(),
                 });
