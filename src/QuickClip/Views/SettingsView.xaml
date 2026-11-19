@@ -191,6 +191,7 @@
                     <RadioButton x:Name="HotkeysSection" Content="Hotkeys" Tag="&#xE765;" />
                     <RadioButton x:Name="SharingSection" Content="Sharing" Tag="&#xE72D;" />
                     <RadioButton x:Name="LibrarySection" Content="Library" Tag="&#xE8B7;" />
+                    <RadioButton x:Name="NotificationsSection" Content="Notifications" Tag="&#xE7E7;" />
                     <RadioButton x:Name="GeneralSection" Content="General" Tag="&#xE713;" />
                     <RadioButton x:Name="DiagnosticsSection" Content="Diagnostics" Tag="&#xE9CE;" />
                 </StackPanel>
@@ -716,7 +717,14 @@
                     </CheckBox>
                     <CheckBox Style="{StaticResource SwitchCheckBox}" x:Name="ConfirmDeleteCheck" Content="Confirm before sending clips to the Recycle Bin" Margin="0,8,0,0" Checked="Changed" Unchecked="Changed" />
                     <CheckBox Style="{StaticResource SwitchCheckBox}" x:Name="ConfirmSaveOverCheck" Content="Confirm before replacing the original clip" Margin="0,8,0,0" Checked="Changed" Unchecked="Changed" />
+                    <CheckBox Style="{StaticResource SwitchCheckBox}" x:Name="ShellCheck" Margin="0,8,0,0" Checked="ShellCheck_Changed" Unchecked="ShellCheck_Changed">
+                        <TextBlock Text="Add &quot;Edit with QuickClip&quot; to the right-click menu of video and audio files" TextWrapping="Wrap" />
+                    </CheckBox>
                     </StackPanel>
+                </StackPanel>
+            </Border>
+            <Border x:Name="NotificationsCard" Style="{StaticResource Card}">
+                <StackPanel>
                     <TextBlock Text="Notifications" Style="{StaticResource CardTitle}" />
                     <WrapPanel Margin="0,8,0,0">
                         <CheckBox Style="{StaticResource SwitchCheckBox}" x:Name="SoundCheck" Focusable="True" Content="Play a sound when a clip is saved" VerticalAlignment="Center" Checked="Changed" Unchecked="Changed" />
@@ -895,9 +903,7 @@
                         <Button Content="Preview clip saved" Click="TestClipOverlay_Click" Margin="0,0,8,4" />
                         <Button Content="Preview status banner" Click="TestCompactBanner_Click" Margin="0,0,8,4" />
                     </WrapPanel>
-                    <CheckBox Style="{StaticResource SwitchCheckBox}" x:Name="ShellCheck" Margin="0,8,0,0" Checked="ShellCheck_Changed" Unchecked="ShellCheck_Changed">
-                        <TextBlock Text="Add &quot;Edit with QuickClip&quot; to the right-click menu of video and audio files" TextWrapping="Wrap" />
-                    </CheckBox>
+
 
                 </StackPanel>
             </Border>
