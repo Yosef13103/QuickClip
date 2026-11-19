@@ -15,38 +15,98 @@ public partial class GalleryView
     {
         if (MultiTagFilterButton == null) return;
         MultiTagFilterButton.Content = _exactTags.Length == 0
-            ? "Multiple tags…" : $"{_exactTags.Length} tags ({(_matchAllTags ? "all" : "any")})…";
+            ? "Tags ▾" : $"Tags ({_exactTags.Length} · {(_matchAllTags ? "all" : "any")}) ▾";
         MultiTagFilterButton.ToolTip = _exactTags.Length == 0
-            ? "Filter by exact tags" : string.Join(", ", _exactTags);
+            ? "Filter by one or more tags" : string.Join(", ", _exactTags);
+        ActiveTagFilters.ItemsSource = _exactTags;
+        ActiveTagFilters.Visibility = _exactTags.Length == 0 ? Visibility.Collapsed : Visibility.Visible;
+    }
+
+    private void ToggleTagFilter(string tag)
+    {
+        string key = LibraryFiles.TextKey(tag);
+        _exactTags = _exactTags.Any(t => LibraryFiles.TextKey(t) == key)
+            ? _exactTags.Where(t => LibraryFiles.TextKey(t) != key).ToArray()
+            : [.. _exactTags, tag];
+        RefreshTagFilterButton();
+        OrganizationFilter_Changed(this, new RoutedEventArgs());
+    }
+
+    private void TagChip_Click(object sender, RoutedEventArgs e)
+    {
+        if (_released || !PersonalAnnotations || sender is not Button { DataContext: ClipItem.TagBadge badge }) return;
+        e.Handled = true;
+        ToggleTagFilter(badge.Name);
+    }
+
+    private void ActiveTag_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is Button { DataContext: string tag }) ToggleTagFilter(tag);
     }
 
     private void MultiTagFilter_Click(object sender, RoutedEventArgs e)
     {
-        if (_released || !PersonalAnnotations ||
-            Window.GetWindow(this) is not { IsVisible: true, Content: Panel } owner) return;
-        var names = KnownTags.Concat(_exactTags).Distinct(StringComparer.OrdinalIgnoreCase)
-            .OrderBy(tag => tag, StringComparer.OrdinalIgnoreCase).ToArray();
-        var choices = new ListBox { ItemsSource = names, SelectionMode = SelectionMode.Multiple,
-            MaxHeight = 260, MinHeight = 60 };
-        foreach (string name in names.Where(tag => _exactTags.Contains(tag, StringComparer.OrdinalIgnoreCase)))
-            choices.SelectedItems.Add(name);
-        var matchAll = new CheckBox { Content = "Require all selected tags (otherwise any)", IsChecked = _matchAllTags,
-            Margin = new Thickness(0, 12, 0, 4) };
-        var clear = new Button { Content = "Clear tag selection", HorizontalAlignment = HorizontalAlignment.Left,
-            Margin = new Thickness(0, 8, 0, 0) };
-        clear.Click += (_, _) => choices.SelectedItems.Clear();
-        AutomationProperties.SetName(choices, "Exact tags to filter");
-        var panel = new StackPanel();
-        panel.Children.Add(new TextBlock { Text = "Choose one or more exact tags. Other search and favorite filters still apply. No selection means no exact tag filter.",
-            TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 0, 0, 8) });
-        panel.Children.Add(choices);
+        if (_released || !PersonalAnnotations) return;
+        // One nonmodal, searchable picker; selecting a tag never opens a clip.
+        var popup = new System.Windows.Controls.Primitives.Popup
+        {
+            PlacementTarget = MultiTagFilterButton,
+            Placement = System.Windows.Controls.Primitives.PlacementMode.Bottom,
+            StaysOpen = false, AllowsTransparency = true,
+        };
+        var panel = new StackPanel { Width = 260 };
+        var search = new TextBox { Margin = new Thickness(0, 0, 0, 8), ToolTip = "Search tags" };
+        AutomationProperties.SetName(search, "Search available tags");
+        var matchAll = new CheckBox { Content = "Match all selected tags", IsChecked = _matchAllTags, Margin = new Thickness(0, 0, 0, 6) };
+        var list = new StackPanel();
+        var scroll = new ScrollViewer { Content = list, MaxHeight = 240, VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
+        var clear = new Button { Content = "Clear tags", HorizontalAlignment = HorizontalAlignment.Left, Margin = new Thickness(0, 8, 0, 0) };
+        void Populate()
+        {
+            list.Children.Clear();
+            foreach (string name in KnownTags.Concat(_exactTags).DistinctBy(LibraryFiles.TextKey)
+                .Where(tag => tag.Contains(search.Text.Trim(), StringComparison.OrdinalIgnoreCase))
+                .OrderBy(tag => tag, StringComparer.OrdinalIgnoreCase))
+            {
+                var check = new CheckBox { Content = name, IsChecked = _exactTags.Any(tag => LibraryFiles.TextKey(tag) == LibraryFiles.TextKey(name)), Margin = new Thickness(0, 3, 0, 3) };
+                check.Click += (_, _) => ToggleTagFilter(name);
+                list.Children.Add(check);
+            }
+        }
+        search.TextChanged += (_, _) => Populate();
+        matchAll.Click += (_, _) =>
+        {
+            _matchAllTags = matchAll.IsChecked == true;
+            RefreshTagFilterButton();
+            OrganizationFilter_Changed(this, new RoutedEventArgs());
+        };
+        clear.Click += (_, _) =>
+        {
+            _exactTags = [];
+            RefreshTagFilterButton();
+            Populate();
+            OrganizationFilter_Changed(this, new RoutedEventArgs());
+        };
+        panel.Children.Add(search);
         panel.Children.Add(matchAll);
+        panel.Children.Add(scroll);
         panel.Children.Add(clear);
-        if (!ModalDialog.Run(owner, "Filter by multiple tags", panel, "Apply filter", "Cancel")) return;
-        _exactTags = choices.SelectedItems.Cast<string>().ToArray();
-        _matchAllTags = matchAll.IsChecked == true;
-        RefreshTagFilterButton();
-        OrganizationFilter_Changed(this, new RoutedEventArgs());
+        var border = new Border { Padding = new Thickness(12), BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(8), Child = panel };
+        border.SetResourceReference(Border.BackgroundProperty, "PanelBrush");
+        border.SetResourceReference(Border.BorderBrushProperty, "AccentFillColorDefaultBrush");
+        popup.Child = border;
+        popup.PreviewKeyDown += (_, args) =>
+        {
+            if (args.Key == System.Windows.Input.Key.Escape)
+            {
+                popup.IsOpen = false;
+                MultiTagFilterButton.Focus();
+                args.Handled = true;
+            }
+        };
+        Populate();
+        popup.IsOpen = true;
+        search.Focus();
     }
 
     private async void LibraryTags_Click(object sender, RoutedEventArgs e)
@@ -102,57 +162,6 @@ public partial class GalleryView
             Log.Failure(DiagnosticCategory.Library, "Library tag replacement failed", ex);
             if (!_released) ShowStatus(ex is LibraryConflictException or ArgumentException ? ex.Message :
                 "Could not complete library tag replacement. Refresh before retrying.");
-        }
-        finally
-        {
-            _annotationJob = null;
-            _editingAnnotations = false;
-            GalleryDetailsEditor.IsEnabled = true;
-        }
-    }
-
-    private async Task SetSelectedHiddenAsync(bool hidden)
-    {
-        if (!PersonalLibrary.Enabled || _released || _loading || _editingAnnotations ||
-            !SelectionActions.IsEnabled || !await FlushAnnotationsAsync() ||
-            _released || _loading || _editingAnnotations) return;
-        var clips = CurrentClips.Where(clip => clip.IsSelected && clip.Details.IsHidden != hidden).ToArray();
-        if (clips.Length == 0) return;
-        if (clips.Length > 256 || clips.Any(clip => clip.Details.IndexId == null || !IsAvailable(clip)))
-        {
-            ShowStatus("Select up to 256 available indexed clips.");
-            return;
-        }
-        _hoverPreview.Stop();
-        _editingAnnotations = true;
-        GalleryDetailsEditor.IsEnabled = false;
-        try
-        {
-            var targets = clips.Select(ClipAnnotationTarget.For).ToArray();
-            var job = WithProgressAsync(hidden ? "Hiding clips" : "Unhiding clips", targets.Length, _ =>
-                PersonalLibrary.Current.ApplyTagDeltaAsync(targets, [], [], _lifetime.Token, hidden: hidden));
-            _annotationJob = job;
-            int changed = await job;
-            if (_released) return;
-            var refresh = new List<ClipAnnotationResult>();
-            foreach (var target in targets)
-            {
-                var details = await PersonalLibrary.Current.ReadAsync(target.Path, _lifetime.Token);
-                if (details is not null && details.IndexId == target.Details.IndexId)
-                    refresh.Add(new(target.Path, details, null));
-            }
-            if (_released) return;
-            ApplyClipDetails(refresh);
-            if (refresh.Count != targets.Length) await ReloadAsync(rereadIndex: true);
-            ShowStatus(hidden ? $"Hid {changed:N0} clip(s). Use Hidden clips only to restore visibility." :
-                $"Restored visibility for {changed:N0} clip(s).");
-        }
-        catch (OperationCanceledException) when (_lifetime.IsCancellationRequested) { }
-        catch (Exception ex)
-        {
-            Log.Failure(DiagnosticCategory.Library, "Clip visibility update failed", ex);
-            if (!_released) ShowStatus(ex is LibraryConflictException or ArgumentException ? ex.Message :
-                "Could not change clip visibility. Refresh before retrying.");
         }
         finally
         {
