@@ -808,7 +808,13 @@ public partial class GalleryView : UserControl
         favorite.Click += async (_, _) => await UpdateAnnotationsAsync(CurrentClips.Where(clip => clip.IsSelected).ToArray(), favorite: true);
         var unfavorite = new MenuItem { Header = "Remove from favorites" };
         unfavorite.Click += async (_, _) => await UpdateAnnotationsAsync(CurrentClips.Where(clip => clip.IsSelected).ToArray(), favorite: false);
-        menu.Items.Add(tag);
+        if (PersonalLibrary.Enabled)
+        {
+            var manage = new MenuItem { Header = "Manage tags…" };
+            manage.Click += async (_, _) => await ManageSelectedTagsAsync();
+            menu.Items.Add(manage);
+        }
+        else menu.Items.Add(tag);
         menu.Items.Add(favorite);
         menu.Items.Add(unfavorite);
         menu.IsOpen = true;
