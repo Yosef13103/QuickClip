@@ -15,7 +15,7 @@ public partial class GalleryView
 
     // The selection is captured after flushing pending metadata edits. The
     // dialog works only on that snapshot, never a later select-all/filter result.
-    private async Task ManageSelectedTagsAsync()
+    private async Task ManageSelectedTagsAsync(bool replace = false)
     {
         if (!PersonalLibrary.Enabled || _editingAnnotations || _released || _loading ||
             !SelectionActions.IsEnabled || Window.GetWindow(this) is not { IsVisible: true, Content: Panel } owner)
@@ -47,21 +47,21 @@ public partial class GalleryView
             var available = Choices(_clips.Select(clip => clip.Details));
             var assigned = Choices(targets.Select(target => target.Details));
             var add = new ListBox { ItemsSource = available, DisplayMemberPath = nameof(TagChoice.Label),
-                SelectionMode = SelectionMode.Multiple, MaxHeight = 160, MinHeight = 40 };
+                SelectionMode = replace ? SelectionMode.Single : SelectionMode.Multiple, MaxHeight = 160, MinHeight = 40 };
             var remove = new ListBox { ItemsSource = assigned, DisplayMemberPath = nameof(TagChoice.Label),
-                SelectionMode = SelectionMode.Multiple, MaxHeight = 160, MinHeight = 40 };
+                SelectionMode = replace ? SelectionMode.Single : SelectionMode.Multiple, MaxHeight = 160, MinHeight = 40 };
             var input = new TextBox { MaxLength = ClipDetails.MaxTagLength };
             AutomationProperties.SetName(add, "Existing tags to add");
             AutomationProperties.SetName(remove, "Tags to remove");
             AutomationProperties.SetName(input, "New tag");
             var error = new TextBlock { TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 8, 0, 0) };
             var panel = new StackPanel();
-            panel.Children.Add(new TextBlock { Text = $"Edit tags on {targets.Length:N0} selected clip(s). Click multiple tags to select them. Unselected tags are unchanged.", TextWrapping = TextWrapping.Wrap });
+            panel.Children.Add(new TextBlock { Text = replace ? $"Replace one tag on {targets.Length:N0} selected clip(s). Only clips carrying the old tag are changed." : $"Edit tags on {targets.Length:N0} selected clip(s). Click multiple tags to select them. Unselected tags are unchanged.", TextWrapping = TextWrapping.Wrap });
             panel.Children.Add(new TextBlock { Text = "Add existing tags (Gallery counts)", Margin = new Thickness(0, 12, 0, 4) });
             panel.Children.Add(add);
             panel.Children.Add(new TextBlock { Text = "Or add a new tag", Margin = new Thickness(0, 8, 0, 4) });
             panel.Children.Add(input);
-            panel.Children.Add(new TextBlock { Text = "Remove tags (selected clip counts)", Margin = new Thickness(0, 12, 0, 4) });
+            panel.Children.Add(new TextBlock { Text = replace ? "Old tag (selected clip counts)" : "Remove tags (selected clip counts)", Margin = new Thickness(0, 12, 0, 4) });
             panel.Children.Add(remove);
             panel.Children.Add(error);
             string[] Additions() => add.SelectedItems.Cast<TagChoice>().Select(t => t.Name)
@@ -69,12 +69,14 @@ public partial class GalleryView
                 .DistinctBy(LibraryFiles.TextKey).ToArray();
             string[] Removals() => remove.SelectedItems.Cast<TagChoice>().Select(t => t.Name).ToArray();
 
-            if (!ModalDialog.Run(owner, "Manage tags", panel, "Apply tags", "Cancel", safeDefault: true,
+            if (!ModalDialog.Run(owner, replace ? "Replace tag" : "Manage tags", panel, replace ? "Replace tag" : "Apply tags", "Cancel", safeDefault: true,
                 validate: () =>
                 {
                     var additions = Additions();
                     var removals = Removals();
-                    if (additions.Length + removals.Length == 0)
+                    if (replace && (additions.Length != 1 || removals.Length != 1))
+                        error.Text = "Choose one old tag and one replacement tag.";
+                    else if (additions.Length + removals.Length == 0)
                         error.Text = "Choose at least one change.";
                     else if (additions.Length > ClipDetails.MaxTags || removals.Length > ClipDetails.MaxTags ||
                         additions.Any(t => !ClipDetails.IsValidTag(t)))
@@ -87,7 +89,7 @@ public partial class GalleryView
             if (_released || !PersonalLibrary.Enabled) return;
 
             var job = WithProgressAsync("Updating tags", targets.Length, _ =>
-                PersonalLibrary.Current.ApplyTagDeltaAsync(targets, Additions(), Removals(), _lifetime.Token));
+                PersonalLibrary.Current.ApplyTagDeltaAsync(targets, Additions(), Removals(), _lifetime.Token, replaceOnlyPresent: replace));
             _annotationJob = job;
             int changed = await job;
             if (_released) return;
