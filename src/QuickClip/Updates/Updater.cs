@@ -9,7 +9,10 @@ namespace QuickClip.Updates;
 public sealed record ReleaseAsset(string Url, long Size, string? Sha256);
 
 /// <summary>A GitHub release: <paramref name="Setup"/> updates installed copies, <paramref name="Portable"/> unzipped ones.</summary>
-public sealed record ReleaseInfo(AppVersion Version, string Tag, string Name, string PageUrl, ReleaseAsset? Setup, ReleaseAsset? Portable);
+public sealed record ReleaseInfo(AppVersion Version, string Tag, string Name, string PageUrl, ReleaseAsset? Setup, ReleaseAsset? Portable)
+{
+    public string? Notes { get; init; }
+}
 
 /// <summary>Checks the GitHub repository for newer releases and installs them in place.</summary>
 internal static class Updater
@@ -183,7 +186,8 @@ internal static class Updater
                     if (name == $"QuickClip-Personal-{version}-setup.exe") setup = found;
                     if (name == $"QuickClip-Personal-{version}-win-x64.zip") portable = found;
                 }
-            best = new ReleaseInfo(version, tag, $"QuickClip Personal {version}", PersonalReleasePage(tag), setup, portable);
+            best = new ReleaseInfo(version, tag, $"QuickClip Personal {version}", PersonalReleasePage(tag), setup, portable)
+            { Notes = UpdatePromptPolicy.Notes(release.TryGetProperty("body", out var body) && body.ValueKind == JsonValueKind.String ? body.GetString() : null) };
         }
         return best;
     }
