@@ -149,6 +149,7 @@ internal sealed class LibraryDatabase
     private const string OrganizationSchema = """
         ALTER TABLE clips ADD COLUMN hidden INTEGER NOT NULL DEFAULT 0 CHECK(hidden IN (0,1));
         CREATE INDEX clips_hidden ON clips(hidden,captured_ticks DESC,id);
+        ALTER TABLE tags ADD COLUMN color TEXT;
         """;
 
     private const string DraftSchema = """
