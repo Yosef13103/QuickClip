@@ -20,6 +20,28 @@ internal sealed class PersonalLibrary : IClipAnnotationActions, ILibraryInventor
         finally { _scanGate.Release(); }
     }
 
+    internal async Task<ClipDetails?> RegisterReplayAsync(Media.MediaSource source, CancellationToken token)
+    {
+        if (!Enabled || !WithinConfiguredRoot(source.Path)) return null;
+        await _scanGate.WaitAsync(token);
+        try
+        {
+            var s = AppSettings.Current;
+            string? root = SavedRecordingFolders.Additional(s).Prepend(s.ClipsFolder)
+                .FirstOrDefault(path => LibraryFiles.Within(source.Path, path) &&
+                    !LibraryFiles.IsExcluded(path, source.Path, [.. s.LibraryExclusions ?? []]));
+            if (root == null || !WithinConfiguredRoot(source.Path)) return null;
+            var index = _index.Value;
+            var id = await index.RegisterRootAsync(root, exclusions: s.LibraryExclusions ?? [],
+                cancellationToken: token, updateExclusions: true);
+            if (!await index.RegisterPublishedReplayAsync(id, source, token)) return null;
+            var row = (await index.ReadGalleryAsync(id, source.Path, token)).SingleOrDefault();
+            return row != null && source.Stamp == new FileStamp(row.Stamp.Created.Ticks, row.Stamp.Modified.Ticks, row.Stamp.Length, row.Identity)
+                ? row.Details : null;
+        }
+        finally { _scanGate.Release(); }
+    }
+
     internal async Task<(List<ClipItem> Clips, LibraryScanResult Scan)> LoadAsync(
         string root, string[] exclusions, string[]? scopes, CancellationToken token,
         Action<string, double?>? progress = null)

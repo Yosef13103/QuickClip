@@ -68,26 +68,35 @@ internal sealed class ReplayProvenanceStore
 
     internal ReplayProvenance[] ReadCandidates(IReadOnlySet<string> availablePaths)
     {
+        if (availablePaths.Count == 0) return [];
         using var connection = _database.Open();
-        using var command = Command(connection, null, """
-            SELECT id,path,created,modified,bytes,identity,session,native_session,started_utc_us,
-                epoch,first_us,end_us,stream_signature,proof_hash
-            FROM replay_provenance WHERE invalidated=0 ORDER BY session,epoch,stream_signature,first_us,id;
-            """);
-        using var reader = command.ExecuteReader();
         var result = new List<ReplayProvenance>();
-        while (reader.Read())
+        // Use the existing replay_path index; automatic joins never scan the
+        // entire provenance table merely to find two exact recorded paths.
+        foreach (var batch in availablePaths.Chunk(256))
         {
-            string path = reader.GetString(1);
-            if (!availablePaths.Contains(LibraryFiles.PathKey(path)) || ClipLibrary.IsMomentsPath(path)) continue;
-            var source = new MediaSource(path, new(reader.GetInt64(2), reader.GetInt64(3), reader.GetInt64(4), reader.GetString(5)));
-            try { source.Verify(); }
-            catch (Exception ex) when (ex is ExportException || LibraryFiles.IsAccessError(ex)) { continue; }
-            result.Add(new(Guid.ParseExact(reader.GetString(0), "N"), source, Guid.ParseExact(reader.GetString(6), "N"),
-                reader.GetInt64(7), reader.GetInt64(8), reader.GetInt64(9), reader.GetInt64(10), reader.GetInt64(11),
-                reader.GetString(12), reader.GetString(13)));
+            var parameters = batch.Select((key, i) => ($"$key{i}", (object?)LibraryFiles.PathKey(key))).ToArray();
+            string names = string.Join(",", parameters.Select(p => p.Item1));
+            using var command = Command(connection, null, $"""
+                SELECT id,path,created,modified,bytes,identity,session,native_session,started_utc_us,
+                    epoch,first_us,end_us,stream_signature,proof_hash
+                FROM replay_provenance WHERE invalidated=0 AND path_key IN ({names});
+                """, parameters);
+            using var reader = command.ExecuteReader();
+            while (reader.Read())
+            {
+                string path = reader.GetString(1);
+                if (ClipLibrary.IsMomentsPath(path)) continue;
+                var source = new MediaSource(path, new(reader.GetInt64(2), reader.GetInt64(3), reader.GetInt64(4), reader.GetString(5)));
+                try { source.Verify(); }
+                catch (Exception ex) when (ex is ExportException || LibraryFiles.IsAccessError(ex)) { continue; }
+                result.Add(new(Guid.ParseExact(reader.GetString(0), "N"), source, Guid.ParseExact(reader.GetString(6), "N"),
+                    reader.GetInt64(7), reader.GetInt64(8), reader.GetInt64(9), reader.GetInt64(10), reader.GetInt64(11),
+                    reader.GetString(12), reader.GetString(13)));
+            }
         }
-        return result.ToArray();
+        return result.OrderBy(row => row.Session).ThenBy(row => row.Epoch).ThenBy(row => row.StreamSignature, StringComparer.Ordinal)
+            .ThenBy(row => row.FirstUs).ThenBy(row => row.Id).ToArray();
     }
 
     internal byte[] ReadProof(ReplayProvenance snapshot)
