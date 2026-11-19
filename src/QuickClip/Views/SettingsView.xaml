@@ -377,7 +377,7 @@
                         <StackPanel x:Name="GameOverridePanel" Visibility="Collapsed" Margin="0,6,0,0">
                             <Button x:Name="ResetProfileButton" Content="Reset entire game profile…" HorizontalAlignment="Left" Click="ResetGameProfile_Click" />
                         </StackPanel>
-                        
+
                     </StackPanel>
                     <Grid Margin="0,12,0,0">
                         <Grid.ColumnDefinitions><ColumnDefinition x:Name="CaptureAreaColumn" Width="*" /><ColumnDefinition x:Name="CaptureAreaGap" Width="12" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
@@ -520,7 +520,7 @@
                             <TextBox x:Name="GameBitrateBox" MaxLength="6" AutomationProperties.Name="Game target video bitrate" />
                         </DockPanel>
                         <TextBlock x:Name="GameBitrateHint" Style="{StaticResource Hint}" TextWrapping="Wrap" />
-                        
+
                     </StackPanel>
                     <CheckBox Style="{StaticResource SwitchCheckBox}" x:Name="CursorCheck" Content="Show the mouse pointer" Margin="160,12,0,0" Checked="Changed" Unchecked="Changed" />
                     <TextBlock x:Name="RecorderStatus" Margin="0,12,0,0" Style="{StaticResource Hint}" />
