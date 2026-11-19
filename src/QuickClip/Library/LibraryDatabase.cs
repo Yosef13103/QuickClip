@@ -4,7 +4,7 @@ namespace QuickClip.Library;
 
 internal sealed class LibraryDatabase
 {
-    internal const int SchemaVersion = 3;
+    internal const int SchemaVersion = 4;
     private const int ApplicationId = 0x51434C49; // QCLI
     private readonly string _connectionString;
     private readonly object _initializationGate = new();
@@ -93,6 +93,12 @@ internal sealed class LibraryDatabase
             {
                 Execute(connection, transaction, DraftSchema);
                 Execute(connection, transaction, "PRAGMA user_version=3;");
+                version = 3;
+            }
+            if (version == 3)
+            {
+                Execute(connection, transaction, ReplaySchema);
+                Execute(connection, transaction, "PRAGMA user_version=4;");
             }
             transaction.Commit();
         }
@@ -123,6 +129,20 @@ internal sealed class LibraryDatabase
         foreach (var (name, value) in parameters) command.Parameters.AddWithValue(name, value ?? DBNull.Value);
         return command;
     }
+
+    private const string ReplaySchema = """
+        CREATE TABLE replay_provenance (
+            id TEXT PRIMARY KEY, path_key TEXT NOT NULL, path TEXT NOT NULL,
+            created INTEGER NOT NULL, modified INTEGER NOT NULL, bytes INTEGER NOT NULL, identity TEXT NOT NULL,
+            session TEXT NOT NULL, native_session INTEGER NOT NULL, started_utc_us INTEGER NOT NULL,
+            epoch INTEGER NOT NULL, first_us INTEGER NOT NULL, end_us INTEGER NOT NULL,
+            stream_signature TEXT NOT NULL, proof_hash TEXT NOT NULL, proof BLOB NOT NULL,
+            invalidated INTEGER NOT NULL DEFAULT 0 CHECK(invalidated IN (0,1)),
+            CHECK(end_us > first_us)
+        );
+        CREATE INDEX replay_path ON replay_provenance(path_key, invalidated);
+        CREATE INDEX replay_components ON replay_provenance(session, native_session, started_utc_us, epoch, stream_signature, first_us);
+        """;
 
     public static int Execute(SqliteConnection connection, SqliteTransaction? transaction, string sql,
         params (string Name, object? Value)[] parameters)

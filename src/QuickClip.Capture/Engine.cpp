@@ -1,5 +1,6 @@
 #include "Engine.h"
 #include "GpuScale.h"
+#include "ReplayProof.h"
 
 #include <dxgi1_2.h>
 #include <timeapi.h>
@@ -1445,7 +1446,7 @@ namespace qc
     }
 
     bool Engine::Save(const std::wstring& path, int seconds, const std::wstring& title, std::string& error,
-        QcReplaySpan* span, QcReplayAnchor* anchors, int count, int64_t requestUs, QcReplayVideo* savedVideo)
+        QcReplaySpan* span, QcReplayAnchor* anchors, int count, int64_t requestUs, QcReplayVideo* savedVideo, const wchar_t* proofPath)
     {
         if (VideoSourceLost())
         {
@@ -1530,6 +1531,8 @@ namespace qc
         if (ret >= 0) ret = avformat_write_header(out, &options);
         av_dict_free(&options);
 
+        std::vector<ReplayPacketProof> proof;
+        if (proofPath && *proofPath) proof.reserve(entries.size());
         for (auto& e : entries)
         {
             AVPacket* p = e.packet;
@@ -1539,6 +1542,8 @@ namespace qc
                 // A sparse source must not extend the explicit replay's last picture by the preceding frame gap.
                 if (bounded && span && e.stream == 0 && e.timeUs == span->lastUs && p->duration <= 0)
                     p->duration = av_rescale_q(1, AVRational{ 1, shared_->fps }, src);
+                if (proofPath && *proofPath)
+                    proof.push_back(CaptureReplayPacketProof(e, src));
                 int64_t offset = av_rescale_q(startUs, AVRational{ 1, 1000000 }, src);
                 p->stream_index = e.stream;
                 if (p->pts != AV_NOPTS_VALUE) p->pts -= offset;
@@ -1583,6 +1588,14 @@ namespace qc
             error = "The recording source changed before the replay could be saved.";
             DeleteFileW(path.c_str());
             return false;
+        }
+        // Packet identities leave the engine as metadata only. Published MP4
+        // validation and joining run later, without the capture mutex.
+        if (proofPath && *proofPath)
+        {
+            std::string proofError;
+            if (!WritePendingReplayProof(proofPath, shared_->replaySession, shared_->startedUtcUs, proof, proofError))
+                DeleteFileW(proofPath);
         }
         return true;
     }
