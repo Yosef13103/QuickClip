@@ -373,6 +373,9 @@
                             </DataTemplate></ComboBox.ItemTemplate>
                         </ComboBox>
                         <TextBlock x:Name="GameProfileStatus" Style="{StaticResource Hint}" TextWrapping="Wrap" Margin="0,4,0,0" />
+                        <StackPanel x:Name="GameOverridePanel" Visibility="Collapsed" Margin="0,6,0,0">
+                            <Button x:Name="ResetProfileButton" Content="Reset entire game profile…" HorizontalAlignment="Left" Click="ResetGameProfile_Click" />
+                        </StackPanel>
                         <StackPanel x:Name="GameTagsPanel" Visibility="Collapsed" Margin="0,8,0,0">
                             <TextBlock Text="Automatic tags (one per line)" />
                             <TextBox x:Name="GameTagBox" AcceptsReturn="True" MinHeight="55" MaxHeight="110"
@@ -387,7 +390,7 @@
                         <Grid.ColumnDefinitions><ColumnDefinition x:Name="CaptureAreaColumn" Width="*" /><ColumnDefinition x:Name="CaptureAreaGap" Width="12" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
                         <StackPanel x:Name="CaptureAreaAdvanced" Grid.Column="0">
                     <StackPanel Margin="0,0,0,4">
-                            <TextBlock Text="Capture area" TextWrapping="Wrap" Margin="0,0,0,4" />
+                            <StackPanel VerticalAlignment="Center"><TextBlock x:Name="AreaLabel" Text="Capture area" TextWrapping="Wrap" /><Button x:Name="ResetAspectOverride" Content="Reset to All Games" Tag="Aspect" Click="ResetGameField_Click" Style="{StaticResource TextButton}" HorizontalAlignment="Left" Visibility="Collapsed" AutomationProperties.Name="Reset Capture area override" /></StackPanel>
                             <ComboBox x:Name="AreaCombo" MinWidth="0" SelectionChanged="Changed" AutomationProperties.Name="Capture area" />
                         </StackPanel>
                     <Expander Header="Custom aspect ratio" Margin="0,4,0,0">
@@ -404,7 +407,7 @@
                         </StackPanel>
                         <StackPanel Grid.Column="2">
                     <StackPanel Margin="0,0,0,4">
-                            <TextBlock Text="Output resolution" TextWrapping="Wrap" Margin="0,0,0,4" />
+                            <StackPanel VerticalAlignment="Center"><TextBlock x:Name="ResolutionLabel" Text="Output resolution" TextWrapping="Wrap" /><Button x:Name="ResetResolutionOverride" Content="Reset to All Games" Tag="Resolution" Click="ResetGameField_Click" Style="{StaticResource TextButton}" HorizontalAlignment="Left" Visibility="Collapsed" AutomationProperties.Name="Reset Output resolution override" /></StackPanel>
                             <ComboBox x:Name="ResolutionCombo" MinWidth="0" SelectionChanged="Changed" AutomationProperties.Name="Output resolution" />
                         </StackPanel>
                     <Expander x:Name="CustomSizeAdvanced" Header="Custom output size" Margin="0,4,0,0">
@@ -452,7 +455,7 @@
                             <ColumnDefinition Width="*" />
                             <ColumnDefinition Width="150" />
                         </Grid.ColumnDefinitions>
-                        <TextBlock Text="Clip length" VerticalAlignment="Center"  TextWrapping="Wrap" />
+                        <StackPanel VerticalAlignment="Center"><TextBlock x:Name="BufferLabel" Text="Clip length" TextWrapping="Wrap" /><Button x:Name="ResetBufferOverride" Content="Reset to All Games" Tag="Buffer" Click="ResetGameField_Click" Style="{StaticResource TextButton}" HorizontalAlignment="Left" Visibility="Collapsed" AutomationProperties.Name="Reset Clip length override" /></StackPanel>
                         <Slider x:Name="BufferSlider" Grid.Column="1" Minimum="0" Maximum="10" TickFrequency="1" IsSnapToTickEnabled="True"
                                 TickPlacement="BottomRight" VerticalAlignment="Center" ValueChanged="Changed" Focusable="False" />
                         <TextBlock x:Name="BufferText" Grid.Column="2" VerticalAlignment="Center" Margin="14,0,0,0" FontWeight="SemiBold" />
@@ -481,7 +484,7 @@
                             <ColumnDefinition Width="*" />
                             <ColumnDefinition Width="150" />
                         </Grid.ColumnDefinitions>
-                        <TextBlock Text="Quality" VerticalAlignment="Center"  TextWrapping="Wrap" />
+                        <StackPanel VerticalAlignment="Center"><TextBlock x:Name="QualityLabel" Text="Quality" TextWrapping="Wrap" /><Button x:Name="ResetQualityOverride" Content="Reset to All Games" Tag="Quality" Click="ResetGameField_Click" Style="{StaticResource TextButton}" HorizontalAlignment="Left" Visibility="Collapsed" AutomationProperties.Name="Reset Quality override" /></StackPanel>
                         <ComboBox x:Name="QualityCombo" Grid.Column="1" SelectionChanged="Changed" />
                         <TextBlock x:Name="BitrateText" Grid.Column="2" VerticalAlignment="Center" Margin="14,0,0,0" Style="{StaticResource Hint}" />
                     </Grid>
@@ -491,7 +494,7 @@
                             <ColumnDefinition Width="160" />
                             <ColumnDefinition Width="*" />
                         </Grid.ColumnDefinitions>
-                        <TextBlock Text="Frame rate" VerticalAlignment="Center"  TextWrapping="Wrap" />
+                        <StackPanel VerticalAlignment="Center"><TextBlock x:Name="FpsLabel" Text="Frame rate" TextWrapping="Wrap" /><Button x:Name="ResetFpsOverride" Content="Reset to All Games" Tag="Fps" Click="ResetGameField_Click" Style="{StaticResource TextButton}" HorizontalAlignment="Left" Visibility="Collapsed" AutomationProperties.Name="Reset Frame rate override" /></StackPanel>
                         <ComboBox x:Name="FpsCombo" Grid.Column="1" SelectionChanged="Changed" />
                     </Grid>
 
@@ -500,7 +503,7 @@
                             <ColumnDefinition Width="160" />
                             <ColumnDefinition Width="*" />
                         </Grid.ColumnDefinitions>
-                        <TextBlock Text="Encoder" VerticalAlignment="Center"  TextWrapping="Wrap" />
+                        <StackPanel VerticalAlignment="Center"><TextBlock x:Name="EncoderLabel" Text="Encoder" TextWrapping="Wrap" /><Button x:Name="ResetEncoderOverride" Content="Reset to All Games" Tag="Encoder" Click="ResetGameField_Click" Style="{StaticResource TextButton}" HorizontalAlignment="Left" Visibility="Collapsed" AutomationProperties.Name="Reset Encoder override" /></StackPanel>
                         <ComboBox x:Name="EncoderCombo" Grid.Column="1" SelectionChanged="Changed" AutomationProperties.Name="Recording encoder">
                             <ComboBox.ItemContainerStyle>
                                 <Style TargetType="ComboBoxItem">
@@ -517,11 +520,20 @@
                         </ComboBox>
                     </Grid>
 
+                    <StackPanel x:Name="GameBitratePanel" Visibility="Collapsed" Margin="0,10,0,0">
+                        <TextBlock Text="Target video bitrate (kbps; blank = Auto)" TextWrapping="Wrap" />
+                        <DockPanel Margin="0,4,0,0">
+                            <Button DockPanel.Dock="Right" Content="Apply" Margin="8,0,0,0" Click="SaveGameBitrate_Click" />
+                            <TextBox x:Name="GameBitrateBox" MaxLength="6" AutomationProperties.Name="Game target video bitrate" />
+                        </DockPanel>
+                        <TextBlock x:Name="GameBitrateHint" Style="{StaticResource Hint}" TextWrapping="Wrap" />
+                        <Button x:Name="ResetBitrateOverride" Content="Reset bitrate to All Games" Tag="Bitrate" Click="ResetGameField_Click" Style="{StaticResource TextButton}" HorizontalAlignment="Left" Visibility="Collapsed" />
+                    </StackPanel>
                     <CheckBox Style="{StaticResource SwitchCheckBox}" x:Name="CursorCheck" Content="Show the mouse pointer" Margin="160,12,0,0" Checked="Changed" Unchecked="Changed" />
                     <TextBlock x:Name="RecorderStatus" Margin="0,12,0,0" Style="{StaticResource Hint}" />
                     <TextBlock x:Name="BasicQualityHint" Style="{StaticResource Hint}" TextWrapping="Wrap" Visibility="Collapsed" />
                     <StackPanel x:Name="EncoderTuningAdvanced">
-                    <TextBlock Text="NVENC performance preset" Margin="0,12,0,4" />
+                    <StackPanel VerticalAlignment="Center"><TextBlock x:Name="NvencLabel" Text="NVENC performance preset" TextWrapping="Wrap" /><Button x:Name="ResetNvencOverride" Content="Reset to All Games" Tag="Nvenc" Click="ResetGameField_Click" Style="{StaticResource TextButton}" HorizontalAlignment="Left" Visibility="Collapsed" AutomationProperties.Name="Reset NVENC performance preset override" /></StackPanel>
                     <ComboBox x:Name="NvencPresetCombo" SelectionChanged="Changed" AutomationProperties.Name="NVENC performance preset" />
                     <TextBlock Style="{StaticResource Hint}" TextWrapping="Wrap"
                                Text="P2 reduces encoder work. P3 and P4 can improve compression efficiency at the same bitrate. Game FPS and visual quality depend on the workload." />
