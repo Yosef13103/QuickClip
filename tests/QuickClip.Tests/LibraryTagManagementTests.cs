@@ -139,6 +139,27 @@ public sealed class LibraryTagManagementTests
     }
 
     [Fact]
+    public async Task Tag_colors_are_shared_presentation_and_can_be_reset_without_revision_changes()
+    {
+        using var f = new Fixture();
+        await f.InitializeAsync();
+        await f.SeedAsync(f.First, ["Funny", "Other"]);
+        await f.SeedAsync(f.Second, ["FUNNY"]);
+        var a = await f.TargetAsync(f.First);
+        var b = await f.TargetAsync(f.Second);
+        Assert.Equal(1, await f.Index.SetTagColorAsync("funny", "#60A5FA"));
+        var key = LibraryFiles.TextKey("Funny");
+        Assert.Equal("#60A5FA", (await f.TargetAsync(f.First)).Details.TagColors[key]);
+        Assert.Equal("#60A5FA", (await f.TargetAsync(f.Second)).Details.TagColors[key]);
+        Assert.Equal(a.Details.IndexRevision, (await f.TargetAsync(f.First)).Details.IndexRevision);
+        Assert.Equal(b.Details.IndexRevision, (await f.TargetAsync(f.Second)).Details.IndexRevision);
+        Assert.Equal(0, await f.Index.SetTagColorAsync("funny", "#60A5FA"));
+        Assert.Throws<ArgumentException>(() => f.Index.SetTagColorAsync("funny", "invalid"));
+        Assert.Equal(1, await f.Index.SetTagColorAsync("FUNNY", null));
+        Assert.Empty((await f.TargetAsync(f.First)).Details.TagColors);
+    }
+
+    [Fact]
     public async Task Hide_unhide_is_persisted_atomic_and_independent_of_other_annotations()
     {
         using var f = new Fixture();
