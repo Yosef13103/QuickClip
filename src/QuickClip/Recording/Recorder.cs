@@ -728,6 +728,7 @@ internal sealed class Recorder
             {
                 ClipDetailsStore.TryWrite(path, new ClipDetails(capture, folder)
                 {
+                    Tags = GameDefaultTags.ForSavedReplay(gameId, desktopSource != null),
                     Bookmarks = receipt.Markers.Select(mark => new ClipBookmark(mark.Offset.TotalSeconds, mark.Marker.Label ?? "Marker")
                     { SessionId = mark.Marker.SessionId }).ToArray(),
                 });
