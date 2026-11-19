@@ -159,7 +159,7 @@ public partial class SettingsView
         RadioButton section = GuideStep switch
         {
             1 => LibrarySection, 2 => HotkeysSection, 3 => AudioSection,
-            5 => GamesSection, 7 => GeneralSection, _ => RecordingSection,
+            5 => GamesSection, 7 => NotificationsSection, _ => RecordingSection,
         };
         section.IsChecked = true;
         ApplySettingsSection(section);
