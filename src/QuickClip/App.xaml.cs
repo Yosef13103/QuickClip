@@ -157,6 +157,7 @@ public partial class App : Application
             ShowMain();
             _main?.ShowSettings();
         };
+        Host.OfferUpdate = TryOfferPersonalUpdate;
         Host.RecordingSettingsRequested += () =>
         {
             ShowMain();
