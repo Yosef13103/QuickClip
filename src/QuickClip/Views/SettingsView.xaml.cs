@@ -102,6 +102,7 @@ public partial class SettingsView : UserControl
         SharingCard.Visibility = SectionVisibility(SharingSection);
         LibraryCard.Visibility = SectionVisibility(LibrarySection);
         GeneralCard.Visibility = SectionVisibility(GeneralSection);
+        NotificationsCard.Visibility = SectionVisibility(NotificationsSection);
         UpdatesCard.Visibility = Updater.IsEnabled ? SectionVisibility(GeneralSection) : Visibility.Collapsed;
         DiagnosticsCard.Visibility = SectionVisibility(DiagnosticsSection);
         if (AppProfile.IsPersonal) ApplyExperienceContent();
