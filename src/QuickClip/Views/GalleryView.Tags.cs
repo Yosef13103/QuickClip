@@ -97,7 +97,7 @@ public partial class GalleryView
             foreach (var target in targets)
             {
                 var details = await PersonalLibrary.Current.ReadAsync(target.Path, _lifetime.Token);
-                if (details?.IndexId == target.Details.IndexId &&
+                if (details is not null && details.IndexId == target.Details.IndexId &&
                     _clips.Any(clip => SavedRecordingFolders.Paths.Equals(clip.Path, target.Path) &&
                         clip.Details.IndexId == details.IndexId))
                     refresh.Add(new(target.Path, details, null));
