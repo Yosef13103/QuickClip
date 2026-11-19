@@ -41,8 +41,16 @@ public partial class SettingsView
                 items.Add(new Choice($"Custom ({w} × {h})", value));
             }
         }
-        if (EditingGame != null && value > 0 && items.All(choice => !Equals(choice.Value, value)))
-            items.Add(new Choice($"{value}-pixel short side (Native on this display)", value));
+        if (EditingGame != null)
+        {
+            // Profile settings follow a game across displays; the current preview
+            // should not prevent configuring a limit for a larger display.
+            foreach (int preset in RecordingPresets.Resolutions.Where(limit => limit > 0))
+                if (items.All(choice => !Equals(choice.Value, preset)))
+                    items.Add(new Choice($"{preset}p limit (Native on smaller displays)", preset));
+            if (value > 0 && items.All(choice => !Equals(choice.Value, value)))
+                items.Add(new Choice($"{value}-pixel short-side limit", value));
+        }
         bool wasLoading = _loading;
         _loading = true;
         ResolutionCombo.ItemsSource = items;
