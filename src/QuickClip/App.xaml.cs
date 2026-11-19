@@ -322,6 +322,7 @@ public partial class App : Application
         }
         using var quit = Log.Begin(DiagnosticCategory.General, "Application quit");
         ClipSharing.IgnorePendingClipboardCopies();
+        if (AppProfile.IsPersonal) await ReplayAutomaticCoordinator.Current.StopAsync();
         await Media.MediaJobs.Current.StopAsync();
         await Recorder.Instance.StopAsync();
         Host?.Dispose();

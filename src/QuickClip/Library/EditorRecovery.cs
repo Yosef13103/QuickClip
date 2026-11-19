@@ -38,6 +38,10 @@ internal sealed record EditorRecovery(FileStamp Source, DetailRecovery? Details,
         finally { File.Delete(staged); }
     }
 
+    // An unreadable or malformed unsaved recovery is still a reason not to consume media.
+    internal static bool Exists(FileStamp source) => source.Identity != null &&
+        LibraryFiles.InspectPath(RecoveryPath(source), false) != ClipAvailability.Missing;
+
     internal static EditorRecovery? Read(FileStamp source)
     {
         if (source.Identity == null) return null;

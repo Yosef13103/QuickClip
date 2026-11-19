@@ -275,11 +275,15 @@ internal static partial class CaptureEngine
         SaveReplay(path, seconds, title, position, bounded, anchors, out span, out _);
 
     internal static string? SaveReplay(string path, int seconds, string title, ReplayPosition position, bool bounded,
-        ReplayAnchor[] anchors, out ReplaySpan span, out ReplayVideo video)
+        ReplayAnchor[] anchors, out ReplaySpan span, out ReplayVideo video, string? proofPath = null)
     {
         var error = new char[1024];
-        return qc_save_replay_with_video(path, seconds, title, position.Session, bounded ? position.EventUs : -1, out span,
-            anchors, anchors.Length, out video, error, error.Length) != 0 ? null : new string(error).TrimEnd('\0');
+        int result = proofPath == null
+            ? qc_save_replay_with_video(path, seconds, title, position.Session, bounded ? position.EventUs : -1,
+                out span, anchors, anchors.Length, out video, error, error.Length)
+            : qc_save_replay_with_proof(path, seconds, title, position.Session, bounded ? position.EventUs : -1,
+                out span, anchors, anchors.Length, out video, error, error.Length, proofPath);
+        return result != 0 ? null : new string(error).TrimEnd('\0');
     }
 
     public static Stats GetStats()
@@ -332,6 +336,9 @@ internal static partial class CaptureEngine
     [DllImport(Dll, CharSet = CharSet.Unicode)] private static extern int qc_save(string path, int seconds, string title, [Out] char[] error, int errorLength);
     [DllImport(Dll)] private static extern int qc_get_stats(out Stats stats);
     [DllImport(Dll)] private static extern int qc_get_replay_position(out ReplayPosition position);
+    [DllImport(Dll, CharSet = CharSet.Unicode)] private static extern int qc_save_replay_with_proof(string path, int seconds, string title,
+        long session, long requestUs, out ReplaySpan span, [In, Out] ReplayAnchor[] anchors, int count, out ReplayVideo video,
+        [Out] char[] error, int errorLength, string proofPath);
     [DllImport(Dll, CharSet = CharSet.Unicode)] private static extern int qc_save_replay_with_video(string path, int seconds, string title,
         long session, long requestUs, out ReplaySpan span, [In, Out] ReplayAnchor[] anchors, int count, out ReplayVideo video,
         [Out] char[] error, int errorLength);

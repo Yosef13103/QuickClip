@@ -55,6 +55,7 @@ public partial class EditorView : UserControl
     private MpvPlayer? _player;
     private PreviewAudio? _previewAudio;
     private MediaInfo? _media;
+    private IDisposable? _replayEditorPin;
     private HashSet<string> _encoders = ["libx264", "libx265", "libsvtav1", "libvpx-vp9", "libopus", "libmp3lame"];
     private CancellationTokenSource? _waveCts;
     private CancellationTokenSource? _exportCts;
@@ -229,6 +230,8 @@ public partial class EditorView : UserControl
             ClearNativePreview();
             MetadataEditor.Clear();
             _media = null;
+            _replayEditorPin?.Dispose();
+            _replayEditorPin = null;
             _sourceStamp = null;
             SetSourceState(EditorSourceState.Ready);
             _openedDraft = null;
@@ -597,6 +600,8 @@ public partial class EditorView : UserControl
             player.PreviewReadyOrFailed -= OnMpvPreviewReadyOrFailed;
             await Task.Run(player.Dispose);
         }
+        _replayEditorPin?.Dispose();
+        _replayEditorPin = null;
         foreach (var file in _stalePreviews.Concat(_tracks.Select(t => t.PreviewFile).OfType<string>())) TryDelete(file);
         return true;
     }
@@ -702,6 +707,7 @@ public partial class EditorView : UserControl
             return;
         }
         _loading = true;
+        IDisposable? openingPin = null;
         bool enabled = IsEnabled;
         IsEnabled = false;
         try
@@ -739,6 +745,9 @@ public partial class EditorView : UserControl
                 var source = checkedSource.state;
                 stamp = checkedSource.opened;
                 if (source != EditorSourceState.Ready) throw new IOException(EditorSource.Message(source));
+                if (AppProfile.IsPersonal)
+                    openingPin = MediaOwnership.Current.TryPinEditor(new MediaSource(path, stamp)) ??
+                        throw new IOException("This clip is reserved by replay consolidation.");
                 Mouse.OverrideCursor = Cursors.AppStarting;
                 info = await MediaInfo.ProbeAsync(path, token);
                 token.ThrowIfCancellationRequested();
@@ -803,6 +812,9 @@ public partial class EditorView : UserControl
             StopSourcePreview(keepLoading: true);
             bool differentClip = !string.Equals(_media?.Path, path, StringComparison.OrdinalIgnoreCase);
             _media = info;
+            _replayEditorPin?.Dispose();
+            _replayEditorPin = openingPin;
+            openingPin = null;
             _sourceStamp = stamp;
             _sourceState = EditorSourceState.Ready;
             _sourceSuspended = false;
@@ -889,6 +901,7 @@ public partial class EditorView : UserControl
         }
         finally
         {
+            openingPin?.Dispose();
             _loading = false;
             IsEnabled = enabled;
             UpdateClipNavigation();
