@@ -65,6 +65,32 @@ public sealed class RecordingVideoOptionsTests
     }
 
     [Fact]
+    public void Exact_encoder_custom_size_and_bitrate_survive_profile_roundtrip()
+    {
+        var directory = Directory.CreateTempSubdirectory("quickclip-recording-video-options-");
+        try
+        {
+            var store = new GameProfileStore(directory.FullName);
+            var policy = new GameRecordingPolicy { Aspect = "32:9", ResolutionShortSide = 1000,
+                EncoderId = "hevc_nvenc", Bitrate = new(GameRateControl.CustomBitrate, 10000) };
+            var doc = new GameProfileDocument { Profiles = new GameProfileDocument().Profiles.Add("steam:1", policy) };
+            store.Save(doc);
+            var read = store.Load();
+            Assert.Equal(GameProfileLoadStatus.Loaded, read.Status);
+            Assert.Equal(policy, read.Document.Profiles["steam:1"]);
+            var row = RecordingProfileSelection.Build([new CatalogEntry("steam:1", "Game", CatalogSource.Steam, [], [], new())], read.Document)[1];
+            var reset = RecordingProfileSelection.Change(read.Document, row, policy with { ResolutionShortSide = null });
+            store.Save(reset);
+            var resolved = RecordingVideoOptions.Resolve(Defaults(), store.Load().Document.Profiles["steam:1"]);
+            Assert.Equal(1440, resolved.Resolution);
+            Assert.Equal("32:9", resolved.Aspect);
+            Assert.Equal("hevc_nvenc", resolved.EncoderId);
+            Assert.Equal(10000, resolved.TargetKbps);
+        }
+        finally { directory.Delete(recursive: true); }
+    }
+
+    [Fact]
     public void Stable_aliases_resolve_without_applying_one_games_settings_to_another()
     {
         var a = new CatalogEntry("steam:220", "Half-Life", CatalogSource.Steam, [], [], new()) { AliasIds = ["steam:380"] };
