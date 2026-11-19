@@ -19,6 +19,22 @@ public sealed class GalleryMultiTagFilterTests
     }
 
     [Fact]
+    public void Retired_hidden_flag_never_hides_existing_media_from_gallery()
+    {
+        string path = Path.GetTempFileName();
+        try
+        {
+            var details = Details("Funny") with { IsHidden = true };
+            var clip = new ClipItem(new FileInfo(path), details, new ClipHeader(10, null));
+            var filter = new GalleryClipFilter("", "", false, false);
+            Assert.Same(clip, Assert.Single(filter.Apply([clip], ClipLibrary.AllClips)));
+            Assert.Same(clip, Assert.Single((filter with { ExactTags = ["Funny"] }).Apply([clip], "Game")));
+            Assert.True(File.Exists(path));
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
     public void Any_matches_either_tag_and_empty_selection_is_unrestricted()
     {
         var filter = new GalleryClipFilter("", "", false, false)
