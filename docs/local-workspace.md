@@ -29,6 +29,6 @@ The local native cache key covers native source/header contents, build and depen
 
 ## Integration and evidence
 
-Feature/fix branches target integration/development for normal integration. Only a separately approved, exact tested integration candidate targets custom/main for publication. Do not push, merge, bump versions or publish without the applicable approval. Never write to main/upstream. Windows quality CI must verify both profiles on integration PRs; actual production release workflow remains separate.
+Feature/fix branches target integration/development for normal integration. Only a separately approved, exact tested integration candidate targets custom/main for publication. Do not push, merge, bump versions or publish without the applicable approval. Never write to main/upstream. Windows quality CI must verify Personal on integration PRs; Upstream acceptance is retired; actual production release workflow remains separate.
 
 Local execution can be performed directly by ChatGPT/Desktop Commander or Codex, depending on scope. One owner per worktree; no parallel writers, no quota bypass or unapproved automatic resumption. Preserve old sessions rather than editing their internal logs/databases; resume using verified new checkout path or a fresh handoff. The workspace migration path map and private evidence live in 7. Evidence; old branch-local checkpoints may still exist. Research remains gated and independent. Record exact SHAs and commands, distinguish focused tests from full/integration/physical acceptance.

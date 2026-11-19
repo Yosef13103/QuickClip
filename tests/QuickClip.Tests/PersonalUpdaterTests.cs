@@ -63,6 +63,48 @@ public sealed class PersonalUpdaterTests : IDisposable
         Assert.Null(PersonalInstaller.ShutdownBlock(false, false, false));
     }
 
+    [Theory]
+    [InlineData(false, true, true, "disabled")]
+    [InlineData(true, false, true, "registered")]
+    [InlineData(true, true, false, "inventory")]
+    [InlineData(true, true, true, null)]
+    public void Automatic_install_block_explains_ineligible_layout(bool enabled, bool registered, bool inventory, string? expected)
+    {
+        string? reason = PersonalInstaller.GetAutomaticInstallBlock(enabled, registered, inventory);
+        if (expected == null) Assert.Null(reason);
+        else Assert.Contains(expected, reason!);
+    }
+
+    [Theory]
+    [InlineData(false, null, false, "Portable")]
+    [InlineData(true, "inventory missing", false, "inventory missing")]
+    [InlineData(true, null, false, "protocol")]
+    [InlineData(true, null, true, null)]
+    public void Manual_fallback_preserves_package_type_and_reason(bool setup, string? block, bool handoff, string? expected)
+    {
+        string? reason = PersonalInstaller.ManualFallbackReason(setup, block, handoff);
+        if (expected == null) Assert.Null(reason);
+        else Assert.Contains(expected, reason!);
+    }
+
+    [Theory]
+    [InlineData(@"C:\Users\Test User\AppData\Local\QuickClip Personal\updates\abc\QuickClip-Personal-1.2.1-setup.exe")]
+    [InlineData(@"E:\Alternate Drive\staged package.zip")]
+    public void Explorer_select_switch_quotes_only_the_path(string path)
+    {
+        var start = PersonalInstaller.CreatePackageRevealStartInfo(path);
+        Assert.Equal($"/select,\"{path}\"", start.Arguments);
+        Assert.Empty(start.ArgumentList);
+        Assert.True(start.UseShellExecute);
+        Assert.Equal("explorer.exe", Path.GetFileName(start.FileName), ignoreCase: true);
+    }
+
+    [Theory]
+    [InlineData("relative.exe")]
+    [InlineData("C:\\invalid\"name.exe")]
+    public void Explorer_reveal_rejects_invalid_package_paths(string path) =>
+        Assert.Throws<ArgumentException>(() => PersonalInstaller.CreatePackageRevealStartInfo(path));
+
     [Fact]
     public void Isolated_or_upstream_profile_cannot_apply_a_personal_update()
     {
@@ -201,6 +243,52 @@ public sealed class PersonalUpdaterTests : IDisposable
             if ([IO.File]::ReadAllText($data) -ne 'old runtime') { throw 'Retry did not restore the runtime' }
             """;
         await RunWorkerFixtureAsync(fixture);
+    }
+
+    [Fact]
+    public async Task Partial_install_with_unknown_new_files_retains_recovery_marker()
+    {
+        if (!AppProfile.IsPersonal) return;
+        await RunWorkerFixtureAsync("""
+            $root = Join-Path $Scratch 'partial installation'
+            $backup = Join-Path $Scratch 'backup'
+            $pending = Join-Path $Scratch 'pending'
+            $null = [IO.Directory]::CreateDirectory($root)
+            $exe = Join-Path $root 'QuickClip.exe'
+            [IO.File]::Copy($Application, $exe)
+            [IO.File]::WriteAllText((Join-Path $root 'unins000.exe'), 'fixture uninstaller')
+            $old = Join-Path $root 'old.dll'
+            $extra = Join-Path $root 'new.dll'
+            [IO.File]::WriteAllText($old, 'old content')
+            [IO.File]::WriteAllLines((Join-Path $root 'quickclip-install-files.txt'), @('QuickClip.exe', 'old.dll'))
+            $script:registrationRestored = $false
+            try {
+                Invoke-InstallTransaction $root $backup $pending 'test' $Version '99.0.0' {
+                    [IO.File]::WriteAllText($old, 'overwritten')
+                    [IO.File]::WriteAllText($extra, 'unknown new content')
+                    throw 'Synthetic partial installation failure'
+                } { $script:registrationRestored = $true }
+                throw 'The transaction reported success'
+            } catch {
+                if ($_.Exception.Message -notlike 'Synthetic partial installation failure*Recovery was incomplete*') { throw }
+            }
+            if (!$script:registrationRestored -or ![IO.File]::Exists($pending) -or
+                [IO.File]::ReadAllText($old) -ne 'old content' -or
+                [IO.File]::ReadAllText($extra) -ne 'unknown new content') {
+                throw 'Rollback did not preserve recovery state and unknown files'
+            }
+            try {
+                Complete-Restoration $root $pending
+                throw 'Recovery completed despite unknown files'
+            } catch {
+                if ($_.Exception.Message -notlike '*outside the installer inventory*') { throw }
+            }
+            if (![IO.File]::Exists($pending)) { throw 'Recovery marker was cleared too early' }
+            # Only the fixture owns this known generated file. A real worker must not remove unknown files.
+            [IO.File]::Delete($extra)
+            Complete-Restoration $root $pending
+            if ([IO.File]::Exists($pending)) { throw 'Verified recovery did not clear its marker' }
+            """);
     }
 
     [Theory]

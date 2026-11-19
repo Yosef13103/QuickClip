@@ -232,7 +232,7 @@ public sealed class ThemeTests
         restored.SavedCustomThemes = SavedThemes.Put(restored.SavedCustomThemes,
             new ThemeDocument("purple", ThemePalette.Get(ThemeChoice.Slate)));
         Assert.Equal(3, restored.SavedCustomThemes.Length);
-        Assert.Single(restored.SavedCustomThemes.Where(json => ThemeResources.ReadSaved(json)?.Name == "purple"));
+        Assert.Single(restored.SavedCustomThemes, json => ThemeResources.ReadSaved(json)?.Name == "purple");
         Assert.Equal(3, SavedThemes.Normalize(restored.SavedCustomThemes.Append("invalid"), restored.CustomThemeJson).Length);
     }
     [Fact]

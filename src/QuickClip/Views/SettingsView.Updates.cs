@@ -11,15 +11,22 @@ public partial class SettingsView
         using var timeout = new CancellationTokenSource(TimeSpan.FromMinutes(10));
         string package = await Updater.DownloadPersonalAsync(release, progress, timeout.Token);
         Log.Event(DiagnosticCategory.Updater, "Personal package downloaded and verified");
-        if (!PersonalInstaller.CanApply || !PersonalInstaller.SupportsHandoff(package, release.Version))
+        bool setup = Path.GetExtension(package).Equals(".exe", StringComparison.OrdinalIgnoreCase);
+        string? installBlock = PersonalInstaller.AutomaticInstallBlock;
+        string? manualReason = PersonalInstaller.ManualFallbackReason(setup, installBlock,
+            setup && installBlock == null && PersonalInstaller.SupportsHandoff(package, release.Version));
+        if (manualReason != null)
         {
-            var explorer = new ProcessStartInfo(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Windows), "explorer.exe"))
-                { UseShellExecute = true };
-            explorer.ArgumentList.Add("/select," + package);
-            Process.Start(explorer)?.Dispose();
-            return Updater.IsPersonalInstalledCopy
+            string instructions = setup
                 ? "Verified installer ready. Quit QuickClip before running setup."
                 : "Verified portable ZIP ready. Quit QuickClip and extract it to a new folder.";
+            try { Process.Start(PersonalInstaller.CreatePackageRevealStartInfo(package))?.Dispose(); }
+            catch (Exception ex) when (ex is System.ComponentModel.Win32Exception or InvalidOperationException)
+            {
+                Log.Essential(DiagnosticCategory.Updater, "Could not reveal verified update package", ex);
+                instructions += " Explorer could not open the package; use the path below.";
+            }
+            return $"{manualReason}\n{instructions}\n{package}";
         }
 
         var app = (App)Application.Current;

@@ -30,8 +30,36 @@ internal static class PersonalInstaller
         editorExport || montageExport ? "Finish the active export before installing the update." :
         savingClip ? "Finish saving the current clip before installing the update." : null;
 
-    internal static bool CanApply => Updater.IsEnabled && Updater.IsPersonalInstalledCopy &&
-        File.Exists(Path.Combine(AppContext.BaseDirectory, Inventory));
+    internal static string? AutomaticInstallBlock
+    {
+        get
+        {
+            bool enabled = Updater.IsEnabled;
+            bool registered = enabled && Updater.IsPersonalInstalledCopy;
+            return GetAutomaticInstallBlock(enabled, registered,
+                registered && File.Exists(Path.Combine(AppContext.BaseDirectory, Inventory)));
+        }
+    }
+
+    internal static bool CanApply => AutomaticInstallBlock == null;
+
+    internal static string? GetAutomaticInstallBlock(bool enabled, bool registered, bool hasInventory) =>
+        !enabled ? "Automatic updates are disabled in this profile." :
+        !registered ? "This executable is not the registered Personal installation." :
+        !hasInventory ? "The installation's owned-file inventory is missing." : null;
+
+    internal static string? ManualFallbackReason(bool setup, string? installBlock, bool supportsHandoff) =>
+        !setup ? "Portable copies require a manual update." :
+        installBlock ?? (supportsHandoff ? null : "This setup does not support the expected automatic update protocol or version.");
+
+    internal static ProcessStartInfo CreatePackageRevealStartInfo(string package)
+    {
+        if (!Path.IsPathFullyQualified(package) || package.Contains('"'))
+            throw new ArgumentException("Expected an absolute package path.", nameof(package));
+        // Explorer parses its own /select, syntax, not a conventional argv array.
+        return new ProcessStartInfo(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Windows), "explorer.exe"),
+            $"/select,\"{package}\"") { UseShellExecute = true };
+    }
 
     internal static bool CanStartInstalledApp()
     {

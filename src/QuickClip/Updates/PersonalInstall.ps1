@@ -124,6 +124,14 @@ function Restore-Installation([string]$Root, [string]$Backup, [string]$Version) 
     Assert-Version (Join-Path $Root 'QuickClip.exe') $Version 'QuickClip Personal'
 }
 
+# Restoring the previous binaries is not sufficient if a failed setup left
+# files outside the previous inventory. Preserve unknown files and the recovery
+# marker instead of reporting a complete rollback or launching mixed binaries.
+function Complete-Restoration([string]$Root, [string]$Pending) {
+    $null = Read-OwnedFiles $Root
+    [IO.File]::Delete($Pending)
+}
+
 function Remove-EmptyParents([string]$Root, [string[]]$Files) {
     $dirs = [Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
     foreach ($name in $Files) {
@@ -167,7 +175,7 @@ function Invoke-InstallTransaction([string]$Root, [string]$Backup, [string]$Pend
         try {
             Restore-Installation $Root $Backup $Previous
             & $RestoreRegistration
-            [IO.File]::Delete($Pending)
+            Complete-Restoration $Root $Pending
         } catch {
             throw "$errorMessage Recovery was incomplete. Keep the staging folder and run the recovery script after Setup exits. $($_.Exception.Message)"
         }
@@ -252,7 +260,7 @@ function Invoke-PersonalInstall {
             }
             Restore-Installation $root $backup $plan.CurrentVersion
             Restore-UninstallRegistration $registration
-            [IO.File]::Delete($pending)
+            Complete-Restoration $root $pending
             $restart = $true
             return
         }

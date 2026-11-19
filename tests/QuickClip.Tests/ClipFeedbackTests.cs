@@ -402,11 +402,11 @@ public sealed class ClipFeedbackTests
     }
 
     [Theory]
-    [InlineData(false, false, false)]
-    [InlineData(false, true, false)]
-    [InlineData(true, false, false)]
-    [InlineData(true, true, true)]
-    public void Non_save_events_never_use_images_or_detailed_banners(bool banners, bool image, bool unused)
+    [InlineData(false, false)]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    [InlineData(true, true)]
+    public void Non_save_events_never_use_images_or_detailed_banners(bool banners, bool image)
     {
         var configured = new ClipOverlayOptions { Enabled = banners, Style = OverlayStyle.Detailed,
             ImageOnly = image, ImagePath = "test.gif", ImageAppearance = new() { Seconds = 6 } };
