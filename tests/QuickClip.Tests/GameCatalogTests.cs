@@ -9,6 +9,24 @@ public sealed class GameCatalogTests : IDisposable
     private readonly DirectoryInfo _fixture = Directory.CreateTempSubdirectory("quickclip-catalog-");
 
     [Fact]
+    public async Task Steamworks_prerequisites_are_not_catalog_games_or_eligible_paths()
+    {
+        string path = FileAt("Steam", "steamapps", "common", "Steamworks Shared", "Runtime.exe");
+        File.WriteAllText(At("Steam", "steamapps", "appmanifest_228980.acf"), Manifest("228980", "Steamworks Shared"));
+        var scan = await GameCatalogService.ScanAsync(new()
+        {
+            SteamLibraryRoots = [At("Steam")],
+            GameRoots = [new(At("Steam", "steamapps", "common"), true)],
+        });
+        Assert.DoesNotContain(scan.Entries, entry => entry.Id == "steam:228980" || entry.Executables.Contains(path));
+        Assert.Equal(CatalogMatchKind.Ignored, new GameCatalogIndex(scan).Match(path, true).Kind);
+        var stale = new CatalogEntry("steam:228980", "Prerequisites", CatalogSource.Steam,
+            [At("Steam", "steamapps", "common", "Steamworks Shared")], [path], new());
+        Assert.True(CatalogPaths.IsRedistributable(stale));
+        Assert.Equal(CatalogMatchKind.Ignored, new GameCatalogIndex(scan with { Entries = [stale] }).Match(path, true).Kind);
+    }
+
+    [Fact]
     public async Task Scoped_install_activates_corroborated_variants_and_keeps_other_executables_ineligible()
     {
         string first = FileAt("Library", "StarfieldFixture", "StarfieldFixture.exe");

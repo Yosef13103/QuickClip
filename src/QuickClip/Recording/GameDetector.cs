@@ -178,6 +178,7 @@ internal sealed partial class GameDetector
 
     internal static CatalogMatch ApplyProcessRole(string path, CatalogMatch match)
     {
+        if (CatalogPaths.IsRedistributablePath(path)) return new(CatalogMatchKind.Ignored, match.Entry);
         if (match.Kind is CatalogMatchKind.Unknown or CatalogMatchKind.Game or CatalogMatchKind.Candidate)
         {
             string executable = Path.GetFileNameWithoutExtension(path);

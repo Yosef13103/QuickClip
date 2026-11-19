@@ -168,7 +168,7 @@ internal static class CatalogClaims
         var scopes = CatalogScope.Enabled(settings).ToDictionary(scope => scope.Key, StringComparer.Ordinal);
         var exclusions = CatalogScope.Exclusions(settings.Request).ToArray();
         IEnumerable<string> AllowedPaths(IEnumerable<string> paths) => paths.Select(CatalogPaths.LocalPath)
-            .OfType<string>().Where(path => !exclusions.Any(root => CatalogPaths.IsWithin(path, root)));
+            .OfType<string>().Where(path => !CatalogPaths.IsRedistributablePath(path) && !exclusions.Any(root => CatalogPaths.IsWithin(path, root)));
         var contributions = new List<Contribution>();
         foreach (var claim in settings.SourceClaims!.Value.Concat(settings.ScanPreview is { } preview ? [preview] : []))
         {
@@ -180,7 +180,7 @@ internal static class CatalogClaims
             foreach (var (entry, isVerified) in claim.Result.Entries.Select(entry => (entry, verified))
                 .Concat(live.Select(entry => (entry, true))))
             {
-                if (entry.Source != scope.Kind) continue;
+                if (entry.Source != scope.Kind || CatalogPaths.IsRedistributable(entry)) continue;
                 var installs = AllowedPaths(entry.InstallDirectories).Where(path =>
                     scope.Root == null || CatalogPaths.IsWithin(path, scope.Root)).ToImmutableArray();
                 if (installs.IsEmpty) continue;
@@ -194,7 +194,7 @@ internal static class CatalogClaims
                 }, isVerified));
             }
         }
-        foreach (var entry in settings.LegacyEntries.Where(entry => entry.Source != CatalogSource.Manual))
+        foreach (var entry in settings.LegacyEntries.Where(entry => entry.Source != CatalogSource.Manual && !CatalogPaths.IsRedistributable(entry)))
         {
             var installs = AllowedPaths(entry.InstallDirectories).Where(path => scopes.Values.Any(scope =>
                 scope.Kind == entry.Source && (scope.Root == null || CatalogPaths.IsWithin(path, scope.Root)))).ToImmutableArray();
@@ -240,6 +240,15 @@ internal static class CatalogClaims
             if (item.Entry.InstallDirectories is not [var path]) return item.Entry.Id;
             // Two different provider titles claiming the same directory are still ambiguous.
             var ids = providers[path].Select(item => sharedIds.GetValueOrDefault(item.Entry.Id, item.Entry.Id)).Distinct(StringComparer.Ordinal).ToArray();
+            if (ids.Length == 0 && item.Verified)
+            {
+                ids = contributions.Where(provider => provider.Verified && provider.Entry.Id == "epic:fortnite" &&
+                    provider.Entry.InstallDirectories.Any(root => CatalogPaths.IsWithin(path, root)) &&
+                    item.Entry.RendererExecutables is { } folderRenderers &&
+                    provider.Entry.RendererExecutables is { } providerRenderers &&
+                    folderRenderers.Intersect(providerRenderers, Paths).Any())
+                    .Select(provider => provider.Entry.Id).Distinct(StringComparer.Ordinal).ToArray();
+            }
             if (ids.Length == 0) ids = aliases[path].Distinct(StringComparer.Ordinal).ToArray();
             return ids is [var id] ? id : item.Entry.Id;
         }
@@ -260,9 +269,13 @@ internal static class CatalogClaims
     {
         var denies = settings.Request.Overrides.Reverse().DistinctBy(rule => rule.Id)
             .Where(rule => rule.Rules.Inclusion == CatalogInclusion.Exclude).ToArray();
-        if (denies.Length == 0) return settings.BlockedExecutables;
+        var staleRedistributables = (settings.SourceClaims ?? []).SelectMany(claim => claim.Result.Entries)
+            .Concat(settings.LegacyEntries).Concat(settings.Snapshot?.Entries ?? [])
+            .Where(CatalogPaths.IsRedistributable).SelectMany(entry => entry.Executables);
+        var blocked = settings.BlockedExecutables.Concat(staleRedistributables);
+        if (denies.Length == 0) return blocked;
         var paths = CachedExecutables(settings);
-        return settings.BlockedExecutables.Concat(denies.SelectMany(rule => rule.DeniedExecutables.Concat(paths[rule.Id])));
+        return blocked.Concat(denies.SelectMany(rule => rule.DeniedExecutables.Concat(paths[rule.Id])));
     }
 
     // A collection may previously have been registered (and disabled) as one game.

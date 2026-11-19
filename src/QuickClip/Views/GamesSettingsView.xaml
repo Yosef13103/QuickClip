@@ -321,7 +321,7 @@
                                             Visibility="{Binding ShowAdvanced, Converter={StaticResource ShowManualActions}}">
                                         <TextBlock Text="Game files" FontWeight="SemiBold" />
                                         <TextBlock Text="Game files can start recording. Launcher and blocked files cannot." Style="{StaticResource Hint}" Margin="0,6,0,4" />
-                                        <ComboBox x:Name="ExecutableList" ItemsSource="{Binding Executables}" SelectedValuePath="Path"
+                                        <ComboBox x:Name="ExecutableList" ItemsSource="{Binding Executables}" SelectedValuePath="Path" SelectedValue="{Binding SelectedExecutable, Mode=TwoWay}"
                                                   AutomationProperties.Name="Game files" Background="{DynamicResource SurfaceBrush}" Foreground="{DynamicResource PrimaryTextBrush}" BorderBrush="{DynamicResource BorderBrush}">
                                             <ComboBox.ItemTemplate>
                                                 <DataTemplate>

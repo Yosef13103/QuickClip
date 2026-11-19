@@ -124,9 +124,11 @@ public partial class GamesSettingsView : UserControl
     {
         if (_basic == basic) return;
         _basic = basic;
-        LibrarySources.Visibility = ScanDetails.Visibility = basic ? Visibility.Collapsed : Visibility.Visible;
+        ScanDetails.Visibility = basic ? Visibility.Collapsed : Visibility.Visible;
+        LibrarySources.Visibility = Visibility.Visible;
+        IgnoredExecutables.Visibility = basic ? Visibility.Collapsed : Visibility.Visible;
         ScanHelp.Visibility = TargetingHelp.Visibility = basic ? Visibility.Visible : Visibility.Collapsed;
-        ScanHelp.Text = basic ? "Use Add Game for one game or a collection. Manage your added folders here; game stores are in Advanced settings."
+        ScanHelp.Text = basic ? "Use Add Game for one game or a collection. Manage your added folders here; choose game stores here."
             : "Automatic scans refresh enabled sources. You can pause and resume a scan here.";
         TargetingHelp.Text = basic ? "Games marked ready can start recording when recording is on and the display is allowed."
             : "Targeting rules apply to game detection. Manual entire-display capture includes anything visible on the approved display, including games disabled here.";

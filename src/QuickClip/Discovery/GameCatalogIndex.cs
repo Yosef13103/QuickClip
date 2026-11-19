@@ -16,6 +16,11 @@ internal sealed class GameCatalogIndex
             StringComparer.OrdinalIgnoreCase);
         foreach (var entry in catalog.Entries)
         {
+            if (CatalogPaths.IsRedistributable(entry))
+            {
+                _blocked.UnionWith(entry.Executables.Select(CatalogPaths.LocalPath).OfType<string>());
+                continue;
+            }
             foreach (var path in entry.Executables.Select(CatalogPaths.LocalPath).OfType<string>()
                 .Distinct(StringComparer.OrdinalIgnoreCase))
             {

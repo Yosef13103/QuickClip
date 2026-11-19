@@ -55,8 +55,25 @@ internal static class CatalogPaths
     public static bool IsJavaRuntime(string path) => Path.GetFileNameWithoutExtension(path) is { } name &&
         (name.Equals("java", StringComparison.OrdinalIgnoreCase) || name.Equals("javaw", StringComparison.OrdinalIgnoreCase));
 
+    internal static bool IsRedistributablePath(string path)
+    {
+        var parts = path.Split('\\', '/');
+        for (int i = 0; i + 2 < parts.Length; i++)
+            if (parts[i].Equals("steamapps", StringComparison.OrdinalIgnoreCase) &&
+                parts[i + 1].Equals("common", StringComparison.OrdinalIgnoreCase) &&
+                (parts[i + 2].Equals("Steamworks Shared", StringComparison.OrdinalIgnoreCase) ||
+                 parts[i + 2].Equals("Steamworks Common Redistributables", StringComparison.OrdinalIgnoreCase)))
+                return true;
+        return false;
+    }
+
+    internal static bool IsRedistributable(CatalogEntry entry) =>
+        entry.Id.Equals("steam:228980", StringComparison.OrdinalIgnoreCase) ||
+        (!entry.InstallDirectories.IsEmpty && entry.InstallDirectories.All(IsRedistributablePath));
+
     public static CatalogMatchKind DefaultRole(string path)
     {
+        if (IsRedistributablePath(path)) return CatalogMatchKind.Ignored;
         if (WindowsDirectory.Length > 0 && IsWithin(path, WindowsDirectory)) return CatalogMatchKind.Application;
         if (IsDiscordUpdater(path)) return CatalogMatchKind.Ignored;
         if (IsDiscordProcess(path)) return CatalogMatchKind.Companion;

@@ -369,6 +369,7 @@ internal static partial class GameCatalogService
                     continue;
                 }
 
+                if (id == 228980) continue;
                 string install = Path.Combine(common, manifest.InstallDirectory);
                 if (!CheckDirectory(install)) continue;
                 string key = "steam:" + id.ToString(CultureInfo.InvariantCulture);
@@ -453,7 +454,7 @@ internal static partial class GameCatalogService
 
         private IEnumerable<ScanStep> ScanCollection(string path, int depth = 0)
         {
-            if (_launcherFolders.ContainsKey(path)) yield break;
+            if (_launcherFolders.ContainsKey(path) || CatalogPaths.IsRedistributablePath(path)) yield break;
             // Classify a possible install before descending. This shallow probe
             // avoids holding every child of a wide collection in memory.
             if (depth > 0)
@@ -568,7 +569,7 @@ internal static partial class GameCatalogService
 
         private bool CanDescend(string path, int depth)
         {
-            if (_launcherFolders.ContainsKey(path)) return false;
+            if (_launcherFolders.ContainsKey(path) || CatalogPaths.IsRedistributablePath(path)) return false;
             if (_request.MaxDepth is not { } limit || depth < limit) return true;
             _limitReached = true;
             AddIssue(path, CatalogIssueKind.DepthLimit);
@@ -590,6 +591,8 @@ internal static partial class GameCatalogService
             var engineExecutables = new List<string>();
             int best = 0;
             bool unrealBootstrap = false;
+            bool fortnite = game.Id.Equals("epic:fortnite", StringComparison.OrdinalIgnoreCase);
+            string fortniteRenderer = Path.Combine(install, @"FortniteGame\Binaries\Win64\FortniteClient-Win64-Shipping.exe");
             foreach (string executable in executables)
             {
                 _cancel.ThrowIfCancellationRequested();
@@ -610,7 +613,8 @@ internal static partial class GameCatalogService
                 }
                 if (launchExecutable != null && score == EngineRenderer && !Paths.Equals(launchExecutable, executable))
                 {
-                    bool bootstrap = SharesRendererName(launchExecutable, executable);
+                    bool bootstrap = SharesRendererName(launchExecutable, executable) ||
+                        (fortnite && Paths.Equals(executable, fortniteRenderer));
                     if (!bootstrap && !(CatalogPaths.DefaultRole(launchExecutable) == CatalogMatchKind.Launcher &&
                         Paths.Equals(RendererStem(executable), Path.GetFileName(install)))) continue;
                     unrealBootstrap |= bootstrap;
@@ -836,7 +840,7 @@ internal static partial class GameCatalogService
 
         private bool CheckDirectory(string path)
         {
-            if (IsExcluded(path)) return false;
+            if (IsExcluded(path) || CatalogPaths.IsRedistributablePath(path)) return false;
             var ancestors = new Stack<string>();
             for (string? current = path; current != null; current = Path.GetDirectoryName(current))
                 ancestors.Push(current);

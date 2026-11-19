@@ -160,6 +160,21 @@ public partial class GamesSettingsView
         {
             public string BlockAction => ExplicitlyBlocked ? "Unblock selected executable" : "Block selected executable";
         }
+        private string? _selectedExecutable;
+        public string? SelectedExecutable
+        {
+            get => _selectedExecutable != null && Entry.Executables.Contains(_selectedExecutable, StringComparer.OrdinalIgnoreCase)
+                    && !_unavailable.Contains(_selectedExecutable, StringComparer.OrdinalIgnoreCase)
+                ? _selectedExecutable : Entry.Executables.FirstOrDefault(path => !_unavailable.Contains(path, StringComparer.OrdinalIgnoreCase));
+            set
+            {
+                if (value == null || !Entry.Executables.Contains(value, StringComparer.OrdinalIgnoreCase) ||
+                    _selectedExecutable == value) return;
+                _selectedExecutable = value;
+                OnChanged(nameof(SelectedExecutable));
+            }
+        }
+
         public IEnumerable<ExecutableChoice> Executables => Entry.Executables.Select(path => new ExecutableChoice(path,
             path + ExecutableRole(path) +
             (_unavailable.Contains(path, StringComparer.OrdinalIgnoreCase) ? " · unavailable" : ""),
@@ -211,6 +226,7 @@ public partial class GamesSettingsView
             _unavailable = paths;
             OnChanged(nameof(Summary));
             OnChanged(nameof(Executables));
+            OnChanged(nameof(SelectedExecutable));
         }
 
         public event PropertyChangedEventHandler? PropertyChanged;

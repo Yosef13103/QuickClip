@@ -118,7 +118,7 @@ internal static class GameCatalogRuntime
                 _ => false,
             }) &&
             !settings.Request.ExcludedDirectories.Any(root => CatalogPaths.IsWithin(path, root));
-        var discovered = (settings.Snapshot?.Entries ?? []).Where(entry => entry.Source != CatalogSource.Manual)
+        var discovered = (settings.Snapshot?.Entries ?? []).Where(entry => entry.Source != CatalogSource.Manual && !CatalogPaths.IsRedistributable(entry))
             .Select(entry => entry with
             {
                 InstallDirectories = [.. entry.InstallDirectories.Where(path => Approved(entry, path))],
