@@ -27,7 +27,7 @@ permissions:
   contents: read
 jobs:
   upgrade:
-    name: Released 1.2.0 handoff (${{ matrix.layout }})
+    name: Released 1.2.1 handoff (${{ matrix.layout }})
     runs-on: windows-2025
     timeout-minutes: 35
     strategy:
@@ -47,7 +47,7 @@ jobs:
       - name: Provision pinned dependencies
         run: ./scripts/get-deps.ps1 -Force
       - name: Package test candidate only (no publication)
-        run: ./scripts/package.ps1 -Personal -FixtureVersion 1.2.1
+        run: ./scripts/package.ps1 -Personal -FixtureVersion 1.2.2
       - name: Test exact released package and embedded worker
         run: |
-          ./scripts/test-released-personal-upgrade.ps1 -Layout '${{ matrix.layout }}' -CandidateSetup publish-personal/QuickClip-Personal-1.2.1-setup.exe -CandidatePayload publish-personal/QuickClip-Personal
+          ./scripts/test-released-personal-upgrade.ps1 -Layout '${{ matrix.layout }}' -CandidateSetup publish-personal/QuickClip-Personal-1.2.2-setup.exe -CandidatePayload publish-personal/QuickClip-Personal

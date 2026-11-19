@@ -9,7 +9,7 @@
     <PlatformTarget>x64</PlatformTarget>
     <ApplicationIcon>Assets\QuickClip.ico</ApplicationIcon>
     <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
-    <Version>1.2.1</Version>
+    <Version>1.2.2</Version>
     <QuickClipProfile Condition="'$(QuickClipProfile)' == ''">Personal</QuickClipProfile>
     <Product Condition="'$(QuickClipProfile)' == 'Personal'">QuickClip Personal</Product>
     <Product Condition="'$(QuickClipProfile)' == 'Upstream'">QuickClip</Product>
