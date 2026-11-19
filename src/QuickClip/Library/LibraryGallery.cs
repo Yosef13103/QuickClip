@@ -10,7 +10,8 @@ internal sealed partial class LibraryIndex
     internal sealed record GalleryRow(string Path, ClipMediaStamp Stamp, ClipDetails Details, double? Duration, string? Identity);
     private sealed record BookmarkRow(string Id, long Ticks, string? Label, string? Session);
 
-    internal Task<List<GalleryRow>> ReadGalleryAsync(Guid? root, string? path, CancellationToken token = default) =>
+    internal Task<List<GalleryRow>> ReadGalleryAsync(Guid? root, string? path, CancellationToken token = default,
+        string? exactTag = null) =>
         Run(token, cancellation =>
         {
             using var connection = _database.Open();
@@ -24,8 +25,11 @@ internal sealed partial class LibraryIndex
                 FROM clips c JOIN roots r ON r.id=c.root_id
                 WHERE r.availability=0 AND c.availability=0
                     AND ($root IS NULL OR c.root_id=$root) AND ($path IS NULL OR c.path_key=$path)
+                    AND ($tag IS NULL OR EXISTS(SELECT 1 FROM clip_tags ct JOIN tags t ON t.id=ct.tag_id
+                        WHERE ct.clip_id=c.id AND t.name_key=$tag))
                 ORDER BY c.captured_ticks DESC,c.id;
-                """, ("$root", root?.ToString("N")), ("$path", path == null ? null : LibraryFiles.PathKey(path)));
+                """, ("$root", root?.ToString("N")), ("$path", path == null ? null : LibraryFiles.PathKey(path)),
+                ("$tag", exactTag == null ? null : LibraryFiles.TextKey(exactTag)));
             using var reader = command.ExecuteReader();
             var rows = new List<GalleryRow>();
             while (reader.Read())
