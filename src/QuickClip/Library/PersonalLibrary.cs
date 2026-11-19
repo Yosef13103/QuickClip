@@ -166,11 +166,12 @@ internal sealed class PersonalLibrary : IClipAnnotationActions, ILibraryInventor
     }
 
     internal Task<int> ApplyTagDeltaAsync(IReadOnlyCollection<ClipAnnotationTarget> targets,
-        IReadOnlyCollection<string> add, IReadOnlyCollection<string> remove, CancellationToken token)
+        IReadOnlyCollection<string> add, IReadOnlyCollection<string> remove, CancellationToken token,
+        bool replaceOnlyPresent = false)
     {
         if (!Enabled || targets.Any(target => !WithinConfiguredRoot(target.Path)))
             throw new LibraryConflictException("Tag management requires clips in configured indexed folders.");
-        return _index.Value.ApplyTagDeltaAsync(targets, add, remove, token);
+        return _index.Value.ApplyTagDeltaAsync(targets, add, remove, token, replaceOnlyPresent);
     }
 
     // This is a catalog estimate, not allocated disk usage. Only configured roots
