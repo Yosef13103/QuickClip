@@ -5,6 +5,41 @@ namespace QuickClip.Tests;
 
 public sealed class LibraryGalleryTests
 {
+    [Fact]
+    public async Task Warm_gallery_materializes_valid_cached_rows_before_reconciliation()
+    {
+        var scratch = Directory.CreateTempSubdirectory("qc-warm-gallery-");
+        try
+        {
+            string root = scratch.CreateSubdirectory("clips").FullName;
+            string excluded = Directory.CreateDirectory(Path.Combine(root, "Excluded")).FullName;
+            string keep = Path.Combine(root, "keep.mp4"), changed = Path.Combine(root, "changed.mp4");
+            string removed = Path.Combine(root, "removed.mp4"), hidden = Path.Combine(excluded, "hidden.mp4");
+            foreach (string path in new[] { keep, changed, removed, hidden }) File.WriteAllText(path, "fixture");
+            int probes = 0;
+            var index = new LibraryIndex(Path.Combine(scratch.FullName, "library.sqlite3"), null,
+                _ => { probes++; return new ClipHeader(4, null); });
+            var id = await index.RegisterRootAsync(root);
+            await index.ReconcileAsync(id);
+            var cached = await index.ReadGalleryAsync(id, null);
+            Assert.Equal(4, cached.Count);
+            File.AppendAllText(changed, "different");
+            File.Delete(removed);
+            string added = Path.Combine(root, "new.mp4");
+            File.WriteAllText(added, "new");
+            var first = PersonalLibrary.MaterializeIndexedClips(cached, default, null, [root], ["Excluded"]);
+            Assert.Equal(keep, Assert.Single(first).Path);
+            Assert.Equal(4, probes);
+            await index.RegisterRootAsync(root, exclusions: ["Excluded"], updateExclusions: true);
+            await index.ReconcileAsync(id);
+            var updated = PersonalLibrary.MaterializeIndexedClips(await index.ReadGalleryAsync(id, null),
+                default, null, [root], ["Excluded"]);
+            Assert.Equal(new[] { changed, keep, added }.Order(), updated.Select(c => c.Path).Order());
+            Assert.Equal(6, probes);
+        }
+        finally { scratch.Delete(recursive: true); }
+    }
+
     [Theory]
     [InlineData(120)]
     [InlineData(1200)]
