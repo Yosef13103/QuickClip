@@ -305,6 +305,8 @@
                                 </ComboBox.ItemsPanel>
                             </ComboBox>
                         </StackPanel>
+                        <Button Content="Library tags…" Click="LibraryTags_Click" Style="{StaticResource TextButton}" Margin="0,0,8,4"
+                                Visibility="{Binding PersonalAnnotations, RelativeSource={RelativeSource AncestorType=views:GalleryView}, Converter={StaticResource ShowIf}}" />
                         <Button x:Name="MultiTagFilterButton" Content="Multiple tags…" Click="MultiTagFilter_Click" Style="{StaticResource TextButton}" Margin="0,0,8,4"
                                 Visibility="{Binding PersonalAnnotations, RelativeSource={RelativeSource AncestorType=views:GalleryView}, Converter={StaticResource ShowIf}}" />
                         <CheckBox Style="{StaticResource SwitchCheckBox}" x:Name="FavoritesFilter" Content="Favorites only" VerticalAlignment="Center" Margin="0,0,10,4"
