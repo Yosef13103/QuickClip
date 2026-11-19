@@ -813,6 +813,9 @@ public partial class GalleryView : UserControl
             var manage = new MenuItem { Header = "Manage tags…" };
             manage.Click += async (_, _) => await ManageSelectedTagsAsync();
             menu.Items.Add(manage);
+            var replace = new MenuItem { Header = "Replace tag…" };
+            replace.Click += async (_, _) => await ManageSelectedTagsAsync(replace: true);
+            menu.Items.Add(replace);
         }
         else menu.Items.Add(tag);
         menu.Items.Add(favorite);
