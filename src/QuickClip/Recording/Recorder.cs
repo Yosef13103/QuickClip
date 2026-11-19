@@ -194,9 +194,9 @@ internal sealed class Recorder
                 var settings = AppSettings.Current;
                 var next = RecordingVideoOptions.Resolve(settings, RecordingVideoOptions.LoadPolicy(_sessionGameId, settings));
                 if (next == _activeVideoOptions) return;
-                StopCore(forgetGame: false);
+                // Invalidate only the graph, preserving handoff and polling state.
+                _lifecycle.InvalidateGraph();
                 ReconcilePersonal();
-                StartPolling();
             }
             catch (Exception ex)
             {
