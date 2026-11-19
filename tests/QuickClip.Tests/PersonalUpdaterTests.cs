@@ -245,6 +245,52 @@ public sealed class PersonalUpdaterTests : IDisposable
         await RunWorkerFixtureAsync(fixture);
     }
 
+    [Fact]
+    public async Task Partial_install_with_unknown_new_files_retains_recovery_marker()
+    {
+        if (!AppProfile.IsPersonal) return;
+        await RunWorkerFixtureAsync("""
+            $root = Join-Path $Scratch 'partial installation'
+            $backup = Join-Path $Scratch 'backup'
+            $pending = Join-Path $Scratch 'pending'
+            $null = [IO.Directory]::CreateDirectory($root)
+            $exe = Join-Path $root 'QuickClip.exe'
+            [IO.File]::Copy($Application, $exe)
+            [IO.File]::WriteAllText((Join-Path $root 'unins000.exe'), 'fixture uninstaller')
+            $old = Join-Path $root 'old.dll'
+            $extra = Join-Path $root 'new.dll'
+            [IO.File]::WriteAllText($old, 'old content')
+            [IO.File]::WriteAllLines((Join-Path $root 'quickclip-install-files.txt'), @('QuickClip.exe', 'old.dll'))
+            $script:registrationRestored = $false
+            try {
+                Invoke-InstallTransaction $root $backup $pending 'test' $Version '99.0.0' {
+                    [IO.File]::WriteAllText($old, 'overwritten')
+                    [IO.File]::WriteAllText($extra, 'unknown new content')
+                    throw 'Synthetic partial installation failure'
+                } { $script:registrationRestored = $true }
+                throw 'The transaction reported success'
+            } catch {
+                if ($_.Exception.Message -notlike 'Synthetic partial installation failure*Recovery was incomplete*') { throw }
+            }
+            if (!$script:registrationRestored -or ![IO.File]::Exists($pending) -or
+                [IO.File]::ReadAllText($old) -ne 'old content' -or
+                [IO.File]::ReadAllText($extra) -ne 'unknown new content') {
+                throw 'Rollback did not preserve recovery state and unknown files'
+            }
+            try {
+                Complete-Restoration $root $pending
+                throw 'Recovery completed despite unknown files'
+            } catch {
+                if ($_.Exception.Message -notlike '*outside the installer inventory*') { throw }
+            }
+            if (![IO.File]::Exists($pending)) { throw 'Recovery marker was cleared too early' }
+            # Only the fixture owns this known generated file. A real worker must not remove unknown files.
+            [IO.File]::Delete($extra)
+            Complete-Restoration $root $pending
+            if ([IO.File]::Exists($pending)) { throw 'Verified recovery did not clear its marker' }
+            """);
+    }
+
     [Theory]
     [InlineData(@"..\outside.dll")]
     [InlineData(@"C:\outside.dll")]

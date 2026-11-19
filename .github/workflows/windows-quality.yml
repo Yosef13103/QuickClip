@@ -65,7 +65,7 @@ jobs:
           }
           dotnet @testArgs
       - name: Exercise the Personal installer handoff on an alternate drive
-        if: matrix.profile == 'Personal' && github.base_ref == 'integration/wave2-discovery-maintenance'
+        if: matrix.profile == 'Personal' && (github.base_ref == 'custom/main' || github.base_ref == 'integration/wave2-discovery-maintenance')
         run: ./scripts/test-personal-upgrade.ps1
       - name: Report results
         if: always()

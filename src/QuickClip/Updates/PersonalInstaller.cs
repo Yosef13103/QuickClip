@@ -30,8 +30,16 @@ internal static class PersonalInstaller
         editorExport || montageExport ? "Finish the active export before installing the update." :
         savingClip ? "Finish saving the current clip before installing the update." : null;
 
-    internal static string? AutomaticInstallBlock => GetAutomaticInstallBlock(Updater.IsEnabled,
-        Updater.IsPersonalInstalledCopy, File.Exists(Path.Combine(AppContext.BaseDirectory, Inventory)));
+    internal static string? AutomaticInstallBlock
+    {
+        get
+        {
+            bool enabled = Updater.IsEnabled;
+            bool registered = enabled && Updater.IsPersonalInstalledCopy;
+            return GetAutomaticInstallBlock(enabled, registered,
+                registered && File.Exists(Path.Combine(AppContext.BaseDirectory, Inventory)));
+        }
+    }
 
     internal static bool CanApply => AutomaticInstallBlock == null;
 
