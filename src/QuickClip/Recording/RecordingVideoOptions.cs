@@ -62,7 +62,12 @@ internal sealed record RecordingVideoOptions(string Aspect, int Resolution, int 
         var loaded = GameProfileStore.ForCurrentProfile().Load();
         if (loaded.Status == GameProfileLoadStatus.Missing) return null;
         if (loaded.Status is not (GameProfileLoadStatus.Loaded or GameProfileLoadStatus.Migrated))
-            throw new InvalidOperationException("Recording profiles are invalid or unavailable. Repair the profile file before recording this game.");
+        {
+            // A damaged optional profile document must not prevent ordinary, already-authorized recording.
+            // Preserve the source file and use the existing global settings; Settings exposes its load failure.
+            Log.Essential(DiagnosticCategory.Capture, "Recording profile document unavailable; using All Games settings");
+            return null;
+        }
         return FindPolicy(gameId, GameCatalogRuntime.Rows(settings.Games), loaded.Document);
     }
 }
