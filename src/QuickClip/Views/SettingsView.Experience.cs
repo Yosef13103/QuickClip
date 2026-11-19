@@ -124,6 +124,7 @@ public partial class SettingsView
         CapturePermissionCard.Visibility = !_guideActive || step == 6 ? visible : hidden;
         RecordingQualityControls.Visibility = !_guideActive || step == 4 ? visible : hidden;
         SetupQualityPresets.Visibility = _guideActive && step == 4 ? visible : hidden;
+        RefreshGameProfiles((GameProfileCombo.SelectedItem as QuickClip.Discovery.RecordingProfileRow)?.GameId);
         UpdateSetupPresetStatus();
         GeneralPreferences.Visibility = _guideActive ? hidden : visible;
         ManualDesktopButton.Visibility = _guideActive ? hidden : visible;
@@ -158,7 +159,7 @@ public partial class SettingsView
         RadioButton section = GuideStep switch
         {
             1 => LibrarySection, 2 => HotkeysSection, 3 => AudioSection,
-            5 => GamesSection, 7 => GeneralSection, _ => RecordingSection,
+            5 => GamesSection, 7 => NotificationsSection, _ => RecordingSection,
         };
         section.IsChecked = true;
         ApplySettingsSection(section);
