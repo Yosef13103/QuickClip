@@ -132,6 +132,7 @@ internal sealed class AppSettings
     }
 
     public bool CheckForUpdates { get; set; } = true;
+    public string? SkippedUpdateVersion { get; set; }
     public string? UpdateChannel { get; set; }
     public string? SeenVersion { get; set; }                      // the version whose "what's new" was last shown
 

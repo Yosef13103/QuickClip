@@ -167,7 +167,13 @@ public partial class SettingsView : UserControl
 
     private async void InstallUpdate_Click(object sender, RoutedEventArgs e)
     {
-        if (Updater.Available is not { } release || _installing) return;
+        if (Updater.Available is { } release) await InstallOfferedUpdateAsync(release);
+    }
+
+    internal async Task InstallOfferedUpdateAsync(ReleaseInfo release)
+    {
+        if (_installing || !Updater.IsEnabled || Updater.IsChecking || Updater.Available != release ||
+            !(AppProfile.IsPersonal ? Updater.CanDownloadPersonal(release) : Updater.CanInstall(release))) return;
         using var activity = QuickClip.Shell.BackgroundActivity.Begin("Downloading update");
         _installing = true;
         UpdateActions.Visibility = Visibility.Collapsed;

@@ -144,6 +144,15 @@ public partial class MainWindow : Window
 
     public void ShowSettings() => _ = ShowPageAsync(SettingsPage);
 
+    internal bool CanOfferUpdate => IsActive && ! _closing && !_refreshing &&
+        _navigationFlush is not { IsCompleted: false } &&
+        (Gallery.IsVisible || _settings?.IsVisible == true);
+
+    internal async Task InstallOfferedUpdateAsync(ReleaseInfo release)
+    {
+        if (await ShowPageAsync(SettingsPage)) await SettingsPage.InstallOfferedUpdateAsync(release);
+    }
+
     private EditorView EditorPage
     {
         get

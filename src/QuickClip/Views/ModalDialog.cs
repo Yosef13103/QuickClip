@@ -10,6 +10,8 @@ namespace QuickClip.Views;
 
 internal static class ModalDialog
 {
+    private static int _openDialogs;
+    internal static bool IsOpen => _openDialogs > 0;
     internal static MessageBoxResult Show(Window? owner, string message, string title,
         MessageBoxButton buttons = MessageBoxButton.OK, MessageBoxImage image = MessageBoxImage.None,
         MessageBoxResult defaultResult = MessageBoxResult.None)
@@ -62,7 +64,7 @@ internal static class ModalDialog
 
     internal static bool Run(Window owner, string title, FrameworkElement content, string accept, string? cancel,
         bool safeDefault = false, bool destructive = false, IInputElement? initialFocus = null, Button? dismissOnClick = null,
-        bool accent = false, bool wide = false, Func<bool>? validate = null)
+        bool accent = false, bool wide = false, Func<bool>? validate = null, bool dismissInFooter = false)
     {
         var host = (Panel)owner.Content;
         var overlay = new Grid { Background = new SolidColorBrush(Color.FromArgb(140, 0, 0, 0)) };
@@ -107,6 +109,7 @@ internal static class ModalDialog
         if (accent) primary.SetResourceReference(FrameworkElement.StyleProperty, "AccentButtonStyle");
         if (destructive && owner.TryFindResource("DangerButtonStyle") is Style danger)
             primary.Style = danger;
+        if (dismissInFooter && dismissOnClick != null) buttons.Children.Add(dismissOnClick);
         if (cancel != null) buttons.Children.Add(secondary);
         buttons.Children.Add(primary);
         body.Children.Add(buttons);
@@ -144,6 +147,7 @@ internal static class ModalDialog
         owner.PreviewKeyDown += Keys;
         EventHandler close = (_, _) => frame.Continue = false;
         owner.Closed += close;
+        _openDialogs++;
         try
         {
             Keyboard.Focus(initialFocus ?? (safeDefault && cancel != null ? secondary : primary));
@@ -152,6 +156,7 @@ internal static class ModalDialog
         }
         finally
         {
+            _openDialogs--;
             owner.Closed -= close;
             owner.PreviewKeyDown -= Keys;
             host.Children.Remove(overlay);
