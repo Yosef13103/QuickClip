@@ -112,7 +112,7 @@ public sealed class GamesSettingsViewTests
         Arrange(page, width, height);
         Assert.True(page.Games.ActualHeight > 0);
         Assert.True(page.Search.ActualWidth > 0);
-        Assert.False(Descendants<TextBox>(page.Games).Contains(page.Search));
+        Assert.DoesNotContain(page.Search, Descendants<TextBox>(page.Games));
         Assert.True(page.AutoScan.IsChecked == true);
         page.RenderRows(Fixture(200));
         Arrange(page, width, height);

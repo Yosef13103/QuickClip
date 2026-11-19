@@ -63,6 +63,48 @@ public sealed class PersonalUpdaterTests : IDisposable
         Assert.Null(PersonalInstaller.ShutdownBlock(false, false, false));
     }
 
+    [Theory]
+    [InlineData(false, true, true, "disabled")]
+    [InlineData(true, false, true, "registered")]
+    [InlineData(true, true, false, "inventory")]
+    [InlineData(true, true, true, null)]
+    public void Automatic_install_block_explains_ineligible_layout(bool enabled, bool registered, bool inventory, string? expected)
+    {
+        string? reason = PersonalInstaller.GetAutomaticInstallBlock(enabled, registered, inventory);
+        if (expected == null) Assert.Null(reason);
+        else Assert.Contains(expected, reason!);
+    }
+
+    [Theory]
+    [InlineData(false, null, false, "Portable")]
+    [InlineData(true, "inventory missing", false, "inventory missing")]
+    [InlineData(true, null, false, "protocol")]
+    [InlineData(true, null, true, null)]
+    public void Manual_fallback_preserves_package_type_and_reason(bool setup, string? block, bool handoff, string? expected)
+    {
+        string? reason = PersonalInstaller.ManualFallbackReason(setup, block, handoff);
+        if (expected == null) Assert.Null(reason);
+        else Assert.Contains(expected, reason!);
+    }
+
+    [Theory]
+    [InlineData(@"C:\Users\Test User\AppData\Local\QuickClip Personal\updates\abc\QuickClip-Personal-1.2.1-setup.exe")]
+    [InlineData(@"E:\Alternate Drive\staged package.zip")]
+    public void Explorer_select_switch_quotes_only_the_path(string path)
+    {
+        var start = PersonalInstaller.CreatePackageRevealStartInfo(path);
+        Assert.Equal($"/select,\"{path}\"", start.Arguments);
+        Assert.Empty(start.ArgumentList);
+        Assert.True(start.UseShellExecute);
+        Assert.Equal("explorer.exe", Path.GetFileName(start.FileName), ignoreCase: true);
+    }
+
+    [Theory]
+    [InlineData("relative.exe")]
+    [InlineData("C:\\invalid\"name.exe")]
+    public void Explorer_reveal_rejects_invalid_package_paths(string path) =>
+        Assert.Throws<ArgumentException>(() => PersonalInstaller.CreatePackageRevealStartInfo(path));
+
     [Fact]
     public void Isolated_or_upstream_profile_cannot_apply_a_personal_update()
     {

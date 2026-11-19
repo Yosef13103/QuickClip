@@ -173,7 +173,7 @@ public sealed class ExportTests(MediaFixture media)
             r => r with { HybridAudio = true }, source: output.Path,
             start: .25, end: 1.75);
         Assert.Equal(3, resaved.Audio.Count);
-        Assert.Single(resaved.Audio.Where(a => a.IsPlaybackMix));
+        Assert.Single(resaved.Audio, a => a.IsPlaybackMix);
         Assert.True(resaved.Audio[0].IsDefault);
     }
 
