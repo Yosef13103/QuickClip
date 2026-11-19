@@ -250,6 +250,33 @@ public partial class GalleryView : UserControl
             _loadedIndexed = indexed;
             InventorySource = indexed ? PersonalLibrary.Current : null;
             var previous = _clips.ToDictionary(c => c.Path, StringComparer.OrdinalIgnoreCase);
+            // Show the previously indexed, still-valid files before reconciling
+            // the filesystem. Watchers are already attached, so changes during
+            // this phase schedule another refresh.
+            if (indexed && fullScan && previous.Count == 0 && available.Length > 0)
+            {
+                try
+                {
+                    activity.Report("Loading saved Gallery index");
+                    var cached = await PersonalLibrary.Current.ReadIndexedClipsAsync(_lifetime.Token,
+                        folders: available, exclusions: exclusions);
+                    if (_released) return;
+                    if (cached.Count > 0)
+                    {
+                        _clips = cached;
+                        await LoadDraftRangesAsync();
+                        if (_released) return;
+                        PublishClips(previous);
+                        previous = _clips.ToDictionary(c => c.Path, StringComparer.OrdinalIgnoreCase);
+                        PlaybackLibraryChanged?.Invoke();
+                        activity.Report("Checking Gallery for changes");
+                    }
+                }
+                catch (Exception ex) when (ex is not OperationCanceledException)
+                {
+                    Log.Failure(DiagnosticCategory.Library, "Could not load the saved Gallery index", ex);
+                }
+            }
             _projects = await Task.Run(() => available.SelectMany(LoadProjects).ToList(), _lifetime.Token);
             if (indexed)
             {
@@ -275,6 +302,16 @@ public partial class GalleryView : UserControl
                         catch (Exception ex) when (ex is not OperationCanceledException)
                         {
                             incomplete = true;
+                            // An incomplete scan must not resurrect stale or excluded paths.
+                            try
+                            {
+                                loaded.AddRange(await PersonalLibrary.Current.ReadIndexedClipsAsync(_lifetime.Token,
+                                    folders: [folder], exclusions: exclusions));
+                            }
+                            catch (Exception cacheError) when (cacheError is not OperationCanceledException)
+                            {
+                                Log.Failure(DiagnosticCategory.Library, "Could not recover the cached source", cacheError);
+                            }
                             Log.Failure(DiagnosticCategory.Library, "Could not refresh an indexed clips folder", ex);
                         }
                     }
@@ -285,7 +322,7 @@ public partial class GalleryView : UserControl
                 }
                 else if (rereadIndex)
                 {
-                    _clips = await PersonalLibrary.Current.ReadIndexedClipsAsync(_lifetime.Token, folders: available);
+                    _clips = await PersonalLibrary.Current.ReadIndexedClipsAsync(_lifetime.Token, folders: available, exclusions: exclusions);
                 }
                 else
                 {
@@ -302,33 +339,7 @@ public partial class GalleryView : UserControl
             if (AppProfile.IsPersonal) await LoadDraftRangesAsync();
             if (_released) return;
             activity.Report("Updating Gallery view");
-            foreach (var clip in _clips)
-            {
-                // Keep thumbnails already on screen so a new clip doesn't make every card flicker.
-                if (previous.TryGetValue(clip.Path, out var old) && !ReferenceEquals(old, clip))
-                {
-                    if (old.Details.IndexId is { } clipId && clipId == clip.Details.IndexId &&
-                        old.Details.IndexRevision > clip.Details.IndexRevision)
-                        clip.ApplyDetails(old.Details); // A save callback arrived while the query was in flight.
-                    if (old.Size == clip.Size && old.Thumbnail != null &&
-                        old.File.LastWriteTimeUtc == clip.File.LastWriteTimeUtc && old.File.CreationTimeUtc == clip.File.CreationTimeUtc)
-                    {
-                        clip.Thumbnail = old.Thumbnail;
-                        clip.ThumbnailWidth = old.ThumbnailWidth;
-                        if (_thumbnailNodes.Remove(old, out var node)) _decodedThumbnails.Remove(node);
-                        RememberThumbnail(clip);
-                    }
-                }
-                clip.IsSelected = _selected.Contains(clip.Path);
-                // Incremental refresh can retain items from other sources.
-                clip.SelectionChanged -= OnClipSelectionChanged;
-                clip.SelectionChanged += OnClipSelectionChanged;
-            }
-            _selected.IntersectWith(_clips.Select(c => c.Path));
-            RefreshKnownTags();
-            RebuildFolders();
-            RebuildProjects();
-            UpdateSelection();
+            PublishClips(previous);
         }
         catch (Exception ex)
         {
@@ -350,6 +361,37 @@ public partial class GalleryView : UserControl
                 _ = Dispatcher.BeginInvoke(new Action(() => _ = ReloadAsync()));
             }
         }
+    }
+
+    private void PublishClips(Dictionary<string, ClipItem> previous)
+    {
+        foreach (var clip in _clips)
+        {
+            // Keep thumbnails already on screen so a new clip doesn't make every card flicker.
+            if (previous.TryGetValue(clip.Path, out var old) && !ReferenceEquals(old, clip))
+            {
+                if (old.Details.IndexId is { } clipId && clipId == clip.Details.IndexId &&
+                    old.Details.IndexRevision > clip.Details.IndexRevision)
+                    clip.ApplyDetails(old.Details); // A save callback arrived while the query was in flight.
+                if (old.Size == clip.Size && old.Thumbnail != null &&
+                    old.File.LastWriteTimeUtc == clip.File.LastWriteTimeUtc && old.File.CreationTimeUtc == clip.File.CreationTimeUtc)
+                {
+                    clip.Thumbnail = old.Thumbnail;
+                    clip.ThumbnailWidth = old.ThumbnailWidth;
+                    if (_thumbnailNodes.Remove(old, out var node)) _decodedThumbnails.Remove(node);
+                    RememberThumbnail(clip);
+                }
+            }
+            clip.IsSelected = _selected.Contains(clip.Path);
+            // Incremental refresh can retain items from other sources.
+            clip.SelectionChanged -= OnClipSelectionChanged;
+            clip.SelectionChanged += OnClipSelectionChanged;
+        }
+        _selected.IntersectWith(_clips.Select(c => c.Path));
+        RefreshKnownTags();
+        RebuildFolders(preserveScroll: previous.Count > 0);
+        RebuildProjects();
+        UpdateSelection();
     }
 
     private static string[] AvailableFolders(string root, IEnumerable<string> sources) =>
