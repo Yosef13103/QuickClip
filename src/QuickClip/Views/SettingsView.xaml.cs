@@ -252,16 +252,7 @@ public partial class SettingsView : UserControl
             ResetDimensionFields();
 
             _encoders = await VideoEncoders.GetAvailableAsync();
-            var auto = RecordingPresets.DefaultEncoder(_encoders);
-            var encoders = new List<Choice> { new(auto != null ? $"Automatic — {auto.Label}" : "Automatic (no GPU encoder found)", "", "Automatic") };
-            encoders.AddRange(RecordingPresets.RecordingEncoderOrder.Where(_encoders.Contains)
-                .Select(id => new Choice(VideoEncoders.Find(id)?.Label ?? id, id, id.EndsWith("_mf", StringComparison.Ordinal) ? "Windows compatibility" : "Direct hardware encoders")));
-            if (s.RecordEncoder.Length > 0 && !encoders.Any(choice => Equals(choice.Value, s.RecordEncoder)))
-                encoders.Add(new Choice($"{VideoEncoders.Find(s.RecordEncoder)?.Label ?? s.RecordEncoder} (saved, unavailable)", s.RecordEncoder, "Unavailable", false));
-            var encoderGroups = new System.Windows.Data.ListCollectionView(encoders);
-            encoderGroups.GroupDescriptions.Add(new System.Windows.Data.PropertyGroupDescription(nameof(Choice.Group)));
-            EncoderCombo.ItemsSource = encoderGroups;
-            Select(EncoderCombo, s.RecordEncoder);
+            RefreshEncoderChoices(s.RecordEncoder);
             BackendCombo.ItemsSource = new Choice[] { new("Automatic", CaptureEngine.MonitorBackend.Automatic), new("Capture the visible monitor (DXGI Desktop Duplication)", CaptureEngine.MonitorBackend.DesktopDuplication), new("Capture through Windows (WGC)", CaptureEngine.MonitorBackend.GraphicsCapture) };
             Select(BackendCombo, s.CaptureBackend);
             NvencPresetCombo.ItemsSource = new Choice[]
@@ -543,6 +534,7 @@ public partial class SettingsView : UserControl
     private void Changed(object sender, RoutedEventArgs e)
     {
         if (_loading || !IsInitialized) return;
+        if (HandleScopedVideoChange(sender)) return;
         var s = AppSettings.Current;
         if (sender == ConfirmSaveOverCheck)
         {
@@ -580,8 +572,9 @@ public partial class SettingsView : UserControl
                     ModalDialog.Show(Window.GetWindow(this), "Couldn’t save the selected display.", "Settings");
                 }
             }
-            RefreshAreas(s.RecordAspect);
-            RefreshResolutions(s.RecordResolution);
+            var effective = EditingVideo();
+            RefreshAreas(effective.Aspect);
+            RefreshResolutions(effective.Resolution);
             ResetDimensionFields();
             ShowGameWindowState();
             UpdateCropPreview();
@@ -761,10 +754,11 @@ public partial class SettingsView : UserControl
     private void UpdateEstimates()
     {
         var s = AppSettings.Current;
-        BufferText.Text = RecordingPresets.DurationLabel(s.BufferSeconds);
+        var effective = EditingVideo();
+        BufferText.Text = RecordingPresets.DurationLabel(effective.ReplaySeconds);
         ResourceSummary.Visibility = AppProfile.IsPersonal ? Visibility.Visible : Visibility.Collapsed;
         RamText.Visibility = AppProfile.IsPersonal ? Visibility.Collapsed : Visibility.Visible;
-        ResourceVideo.Text = $"{BufferText.Text} · {s.RecordFps} FPS target · {RecordingPresets.Label(s.RecordQuality)}";
+        ResourceVideo.Text = $"{BufferText.Text} · {effective.Fps} FPS target · {RecordingPresets.Label(effective.Quality)}";
         ResourceSize.Text = "Size estimates require a display or capture area.";
         _estimatedClipBytes = 0;
         UpdateStorageCards();
@@ -773,21 +767,22 @@ public partial class SettingsView : UserControl
             RamText.Text = BitrateText.Text = "";
             return;
         }
-        var (w, h) = RecordingPresets.OutputSize(area.Width, area.Height, s.RecordResolution);
-        string encoderId = s.RecordEncoder.Length > 0 ? s.RecordEncoder : RecordingPresets.DefaultEncoder(_encoders)?.Id ?? "h264_amf";
+        var (w, h) = RecordingPresets.OutputSize(area.Width, area.Height, effective.Resolution);
+        string encoderId = effective.SelectEncoder(_encoders, EditingGame?.Policy?.EncoderId is { Length: > 0 }) ?? effective.EncoderId;
+        if (string.IsNullOrEmpty(encoderId)) encoderId = "h264_amf";
         string family = VideoEncoders.Find(encoderId)?.Family ?? "h264";
-        int kbps = RecordingPresets.VideoKbps(s.RecordQuality, w, h, s.RecordFps, family);
+        int kbps = RecordingPresets.VideoKbps(effective.Quality, w, h, effective.Fps, family, effective.TargetKbps);
         int tracks = RecordingPresets.AudioTrackCount(s);
-        long ram = RecordingPresets.EstimateRamBytes(kbps, tracks, s.BufferSeconds);
-        long clip = Library.StorageInventory.EstimateBytes(kbps, tracks * RecordingPresets.AudioKbps, TimeSpan.FromSeconds(s.BufferSeconds));
+        long ram = RecordingPresets.EstimateRamBytes(kbps, tracks, effective.ReplaySeconds);
+        long clip = Library.StorageInventory.EstimateBytes(kbps, tracks * RecordingPresets.AudioKbps, TimeSpan.FromSeconds(effective.ReplaySeconds));
         _estimatedClipBytes = clip;
         UpdateStorageCards();
         BitrateText.Text = $"≈ {kbps / 1000.0:0.#} Mbps";
         var encoder = VideoEncoders.Find(encoderId);
-        string encoderLabel = s.RecordEncoder.Length > 0 ? encoder?.Label ?? encoderId :
+        string encoderLabel = effective.EncoderId.Length > 0 || effective.Codec.HasValue ? encoder?.Label ?? encoderId :
             RecordingPresets.DefaultEncoder(_encoders) is { } preferred ? $"Auto ({preferred.Label})" : "Auto";
-        ResourceVideo.Text = IsBasicExperience ? $"{BufferText.Text} · {w} × {h} · {s.RecordFps} FPS · {RecordingPresets.Label(s.RecordQuality)}" :
-            $"{BufferText.Text} · {w} × {h} estimated · {s.RecordFps} FPS target · {RecordingPresets.Label(s.RecordQuality)} · {BitrateText.Text} video · {encoderLabel}";
+        ResourceVideo.Text = IsBasicExperience ? $"{BufferText.Text} · {w} × {h} · {effective.Fps} FPS · {RecordingPresets.Label(effective.Quality)}" :
+            $"{BufferText.Text} · {w} × {h} estimated · {effective.Fps} FPS target · {RecordingPresets.Label(effective.Quality)} · {BitrateText.Text} video · {encoderLabel}";
         ResourceSize.Text = IsBasicExperience ? $"A full-length clip takes about {Fmt.Size(clip)} on disk." :
             $"Estimated full clip {Fmt.Size(clip)} · Replay buffer about {Fmt.Size(ram)} RAM · {tracks} audio track(s)";
         RamText.Text = $"The replay buffer needs about {Fmt.Size(ram)} of memory. A full-length clip is about {Fmt.Size(clip)} on disk.";
