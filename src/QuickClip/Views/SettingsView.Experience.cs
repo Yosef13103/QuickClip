@@ -124,6 +124,7 @@ public partial class SettingsView
         CapturePermissionCard.Visibility = !_guideActive || step == 6 ? visible : hidden;
         RecordingQualityControls.Visibility = !_guideActive || step == 4 ? visible : hidden;
         SetupQualityPresets.Visibility = _guideActive && step == 4 ? visible : hidden;
+        RefreshGameProfiles((GameProfileCombo.SelectedItem as QuickClip.Discovery.RecordingProfileRow)?.GameId);
         UpdateSetupPresetStatus();
         GeneralPreferences.Visibility = _guideActive ? hidden : visible;
         ManualDesktopButton.Visibility = _guideActive ? hidden : visible;
