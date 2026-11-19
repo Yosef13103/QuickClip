@@ -46,7 +46,7 @@ internal sealed partial class LibraryIndex
     // to legacy metadata writes or silently truncate existing tags.
     internal Task<int> ApplyTagDeltaAsync(IReadOnlyCollection<ClipAnnotationTarget> selection,
         IReadOnlyCollection<string> add, IReadOnlyCollection<string> remove, CancellationToken token = default,
-        bool replaceOnlyPresent = false)
+        bool replaceOnlyPresent = false, bool? hidden = null)
     {
         var targets = selection.Take(MaxTagBatch + 1).ToArray();
         if (targets.Length > MaxTagBatch ||
@@ -79,7 +79,7 @@ internal sealed partial class LibraryIndex
 
         return Run(token, ct =>
         {
-            if (targets.Length == 0 || additions.Count + removals.Count == 0) return 0;
+            if (targets.Length == 0 || additions.Count + removals.Count == 0 && hidden == null) return 0;
             var leases = new List<SafeFileHandle>(targets.Length);
             try
             {
@@ -131,10 +131,11 @@ internal sealed partial class LibraryIndex
                     var next = new HashSet<string>(current, StringComparer.Ordinal);
                     next.ExceptWith(removals.Keys);
                     next.UnionWith(additions.Keys);
-                    if (next.SetEquals(current)) continue;
+                    bool visibilityChanged = hidden is bool requested && requested != target.Details.IsHidden;
+                    if (next.SetEquals(current) && !visibilityChanged) continue;
                     // Older index APIs allowed more tags; permit reducing those
                     // sets, but do not increase an already over-limit count.
-                    if (next.Count > ClipDetails.MaxTags && next.Count >= current.Count)
+                    if (!next.SetEquals(current) && next.Count > ClipDetails.MaxTags && next.Count >= current.Count)
                         throw new ArgumentException("A selected clip would exceed the tag limit.");
 
                     foreach (var key in current.Except(next))
@@ -146,7 +147,8 @@ internal sealed partial class LibraryIndex
                             INSERT INTO tags(name,name_key) VALUES($name,$key) ON CONFLICT(name_key) DO NOTHING;
                             INSERT INTO clip_tags(clip_id,tag_id) SELECT $id,id FROM tags WHERE name_key=$key;
                             """, ("$name", additions[key]), ("$key", key), ("$id", id));
-                    Execute(connection, transaction, "UPDATE clips SET revision=revision+1 WHERE id=$id;", ("$id", id));
+                    Execute(connection, transaction, "UPDATE clips SET revision=revision+1,hidden=coalesce($hidden,hidden) WHERE id=$id;",
+                        ("$id", id), ("$hidden", hidden));
                     changed++;
                 }
                 ct.ThrowIfCancellationRequested();
