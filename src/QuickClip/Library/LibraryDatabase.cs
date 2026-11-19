@@ -4,7 +4,7 @@ namespace QuickClip.Library;
 
 internal sealed class LibraryDatabase
 {
-    internal const int SchemaVersion = 3;
+    internal const int SchemaVersion = 4;
     private const int ApplicationId = 0x51434C49; // QCLI
     private readonly string _connectionString;
     private readonly object _initializationGate = new();
@@ -93,6 +93,12 @@ internal sealed class LibraryDatabase
             {
                 Execute(connection, transaction, DraftSchema);
                 Execute(connection, transaction, "PRAGMA user_version=3;");
+                version = 3;
+            }
+            if (version == 3)
+            {
+                Execute(connection, transaction, OrganizationSchema);
+                Execute(connection, transaction, "PRAGMA user_version=4;");
             }
             transaction.Commit();
         }
@@ -137,6 +143,13 @@ internal sealed class LibraryDatabase
         using var command = Command(connection, transaction, sql, parameters);
         return command.ExecuteScalar();
     }
+
+    // E1 draft migration. Reconcile with B's independently numbered replay
+    // schema before either feature uses a production database.
+    private const string OrganizationSchema = """
+        ALTER TABLE clips ADD COLUMN hidden INTEGER NOT NULL DEFAULT 0 CHECK(hidden IN (0,1));
+        CREATE INDEX clips_hidden ON clips(hidden,captured_ticks DESC,id);
+        """;
 
     private const string DraftSchema = """
         CREATE TABLE edit_drafts (
