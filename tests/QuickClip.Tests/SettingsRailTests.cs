@@ -21,7 +21,8 @@ public sealed class SettingsRailTests
                 view.UpdateLayout();
 
                 var sections = view.SettingsSections.Children.OfType<RadioButton>().ToArray();
-                Assert.Equal(8, sections.Length);
+                Assert.Equal(9, sections.Length);
+                Assert.Single(sections.Where(section => Equals(section.Content, "Notifications")));
                 Assert.Equal("Recording", sections[0].Content);
                 Assert.Equal("Diagnostics", sections[^1].Content);
 

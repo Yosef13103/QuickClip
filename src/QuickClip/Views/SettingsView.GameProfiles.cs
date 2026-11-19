@@ -11,6 +11,22 @@ namespace QuickClip.Views;
 public partial class SettingsView
 {
     private bool _loadingGameProfiles;
+    private System.Windows.Threading.DispatcherTimer? _profileRefreshTimer;
+
+    private void ScheduleActiveProfileRefresh()
+    {
+        if (_profileRefreshTimer == null)
+        {
+            _profileRefreshTimer = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromMilliseconds(700) };
+            _profileRefreshTimer.Tick += (_, _) =>
+            {
+                _profileRefreshTimer.Stop();
+                _ = Recorder.Instance.RefreshActiveProfileAsync();
+            };
+        }
+        _profileRefreshTimer.Stop();
+        _profileRefreshTimer.Start();
+    }
     private RecordingProfileRow? EditingGame =>
         GameProfilePanel?.Visibility == Visibility.Visible && GameProfileCombo?.IsEnabled == true &&
         GameProfileCombo.SelectedItem is RecordingProfileRow { Kind: RecordingProfileRowKind.Game, Enabled: true } row ? row : null;
@@ -47,25 +63,24 @@ public partial class SettingsView
                 ? rows.FirstOrDefault(row => row.Enabled && selectedId != null && row.GameId == selectedId) ?? rows[0]
                 : rows[0];
             GameProfileStatus.Text = readable ? "" : "Profile file is invalid or unavailable. It will not be overwritten.";
-            RefreshGameTagEditor();
+            RefreshGameProfileEditor();
         }
         finally { _loadingGameProfiles = false; }
     }
 
     private void GameProfile_Changed(object sender, SelectionChangedEventArgs e)
     {
-        if (!_loadingGameProfiles && !_loading && IsInitialized) RefreshGameTagEditor();
+        if (!_loadingGameProfiles && !_loading && IsInitialized) RefreshGameProfileEditor();
     }
 
-    private void RefreshGameTagEditor()
+    private void RefreshGameProfileEditor()
     {
         var row = EditingGame;
-        GameTagsPanel.Visibility = GameOverridePanel.Visibility = GameBitratePanel.Visibility =
+        GameOverridePanel.Visibility = GameBitratePanel.Visibility =
             row != null ? Visibility.Visible : Visibility.Collapsed;
         if (row != null)
         {
-            GameTagBox.Text = row.Policy?.Tags is { } tags ? string.Join(Environment.NewLine, tags) : "";
-            GameProfileStatus.Text = "Editing this game's overrides. Changes apply when a new recording session starts. Manual desktop and other games are unaffected.";
+            GameProfileStatus.Text = "Changes to the game being recorded start a fresh replay buffer. Other games and manual desktop are unaffected.";
         }
         else if (GameProfileCombo.IsEnabled)
             GameProfileStatus.Text = "All Games — default recording settings; manual desktop uses these settings.";
@@ -114,7 +129,6 @@ public partial class SettingsView
             ResetProfileButton.IsEnabled = row?.HasOverrides == true;
             GameOverridePanel.Visibility = row != null ? Visibility.Visible : Visibility.Collapsed;
             GameBitratePanel.Visibility = row != null ? Visibility.Visible : Visibility.Collapsed;
-            GameTagsPanel.Visibility = row != null ? Visibility.Visible : Visibility.Collapsed;
             ResetDimensionFields();
             ShowGameWindowState();
             UpdateCropPreview();
@@ -124,9 +138,13 @@ public partial class SettingsView
 
         void SetField(TextBlock label, string name, bool overridden, Button reset)
         {
-            label.Text = row == null ? name : $"{name} ({(overridden ? "override" : "inherited")})";
+            label.Text = name;
             reset.Visibility = row != null ? Visibility.Visible : Visibility.Collapsed;
-            reset.Content = overridden ? "Reset to All Games" : "Keep this value";
+            reset.Content = overridden ? "\uE72C" : "\uE718";
+            reset.SetResourceReference(Control.ForegroundProperty, overridden ? "AccentBrush" : "SubtleText");
+            reset.Opacity = overridden ? 1 : 0.6;
+            reset.ToolTip = overridden ? $"{name}: customized. Reset to All Games." : $"{name}: follows All Games. Click to keep the current value independently.";
+            label.ToolTip = row == null ? null : overridden ? "Customized for this game" : "Follows All Games";
             System.Windows.Automation.AutomationProperties.SetName(reset,
                 overridden ? $"Reset {name} override" : $"Keep {name} independent of All Games");
         }
@@ -163,10 +181,11 @@ public partial class SettingsView
             if (fresh is not { Enabled: true } || fresh.ProfileKey != row.ProfileKey ||
                 JsonSerializer.Serialize(fresh.Policy) != JsonSerializer.Serialize(row.Policy))
                 throw new InvalidOperationException("The game or profile changed. Refresh before saving.");
-            var policy = change(fresh.Policy ?? new());
+            var policy = change(fresh.Policy ?? new()) with { Tags = null };
             policy.Validate();
             store.Save(RecordingProfileSelection.Change(loaded.Document, fresh, policy));
             RefreshGameProfiles(row.GameId);
+            ScheduleActiveProfileRefresh();
             return true;
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException or InvalidOperationException)
@@ -229,7 +248,7 @@ public partial class SettingsView
     private void ResetGameProfile_Click(object sender, RoutedEventArgs e)
     {
         if (EditingGame is not { } row || Window.GetWindow(this) is not { } owner) return;
-        if (ModalDialog.AskConfirmation(owner, $"Reset all overrides and automatic tags for {row.Label}? Other games and existing clips are unchanged.",
+        if (ModalDialog.AskConfirmation(owner, $"Reset all overrides for {row.Label}? Other games and existing clips are unchanged.",
             "Reset recording profile", "Reset profile"))
             SaveProfileChange(_ => new());
     }
@@ -247,18 +266,4 @@ public partial class SettingsView
         SaveProfileChange(p => p with { Bitrate = new(GameRateControl.CustomBitrate, kbps) });
     }
 
-    private void SaveGameTags_Click(object sender, RoutedEventArgs e)
-    {
-        if (EditingGame == null) return;
-        try
-        {
-            var tags = GameDefaultTags.Parse(GameTagBox.Text);
-            if (SaveProfileChange(p => p with { Tags = tags.IsEmpty ? null : tags }))
-                GameProfileStatus.Text = "Automatic tags saved. Existing clips are unchanged.";
-        }
-        catch (ArgumentException ex) { GameProfileStatus.Text = ex.Message; }
-    }
-
-    private void ResetGameTags_Click(object sender, RoutedEventArgs e) =>
-        SaveProfileChange(p => p with { Tags = null });
 }

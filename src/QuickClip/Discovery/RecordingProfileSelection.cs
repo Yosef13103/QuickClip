@@ -5,7 +5,8 @@ internal enum RecordingProfileRowKind { AllGames, Game, Separator }
 internal sealed record RecordingProfileRow(RecordingProfileRowKind Kind, string Label,
     string? GameId = null, string? ProfileKey = null, GameRecordingPolicy? Policy = null, bool Conflict = false)
 {
-    public bool HasOverrides => Policy != null && Policy != new GameRecordingPolicy();
+    // Tags from retired preview feature remain readable but do not count as active overrides.
+    public bool HasOverrides => Policy != null && (Policy with { Tags = null }) != new GameRecordingPolicy();
     public bool Enabled => Kind != RecordingProfileRowKind.Separator && !Conflict;
     public override string ToString() => Label;
 }
