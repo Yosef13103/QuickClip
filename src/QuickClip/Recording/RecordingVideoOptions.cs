@@ -17,7 +17,7 @@ internal sealed record RecordingVideoOptions(string Aspect, int Resolution, int 
         int? kbps = policy?.Bitrate?.Mode switch
         {
             null or GameRateControl.Automatic => null,
-            GameRateControl.CustomBitrate => policy.Bitrate.Kbps,
+            GameRateControl.CustomBitrate => policy?.Bitrate?.Kbps,
             _ => throw new ArgumentException("This profile uses an unsupported recording rate control. Select Auto or target bitrate."),
         };
         return new(policy?.Aspect ?? settings.RecordAspect,
