@@ -32,11 +32,11 @@ internal sealed class ReplayRecoveryJournal
         _directory = Path.GetFullPath(directory);
     }
 
-    internal static ReplayRecoveryJournal Prepare(string directory, MediaSource output, IReadOnlyList<MediaSource> originals)
+    internal static ReplayRecoveryJournal Prepare(string directory, MediaSource output, IReadOnlyList<MediaSource> originals, Guid? transactionId = null)
     {
         if (originals.Count is < 2 or > ReplayCombine.MaxSources)
             throw new ExportException("Choose a valid replay replacement group.");
-        var id = Guid.NewGuid();
+        var id = transactionId ?? Guid.NewGuid();
         var intent = new Intent(id, output, originals.Select((source, i) => new ReplayRecoveryItem(source,
             EscrowPath(source.Path, id, i))).ToArray());
         var journal = new ReplayRecoveryJournal(directory, intent);
@@ -174,6 +174,14 @@ internal sealed class ReplayRecoveryJournal
         }
     }
 
+    // Only the app-owned JSON receipt is retired, never any original or combined media.
+    internal void RetireIfRestored()
+    {
+        using (OpenVerifiedIntent())
+            if (Items.Any(item => Inspect(item) != ReplayOriginalState.Original)) return;
+        File.Delete(JournalPath(_directory, Id));
+    }
+
     private SafeFileHandle OpenVerifiedIntent()
     {
         string path = JournalPath(_directory, Id);
@@ -209,10 +217,10 @@ internal sealed class ReplayRecoveryJournal
         catch (Exception ex) when (ex is ExportException || LibraryFiles.IsAccessError(ex)) { return false; }
     }
 
-    private static string JournalPath(string directory, Guid id) =>
+    internal static string JournalPath(string directory, Guid id) =>
         Path.Combine(Path.GetFullPath(directory), id.ToString("N") + ".json");
 
-    private static string EscrowPath(string source, Guid id, int index) =>
+    internal static string EscrowPath(string source, Guid id, int index) =>
         Path.Combine(Path.GetDirectoryName(source)!, $".quickclip-tmp-replay-{id:N}-{index}.mp4");
 
     private static void Validate(Intent intent)

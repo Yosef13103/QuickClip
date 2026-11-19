@@ -94,6 +94,69 @@ public sealed class ReplayPacketJoinTests(MediaFixture media, Xunit.Abstractions
         Assert.Equal(new[] { 4d, 5d }, managedDetails.Bookmarks.Select(b => b.Seconds));
         Assert.Single(store.ReadCandidates(new HashSet<string> { LibraryFiles.PathKey(managed) }));
         await combineJobs.StopAsync();
+        // Exercise the actual scheduler replacement callback with real remuxed
+        // media, indexed annotations, partial shell failure and restart restoration.
+        var index = new LibraryIndex(db, null, _ => new QuickClip.Gallery.ClipHeader(9, null));
+        var root = await index.RegisterRootAsync(media.Dir);
+        await index.ReconcileAsync(root);
+        var indexed = (await index.ReadGalleryAsync(root, null)).ToDictionary(row => row.Path);
+        await index.SaveGalleryDetailsAsync(new(a.Media, indexed[a.Media].Stamp, indexed[a.Media].Details), firstDetails, default);
+        await index.SaveGalleryDetailsAsync(new(b.Media, indexed[b.Media].Stamp, indexed[b.Media].Details), secondDetails, default);
+        indexed = (await index.ReadGalleryAsync(root, null)).ToDictionary(row => row.Path);
+        var details = new[] { indexed[a.Media].Details, indexed[b.Media].Details };
+        var owner = new MediaOwnership();
+        var replacementJobs = new MediaJobs(owner, () => 1);
+        var policy = new ReplayReplacementPolicy(new(db), path => LibraryFiles.Within(path, media.Dir), _ => false);
+        string recoveryDir = media.Out("replay-recovery");
+        string fakeBin = Directory.CreateDirectory(media.Out("Cache")).FullName;
+        var receipts = new Dictionary<string, QuickClip.Shell.RecycledFile>();
+        bool failSecond = true;
+        bool Recycle(string path)
+        {
+            if (failSecond && receipts.Count > 0) return false;
+            string data = Path.Combine(fakeBin, "$R" + Guid.NewGuid().ToString("N"));
+            File.Move(path, data);
+            receipts[path] = new(data, data + ".info", path, DateTime.UtcNow);
+            return true;
+        }
+        QuickClip.Shell.RecycledFile? Find(string path) => receipts.GetValueOrDefault(path);
+        ReplayReplacementService Service() => new(recoveryDir, policy, Recycle, Find,
+            path => LibraryFiles.Within(path, media.Dir), owner);
+        string fallback = media.Out("replacement-fallback.mp4");
+        var failed = ReplayCombine.Submit(cluster, fallback, TimeSpan.FromMinutes(1), details,
+            replacementJobs, store, Service());
+        var failedResult = await failed.Completion.WaitAsync(TimeSpan.FromSeconds(20));
+        Assert.Equal(MediaJobState.Failed, failedResult.State);
+        Assert.Contains("originals were kept", failedResult.Message);
+        original.Media.Verify(); later.Media.Verify();
+        Assert.Empty(Service().List());
+        await Compare(reference.Media, fallback);
+
+        failSecond = false;
+        string replaced = media.Out("replacement-union.mp4");
+        var replacement = ReplayCombine.Submit(cluster, replaced, TimeSpan.FromMinutes(1), details,
+            replacementJobs, store, Service());
+        var replacementResult = await replacement.Completion.WaitAsync(TimeSpan.FromSeconds(20));
+        Assert.True(replacementResult.State == MediaJobState.Completed, replacementResult.Message);
+        Assert.False(File.Exists(a.Media));
+        Assert.False(File.Exists(b.Media));
+        await Compare(reference.Media, replaced);
+        Assert.True(QuickClip.Gallery.ClipDetailsStore.Read(new FileInfo(replaced), "Fixture", null).IsFavorite);
+        await index.ReconcileAsync(root);
+        Assert.DoesNotContain(await index.ReadGalleryAsync(root, null), row => row.Path == a.Media || row.Path == b.Media);
+        var recovered = Assert.Single(Service().List());
+        await Service().RestoreAsync(recovered.Id, default);
+        Assert.Empty(Service().List());
+        await index.ReconcileAsync(root);
+        indexed = (await index.ReadGalleryAsync(root, null)).ToDictionary(row => row.Path);
+        Assert.Equal(details[0].IndexId, indexed[a.Media].Details.IndexId);
+        Assert.Equal(details[1].IndexId, indexed[b.Media].Details.IndexId);
+        Assert.True(indexed[b.Media].Details.IsFavorite);
+        Assert.Equal(details[0].Bookmarks[0].Id, indexed[a.Media].Details.Bookmarks[0].Id);
+        Assert.True(File.Exists(replaced)); // recovery deliberately keeps the valid combined copy
+        original.Media.Verify(); later.Media.Verify();
+        await replacementJobs.StopAsync();
+
         Assert.Empty(store.ReadCandidates(new HashSet<string>()));
         Assert.Throws<ExportException>(() => store.Add(MediaSource.Capture(a.Media), session,
             0, 6_000_000, File.ReadAllBytes(media.Out("overlap-a.pending"))));

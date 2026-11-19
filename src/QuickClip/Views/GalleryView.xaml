@@ -221,6 +221,9 @@
                         <Button x:Name="FindOverlapsButton" Content="Find overlapping clips" Style="{StaticResource TextButton}"
                                 Click="FindOverlaps_Click" Visibility="{Binding PersonalAnnotations, RelativeSource={RelativeSource AncestorType=views:GalleryView}, Converter={StaticResource ShowIf}}"
                                 ToolTip="Find clips with verified overlapping recording provenance" />
+                        <Button x:Name="RestoreReplayButton" Content="Restore replay originals" Style="{StaticResource TextButton}"
+                                Click="RestoreReplay_Click" Visibility="{Binding PersonalAnnotations, RelativeSource={RelativeSource AncestorType=views:GalleryView}, Converter={StaticResource ShowIf}}"
+                                ToolTip="Recover the originals from an earlier replay combination, keeping its combined file" />
                         <Button x:Name="StorageButton" Content="Storage" Style="{StaticResource TextButton}"
                                 Click="OpenStorage_Click" ToolTip="Show indexed library storage" />
                         <Button Style="{StaticResource TextButton}" Click="OpenFolder_Click" ToolTip="Open this folder in Explorer">

@@ -11,6 +11,15 @@ internal sealed class PersonalLibrary : IClipAnnotationActions, ILibraryInventor
     private readonly SemaphoreSlim _scanGate = new(1);
     private readonly Lazy<LibraryIndex> _index = new(LibraryIndex.ForCurrentProfile);
 
+    // Publish legacy metadata and provenance before a concurrent Gallery scan
+    // can index a just-created combined file without its annotations.
+    internal async Task PublishReplayAsync(Action publish, CancellationToken token)
+    {
+        await _scanGate.WaitAsync(token);
+        try { token.ThrowIfCancellationRequested(); publish(); }
+        finally { _scanGate.Release(); }
+    }
+
     internal async Task<(List<ClipItem> Clips, LibraryScanResult Scan)> LoadAsync(
         string root, string[] exclusions, string[]? scopes, CancellationToken token,
         Action<string, double?>? progress = null)

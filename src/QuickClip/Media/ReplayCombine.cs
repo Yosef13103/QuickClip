@@ -10,7 +10,8 @@ internal static class ReplayCombine
     internal static readonly TimeSpan MaxDuration = TimeSpan.FromHours(1);
 
     internal static (Guid Id, Task<MediaJobView> Completion) Submit(ReplayCluster cluster, string destination,
-        TimeSpan limit, IReadOnlyList<ClipDetails> details, MediaJobs? jobs = null, ReplayProvenanceStore? store = null)
+        TimeSpan limit, IReadOnlyList<ClipDetails> details, MediaJobs? jobs = null, ReplayProvenanceStore? store = null,
+        ReplayReplacementService? replacement = null, bool automatic = false)
     {
         var plan = ReplayPlanner.Subset(cluster, 0, cluster.Clips.Count - 1, limit);
         if (plan.Clips.Count > MaxSources || limit > MaxDuration || limit <= TimeSpan.Zero ||
@@ -22,10 +23,15 @@ internal static class ReplayCombine
             sources.Any(s => string.Equals(s.Path, destination, StringComparison.OrdinalIgnoreCase)) ||
             sources.Select(s => s.Path).Distinct(StringComparer.OrdinalIgnoreCase).Count() != sources.Length)
             throw new ExportException("Choose a distinct MP4 destination and distinct original clips.");
+        details = details.ToArray();
         var combinedDetails = MergeDetails(plan, details);
+        bool profileStore = store == null;
+        if (Path.Exists(destination)) throw new ExportException("Choose a new combined recording filename.");
+        MediaSource? published = null;
+        var transactionId = Guid.NewGuid();
         store ??= ReplayProvenanceStore.Current;
         var provenance = store;
-        return (jobs ?? MediaJobs.Current).Submit(new(Path.GetFileName(destination), false, sources, destination,
+        var request = new MediaJobRequest(Path.GetFileName(destination), false, sources, destination,
             async (job, ct) =>
             {
                 string directory = Path.GetDirectoryName(destination)!;
@@ -54,22 +60,40 @@ internal static class ReplayCombine
                         throw new ExportException("The combined replay proof exceeds the metadata limit.");
                     byte[] proofBytes = File.ReadAllBytes(outputProof.Path);
                     ct.ThrowIfCancellationRequested();
-                    File.Move(staged.Path, destination); // never overwrite an existing file
-                    try
+                    var snapshot = MediaSource.Capture(staged.Path) with { Path = destination };
+                    void Publish()
                     {
-                        ClipDetailsStore.Write(destination, combinedDetails);
-                        provenance.Add(MediaSource.Capture(destination), plan.Clips[0].Session,
-                            plan.FirstUs, plan.EndUs, proofBytes);
+                        File.Move(staged.Path, destination); // never overwrite an existing file
+                        try
+                        {
+                            using var outputHandle = snapshot.OpenVerified();
+                            ClipDetailsStore.Write(destination, combinedDetails);
+                            provenance.Add(snapshot, plan.Clips[0].Session, plan.FirstUs, plan.EndUs, proofBytes);
+                            published = snapshot;
+                        }
+                        catch (Exception ex)
+                        {
+                            Log.Failure(DiagnosticCategory.Library, "Combined replay metadata could not be saved", ex);
+                            throw new ExportException("The combined video was saved, but its metadata could not be committed. All originals were kept.");
+                        }
                     }
-                    catch (Exception ex)
-                    {
-                        Log.Failure(DiagnosticCategory.Library, "Combined replay metadata could not be saved", ex);
-                        throw new ExportException("The combined video was saved, but its metadata could not be committed. All originals were kept.");
-                    }
+                    if (profileStore) await PersonalLibrary.Current.PublishReplayAsync(Publish, ct);
+                    else Publish();
                     return destination;
                 }
                 finally { foreach (var manifest in manifests) manifest.Dispose(); }
-            }));
+            });
+        if (replacement != null)
+            request = request with
+            {
+                Mutations = sources.Select(source => source.Path).ToArray(),
+                AdditionalDestinations = replacement.ReservedPaths(transactionId, sources),
+                ProtectEditorSources = true,
+                Replace = (_, ct) => replacement.CommitAsync(transactionId,
+                    published ?? throw new ExportException("The combined recording is not validated."),
+                    sources, details, automatic, ct),
+            };
+        return (jobs ?? MediaJobs.Current).Submit(request);
     }
 
     internal static ClipDetails MergeDetails(ReplayCluster plan, IReadOnlyList<ClipDetails> details)
@@ -87,7 +111,7 @@ internal static class ReplayCombine
         if (tags.Length > ClipDetails.MaxTags || bookmarks.Length > ClipDetails.MaxBookmarks ||
             bookmarks.Select(b => b.Seconds).Distinct().Count() != bookmarks.Length)
             throw new ExportException("The combined annotations exceed the supported limits. Choose fewer clips.");
-        return new(details[0].CapturedAt, details[0].Game, "Combined replay")
+        return new(details[0].CapturedAt, details[0].Game, details.Select(d => d.Title).FirstOrDefault(t => !string.IsNullOrWhiteSpace(t)) ?? "Combined replay")
         {
             Tags = tags, Bookmarks = bookmarks, IsFavorite = details.Any(d => d.IsFavorite),
         };
