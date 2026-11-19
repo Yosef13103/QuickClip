@@ -887,13 +887,14 @@
         "QUALITY Q2/Q4"
       ],
       "scope": [
-        "Selected clips: count tags and remove/replace one tag via existing annotation actions. Preserve unrelated annotations, report per-clip errors. No file moves or new schema."
+        "Selected clips: count tags and remove/replace one tag via existing annotation actions. Preserve unrelated annotations, report per-clip errors. No file moves or new schema.",
+        "Tag-only SQLite write uses existing source/revision fence, never overwrites other annotation values or override flags."
       ],
       "acceptance": [
         "Verify case-insensitive counts, merge into an existing tag, limits, stale revisions and actual Gallery dialog."
       ],
       "status": "implemented",
-      "candidate": "5b35263b5b734532d2ca26ddd54fa6b3322435a3",
+      "candidate": "2843bda294970ef460a03bd1dd3ddbbb4b7b1187",
       "gates": {
         "local": "blocked",
         "ci": "pending",
@@ -901,7 +902,8 @@
         "hardware": "pending"
       },
       "evidence": [
-        "Remote-only implementation, tests added but not executed locally; owner using PC. Runtime existing SaveDraftAsync/annotation persistence retained."
+        "Remote-only implementation, tests added but not executed locally; owner using PC. Runtime existing SaveDraftAsync/annotation persistence retained.",
+        "Regression fixture verifies tag-only write, untouched flags/bookmarks/favorites and stale revision rejection. Tests not yet executed."
       ],
       "blocker": "No owner-PC builds this turn. Full tag manager, hidden state, folder hierarchy and global rename remain separate.",
       "next_action": "Verify exact draft Windows CI, then isolated Gallery acceptance and integrate with accepted maintenance/B as appropriate."
