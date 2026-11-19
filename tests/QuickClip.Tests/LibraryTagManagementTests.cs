@@ -125,6 +125,20 @@ public sealed class LibraryTagManagementTests
     }
 
     [Fact]
+    public async Task Exact_tag_query_is_scoped_and_does_not_match_substrings()
+    {
+        using var f = new Fixture();
+        await f.InitializeAsync();
+        await f.SeedAsync(f.First, ["Funny"]);
+        await f.SeedAsync(f.Second, ["Funny moments"]);
+        await f.SeedAsync(f.Other, ["Funny"]);
+        var rows = await f.Index.ReadGalleryAsync(f.RootId, null, exactTag: "FUNNY");
+        Assert.Equal(f.First, Assert.Single(rows).Path);
+        Assert.Equal(2, (await f.Index.ReadGalleryAsync(null, null, exactTag: "Funny")).Count);
+        Assert.Empty(await f.Index.ReadGalleryAsync(f.RootId, null, exactTag: "Fun"));
+    }
+
+    [Fact]
     public async Task Limit_failure_is_atomic_and_cancelled_work_does_not_commit()
     {
         using var f = new Fixture();
