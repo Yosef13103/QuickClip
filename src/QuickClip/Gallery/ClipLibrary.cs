@@ -36,14 +36,15 @@ public sealed class ClipItem : INotifyPropertyChanged
     public string Title => Details.Title ?? System.IO.Path.GetFileNameWithoutExtension(File.Name);
     public bool IsFavorite => Details.IsFavorite;
     public string TagText => string.Join("  ·  ", Details.Tags);
-    public sealed record TagBadge(string Name, System.Windows.Media.Brush Swatch);
+    public sealed record TagBadge(string Name, Brush Fill, Brush Ink, string Tooltip);
     public TagBadge[] TagBadges => Details.Tags.Select(tag =>
     {
         var color = Details.TagColors.GetValueOrDefault(LibraryFiles.TextKey(tag));
-        if (!TagPalette.Valid(color) || color == null) return new TagBadge(tag, Brushes.Transparent);
-        var brush = new SolidColorBrush((Color)ColorConverter.ConvertFromString(color));
+        // Neutral tags remain visible on both light and dark cards. Palette fills
+        // are intentionally light enough for a dark label, independent of theme.
+        var brush = new SolidColorBrush((Color)ColorConverter.ConvertFromString(TagPalette.Valid(color) && color != null ? color : "#CBD5E1"));
         brush.Freeze();
-        return new TagBadge(tag, brush);
+        return new TagBadge(tag, brush, Brushes.Black, $"Filter by {tag}");
     }).ToArray();
     public DateTime Created { get; }
     public DateTime FileCreatedAt { get; }
