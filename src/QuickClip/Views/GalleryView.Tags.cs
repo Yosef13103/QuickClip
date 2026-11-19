@@ -8,6 +8,47 @@ namespace QuickClip.Views;
 
 public partial class GalleryView
 {
+    private string[] _exactTags = [];
+    private bool _matchAllTags = true;
+
+    private void RefreshTagFilterButton()
+    {
+        if (MultiTagFilterButton == null) return;
+        MultiTagFilterButton.Content = _exactTags.Length == 0
+            ? "Multiple tags…" : $"{_exactTags.Length} tags ({(_matchAllTags ? "all" : "any")})…";
+        MultiTagFilterButton.ToolTip = _exactTags.Length == 0
+            ? "Filter by exact tags" : string.Join(", ", _exactTags);
+    }
+
+    private void MultiTagFilter_Click(object sender, RoutedEventArgs e)
+    {
+        if (_released || !PersonalAnnotations ||
+            Window.GetWindow(this) is not { IsVisible: true, Content: Panel } owner) return;
+        var names = KnownTags.Concat(_exactTags).Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(tag => tag, StringComparer.OrdinalIgnoreCase).ToArray();
+        var choices = new ListBox { ItemsSource = names, SelectionMode = SelectionMode.Multiple,
+            MaxHeight = 260, MinHeight = 60 };
+        foreach (string name in names.Where(tag => _exactTags.Contains(tag, StringComparer.OrdinalIgnoreCase)))
+            choices.SelectedItems.Add(name);
+        var matchAll = new CheckBox { Content = "Require all selected tags (otherwise any)", IsChecked = _matchAllTags,
+            Margin = new Thickness(0, 12, 0, 4) };
+        var clear = new Button { Content = "Clear tag selection", HorizontalAlignment = HorizontalAlignment.Left,
+            Margin = new Thickness(0, 8, 0, 0) };
+        clear.Click += (_, _) => choices.SelectedItems.Clear();
+        AutomationProperties.SetName(choices, "Exact tags to filter");
+        var panel = new StackPanel();
+        panel.Children.Add(new TextBlock { Text = "Choose one or more exact tags. Other search and favorite filters still apply. No selection means no exact tag filter.",
+            TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 0, 0, 8) });
+        panel.Children.Add(choices);
+        panel.Children.Add(matchAll);
+        panel.Children.Add(clear);
+        if (!ModalDialog.Run(owner, "Filter by multiple tags", panel, "Apply filter", "Cancel")) return;
+        _exactTags = choices.SelectedItems.Cast<string>().ToArray();
+        _matchAllTags = matchAll.IsChecked == true;
+        RefreshTagFilterButton();
+        OrganizationFilter_Changed(this, new RoutedEventArgs());
+    }
+
     private sealed record TagChoice(string Name, int Count)
     {
         public string Label => $"{Name}  ·  {Count:N0}";
