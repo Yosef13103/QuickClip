@@ -49,6 +49,68 @@ public partial class GalleryView
         OrganizationFilter_Changed(this, new RoutedEventArgs());
     }
 
+    private async void LibraryTags_Click(object sender, RoutedEventArgs e)
+    {
+        if (!PersonalLibrary.Enabled || _loading || _released || _editingAnnotations ||
+            Window.GetWindow(this) is not { IsVisible: true, Content: Panel } owner ||
+            !await FlushAnnotationsAsync() || _released || _loading || _editingAnnotations) return;
+        _editingAnnotations = true;
+        GalleryDetailsEditor.IsEnabled = false;
+        try
+        {
+            var old = new ComboBox { ItemsSource = KnownTags.ToArray(), SelectedIndex = 0 };
+            var replacement = new TextBox { MaxLength = ClipDetails.MaxTagLength };
+            var error = new TextBlock { TextWrapping = TextWrapping.Wrap };
+            AutomationProperties.SetName(old, "Library tag to rename or merge");
+            AutomationProperties.SetName(replacement, "Replacement tag");
+            var panel = new StackPanel();
+            panel.Children.Add(new TextBlock { Text = "Rename or merge a tag across available indexed clips in configured folders, regardless of current Gallery filters. Missing, unavailable and excluded clips are unchanged. Maximum 256 matching clips per operation.", TextWrapping = TextWrapping.Wrap });
+            panel.Children.Add(new TextBlock { Text = "Existing tag", Margin = new Thickness(0, 12, 0, 4) });
+            panel.Children.Add(old);
+            panel.Children.Add(new TextBlock { Text = "Replace with (existing or new)", Margin = new Thickness(0, 8, 0, 4) });
+            panel.Children.Add(replacement);
+            panel.Children.Add(error);
+            if (!ModalDialog.Run(owner, "Library tags", panel, "Review changes", "Cancel", safeDefault: true,
+                validate: () =>
+                {
+                    var name = replacement.Text.Trim();
+                    if (old.SelectedItem is string source && ClipDetails.IsValidTag(name) &&
+                        LibraryFiles.TextKey(source) != LibraryFiles.TextKey(name)) return true;
+                    error.Text = "Choose an existing tag and a different valid replacement.";
+                    return false;
+                })) return;
+            if (old.SelectedItem is not string sourceTag || _released) return;
+            string newTag = replacement.Text.Trim();
+            var targets = await PersonalLibrary.Current.ReadTagTargetsAsync(sourceTag, _lifetime.Token);
+            if (_released) return;
+            if (targets.Length == 0) { ShowStatus("No available indexed clips use this tag."); return; }
+            if (!ModalDialog.AskConfirmation(owner,
+                $"Replace {sourceTag} with {newTag} on {targets.Length:N0} indexed clips? Only the reviewed clips will change. Other annotations and media are untouched.",
+                "Confirm library tag replacement", "Replace tags")) return;
+            if (_released || !PersonalLibrary.Enabled) return;
+            var job = WithProgressAsync("Replacing library tag", targets.Length, _ =>
+                PersonalLibrary.Current.ApplyTagDeltaAsync(targets, [newTag], [sourceTag], _lifetime.Token, replaceOnlyPresent: true));
+            _annotationJob = job;
+            int changed = await job;
+            if (_released) return;
+            await ReloadAsync(rereadIndex: true);
+            ShowStatus($"Replaced tags on {changed:N0} clip(s).");
+        }
+        catch (OperationCanceledException) when (_lifetime.IsCancellationRequested) { }
+        catch (Exception ex)
+        {
+            Log.Failure(DiagnosticCategory.Library, "Library tag replacement failed", ex);
+            if (!_released) ShowStatus(ex is LibraryConflictException or ArgumentException ? ex.Message :
+                "Could not complete library tag replacement. Refresh before retrying.");
+        }
+        finally
+        {
+            _annotationJob = null;
+            _editingAnnotations = false;
+            GalleryDetailsEditor.IsEnabled = true;
+        }
+    }
+
     private sealed record TagChoice(string Name, int Count)
     {
         public string Label => $"{Name}  ·  {Count:N0}";
