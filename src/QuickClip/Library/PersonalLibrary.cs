@@ -165,6 +165,22 @@ internal sealed class PersonalLibrary : IClipAnnotationActions, ILibraryInventor
         return results;
     }
 
+    // Explicit available-index snapshot across configured folders, independent
+    // of Gallery search/folder filters. Unavailable and excluded media are not edited.
+    internal async Task<ClipAnnotationTarget[]> ReadTagTargetsAsync(string tag, CancellationToken token)
+    {
+        if (!Enabled || !ClipDetails.IsValidTag(tag))
+            throw new ArgumentException("Choose a valid indexed tag.");
+        var rows = await _index.Value.ReadGalleryAsync(null, null, token, exactTag: tag);
+        var targets = rows.Where(row => WithinConfiguredRoot(row.Path)).Take(257).ToArray();
+        if (targets.Length > 256)
+            throw new LibraryConflictException("More than 256 indexed clips use this tag. Use smaller selections.");
+        return targets.Select(row => new ClipAnnotationTarget(row.Path, row.Stamp, row.Details)
+        {
+            Source = new FileStamp(row.Stamp.Created.Ticks, row.Stamp.Modified.Ticks, row.Stamp.Length, row.Identity),
+        }).ToArray();
+    }
+
     internal Task<int> ApplyTagDeltaAsync(IReadOnlyCollection<ClipAnnotationTarget> targets,
         IReadOnlyCollection<string> add, IReadOnlyCollection<string> remove, CancellationToken token,
         bool replaceOnlyPresent = false)
