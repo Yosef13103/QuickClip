@@ -27,6 +27,8 @@ internal sealed class AppHost : IDisposable
     private readonly Dictionary<RecordingBadge, IntPtr> _statusIcons = [];
     private bool _iconAdded;
     private DispatcherTimer? _updateTimer;
+    private DispatcherTimer? _updatePromptTimer;
+    private readonly UpdatePromptPolicy _updatePromptPolicy = new();
     private DispatcherTimer? _shareCleanupTimer;
     private bool _sourceBalloonShown;
     private string? _lastSourceGuidance;
@@ -48,6 +50,7 @@ internal sealed class AppHost : IDisposable
     public event Action? OpenRequested;
     /// <summary>The user clicked the "update available" notification.</summary>
     public event Action? UpdateRequested;
+    internal Func<ReleaseInfo, bool>? OfferUpdate { get; set; }
     public event Action? RecordingSettingsRequested;
     public event Action? QuitRequested;
     internal Func<bool>? CanRefresh { get; set; }
@@ -96,10 +99,37 @@ internal sealed class AppHost : IDisposable
     private async Task CheckForUpdateAsync()
     {
         var release = await Updater.CheckAsync();
-        if (release == null || release.Version == _notifiedVersion) return;
+        if (release == null || !AppSettings.Current.CheckForUpdates) return;
+        if (AppProfile.IsPersonal)
+        {
+            if (!_updatePromptPolicy.ShouldOffer(release, AppVersion.Current, true, AppSettings.Current.SkippedUpdateVersion)) return;
+            _updatePromptTimer ??= new DispatcherTimer(DispatcherPriority.Background, _dispatcher)
+                { Interval = TimeSpan.FromSeconds(5) };
+            _updatePromptTimer.Tick -= OfferPendingUpdate;
+            _updatePromptTimer.Tick += OfferPendingUpdate;
+            _updatePromptTimer.Start();
+            OfferPendingUpdate(this, EventArgs.Empty);
+        }
+        if (release.Version == _notifiedVersion || AppProfile.IsPersonal && !_updatePromptPolicy.ShouldOffer(release,
+                AppVersion.Current, AppSettings.Current.CheckForUpdates, AppSettings.Current.SkippedUpdateVersion)) return;
         _notifiedVersion = release.Version;
         Notify("Update available", $"QuickClip {release.Version.Display} is ready to install. Click to see what's new.");
         _updateBalloonShown = true;
+    }
+
+    private void OfferPendingUpdate(object? sender, EventArgs args)
+    {
+        var release = Updater.Available;
+        if (!Updater.IsEnabled || release == null || !_updatePromptPolicy.ShouldOffer(release, AppVersion.Current,
+            AppSettings.Current.CheckForUpdates, AppSettings.Current.SkippedUpdateVersion))
+        {
+            _updatePromptTimer?.Stop();
+            return;
+        }
+        // Stop before entering a nested dispatcher frame; a refused offer can retry.
+        _updatePromptTimer?.Stop();
+        if (OfferUpdate?.Invoke(release) == true) _updatePromptPolicy.Dismiss(release.Version);
+        else _updatePromptTimer?.Start();
     }
 
     private void RegisterHotkey()
@@ -595,6 +625,7 @@ internal sealed class AppHost : IDisposable
     {
         if (AppProfile.IsPersonal) GameCatalogRuntime.Discovery.Dispose();
         _updateTimer?.Stop();
+        _updatePromptTimer?.Stop();
         _shareCleanupTimer?.Stop();
         _captureAlertTimer?.Stop();
         Recorder.Instance.ReplaySaved -= OnReplaySaved;
