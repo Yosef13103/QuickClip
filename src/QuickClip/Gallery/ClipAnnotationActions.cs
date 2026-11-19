@@ -27,6 +27,8 @@ internal sealed record ClipAnnotationResult(string Path, ClipDetails? Details, s
 internal interface IClipAnnotationActions
 {
     Task<ClipAnnotationResult> SaveDraftAsync(ClipAnnotationTarget target, ClipDetails draft, CancellationToken token);
+    Task<ClipAnnotationResult> SaveTagsAsync(ClipAnnotationTarget target, string[] tags, CancellationToken token) =>
+        SaveDraftAsync(target, target.Details with { Tags = tags }, token);
     Task<IReadOnlyList<ClipAnnotationResult>> ApplyAsync(IReadOnlyList<ClipAnnotationTarget> targets,
         string? addTag, bool? favorite, CancellationToken token);
 }

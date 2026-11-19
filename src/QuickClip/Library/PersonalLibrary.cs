@@ -101,7 +101,14 @@ internal sealed class PersonalLibrary : IClipAnnotationActions, ILibraryInventor
 
     private static bool WithinConfiguredRoot(string path) => SavedRecordingFolders.ContainsMedia(AppSettings.Current, path);
 
-    public async Task<ClipAnnotationResult> SaveDraftAsync(ClipAnnotationTarget target, ClipDetails draft, CancellationToken token)
+    public Task<ClipAnnotationResult> SaveDraftAsync(ClipAnnotationTarget target, ClipDetails draft, CancellationToken token) =>
+        SaveDetailsAsync(target, draft, token, tagsOnly: false);
+
+    public Task<ClipAnnotationResult> SaveTagsAsync(ClipAnnotationTarget target, string[] tags, CancellationToken token) =>
+        SaveDetailsAsync(target, target.Details with { Tags = tags }, token, tagsOnly: true);
+
+    private async Task<ClipAnnotationResult> SaveDetailsAsync(ClipAnnotationTarget target, ClipDetails draft,
+        CancellationToken token, bool tagsOnly)
     {
         if (!Enabled || !WithinConfiguredRoot(target.Path))
             return await LegacyClipAnnotationActions.Instance.SaveDraftAsync(target, draft, token);
@@ -122,7 +129,7 @@ internal sealed class PersonalLibrary : IClipAnnotationActions, ILibraryInventor
                 target = target with { Details = indexed };
                 draft = draft with { Bookmarks = indexed.Bookmarks };
             }
-            var revision = await _index.Value.SaveGalleryDetailsAsync(target, draft, token);
+            var revision = await _index.Value.SaveGalleryDetailsAsync(target, draft, token, tagsOnly);
             var row = (await _index.Value.ReadGalleryAsync(null, target.Path)).SingleOrDefault();
             if (row == null || row.Details.IndexId != target.Details.IndexId)
                 return new(target.Path, null, "Saved, but the media is no longer available.");

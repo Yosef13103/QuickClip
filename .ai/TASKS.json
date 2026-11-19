@@ -876,6 +876,37 @@
       ],
       "blocker": "The local sandbox denies the existing scratch startup registry fixture. Full verification requires hosted Windows quality CI.",
       "next_action": "Verify both hosted Windows quality jobs in the draft stacked on chatgpt/wave2-owner-polish. Then run the supervised clipboard, UI, and performance matrix against the exact draft head."
+    },
+    {
+      "id": "W2-E1-TAGS",
+      "title": "Selected Gallery tag management",
+      "kind": "implementation",
+      "depends_on": [],
+      "read": [
+        "PRODUCT Editor, Gallery and storage",
+        "QUALITY Q2/Q4"
+      ],
+      "scope": [
+        "Selected clips: count tags and remove/replace one tag via existing annotation actions. Preserve unrelated annotations, report per-clip errors. No file moves or new schema.",
+        "Tag-only SQLite write uses existing source/revision fence, never overwrites other annotation values or override flags."
+      ],
+      "acceptance": [
+        "Verify case-insensitive counts, merge into an existing tag, limits, stale revisions and actual Gallery dialog."
+      ],
+      "status": "implemented",
+      "candidate": "2843bda294970ef460a03bd1dd3ddbbb4b7b1187",
+      "gates": {
+        "local": "blocked",
+        "ci": "pending",
+        "review": "pending",
+        "hardware": "pending"
+      },
+      "evidence": [
+        "Remote-only implementation, tests added but not executed locally; owner using PC. Runtime existing SaveDraftAsync/annotation persistence retained.",
+        "Regression fixture verifies tag-only write, untouched flags/bookmarks/favorites and stale revision rejection. Tests not yet executed."
+      ],
+      "blocker": "No owner-PC builds this turn. Full tag manager, hidden state, folder hierarchy and global rename remain separate.",
+      "next_action": "Verify exact draft Windows CI, then isolated Gallery acceptance and integrate with accepted maintenance/B as appropriate."
     }
   ]
 }

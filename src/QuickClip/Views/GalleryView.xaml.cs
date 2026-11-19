@@ -808,13 +808,64 @@ public partial class GalleryView : UserControl
         favorite.Click += async (_, _) => await UpdateAnnotationsAsync(CurrentClips.Where(clip => clip.IsSelected).ToArray(), favorite: true);
         var unfavorite = new MenuItem { Header = "Remove from favorites" };
         unfavorite.Click += async (_, _) => await UpdateAnnotationsAsync(CurrentClips.Where(clip => clip.IsSelected).ToArray(), favorite: false);
+        var editTags = new MenuItem { Header = "Remove or replace tag…",
+            IsEnabled = CurrentClips.Any(clip => clip.IsSelected && clip.Details.Tags.Length > 0) };
+        editTags.Click += async (_, _) => await EditSelectedTagsAsync();
         menu.Items.Add(tag);
+        menu.Items.Add(editTags);
         menu.Items.Add(favorite);
         menu.Items.Add(unfavorite);
         menu.IsOpen = true;
     }
 
-    private async Task UpdateAnnotationsAsync(IReadOnlyList<ClipItem> clips, string? addTag = null, bool? favorite = null)
+    private async Task EditSelectedTagsAsync()
+    {
+        if (_released || _editingAnnotations || !PersonalAnnotations ||
+            Window.GetWindow(this) is not { IsVisible: true, Content: Panel } owner) return;
+        if (!await FlushAnnotationsAsync() || _released) return;
+        var clips = CurrentClips.Where(clip => clip.IsSelected).ToArray();
+        var counts = ClipTagEdit.Counts(clips.Select(clip => clip.Details));
+        if (counts.Length == 0) return;
+        var tags = new ComboBox { ItemsSource = counts, DisplayMemberPath = nameof(ClipTagCount.Label), SelectedIndex = 0 };
+        var replacement = new TextBox { MaxLength = ClipDetails.MaxTagLength, Margin = new Thickness(0, 4, 0, 0) };
+        System.Windows.Automation.AutomationProperties.SetName(tags, "Tag to remove or replace");
+        System.Windows.Automation.AutomationProperties.SetName(replacement, "Replacement tag (optional)");
+        var panel = new StackPanel();
+        panel.Children.Add(new TextBlock
+        {
+            Text = $"Only affects the {clips.Length} selected clip(s). Counts show how many selected clips use each tag.",
+            TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 0, 0, 8),
+        });
+        panel.Children.Add(tags);
+        panel.Children.Add(new TextBlock
+        {
+            Text = "Replacement tag (leave blank to remove)", Margin = new Thickness(0, 12, 0, 0),
+        });
+        panel.Children.Add(replacement);
+        if (!ModalDialog.Run(owner, "Edit selected tags", panel, "Apply", "Cancel", safeDefault: true,
+            validate: () =>
+            {
+                try
+                {
+                    if (tags.SelectedItem is not ClipTagCount choice) return false;
+                    _ = new ClipTagEdit(choice.Name, replacement.Text);
+                    return true;
+                }
+                catch (ArgumentException) { return false; }
+            }) || _released || tags.SelectedItem is not ClipTagCount selected) return;
+        var change = new ClipTagEdit(selected.Name, replacement.Text);
+        var affected = clips.Where(clip => !ReferenceEquals(change.Apply(clip.Details), clip.Details)).ToArray();
+        if (affected.Length == 0) { ShowStatus("No tags need changing."); return; }
+        if (!ModalDialog.AskConfirmation(owner,
+            change.Replacement == null
+                ? $"Remove {change.Source} from {affected.Length} selected clip(s)?"
+                : $"Replace {change.Source} with {change.Replacement} on {affected.Length} selected clip(s)?",
+            "Edit selected tags", "Apply")) return;
+        await UpdateAnnotationsAsync(affected, tagEdit: change);
+    }
+
+    private async Task UpdateAnnotationsAsync(IReadOnlyList<ClipItem> clips, string? addTag = null, bool? favorite = null,
+        ClipTagEdit? tagEdit = null)
     {
         if (!PersonalAnnotations || _editingAnnotations || _released || !SelectionActions.IsEnabled || clips.Count == 0) return;
         if (InlineDetails.IsVisible && (GalleryDetailsEditor.HasDraft || GalleryDetailsEditor.IsSaving))
@@ -832,7 +883,9 @@ public partial class GalleryView : UserControl
         {
             var targets = clips.Select(ClipAnnotationTarget.For).ToArray();
             var job = WithProgressAsync("Updating annotations", targets.Length,
-                _ => AnnotationActions.ApplyAsync(targets, addTag, favorite, CancellationToken.None));
+                _ => tagEdit == null
+                    ? AnnotationActions.ApplyAsync(targets, addTag, favorite, CancellationToken.None)
+                    : tagEdit.SaveAsync(AnnotationActions, targets, CancellationToken.None));
             _annotationJob = job;
             var results = await job;
             if (_released) return;
