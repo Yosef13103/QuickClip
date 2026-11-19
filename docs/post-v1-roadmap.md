@@ -16,6 +16,13 @@ Remaining verification, not blanket reimplementation: actual v1.0→1.1 in-place
 - W2-D native live replay duration resizing: grow retains history/session, shrink immediately caps/evicts; concurrent saves/keyframes/audio/markers/caps. W2-L bounded opt-in categorical diagnostics/timing, cheap off path, essential errors retained, benchmark. W2-U safe Personal installation/staging/rollback: reuse shipped stable-feed verification; explicit approval, no interruption, safe extraction/exit/recovery/profile isolation. No nightlies.
 - W2-Z combined candidate strict checks, owner hardware and packaging acceptance; separate approval before release. Version depends on actual accepted scope. See active board for acceptance and dependencies. Do not require all future launcher research to finish basic game eligibility.
 
+### Later Wave 2 workstreams (preserve original lettered scope)
+- A stabilization and D sharing/export/media jobs previously shipped; reconcile actual branch dependencies and acceptance before B release.
+- B overlapping replay consolidation now implemented in draft, pending hardware, integration, migration/recovery and performance acceptance.
+- C visual Theme Designer/gradients remains independently pending.
+- E Gallery hierarchy, folder/tag organization and hidden clips follows B; owner wants improved tagging after B. Existing SQLite tags, favorites and bookmarks already shipped. Audit the existing UX and agree the additional scope rather than rebuild tags. Preserve identities, annotations, recovery, paths and media ownership. E can precede C if owner prioritizes library workflow.
+- Historical W2-D dynamic replay resizing is independently deferred, not the lettered D sharing workstream.
+
 ## Wave 3 — Capture architecture and companion applications (dormant, not dispatched)
 
 Activation requires owner-approved W2 reconciliation/closed scope and real baseline. First research gate W3-RESEARCH; no production hook until scope, license, permissions, prototype and fallback are supported. Companion activity research can run independently; serial native writes. GPU optimization follows measured evidence; integrate W3 before W4.
