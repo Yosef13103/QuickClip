@@ -87,6 +87,8 @@ internal static partial class CaptureEngine
     internal static int ReadMicrophoneSample(long token, short[] buffer) =>
         qc_read_mic_sample(token, buffer, buffer.Length);
 
+    internal static bool FinishMicrophoneSample(long token) => qc_finish_mic_sample(token) == 1;
+
     internal static void StopMicrophoneTest(long token) => qc_stop_mic_test(token);
 
     internal static void DrainAudioOnShutdown()
@@ -101,5 +103,6 @@ internal static partial class CaptureEngine
     [DllImport(Dll, CharSet = CharSet.Unicode, ExactSpelling = true)]
     private static extern int qc_start_mic_sample(string id, out long token);
     [DllImport(Dll)] private static extern int qc_read_mic_sample(long token, [Out] short[] pcm, int capacity);
+    [DllImport(Dll)] private static extern int qc_finish_mic_sample(long token);
     [DllImport(Dll)] private static extern void qc_stop_mic_test(long token);
 }

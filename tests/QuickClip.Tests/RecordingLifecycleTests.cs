@@ -22,8 +22,8 @@ public sealed class RecordingLifecycleTests
     private static GameCaptureObservation Game(int id)
     {
         var owner = new WindowOwner((IntPtr)id, 10, (uint)id, 42);
-        var exe = $"Game{id}.exe";
-        var entry = new CatalogEntry($"test:{id}", exe, CatalogSource.Manual, [], [exe], new());
+        var exe = $@"C:\Games\Fixture\Game{id}.exe";
+        var entry = new CatalogEntry($"test:{id}", Path.GetFileName(exe), CatalogSource.Manual, [], [exe], new());
         return new(owner, exe, new(CatalogMatchKind.Game, entry), new(owner, exe, true), true);
     }
 
