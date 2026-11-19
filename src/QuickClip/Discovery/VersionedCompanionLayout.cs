@@ -25,7 +25,9 @@ internal sealed class VersionedCompanionLayout
             stem.EndsWith("HELPER", StringComparison.Ordinal) ||
             stem.EndsWith("LAUNCHER", StringComparison.Ordinal) ||
             stem.EndsWith("HELPER64", StringComparison.Ordinal) ||
-            CatalogPaths.IsProtectedExecutable(Path.Combine(local, executableName))) return null;
+            stem == "QUICKCLIP" ||
+            CatalogPaths.DefaultRole(Path.Combine(local, executableName)) is not
+                (CatalogMatchKind.Unknown or CatalogMatchKind.Companion)) return null;
         return new(local, executableName);
     }
 
