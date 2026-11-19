@@ -705,6 +705,12 @@ public partial class GamesSettingsView : UserControl
             return;
         }
 
+        if (row.Issue == DetectionIssue.OwnershipConflict)
+        {
+            ChooseSharedOwner(row);
+            return;
+        }
+
         string? initial = row.Entry.InstallDirectories.FirstOrDefault();
         if (row.Issue == DetectionIssue.MinecraftJava)
         {
@@ -717,6 +723,53 @@ public partial class GamesSettingsView : UserControl
         }
         string? name = row.Issue == DetectionIssue.MinecraftJava ? "Minecraft Java Edition" : row.Entry.DisplayName;
         PickExecutables(row.IsManual ? row.Entry : null, initial, row.IsManual ? null : name);
+    }
+
+    private void ChooseSharedOwner(GameRow row)
+    {
+        if (Window.GetWindow(this) is not { } owner) return;
+        var state = State;
+        var entries = GameCatalogRuntime.Rows(state);
+        var index = new GameCatalogIndex(new(entries, [], 0, false, default), CatalogClaims.BlockedExecutables(state));
+        var conflicts = SharedGameOwnership.Conflicts(row.Entry, index);
+        if (conflicts.Length == 0) { row.ActionError = "No unresolved shared executable remains."; return; }
+        var files = new ComboBox { ItemsSource = conflicts, SelectedIndex = 0 };
+        var games = new ComboBox { DisplayMemberPath = nameof(CatalogEntry.DisplayName) };
+        System.Windows.Automation.AutomationProperties.SetName(files, "Shared executable");
+        System.Windows.Automation.AutomationProperties.SetName(games, "Recording game name");
+        void RefreshOwners()
+        {
+            if (files.SelectedItem is not string path) return;
+            games.ItemsSource = SharedGameOwnership.Claimants(entries, path);
+            games.SelectedItem = ((CatalogEntry[])games.ItemsSource).FirstOrDefault(entry => entry.Id == row.Entry.Id);
+        }
+        files.SelectionChanged += (_, _) => RefreshOwners();
+        RefreshOwners();
+        var panel = new StackPanel();
+        panel.Children.Add(new TextBlock { Text = "Choose which game owns this exact executable when recording. Other game files keep their existing names and rules. For servers or tools, use Block selected executable instead.", TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 0, 0, 8) });
+        panel.Children.Add(new TextBlock { Text = "Shared executable" });
+        panel.Children.Add(files);
+        panel.Children.Add(new TextBlock { Text = "Record as", Margin = new Thickness(0, 8, 0, 0) });
+        panel.Children.Add(games);
+        if (!ModalDialog.Run(owner, "Choose recording owner", panel, "Use selected game", "Cancel", safeDefault: true) ||
+            files.SelectedItem is not string selected || games.SelectedItem is not CatalogEntry game) return;
+        if (!ReferenceEquals(state, State) || SharedGameOwnership.Choose(state, entries, selected, game.Id) is not { } changed)
+        {
+            row.ActionError = "The catalog changed or the selection is blocked or unavailable. Refresh and try again.";
+            return;
+        }
+        // Persist first; a failed save must not leave a changed active owner.
+        var settings = AppSettings.Current;
+        settings.Games = CatalogClaims.Reconfigure(changed);
+        if (!settings.TrySave())
+        {
+            settings.Games = state;
+            row.ActionError = "Could not save the recording owner.";
+            return;
+        }
+        Render();
+        _ = Discovery.SettingsChangedAsync();
+        Status.Text = $"Record {Path.GetFileName(selected)} as {game.DisplayName}.";
     }
 
     private void UpdateCount()

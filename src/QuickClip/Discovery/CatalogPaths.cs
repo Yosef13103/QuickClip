@@ -62,6 +62,9 @@ internal static class CatalogPaths
         if (IsDiscordProcess(path)) return CatalogMatchKind.Companion;
         string name = Path.GetFileNameWithoutExtension(path).ToUpperInvariant();
         if (name == "ZOOM") return CatalogMatchKind.Companion;
+        // Stock MW3 dedicated-server binary is a tool, not its multiplayer client.
+        // Explicit manual attachment remains available for deliberately modified clients.
+        if (name == "IW5MP_SERVER") return CatalogMatchKind.Application;
         // Source SDK tools in the engine bin directory are not gameplay. Avoid
         // a global basename rule for generic names such as hammer or vpk.
         if (Path.GetDirectoryName(path) is { } bin &&
