@@ -55,13 +55,50 @@ internal static class CatalogPaths
     public static bool IsJavaRuntime(string path) => Path.GetFileNameWithoutExtension(path) is { } name &&
         (name.Equals("java", StringComparison.OrdinalIgnoreCase) || name.Equals("javaw", StringComparison.OrdinalIgnoreCase));
 
+    internal static bool IsRedistributablePath(string path)
+    {
+        var parts = path.Split('\\', '/');
+        for (int i = 0; i + 2 < parts.Length; i++)
+            if (parts[i].Equals("steamapps", StringComparison.OrdinalIgnoreCase) &&
+                parts[i + 1].Equals("common", StringComparison.OrdinalIgnoreCase) &&
+                (parts[i + 2].Equals("Steamworks Shared", StringComparison.OrdinalIgnoreCase) ||
+                 parts[i + 2].Equals("Steamworks Common Redistributables", StringComparison.OrdinalIgnoreCase)))
+                return true;
+        return false;
+    }
+
+    internal static bool IsRedistributable(CatalogEntry entry) =>
+        entry.Id.Equals("steam:228980", StringComparison.OrdinalIgnoreCase) ||
+        (!entry.InstallDirectories.IsEmpty && entry.InstallDirectories.All(IsRedistributablePath));
+
+    internal static bool IsProtectedExecutable(string path) =>
+        LocalPath(path) == null || !IsExecutable(path) || IsRedistributablePath(path) ||
+        (WindowsDirectory.Length > 0 && IsWithin(path, WindowsDirectory)) ||
+        Path.GetFileNameWithoutExtension(path).ToUpperInvariant() is
+            "QUICKCLIP" or "SYSTEM" or "REGISTRY" or "CSRSS" or "LSASS" or "WINLOGON" or "WININIT" or
+            "SERVICES" or "SMSS" or "SVCHOST" or "DWM" or "EXPLORER";
+
     public static CatalogMatchKind DefaultRole(string path)
     {
+        if (IsRedistributablePath(path)) return CatalogMatchKind.Ignored;
         if (WindowsDirectory.Length > 0 && IsWithin(path, WindowsDirectory)) return CatalogMatchKind.Application;
         if (IsDiscordUpdater(path)) return CatalogMatchKind.Ignored;
         if (IsDiscordProcess(path)) return CatalogMatchKind.Companion;
         string name = Path.GetFileNameWithoutExtension(path).ToUpperInvariant();
         if (name == "ZOOM") return CatalogMatchKind.Companion;
+        // Source SDK tools in the engine bin directory are not gameplay. Avoid
+        // a global basename rule for generic names such as hammer or vpk.
+        if (Path.GetDirectoryName(path) is { } bin &&
+            Path.GetFileName(bin).Equals("bin", StringComparison.OrdinalIgnoreCase) &&
+            string.Equals(Path.GetFileName(Path.GetDirectoryName(bin)), "Half-Life 2", StringComparison.OrdinalIgnoreCase) &&
+            name is "BSPZIP" or "CAPTIONCOMPILER" or "DEMOINFO" or "DMXCONVERT" or "DMXEDIT" or
+                "ELEMENTVIEWER" or "GLVIEW" or "HAMMER" or "HEIGHT2NORMAL" or "HEIGHT2SSBUMP" or
+                "HLFACEPOSER" or "HLMV" or "MKSHEET" or "MOTIONMAPPER" or "NORMAL2SSBUMP" or
+                "PFM2TGAS" or "QC_EYES" or "SHADERCOMPILE" or "SPLITSKYBOX" or "STUDIOMDL" or
+                "VBSP" or "VBSPINFO" or "VPK" or "VRAD" or "VTEX" or "VTF2TGA" or "VVIS")
+            return CatalogMatchKind.Application;
+        if (name is "FORTNITECLIENT-WIN64-SHIPPING_EAC" or "FORTNITECLIENT-WIN64-SHIPPING_EAC_EOS" or "FORTNITECLIENT-WIN64-SHIPPING_BE")
+            return CatalogMatchKind.Application;
         if (name is "STEAM" or "STEAMWEBHELPER" or "EPICGAMESLAUNCHER" or "LAUNCHER" or "GAMELAUNCHER"
             or "BATTLE.NET" or "RIOTCLIENTSERVICES" or "EADESKTOP" or "EALAUNCHER" or "GALAXYCLIENT"
             or "UBISOFTCONNECT" or "ROCKSTAR GAMES LAUNCHER" or "BOOTSTRAPPACKAGEDGAME" or "START_PROTECTED_GAME"

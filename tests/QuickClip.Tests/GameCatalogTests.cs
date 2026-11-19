@@ -9,6 +9,61 @@ public sealed class GameCatalogTests : IDisposable
     private readonly DirectoryInfo _fixture = Directory.CreateTempSubdirectory("quickclip-catalog-");
 
     [Fact]
+    public async Task Verified_Steam_Source_installations_consolidate_only_the_known_HL2_family()
+    {
+        string hl2 = FileAt("Steam", "steamapps", "common", "Half-Life 2", "hl2.exe");
+        FileAt("Steam", "steamapps", "common", "Half-Life 2", "hl2", "gameinfo.txt");
+        string portal = FileAt("Steam", "steamapps", "common", "Portal", "hl2.exe");
+        FileAt("Steam", "steamapps", "common", "Portal", "portal", "gameinfo.txt");
+        File.WriteAllText(At("Steam", "steamapps", "appmanifest_220.acf"), Manifest("220", "Half-Life 2"));
+        File.WriteAllText(At("Steam", "steamapps", "appmanifest_400.acf"), Manifest("400", "Portal"));
+        var request = new CatalogRequest { SteamLibraryRoots = [At("Steam")] };
+        async Task<GameCatalogIndex> Scan(CatalogOverride[]? overrides = null)
+        {
+            var result = await GameCatalogService.ScanAsync(request);
+            var state = new GameCatalogSettings { Request = request with { Overrides = [.. overrides ?? []] }, DiscoverSteam = false, AutoScan = false };
+            state = CatalogClaims.Apply(state, new CatalogScope(CatalogSource.Steam, At("Steam")), result, preview: false);
+            return new GameCatalogIndex(result with { Entries = CatalogClaims.Rows(state) });
+        }
+        var index = await Scan();
+        Assert.Equal(CatalogMatchKind.Game, index.Match(hl2, true).Kind);
+        Assert.Equal(CatalogMatchKind.Game, index.Match(portal, true).Kind);
+        Assert.Equal("steam:220", index.Match(hl2, true).Entry?.Id);
+        Assert.Equal("steam:400", index.Match(portal, true).Entry?.Id);
+        Assert.Equal(CatalogMatchKind.Unknown, index.Match(At("Unrelated", "hl2.exe"), true).Kind);
+        string hammer = FileAt("Steam", "steamapps", "common", "Half-Life 2", "bin", "hammer.exe");
+        foreach (var id in new[] { "380", "420", "340" })
+            File.WriteAllText(At("Steam", "steamapps", $"appmanifest_{id}.acf"), Manifest(id, "Half-Life 2"));
+        var unified = await Scan();
+        var match = unified.Match(hl2, true);
+        Assert.Equal(CatalogMatchKind.Game, match.Kind);
+        Assert.Equal("steam:220", match.Entry?.Id);
+        Assert.Equal(new[] { "steam:340", "steam:380", "steam:420" }, match.Entry!.AliasIds.Order());
+        Assert.Equal(CatalogMatchKind.Application, unified.Match(hammer, true).Kind);
+        Assert.Equal(CatalogMatchKind.Unknown, unified.Match(At("Unrelated", "bin", "hammer.exe"), true).Kind);
+        Assert.Equal(CatalogMatchKind.Ignored, (await Scan([new("steam:380", new(Inclusion: CatalogInclusion.Exclude))])).Match(hl2, true).Kind);
+        File.WriteAllText(At("Steam", "steamapps", "appmanifest_999.acf"), Manifest("999", "Half-Life 2"));
+        Assert.Equal(CatalogMatchKind.Ambiguous, (await Scan()).Match(hl2, true).Kind);
+    }
+    [Fact]
+    public async Task Steamworks_prerequisites_are_not_catalog_games_or_eligible_paths()
+    {
+        string path = FileAt("Steam", "steamapps", "common", "Steamworks Shared", "Runtime.exe");
+        File.WriteAllText(At("Steam", "steamapps", "appmanifest_228980.acf"), Manifest("228980", "Steamworks Shared"));
+        var scan = await GameCatalogService.ScanAsync(new()
+        {
+            SteamLibraryRoots = [At("Steam")],
+            GameRoots = [new(At("Steam", "steamapps", "common"), true)],
+        });
+        Assert.DoesNotContain(scan.Entries, entry => entry.Id == "steam:228980" || entry.Executables.Contains(path));
+        Assert.Equal(CatalogMatchKind.Ignored, new GameCatalogIndex(scan).Match(path, true).Kind);
+        var stale = new CatalogEntry("steam:228980", "Prerequisites", CatalogSource.Steam,
+            [At("Steam", "steamapps", "common", "Steamworks Shared")], [path], new());
+        Assert.True(CatalogPaths.IsRedistributable(stale));
+        Assert.Equal(CatalogMatchKind.Ignored, new GameCatalogIndex(scan with { Entries = [stale] }).Match(path, true).Kind);
+    }
+
+    [Fact]
     public async Task Scoped_install_activates_corroborated_variants_and_keeps_other_executables_ineligible()
     {
         string first = FileAt("Library", "StarfieldFixture", "StarfieldFixture.exe");

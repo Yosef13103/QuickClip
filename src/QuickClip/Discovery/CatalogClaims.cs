@@ -168,7 +168,7 @@ internal static class CatalogClaims
         var scopes = CatalogScope.Enabled(settings).ToDictionary(scope => scope.Key, StringComparer.Ordinal);
         var exclusions = CatalogScope.Exclusions(settings.Request).ToArray();
         IEnumerable<string> AllowedPaths(IEnumerable<string> paths) => paths.Select(CatalogPaths.LocalPath)
-            .OfType<string>().Where(path => !exclusions.Any(root => CatalogPaths.IsWithin(path, root)));
+            .OfType<string>().Where(path => !CatalogPaths.IsRedistributablePath(path) && !exclusions.Any(root => CatalogPaths.IsWithin(path, root)));
         var contributions = new List<Contribution>();
         foreach (var claim in settings.SourceClaims!.Value.Concat(settings.ScanPreview is { } preview ? [preview] : []))
         {
@@ -180,7 +180,7 @@ internal static class CatalogClaims
             foreach (var (entry, isVerified) in claim.Result.Entries.Select(entry => (entry, verified))
                 .Concat(live.Select(entry => (entry, true))))
             {
-                if (entry.Source != scope.Kind) continue;
+                if (entry.Source != scope.Kind || CatalogPaths.IsRedistributable(entry)) continue;
                 var installs = AllowedPaths(entry.InstallDirectories).Where(path =>
                     scope.Root == null || CatalogPaths.IsWithin(path, scope.Root)).ToImmutableArray();
                 if (installs.IsEmpty) continue;
@@ -194,7 +194,7 @@ internal static class CatalogClaims
                 }, isVerified));
             }
         }
-        foreach (var entry in settings.LegacyEntries.Where(entry => entry.Source != CatalogSource.Manual))
+        foreach (var entry in settings.LegacyEntries.Where(entry => entry.Source != CatalogSource.Manual && !CatalogPaths.IsRedistributable(entry)))
         {
             var installs = AllowedPaths(entry.InstallDirectories).Where(path => scopes.Values.Any(scope =>
                 scope.Kind == entry.Source && (scope.Root == null || CatalogPaths.IsWithin(path, scope.Root)))).ToImmutableArray();
@@ -216,6 +216,20 @@ internal static class CatalogClaims
         foreach (var group in providers)
         {
             var linked = group.OrderByDescending(item => item.Verified).DistinctBy(item => item.Entry.Id).ToArray();
+            // Valve's 2024 anniversary update folded both Episodes and Lost Coast
+            // into HL2. Their legacy manifests may still claim exactly the same renderer.
+            // Only merge this known family at the same verified installation, not other
+            // Source games, unrelated shared executables or separate legacy installations.
+            if (linked.Any(item => item.Verified && item.Entry.Source == CatalogSource.Steam &&
+                    item.Entry.Id == "steam:220" && item.Entry.InstallDirectories.Length == 1 &&
+                    item.Entry.Executables.Contains(Path.Combine(group.Key, "hl2.exe"), Paths)))
+            {
+                foreach (var episode in linked.Where(item => item.Entry.Source == CatalogSource.Steam &&
+                    item.Entry.Id is "steam:380" or "steam:420" or "steam:340" &&
+                    item.Entry.InstallDirectories.Length == 1 &&
+                    item.Entry.Executables.Contains(Path.Combine(group.Key, "hl2.exe"), Paths)))
+                    sharedIds[episode.Entry.Id] = "steam:220";
+            }
             // Multiple product IDs from one launcher at that root may identify different editions.
             if (linked.Length < 2 || linked.Any(item => item.Entry.InstallDirectories.Length != 1) ||
                 linked.DistinctBy(item => item.Entry.Source).Count() != linked.Length) continue;
@@ -240,13 +254,31 @@ internal static class CatalogClaims
             if (item.Entry.InstallDirectories is not [var path]) return item.Entry.Id;
             // Two different provider titles claiming the same directory are still ambiguous.
             var ids = providers[path].Select(item => sharedIds.GetValueOrDefault(item.Entry.Id, item.Entry.Id)).Distinct(StringComparer.Ordinal).ToArray();
+            if (ids.Length == 0 && item.Verified)
+            {
+                ids = contributions.Where(provider => provider.Verified && provider.Entry.Id == "epic:fortnite" &&
+                    provider.Entry.InstallDirectories.Any(root => CatalogPaths.IsWithin(path, root)) &&
+                    item.Entry.RendererExecutables is { } folderRenderers &&
+                    provider.Entry.RendererExecutables is { } providerRenderers &&
+                    folderRenderers.Intersect(providerRenderers, Paths).Any())
+                    .Select(provider => provider.Entry.Id).Distinct(StringComparer.Ordinal).ToArray();
+            }
             if (ids.Length == 0) ids = aliases[path].Distinct(StringComparer.Ordinal).ToArray();
             return ids is [var id] ? id : item.Entry.Id;
         }
 
         bool hasFolderOverrides = rules.Keys.Any(id => id.StartsWith("folder:", StringComparison.Ordinal));
         var rows = contributions.GroupBy(Identity, StringComparer.Ordinal)
-            .Select(group => Project(group.Key, group.ToArray(), rules, hasFolderOverrides));
+            .Select(group => Project(group.Key, group.ToArray(), rules, hasFolderOverrides))
+            .Select(row =>
+            {
+                var attached = AllowedPaths(row.Rules.AttachedExecutables).Where(path => !CatalogPaths.IsProtectedExecutable(path)).ToArray();
+                return row with
+                {
+                    Executables = [.. row.Executables.Concat(attached).Distinct(Paths)],
+                    UnverifiedExecutables = [.. row.UnverifiedExecutables.Except(attached, Paths)],
+                };
+            });
         var manual = settings.Request.ManualEntries.Select(entry =>
         {
             string id = "manual:" + entry.Id.ToString("N");
@@ -260,9 +292,13 @@ internal static class CatalogClaims
     {
         var denies = settings.Request.Overrides.Reverse().DistinctBy(rule => rule.Id)
             .Where(rule => rule.Rules.Inclusion == CatalogInclusion.Exclude).ToArray();
-        if (denies.Length == 0) return settings.BlockedExecutables;
+        var staleRedistributables = (settings.SourceClaims ?? []).SelectMany(claim => claim.Result.Entries)
+            .Concat(settings.LegacyEntries).Concat(settings.Snapshot?.Entries ?? [])
+            .Where(CatalogPaths.IsRedistributable).SelectMany(entry => entry.Executables);
+        var blocked = settings.BlockedExecutables.Concat(staleRedistributables);
+        if (denies.Length == 0) return blocked;
         var paths = CachedExecutables(settings);
-        return settings.BlockedExecutables.Concat(denies.SelectMany(rule => rule.DeniedExecutables.Concat(paths[rule.Id])));
+        return blocked.Concat(denies.SelectMany(rule => rule.DeniedExecutables.Concat(rule.Rules.AttachedExecutables).Concat(paths[rule.Id])));
     }
 
     // A collection may previously have been registered (and disabled) as one game.
@@ -294,7 +330,7 @@ internal static class CatalogClaims
         var rules = settings.Request.Overrides.Select(rule =>
         {
             if (rule.Rules.Inclusion != CatalogInclusion.Exclude) return rule;
-            var known = rule.DeniedExecutables.Concat(paths[rule.Id]).Distinct(Paths).ToImmutableArray();
+            var known = rule.DeniedExecutables.Concat(rule.Rules.AttachedExecutables).Concat(paths[rule.Id]).Distinct(Paths).ToImmutableArray();
             return known.Length == rule.DeniedExecutables.Length ? rule : rule with { DeniedExecutables = known };
         }).ToImmutableArray();
         return settings.Request.Overrides.SequenceEqual(rules) ? settings : settings with { Request = settings.Request with { Overrides = rules } };
@@ -323,6 +359,7 @@ internal static class CatalogClaims
                 value is AppClassification.Launcher or AppClassification.Application or AppClassification.Companion, rule.Classification),
             LauncherExecutables = [.. overrides.SelectMany(item => item.LauncherExecutables).Distinct(Paths)],
             ApprovedExecutables = [.. overrides.SelectMany(item => item.ApprovedExecutables).Distinct(Paths)],
+            AttachedExecutables = [.. overrides.SelectMany(item => item.AttachedExecutables).Distinct(Paths)],
         };
         var livePaths = live.SelectMany(entry => entry.Executables).ToHashSet(Paths);
         var executables = preferred.Executables.Concat(all.SelectMany(entry => entry.Executables)).Distinct(Paths).ToImmutableArray();

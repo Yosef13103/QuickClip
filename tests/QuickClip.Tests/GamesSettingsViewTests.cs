@@ -188,6 +188,23 @@ public sealed class GamesSettingsViewTests
     });
 
     [Fact]
+    public void Game_file_selection_defaults_and_preserves_available_choice()
+    {
+        const string first = @"C:\Games\Fixture\First.exe";
+        const string second = @"C:\Games\Fixture\Second.exe";
+        var entry = new CatalogEntry("manual:fixture", "Fixture", CatalogSource.Manual, [], [first, second], new());
+        var row = new GamesSettingsView.GameRow(entry);
+        Assert.Equal(first, row.SelectedExecutable);
+        row.SelectedExecutable = second;
+        row.Update(entry, false, [], new(new([entry], [], 0, false, default)));
+        Assert.Equal(second, row.SelectedExecutable);
+        row.SetUnavailableExecutables([second]);
+        Assert.Equal(first, row.SelectedExecutable);
+        row.SetUnavailableExecutables([first, second]);
+        Assert.Null(row.SelectedExecutable);
+    }
+
+    [Fact]
     public void Manual_file_validation_accepts_large_collections_and_saved_non_games_show_blocked()
     {
         var collection = Enumerable.Range(0, 128)
