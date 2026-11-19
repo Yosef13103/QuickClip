@@ -154,7 +154,7 @@ public sealed class LibraryTagManagementTests
         Assert.Equal(a.Details.IndexRevision, (await f.TargetAsync(f.First)).Details.IndexRevision);
         Assert.Equal(b.Details.IndexRevision, (await f.TargetAsync(f.Second)).Details.IndexRevision);
         Assert.Equal(0, await f.Index.SetTagColorAsync("funny", "#60A5FA"));
-        Assert.Throws<ArgumentException>(() => f.Index.SetTagColorAsync("funny", "invalid"));
+        Assert.Throws<ArgumentException>(() => { _ = f.Index.SetTagColorAsync("funny", "invalid"); });
         Assert.Equal(1, await f.Index.SetTagColorAsync("FUNNY", null));
         Assert.Empty((await f.TargetAsync(f.First)).Details.TagColors);
     }
