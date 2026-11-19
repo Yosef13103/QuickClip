@@ -59,7 +59,7 @@ internal sealed class ClipTagEdit
             token.ThrowIfCancellationRequested();
             var draft = Apply(target.Details);
             if (ReferenceEquals(draft, target.Details)) continue;
-            results.Add(await actions.SaveDraftAsync(target, draft, token));
+            results.Add(await actions.SaveTagsAsync(target, draft.Tags, token));
         }
         return results;
     }
