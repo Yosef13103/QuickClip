@@ -13,6 +13,10 @@ public sealed class MediaJobsTests(MediaFixture media)
         var source = MediaSource.Capture(media.TwoTracks);
         var info = await MediaInfo.ProbeAsync(source.Path);
         var ready = Enumerable.Range(0, 3).Select(_ => new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously)).ToArray();
+        // Real FFmpeg progress establishes that both jobs entered the encoder.
+        // Keep their staging callbacks active until the cancellation assertion;
+        // a fast runner may otherwise finish encoding before the snapshot.
+        var allowValidation = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var signals = Enumerable.Range(0, 3).Select(i => jobs.Submit(Request(i))).ToArray();
         try
         {
@@ -26,6 +30,7 @@ public sealed class MediaJobsTests(MediaFixture media)
             var first = await signals[0].Completion.WaitAsync(TimeSpan.FromSeconds(30));
             Assert.Equal(MediaJobState.Cancelled, first.State);
             Assert.False(File.Exists(Request(0).Destination));
+            allowValidation.TrySetResult();
             await ready[2].Task.WaitAsync(TimeSpan.FromSeconds(30));
             foreach (var signal in signals.Skip(1))
             {
@@ -57,6 +62,7 @@ public sealed class MediaJobsTests(MediaFixture media)
                         job.Progress(1, progress);
                         if (progress is > 0 and < 1) ready[i].TrySetResult();
                     }), ct);
+                    if (i < 2) await allowValidation.Task.WaitAsync(ct);
                     job.Validating();
                     await TargetSizeExport.ValidateAsync(plan, ct);
                 }, ct));
