@@ -9,7 +9,7 @@ public sealed class GameCatalogTests : IDisposable
     private readonly DirectoryInfo _fixture = Directory.CreateTempSubdirectory("quickclip-catalog-");
 
     [Fact]
-    public async Task Verified_Steam_Source_installations_use_exact_path_and_keep_shared_install_ambiguous()
+    public async Task Verified_Steam_Source_installations_consolidate_only_the_known_HL2_family()
     {
         string hl2 = FileAt("Steam", "steamapps", "common", "Half-Life 2", "hl2.exe");
         FileAt("Steam", "steamapps", "common", "Half-Life 2", "hl2", "gameinfo.txt");
@@ -17,12 +17,12 @@ public sealed class GameCatalogTests : IDisposable
         FileAt("Steam", "steamapps", "common", "Portal", "portal", "gameinfo.txt");
         File.WriteAllText(At("Steam", "steamapps", "appmanifest_220.acf"), Manifest("220", "Half-Life 2"));
         File.WriteAllText(At("Steam", "steamapps", "appmanifest_400.acf"), Manifest("400", "Portal"));
-        var request = new CatalogRequest { SteamLibraryRoots = [At("Steam")], DiscoverSteam = true };
-        async Task<GameCatalogIndex> Scan()
+        var request = new CatalogRequest { SteamLibraryRoots = [At("Steam")] };
+        async Task<GameCatalogIndex> Scan(CatalogOverride[]? overrides = null)
         {
             var result = await GameCatalogService.ScanAsync(request);
-            var state = new GameCatalogSettings { Request = request, DiscoverSteam = true };
-            state = CatalogClaims.Apply(state, new CatalogScope(CatalogSource.Steam), result, preview: false);
+            var state = new GameCatalogSettings { Request = request with { Overrides = [.. overrides ?? []] }, DiscoverSteam = false, AutoScan = false };
+            state = CatalogClaims.Apply(state, new CatalogScope(CatalogSource.Steam, At("Steam")), result, preview: false);
             return new GameCatalogIndex(result with { Entries = CatalogClaims.Rows(state) });
         }
         var index = await Scan();
@@ -31,7 +31,18 @@ public sealed class GameCatalogTests : IDisposable
         Assert.Equal("steam:220", index.Match(hl2, true).Entry?.Id);
         Assert.Equal("steam:400", index.Match(portal, true).Entry?.Id);
         Assert.Equal(CatalogMatchKind.Unknown, index.Match(At("Unrelated", "hl2.exe"), true).Kind);
-        File.WriteAllText(At("Steam", "steamapps", "appmanifest_380.acf"), Manifest("380", "Half-Life 2"));
+        string hammer = FileAt("Steam", "steamapps", "common", "Half-Life 2", "bin", "hammer.exe");
+        foreach (var id in new[] { "380", "420", "340" })
+            File.WriteAllText(At("Steam", "steamapps", $"appmanifest_{id}.acf"), Manifest(id, "Half-Life 2"));
+        var unified = await Scan();
+        var match = unified.Match(hl2, true);
+        Assert.Equal(CatalogMatchKind.Game, match.Kind);
+        Assert.Equal("steam:220", match.Entry?.Id);
+        Assert.Equal(new[] { "steam:340", "steam:380", "steam:420" }, match.Entry!.AliasIds.Order());
+        Assert.Equal(CatalogMatchKind.Application, unified.Match(hammer, true).Kind);
+        Assert.Equal(CatalogMatchKind.Unknown, unified.Match(At("Unrelated", "bin", "hammer.exe"), true).Kind);
+        Assert.Equal(CatalogMatchKind.Ignored, (await Scan([new("steam:380", new(Inclusion: CatalogInclusion.Exclude))])).Match(hl2, true).Kind);
+        File.WriteAllText(At("Steam", "steamapps", "appmanifest_999.acf"), Manifest("999", "Half-Life 2"));
         Assert.Equal(CatalogMatchKind.Ambiguous, (await Scan()).Match(hl2, true).Kind);
     }
     [Fact]
