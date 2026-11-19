@@ -9,6 +9,32 @@ public sealed class GameCatalogTests : IDisposable
     private readonly DirectoryInfo _fixture = Directory.CreateTempSubdirectory("quickclip-catalog-");
 
     [Fact]
+    public async Task Verified_Steam_Source_installations_use_exact_path_and_keep_shared_install_ambiguous()
+    {
+        string hl2 = FileAt("Steam", "steamapps", "common", "Half-Life 2", "hl2.exe");
+        FileAt("Steam", "steamapps", "common", "Half-Life 2", "hl2", "gameinfo.txt");
+        string portal = FileAt("Steam", "steamapps", "common", "Portal", "hl2.exe");
+        FileAt("Steam", "steamapps", "common", "Portal", "portal", "gameinfo.txt");
+        File.WriteAllText(At("Steam", "steamapps", "appmanifest_220.acf"), Manifest("220", "Half-Life 2"));
+        File.WriteAllText(At("Steam", "steamapps", "appmanifest_400.acf"), Manifest("400", "Portal"));
+        var request = new CatalogRequest { SteamLibraryRoots = [At("Steam")], DiscoverSteam = true };
+        async Task<GameCatalogIndex> Scan()
+        {
+            var result = await GameCatalogService.ScanAsync(request);
+            var state = new GameCatalogSettings { Request = request, DiscoverSteam = true };
+            state = CatalogClaims.Apply(state, new CatalogScope(CatalogSource.Steam), result, preview: false);
+            return new GameCatalogIndex(result with { Entries = CatalogClaims.Rows(state) });
+        }
+        var index = await Scan();
+        Assert.Equal(CatalogMatchKind.Game, index.Match(hl2, true).Kind);
+        Assert.Equal(CatalogMatchKind.Game, index.Match(portal, true).Kind);
+        Assert.Equal("steam:220", index.Match(hl2, true).Entry?.Id);
+        Assert.Equal("steam:400", index.Match(portal, true).Entry?.Id);
+        Assert.Equal(CatalogMatchKind.Unknown, index.Match(At("Unrelated", "hl2.exe"), true).Kind);
+        File.WriteAllText(At("Steam", "steamapps", "appmanifest_380.acf"), Manifest("380", "Half-Life 2"));
+        Assert.Equal(CatalogMatchKind.Ambiguous, (await Scan()).Match(hl2, true).Kind);
+    }
+    [Fact]
     public async Task Steamworks_prerequisites_are_not_catalog_games_or_eligible_paths()
     {
         string path = FileAt("Steam", "steamapps", "common", "Steamworks Shared", "Runtime.exe");
