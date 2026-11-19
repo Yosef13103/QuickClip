@@ -25,6 +25,7 @@ internal sealed record ClipDetails(DateTimeOffset CapturedAt, string Game, strin
 
     internal Guid? IndexId { get; init; }
     internal long IndexRevision { get; init; }
+    internal bool IsHidden { get; init; }
 
     public string[] Tags { get; init; } = [];
     public bool IsFavorite { get; init; }
