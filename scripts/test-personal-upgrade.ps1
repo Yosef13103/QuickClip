@@ -45,6 +45,9 @@ public static class PackageFixture {
             }
             return 12;
         }
+        // The update worker verifies that the newly launched app stays alive.
+        // This fixture needs no application work; remain alive for that check.
+        Thread.Sleep(5000);
         return 0;
     }
 }
@@ -126,6 +129,7 @@ try {
         (Get-FileHash -LiteralPath $sentinel).Hash -ne $sentinelHash) {
         throw 'Upgrade did not preserve the destination and registration or did not restart.'
     }
+    Wait-Process -Name QuickClip -Timeout 10 -ErrorAction SilentlyContinue
     Write-Host "PASS: approved upgrade waited for exit, upgraded on $drive, and restarted."
 }
 catch {

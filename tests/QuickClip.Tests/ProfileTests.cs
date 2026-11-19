@@ -32,7 +32,15 @@ public sealed class ProfileTests
         }
 
         Assert.Equal("QuickClip Personal", AppProfile.Name);
-        Assert.Equal(@"Local\QuickClip.Personal.Instance", AppProfile.MutexName);
+        string expectedInstance = "QuickClip.Personal.Instance";
+        if (Environment.GetEnvironmentVariable("QUICKCLIP_PERSONAL_DATA_DIR") is { Length: > 0 } isolated)
+        {
+            string normalized = Path.TrimEndingDirectorySeparator(Path.GetFullPath(isolated)).ToUpperInvariant();
+            expectedInstance += "." + Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(
+                System.Text.Encoding.UTF8.GetBytes(normalized)))[..24];
+        }
+        Assert.Equal(@"Local\" + expectedInstance, AppProfile.MutexName);
+        Assert.Equal(expectedInstance + "." + Environment.UserName, AppProfile.PipeName);
         Assert.StartsWith("QuickClip.Personal.Instance.", AppProfile.PipeName);
         Assert.False(settings.RecordingEnabled);
         Assert.False(settings.RecordMic);

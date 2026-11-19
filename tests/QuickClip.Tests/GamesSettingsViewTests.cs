@@ -112,7 +112,7 @@ public sealed class GamesSettingsViewTests
         Arrange(page, width, height);
         Assert.True(page.Games.ActualHeight > 0);
         Assert.True(page.Search.ActualWidth > 0);
-        Assert.False(Descendants<TextBox>(page.Games).Contains(page.Search));
+        Assert.DoesNotContain(page.Search, Descendants<TextBox>(page.Games));
         Assert.True(page.AutoScan.IsChecked == true);
         page.RenderRows(Fixture(200));
         Arrange(page, width, height);
@@ -188,7 +188,24 @@ public sealed class GamesSettingsViewTests
     });
 
     [Fact]
-    public void Manual_file_validation_accepts_large_collections_and_saved_non_games_show_blocked()
+    public void Game_file_selection_defaults_and_preserves_available_choice()
+    {
+        const string first = @"C:\Games\Fixture\First.exe";
+        const string second = @"C:\Games\Fixture\Second.exe";
+        var entry = new CatalogEntry("manual:fixture", "Fixture", CatalogSource.Manual, [], [first, second], new());
+        var row = new GamesSettingsView.GameRow(entry);
+        Assert.Equal(first, row.SelectedExecutable);
+        row.SelectedExecutable = second;
+        row.Update(entry, false, [], new(new([entry], [], 0, false, default)));
+        Assert.Equal(second, row.SelectedExecutable);
+        row.SetUnavailableExecutables([second]);
+        Assert.Equal(first, row.SelectedExecutable);
+        row.SetUnavailableExecutables([first, second]);
+        Assert.Null(row.SelectedExecutable);
+    }
+
+    [Fact]
+    public void Manual_file_validation_accepts_large_collections_and_exact_non_games_show_ready()
     {
         var collection = Enumerable.Range(0, 128)
             .Select(i => $@"C:\TestLibrary\Game{i:000}.exe").ToArray();
@@ -196,8 +213,8 @@ public sealed class GamesSettingsViewTests
         Assert.Null(GamesSettingsView.ValidateManualGameExecutables([@"C:\Apps\Discord.exe"]));
         var discord = new GamesSettingsView.GameRow(new("manual:discord", "Discord", CatalogSource.Manual,
             [], [@"C:\Apps\Discord.exe"], new()));
-        Assert.Contains("Blocked", discord.Summary);
-        Assert.EndsWith(" · Blocked (companion application)", Assert.Single(discord.Executables).Label);
+        Assert.DoesNotContain("Blocked", discord.Summary);
+        Assert.EndsWith(" · Ready to record", Assert.Single(discord.Executables).Label);
         Assert.NotNull(GamesSettingsView.ValidateManualGameExecutables([@"C:\Apps\not-video.txt"]));
     }
 

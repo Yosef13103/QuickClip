@@ -118,7 +118,7 @@ internal static class GameCatalogRuntime
                 _ => false,
             }) &&
             !settings.Request.ExcludedDirectories.Any(root => CatalogPaths.IsWithin(path, root));
-        var discovered = (settings.Snapshot?.Entries ?? []).Where(entry => entry.Source != CatalogSource.Manual)
+        var discovered = (settings.Snapshot?.Entries ?? []).Where(entry => entry.Source != CatalogSource.Manual && !CatalogPaths.IsRedistributable(entry))
             .Select(entry => entry with
             {
                 InstallDirectories = [.. entry.InstallDirectories.Where(path => Approved(entry, path))],
@@ -132,7 +132,14 @@ internal static class GameCatalogRuntime
         var manual = settings.Request.ManualEntries.Select(entry => new CatalogEntry(
             "manual:" + entry.Id.ToString("N"), entry.DisplayName, CatalogSource.Manual, [], entry.Executables, new()));
         return [.. discovered.Concat(manual)
-            .Select(entry => entry with { Rules = rules.GetValueOrDefault(entry.Id) ?? new() })
+            .Select(entry =>
+            {
+                var rule = rules.GetValueOrDefault(entry.Id) ?? new();
+                IEnumerable<string> attached = entry.Source == CatalogSource.Manual ? [] :
+                    rule.AttachedExecutables.Where(path => !CatalogPaths.IsProtectedExecutable(path) &&
+                        !settings.Request.ExcludedDirectories.Any(root => CatalogPaths.IsWithin(path, root)));
+                return entry with { Rules = rule, Executables = [.. entry.Executables.Union(attached, StringComparer.OrdinalIgnoreCase)] };
+            })
             .OrderBy(entry => entry.DisplayName, StringComparer.OrdinalIgnoreCase)];
     }
 

@@ -4,15 +4,15 @@
 
 QuickClip Personal is a free, open-source instant-replay recorder, clip library and video editor for Windows. I built this fork to make everyday gameplay clipping easier: capture the last few moments with a hotkey, keep game, chat and microphone audio independently editable, and share clips without juggling several applications.
 
-[Download the latest release](https://github.com/Yosef13103/QuickClip/releases/latest) · [What's new in v1.2.0](docs/releases/personal-v1.2.0.md) · [Report an issue](https://github.com/Yosef13103/QuickClip/issues) · [License](LICENSE)
+[Download the latest release](https://github.com/Yosef13103/QuickClip/releases/latest) · [What's new in v1.2.1](docs/releases/personal-v1.2.1.md) · [Report an issue](https://github.com/Yosef13103/QuickClip/issues) · [License](LICENSE)
 
-## What's new in v1.2.0
+## What's new in v1.2.1
 
-- Broader game-library discovery with incremental scanning, compact launcher controls, manual executable and collection management.
-- Guided first-run setup, Basic and Advanced settings, named custom palettes and clearer audio controls.
-- Persistent non-destructive clip edits, improved Gallery navigation, a dedicated Player and fullscreen video with floating controls.
-- Custom sharing profiles, size-limited exports, clipboard sharing and a cancellable background media-job queue.
-- Safer display permissions, recording feedback, local diagnostics and installed-app update handling.
+- More reliable updates and recovery.
+- Half-Life 2, Fortnite and Steam library discovery fixes.
+- Improved executable selection, microphone testing and Gallery startup.
+
+See [v1.2.1 release notes](docs/releases/personal-v1.2.1.md) for details.
 
 ## How it works
 
@@ -55,8 +55,8 @@ Open the [latest GitHub release](https://github.com/Yosef13103/QuickClip/release
 
 | Asset | Purpose |
 | --- | --- |
-| `QuickClip-Personal-1.2.0-setup.exe` | Recommended per-user installer; supports a writable local installation folder |
-| `QuickClip-Personal-1.2.0-win-x64.zip` | Portable build; extract the entire archive before running |
+| `QuickClip-Personal-1.2.1-setup.exe` | Recommended per-user installer; supports a writable local installation folder |
+| `QuickClip-Personal-1.2.1-win-x64.zip` | Portable build; extract the entire archive before running |
 | `SHA256SUMS.txt` | SHA-256 checksums for both packages |
 
 The .NET runtime and required media components are bundled. No SDK is required to run the app.

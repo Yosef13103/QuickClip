@@ -48,12 +48,16 @@ public sealed class GameCatalogIndexTests
     }
 
     [Fact]
-    public void Discord_updater_is_ignored_even_if_saved_as_an_explicit_game()
+    public void Explicit_manual_non_game_selection_overrides_only_the_exact_path()
     {
         const string path = @"C:\Fixture\DiscordCanary\Update.exe";
         var entry = new CatalogEntry("manual:a", "Updater", CatalogSource.Manual, [], [path],
             new(Classification: AppClassification.Game));
-        Assert.Equal(CatalogMatchKind.Ignored, BuildIndex(entry).Match(path, true).Kind);
+        var index = BuildIndex(entry);
+        Assert.Equal(CatalogMatchKind.Game, index.Match(path, true).Kind);
+        Assert.Equal(CatalogMatchKind.Game, QuickClip.Recording.GameDetector.ApplyProcessRole(path, index.Match(path, true)).Kind);
+        Assert.Equal(CatalogMatchKind.Ignored, index.Match(@"D:\Fixture\DiscordCanary\Update.exe", true).Kind);
+        Assert.Equal(CatalogMatchKind.Launcher, BuildIndex(entry with { Rules = new() { LauncherExecutables = [path] } }).Match(path, true).Kind);
     }
 
     [Fact]
@@ -74,13 +78,13 @@ public sealed class GameCatalogIndexTests
     }
 
     [Fact]
-    public void Known_helpers_do_not_match_as_games_even_with_explicit_classification()
+    public void Discovered_helpers_are_blocked_but_exact_manual_selection_can_override()
     {
         const string path = @"C:\Games\Cyberpunk 2077\bin\x64\CrashReporter\7za.exe";
         var entry = new CatalogEntry("steam:1", "Cyberpunk 2077", CatalogSource.Steam, [], [path], new());
         Assert.Equal(CatalogMatchKind.Application, BuildIndex(entry).Match(path, true).Kind);
         Assert.Equal(CatalogMatchKind.Application, BuildIndex().Match(path, true).Kind);
-        Assert.Equal(CatalogMatchKind.Application, BuildIndex(entry with
+        Assert.Equal(CatalogMatchKind.Game, BuildIndex(entry with
         {
             Source = CatalogSource.Manual,
             Rules = new(Classification: AppClassification.Game),

@@ -511,10 +511,11 @@
         "hardware": "pending"
       },
       "evidence": [
-        "PR #82 local strict Personal 818 passed/19 skipped, Upstream 74 passed/14 skipped, 41 updater cases, CI 43776808207 passed including disposable SUBST installer handoff. Legacy manual upgrade and portable manual downloads remain."
+        "PR #82 local strict Personal 818 passed/19 skipped, Upstream 74 passed/14 skipped, 41 updater cases, CI 43776808207 passed including disposable SUBST installer handoff. Legacy manual upgrade and portable manual downloads remain.",
+        "Maintenance 2026-11-19: exact v1.2.0 baseline 050e12c; tested code 274e856, strict Release both profiles 0 warnings/errors, 54 focused updater cases passed each (Personal-only bodies return early in Upstream), Personal regression suite 161 pass/1 opt-in skip. Read-only live 1.2.0 inventory/registration passed; scratch partial-install rollback regression proved fail-closed marker retention, not automatic cleanup. Historical W2-U gates above remain historical; latest maintenance CI/full suites/real upgrade pending. Private evidence .quickclip-local/agent/evidence/W2-U/2026-11-19-updater/."
       ],
       "blocker": null,
-      "next_action": "Combined CI, review and supervised owner acceptance."
+      "next_action": "v1.2.1 maintenance in progress on fix/personal-update-reliability: tested code 274e856fc4feb9f64a2c645dae193400a51453c8; verify exact released 1.2.0 worker and real packaged candidate upgrade on disposable Windows, safe complete rollback/restart, full profile suites, CI and supervised owner acceptance before any release."
     },
     {
       "id": "W2-Z",
