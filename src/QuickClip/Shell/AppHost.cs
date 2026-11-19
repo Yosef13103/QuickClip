@@ -103,12 +103,15 @@ internal sealed class AppHost : IDisposable
         if (AppProfile.IsPersonal)
         {
             if (!_updatePromptPolicy.ShouldOffer(release, AppVersion.Current, true, AppSettings.Current.SkippedUpdateVersion)) return;
-            _updatePromptTimer ??= new DispatcherTimer(DispatcherPriority.Background, _dispatcher)
-                { Interval = TimeSpan.FromSeconds(5) };
-            _updatePromptTimer.Tick -= OfferPendingUpdate;
-            _updatePromptTimer.Tick += OfferPendingUpdate;
-            _updatePromptTimer.Start();
-            OfferPendingUpdate(this, EventArgs.Empty);
+            if (Updater.CanDownloadPersonal(release))
+            {
+                _updatePromptTimer ??= new DispatcherTimer(DispatcherPriority.Background, _dispatcher)
+                    { Interval = TimeSpan.FromSeconds(5) };
+                _updatePromptTimer.Tick -= OfferPendingUpdate;
+                _updatePromptTimer.Tick += OfferPendingUpdate;
+                _updatePromptTimer.Start();
+                OfferPendingUpdate(this, EventArgs.Empty);
+            }
         }
         if (release.Version == _notifiedVersion || AppProfile.IsPersonal && !_updatePromptPolicy.ShouldOffer(release,
                 AppVersion.Current, AppSettings.Current.CheckForUpdates, AppSettings.Current.SkippedUpdateVersion)) return;
@@ -120,7 +123,7 @@ internal sealed class AppHost : IDisposable
     private void OfferPendingUpdate(object? sender, EventArgs args)
     {
         var release = Updater.Available;
-        if (!Updater.IsEnabled || release == null || !_updatePromptPolicy.ShouldOffer(release, AppVersion.Current,
+        if (!Updater.IsEnabled || release == null || !Updater.CanDownloadPersonal(release) || !_updatePromptPolicy.ShouldOffer(release, AppVersion.Current,
             AppSettings.Current.CheckForUpdates, AppSettings.Current.SkippedUpdateVersion))
         {
             _updatePromptTimer?.Stop();
