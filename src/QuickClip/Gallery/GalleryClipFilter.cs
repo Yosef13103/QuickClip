@@ -4,7 +4,8 @@ internal sealed record GalleryClipFilter(string Search, string Tag, bool Favorit
 {
     internal string[] ExactTags { get; init; } = [];
     internal bool MatchAllTags { get; init; } = true;
-    public bool IsFiltered => Search.Length > 0 || Tag.Length > 0 || FavoritesOnly || ExactTags.Length > 0;
+    internal bool HiddenOnly { get; init; }
+    public bool IsFiltered => Search.Length > 0 || Tag.Length > 0 || FavoritesOnly || ExactTags.Length > 0 || HiddenOnly;
 
     internal bool MatchesTags(ClipDetails details)
     {
@@ -21,6 +22,7 @@ internal sealed record GalleryClipFilter(string Search, string Tag, bool Favorit
         {
             token.ThrowIfCancellationRequested();
             var details = clip.Details;
+            if (details.IsHidden != HiddenOnly) continue;
             if (folder != ClipLibrary.AllClips && !string.Equals(details.Game, folder, StringComparison.OrdinalIgnoreCase))
                 continue;
             if (!details.MatchesOrganizationFilter(Tag, FavoritesOnly) || !MatchesTags(details)) continue;
