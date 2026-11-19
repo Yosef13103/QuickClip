@@ -492,9 +492,9 @@ extern "C"
         return 1;
     }
 
-    __declspec(dllexport) int qc_save_replay_with_video(const wchar_t* path, int seconds, const wchar_t* title, int64_t session,
+    static int SaveReplayWithProof(const wchar_t* path, int seconds, const wchar_t* title, int64_t session,
         int64_t requestUs, QcReplaySpan* span, QcReplayAnchor* anchors, int count, QcReplayVideo* savedVideo,
-        wchar_t* error, int errorLength)
+        wchar_t* error, int errorLength, const wchar_t* proofPath)
     {
         if (savedVideo) *savedVideo = {};
         if (!path || !span || seconds <= 0 || count < 0 || count > 128 || (count && !anchors))
@@ -511,9 +511,23 @@ extern "C"
             return 0;
         }
         std::string message;
-        if (g_engine->Save(path, seconds, title ? title : L"", message, span, anchors, count, requestUs, savedVideo)) return 1;
+        if (g_engine->Save(path, seconds, title ? title : L"", message, span, anchors, count, requestUs, savedVideo, proofPath)) return 1;
         CopyError(message, error, errorLength);
         return 0;
+    }
+
+    __declspec(dllexport) int qc_save_replay_with_proof(const wchar_t* path, int seconds, const wchar_t* title, int64_t session,
+        int64_t requestUs, QcReplaySpan* span, QcReplayAnchor* anchors, int count, QcReplayVideo* savedVideo,
+        wchar_t* error, int errorLength, const wchar_t* proofPath)
+    {
+        return SaveReplayWithProof(path, seconds, title, session, requestUs, span, anchors, count, savedVideo, error, errorLength, proofPath);
+    }
+
+    __declspec(dllexport) int qc_save_replay_with_video(const wchar_t* path, int seconds, const wchar_t* title, int64_t session,
+        int64_t requestUs, QcReplaySpan* span, QcReplayAnchor* anchors, int count, QcReplayVideo* savedVideo,
+        wchar_t* error, int errorLength)
+    {
+        return SaveReplayWithProof(path, seconds, title, session, requestUs, span, anchors, count, savedVideo, error, errorLength, nullptr);
     }
 
     __declspec(dllexport) int qc_save_replay(const wchar_t* path, int seconds, const wchar_t* title, int64_t session,

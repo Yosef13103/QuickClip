@@ -172,7 +172,7 @@ namespace qc
             const std::vector<DWORD>& chat, const std::vector<DWORD>& music, const std::vector<DWORD>& desktopSubtract);
         bool Save(const std::wstring& path, int seconds, const std::wstring& title, std::string& error,
             QcReplaySpan* span = nullptr, QcReplayAnchor* anchors = nullptr, int count = 0, int64_t requestUs = -1,
-            QcReplayVideo* savedVideo = nullptr);
+            QcReplayVideo* savedVideo = nullptr, const wchar_t* proofPath = nullptr);
         void GetReplayPosition(QcReplayPosition& position);
         void GetStats(QcStats& stats);
         int GetEndpointStatus(QcEndpointStatus* statuses, int capacity) const;

@@ -429,6 +429,13 @@
                         <TextBlock x:Name="BufferText" Grid.Column="2" VerticalAlignment="Center" Margin="14,0,0,0" FontWeight="SemiBold" />
                     </Grid>
                     <TextBlock x:Name="RamText" Margin="160,4,0,0" Style="{StaticResource Hint}" />
+                    <StackPanel x:Name="ReplayOverlapCard" Visibility="Collapsed" Margin="0,10,0,0">
+                        <TextBlock Text="Overlapping replays" FontWeight="SemiBold" Margin="0,0,0,4" />
+                        <ComboBox x:Name="OverlapModeCombo" SelectionChanged="ReplayOverlap_Changed" AutomationProperties.Name="Overlapping replay behavior" />
+                        <TextBlock x:Name="OverlapModeHint" Style="{StaticResource Hint}" TextWrapping="Wrap" Margin="0,4,0,0" />
+                        <TextBlock Text="Maximum combined clip length" Margin="0,8,0,4" />
+                        <ComboBox x:Name="OverlapLimitCombo" SelectionChanged="ReplayOverlap_Changed" AutomationProperties.Name="Maximum combined clip length" />
+                    </StackPanel>
                     <Border x:Name="ResourceSummary" Background="{DynamicResource CardBrush}" CornerRadius="12" Padding="16" Margin="0,10,0,0">
                         <StackPanel>
                             <TextBlock Text="Recording summary" FontWeight="SemiBold" FontSize="{DynamicResource QuickClipText16}" Margin="0,0,0,6" />

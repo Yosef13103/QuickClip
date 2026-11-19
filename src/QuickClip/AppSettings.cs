@@ -54,6 +54,8 @@ internal sealed class AppSettings
         ? CaptureEngine.NvencSpeed.FastestP2 : CaptureEngine.NvencSpeed.BalancedP4;
     public bool RecordingDiagnostics { get; set; }
     public int BufferSeconds { get; set; } = 60;
+    public ReplayOverlapMode OverlapMode { get; set; }
+    public int MaximumCombinedReplaySeconds { get; set; } = 600;
     public bool CaptureCursor { get; set; } = true;
     public bool PreferGameWindow { get; set; } = AppProfile.IsPersonal;
     // Preserve the original physical-display grant without broadening it on upgrade.

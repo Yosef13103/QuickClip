@@ -43,7 +43,29 @@ internal sealed class MediaOwnership
     private readonly Dictionary<string, int> _readers = new(StringComparer.OrdinalIgnoreCase);
     private readonly HashSet<string> _writers = new(StringComparer.OrdinalIgnoreCase);
 
-    internal IDisposable? TryAcquire(IEnumerable<MediaSource> sources, IEnumerable<string> destinations)
+    private readonly Dictionary<string, int> _editorPins = new(StringComparer.OrdinalIgnoreCase);
+    private readonly HashSet<string> _replayWriters = new(StringComparer.OrdinalIgnoreCase);
+
+    // Editor pins fence replay replacement, not ordinary editor-owned
+    // save-over-original or explicitly confirmed existing deletion workflows.
+    internal IDisposable? TryPinEditor(MediaSource source)
+    {
+        var keys = Keys(source).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
+        lock (_gate)
+        {
+            if (keys.Any(_replayWriters.Contains)) return null;
+            foreach (string key in keys) _editorPins[key] = _editorPins.GetValueOrDefault(key) + 1;
+        }
+        return new Release(() =>
+        {
+            lock (_gate)
+                foreach (string key in keys)
+                    if (--_editorPins[key] == 0) _editorPins.Remove(key);
+        });
+    }
+
+    internal IDisposable? TryAcquire(IEnumerable<MediaSource> sources, IEnumerable<string> destinations,
+        bool protectEditorSources = false)
     {
         string[] writePaths = destinations.Select(Path.GetFullPath).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
         var inputs = sources.ToArray();
@@ -51,10 +73,15 @@ internal sealed class MediaOwnership
         string[] reads = inputs.SelectMany(Keys).Except(writes, StringComparer.OrdinalIgnoreCase).ToArray();
         lock (_gate)
         {
-            if (reads.Any(_writers.Contains) || writes.Any(key => _writers.Contains(key) || _readers.ContainsKey(key)))
+            if (reads.Any(_writers.Contains) || writes.Any(key => _writers.Contains(key) || _readers.ContainsKey(key) ||
+                protectEditorSources && _editorPins.ContainsKey(key)))
                 return null;
             foreach (string key in reads) _readers[key] = _readers.GetValueOrDefault(key) + 1;
-            foreach (string key in writes) _writers.Add(key);
+            foreach (string key in writes)
+            {
+                _writers.Add(key);
+                if (protectEditorSources) _replayWriters.Add(key);
+            }
         }
         return new Release(() =>
         {
@@ -62,7 +89,11 @@ internal sealed class MediaOwnership
             {
                 foreach (string key in reads)
                     if (--_readers[key] == 0) _readers.Remove(key);
-                foreach (string key in writes) _writers.Remove(key);
+                foreach (string key in writes)
+                {
+                    _writers.Remove(key);
+                    if (protectEditorSources) _replayWriters.Remove(key);
+                }
             }
         });
     }

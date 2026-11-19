@@ -15,6 +15,14 @@ internal sealed record MediaJobRequest(string Name, bool Share, IReadOnlyList<Me
     Func<MediaJobContext, CancellationToken, Task<string>> Run)
 {
     internal Func<string, CancellationToken, Task<string>>? Replace { get; init; }
+    // A replacement transaction can consume several originals. Reserve all of them
+    // exclusively at admission, rather than attempting to upgrade our own reads.
+    internal IReadOnlyList<string> Mutations { get; init; } = [];
+    internal IReadOnlyList<string> AdditionalDestinations { get; init; } = [];
+    internal bool Visible { get; init; } = true;
+    // Hidden jobs validate immutable sources and commit metadata, not media output.
+    internal bool MetadataOnly { get; init; }
+    internal bool ProtectEditorSources { get; init; }
 }
 
 internal sealed class MediaJobContext(Action<MediaJobState, double?> report, SemaphoreSlim hardware)
@@ -58,15 +66,30 @@ internal sealed class MediaJobs
 
     internal (Guid Id, Task<MediaJobView> Completion) Submit(MediaJobRequest request)
     {
-        request = request with { Destination = Path.GetFullPath(request.Destination), Sources = request.Sources.ToArray() };
+        request = request with
+        {
+            Destination = Path.GetFullPath(request.Destination), Sources = request.Sources.ToArray(),
+            Mutations = request.Mutations.Select(Path.GetFullPath).Distinct(StringComparer.OrdinalIgnoreCase).ToArray(),
+            AdditionalDestinations = request.AdditionalDestinations.Select(Path.GetFullPath).Distinct(StringComparer.OrdinalIgnoreCase).ToArray(),
+        };
+        if (request.MetadataOnly && (request.Visible || request.Replace != null || request.Mutations.Count > 0 ||
+            request.AdditionalDestinations.Count > 0))
+            throw new ExportException("Metadata-only jobs cannot publish or replace media.");
+        if (request.ProtectEditorSources && request.Replace == null)
+            throw new ExportException("Editor protection requires a replacement transaction.");
+        if (request.Mutations.Count > 0 && request.Replace == null)
+            throw new ExportException("Source mutations require a replacement transaction.");
+        if (request.Mutations.Any(path => !request.Sources.Any(source =>
+            string.Equals(source.Path, path, StringComparison.OrdinalIgnoreCase))))
+            throw new ExportException("Every source mutation requires an immutable source snapshot.");
         lock (_gate)
         {
             if (_stopping) throw new ExportException("QuickClip is closing.");
             if (_entries.Count(e => e.Active) >= MaxPending)
                 throw new ExportException("The media queue is full. Cancel a job or wait for one to finish.");
-            if (request.Replace == null && Path.Exists(request.Destination))
+            if (!request.MetadataOnly && request.Replace == null && Path.Exists(request.Destination))
                 throw new ExportException("The destination already exists. Choose a new filename.");
-            var lease = _ownership.TryAcquire(request.Sources, [request.Destination]) ??
+            var lease = _ownership.TryAcquire(request.Sources, request.MetadataOnly ? [] : request.Mutations.Append(request.Destination).Concat(request.AdditionalDestinations), request.ProtectEditorSources) ??
                 throw new ExportException("A source or destination is reserved by another media operation.");
             var entry = new Entry(request, lease);
             _entries.Add(entry);
@@ -77,7 +100,7 @@ internal sealed class MediaJobs
 
     internal MediaJobView[] Snapshot()
     {
-        lock (_gate) return _entries.Select(e => e.View()).ToArray();
+        lock (_gate) return _entries.Where(e => e.Request.Visible).Select(e => e.View()).ToArray();
     }
 
     internal void Cancel(Guid id)
@@ -95,7 +118,7 @@ internal sealed class MediaJobs
         lock (_gate)
         {
             var entry = _entries.Find(e => e.Id == id && e.State is MediaJobState.Failed or MediaJobState.Cancelled);
-            if (entry == null || entry.Request.Replace != null) return;
+            if (entry == null || entry.Request.Replace != null || entry.Request.MetadataOnly) return;
             Submit(entry.Request);
         }
     }
@@ -129,7 +152,7 @@ internal sealed class MediaJobs
     {
         var ct = entry.Cancel.Token;
         var handles = new List<Microsoft.Win32.SafeHandles.SafeFileHandle>();
-        using var activity = BackgroundActivity.Begin(entry.Request.Share ? "Preparing share" : "Exporting clip");
+        using var activity = entry.Request.Visible ? BackgroundActivity.Begin(entry.Request.Share ? "Preparing share" : "Exporting clip") : null;
         MediaJobState state = MediaJobState.Completed;
         try
         {
@@ -149,7 +172,7 @@ internal sealed class MediaJobs
                     entry.State = phase;
                     entry.Progress = value;
                 }
-                activity.Report(phase == MediaJobState.Validating ? "Validating media" :
+                activity?.Report(phase == MediaJobState.Validating ? "Validating media" :
                     phase == MediaJobState.Retrying ? "Retrying media encode" :
                     entry.Request.Share ? "Preparing share" : "Exporting clip", value);
             }, _hardware);
@@ -219,7 +242,7 @@ internal sealed class MediaJobs
                 ? TimeSpan.FromSeconds(phaseSeconds * (1 / Progress.Value - 1)) : null;
             return new(Id, Request.Name, Request.Share, State, State == MediaJobState.Completed ? 1 : Progress,
                 elapsed, remaining, Active ? null : Output, Active ? null : Message,
-                Request.Replace == null && State is MediaJobState.Failed or MediaJobState.Cancelled);
+                !Request.MetadataOnly && Request.Replace == null && State is MediaJobState.Failed or MediaJobState.Cancelled);
         }
     }
 }
