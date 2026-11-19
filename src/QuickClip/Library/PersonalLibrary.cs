@@ -165,6 +165,37 @@ internal sealed class PersonalLibrary : IClipAnnotationActions, ILibraryInventor
         return results;
     }
 
+    // Explicit available-index snapshot across configured folders, independent
+    // of Gallery search/folder filters. Unavailable and excluded media are not edited.
+    internal async Task<ClipAnnotationTarget[]> ReadTagTargetsAsync(string tag, CancellationToken token)
+    {
+        if (!Enabled || !ClipDetails.IsValidTag(tag))
+            throw new ArgumentException("Choose a valid indexed tag.");
+        var rows = await _index.Value.ReadGalleryAsync(null, null, token, exactTag: tag);
+        var targets = rows.Where(row => WithinConfiguredRoot(row.Path)).Take(257).ToArray();
+        if (targets.Length > 256)
+            throw new LibraryConflictException("More than 256 indexed clips use this tag. Use smaller selections.");
+        return targets.Select(row => new ClipAnnotationTarget(row.Path, row.Stamp, row.Details)
+        {
+            Source = new FileStamp(row.Stamp.Created.Ticks, row.Stamp.Modified.Ticks, row.Stamp.Length, row.Identity),
+        }).ToArray();
+    }
+
+    internal Task<int> SetTagColorAsync(string tag, string? color, CancellationToken token)
+    {
+        if (!Enabled) throw new LibraryConflictException("Tag colors require the library index.");
+        return _index.Value.SetTagColorAsync(tag, color, token);
+    }
+
+    internal Task<int> ApplyTagDeltaAsync(IReadOnlyCollection<ClipAnnotationTarget> targets,
+        IReadOnlyCollection<string> add, IReadOnlyCollection<string> remove, CancellationToken token,
+        bool replaceOnlyPresent = false, bool? hidden = null)
+    {
+        if (!Enabled || targets.Any(target => !WithinConfiguredRoot(target.Path)))
+            throw new LibraryConflictException("Tag management requires clips in configured indexed folders.");
+        return _index.Value.ApplyTagDeltaAsync(targets, add, remove, token, replaceOnlyPresent, hidden);
+    }
+
     // This is a catalog estimate, not allocated disk usage. Only configured roots
     // on the destination volume count; do not scan the drive to answer a UI query.
     internal async Task<long?> DestinationTrackedBytesAsync(string destination, string[] sources)
