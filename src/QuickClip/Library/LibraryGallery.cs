@@ -21,7 +21,7 @@ internal sealed partial class LibraryIndex
                     (SELECT json_group_array(name) FROM
                         (SELECT t.name FROM clip_tags ct JOIN tags t ON t.id=ct.tag_id WHERE ct.clip_id=c.id ORDER BY t.name_key)),
                     (SELECT json_group_array(json_object('Id',id,'Ticks',offset_ticks,'Label',label,'Session',session_id))
-                        FROM bookmarks WHERE clip_id=c.id), c.file_id
+                        FROM bookmarks WHERE clip_id=c.id), c.file_id,c.hidden
                 FROM clips c JOIN roots r ON r.id=c.root_id
                 WHERE r.availability=0 AND c.availability=0
                     AND ($root IS NULL OR c.root_id=$root) AND ($path IS NULL OR c.path_key=$path)
@@ -40,6 +40,7 @@ internal sealed partial class LibraryIndex
                     IndexId = Guid.Parse(reader.GetString(0)),
                     IndexRevision = reader.GetInt64(10),
                     IsFavorite = reader.GetBoolean(9),
+                    IsHidden = reader.GetBoolean(15),
                     Tags = JsonSerializer.Deserialize<string[]>(reader.GetString(12)) ?? [],
                     Bookmarks = (JsonSerializer.Deserialize<BookmarkRow[]>(reader.GetString(13)) ?? [])
                         .Select(mark => new Gallery.ClipBookmark(TimeSpan.FromTicks(mark.Ticks).TotalSeconds, mark.Label ?? "Marker")
