@@ -218,6 +218,9 @@
                     <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
                         <Button x:Name="UndoDeleteButton" Content="Undo delete" Style="{StaticResource TextButton}" IsEnabled="False"
                                 Click="UndoDelete_Click" ToolTip="Restore the latest deleted batch without overwriting files" />
+                        <Button x:Name="FindOverlapsButton" Content="Find overlapping clips" Style="{StaticResource TextButton}"
+                                Click="FindOverlaps_Click" Visibility="{Binding PersonalAnnotations, RelativeSource={RelativeSource AncestorType=views:GalleryView}, Converter={StaticResource ShowIf}}"
+                                ToolTip="Find clips with verified overlapping recording provenance" />
                         <Button x:Name="StorageButton" Content="Storage" Style="{StaticResource TextButton}"
                                 Click="OpenStorage_Click" ToolTip="Show indexed library storage" />
                         <Button Style="{StaticResource TextButton}" Click="OpenFolder_Click" ToolTip="Open this folder in Explorer">

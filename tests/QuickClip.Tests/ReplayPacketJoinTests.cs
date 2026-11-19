@@ -42,6 +42,23 @@ public sealed class ReplayPacketJoinTests(MediaFixture media, Xunit.Abstractions
         string db = media.Out("replay-provenance.sqlite3");
         var store = new ReplayProvenanceStore(db);
         var session = Guid.NewGuid();
+        // Exercise the same hidden scheduler admission and staging ownership used by Recorder.
+        var jobs = new MediaJobs(new MediaOwnership(), () => 1);
+        var pendingStage = MediaStaging.Reserve(Path.GetDirectoryName(a.Media)!, ".pending");
+        File.Copy(media.Out("overlap-a.pending"), pendingStage.Path, overwrite: true);
+        string pendingPath = pendingStage.Path;
+        var admission = ReplayProofJobs.TryQueue(MediaSource.Capture(a.Media), MediaSource.Capture(pendingPath),
+            pendingStage, session, new CaptureEngine.ReplaySpan
+            {
+                FirstUs = 0, LastUs = 5_966_667, DurationUs = 6_000_000, FirstSource = 17, LastSource = 17,
+            }, jobs, store);
+        Assert.NotNull(admission);
+        Assert.Equal(MediaJobState.Completed, (await admission.WaitAsync(TimeSpan.FromSeconds(15))).State);
+        Assert.False(File.Exists(pendingPath));
+        Assert.Empty(jobs.Snapshot());
+        await jobs.StopAsync();
+        Assert.Single(store.ReadCandidates(new HashSet<string> { LibraryFiles.PathKey(a.Media) }));
+
         var original = store.FinalizeAndAdd(MediaSource.Capture(a.Media),
             MediaSource.Capture(media.Out("overlap-a.pending")), session, 0, 6_000_000, null, default);
         var later = store.FinalizeAndAdd(MediaSource.Capture(b.Media),
@@ -52,6 +69,31 @@ public sealed class ReplayPacketJoinTests(MediaFixture media, Xunit.Abstractions
         Assert.Equal(9_000_000, cluster.UnionUs);
         Assert.Equal(3_000_000, cluster.DuplicateUs);
         Assert.Equal(File.ReadAllBytes(a.Proof), store.ReadProof(original));
+        // Full managed queue -> staged native join -> publication -> metadata; originals remain untouched.
+        var combineJobs = new MediaJobs(new MediaOwnership(), () => 1);
+        string managed = media.Out("managed-union.mp4");
+        var firstDetails = new QuickClip.Gallery.ClipDetails(DateTimeOffset.UnixEpoch, "Fixture")
+        {
+            Tags = ["one"], Bookmarks = [new(4, "first")],
+        };
+        var secondDetails = new QuickClip.Gallery.ClipDetails(DateTimeOffset.UnixEpoch.AddSeconds(3), "Fixture")
+        {
+            Tags = ["two"], Bookmarks = [new(2, "second")], IsFavorite = true,
+        };
+        var combine = ReplayCombine.Submit(cluster, managed, TimeSpan.FromMinutes(1),
+            [firstDetails, secondDetails], combineJobs, store);
+        var result = await combine.Completion.WaitAsync(TimeSpan.FromSeconds(20));
+        Assert.True(result.State == MediaJobState.Completed, result.Message);
+        Assert.Equal(managed, result.Output);
+        original.Media.Verify();
+        later.Media.Verify();
+        await Compare(reference.Media, managed);
+        var managedDetails = QuickClip.Gallery.ClipDetailsStore.Read(new FileInfo(managed), "Fixture", null);
+        Assert.True(managedDetails.IsFavorite);
+        Assert.Equal(new[] { "one", "two" }, managedDetails.Tags);
+        Assert.Equal(new[] { 4d, 5d }, managedDetails.Bookmarks.Select(b => b.Seconds));
+        Assert.Single(store.ReadCandidates(new HashSet<string> { LibraryFiles.PathKey(managed) }));
+        await combineJobs.StopAsync();
         Assert.Empty(store.ReadCandidates(new HashSet<string>()));
         Assert.Throws<ExportException>(() => store.Add(MediaSource.Capture(a.Media), session,
             0, 6_000_000, File.ReadAllBytes(media.Out("overlap-a.pending"))));

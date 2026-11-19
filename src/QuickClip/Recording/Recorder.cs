@@ -630,6 +630,7 @@ internal sealed class Recorder
     {
         using var activity = QuickClip.Shell.BackgroundActivity.Begin("Saving clip");
         string? staged = null;
+        MediaStaging? pendingProof = null;
         bool complete = false;
         try
         {
@@ -670,12 +671,17 @@ internal sealed class Recorder
             DateTimeOffset requestedAt = DateTimeOffset.Now;
             if (AppProfile.IsPersonal) _ = ClipNaming.Stem(s.ClipFilenameTemplate, folder, requestedAt, null);
             string stagingPath = staged = ClipNaming.ReserveStagingPath(dir, ".mp4");
+            if (AppProfile.IsPersonal && s.EnableLibraryIndex)
+            {
+                try { pendingProof = MediaStaging.Reserve(dir, ".pending"); }
+                catch (Exception ex) { Log.Failure(DiagnosticCategory.Library, "Could not stage replay provenance", ex); }
+            }
             CaptureEngine.ReplaySpan span = default;
             CaptureEngine.ReplayVideo video = default;
             cancellationToken.ThrowIfCancellationRequested();
             long nativeStarted = requestedAtTick.HasValue ? Stopwatch.GetTimestamp() : 0;
             string? error = CaptureEngine.SaveReplay(stagingPath, seconds, mediaTitle, position,
-                requestedSeconds.HasValue, anchors, out span, out video);
+                requestedSeconds.HasValue, anchors, out span, out video, pendingProof?.Path);
             if (requestedAtTick is long start)
             {
                 double nativeMs = Stopwatch.GetElapsedTime(nativeStarted).TotalMilliseconds;
@@ -696,6 +702,17 @@ internal sealed class Recorder
                 Log.Essential(DiagnosticCategory.Capture, "Native replay save failed");
                 SaveFailed?.Invoke(error);
                 return null;
+            }
+            // Snapshot the native output and its proof before publishing or invoking callbacks.
+            MediaSource? recorded = null, proofSource = null;
+            if (pendingProof != null)
+            {
+                try
+                {
+                    recorded = MediaSource.Capture(stagingPath);
+                    proofSource = MediaSource.Capture(pendingProof.Path);
+                }
+                catch (Exception ex) { Log.Failure(DiagnosticCategory.Library, "Could not snapshot replay provenance", ex); }
             }
             DateTimeOffset? capturedAt = Mp4Info.Read(stagingPath).CaptureTime?.ToLocalTime();
             DateTimeOffset capture = capturedAt ?? requestedAt;
@@ -746,6 +763,9 @@ internal sealed class Recorder
             catch (Exception ex) { Log.Failure(DiagnosticCategory.Capture, "Clip saved notification failed", ex); }
             try { ReplaySaved?.Invoke(receipt); }
             catch (Exception ex) { Log.Failure(DiagnosticCategory.Capture, "Replay receipt notification failed", ex); }
+            if (pendingProof != null && recorded != null && proofSource != null &&
+                ReplayProofJobs.TryQueue(recorded with { Path = path }, proofSource, pendingProof, sessionId, span) != null)
+                pendingProof = null; // Queue owns the staging receipt until its job settles.
             return (clip, receipt);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -761,6 +781,7 @@ internal sealed class Recorder
         }
         finally
         {
+            pendingProof?.Dispose();
             try { if (!complete && staged != null) File.Delete(staged); } catch (IOException) { } catch (UnauthorizedAccessException) { }
         }
     }
