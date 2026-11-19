@@ -140,7 +140,8 @@ public partial class SettingsView
         {
             label.Text = name;
             reset.Visibility = row != null ? Visibility.Visible : Visibility.Collapsed;
-            reset.Content = overridden ? "\uE72C" : "\uE71B";
+            reset.Content = overridden ? "\uE72C" : "\uE718";
+            reset.SetResourceReference(Control.ForegroundProperty, overridden ? "AccentBrush" : "SubtleText");
             reset.Opacity = overridden ? 1 : 0.6;
             reset.ToolTip = overridden ? $"{name}: customized. Reset to All Games." : $"{name}: follows All Games. Click to keep the current value independently.";
             label.ToolTip = row == null ? null : overridden ? "Customized for this game" : "Follows All Games";
