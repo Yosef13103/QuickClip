@@ -45,7 +45,8 @@ internal sealed partial class LibraryIndex
     // title, game, favorites, bookmarks, drafts and associations. Never fall back
     // to legacy metadata writes or silently truncate existing tags.
     internal Task<int> ApplyTagDeltaAsync(IReadOnlyCollection<ClipAnnotationTarget> selection,
-        IReadOnlyCollection<string> add, IReadOnlyCollection<string> remove, CancellationToken token = default)
+        IReadOnlyCollection<string> add, IReadOnlyCollection<string> remove, CancellationToken token = default,
+        bool replaceOnlyPresent = false)
     {
         var targets = selection.Take(MaxTagBatch + 1).ToArray();
         if (targets.Length > MaxTagBatch ||
@@ -71,6 +72,8 @@ internal sealed partial class LibraryIndex
 
         var additions = Names(add);
         var removals = Names(remove);
+        if (replaceOnlyPresent && (removals.Count != 1 || additions.Count != 1))
+            throw new ArgumentException("Choose exactly one old and one replacement tag.");
         if (additions.Keys.Any(removals.ContainsKey))
             throw new ArgumentException("A tag cannot be added and removed in the same edit.");
 
@@ -122,6 +125,9 @@ internal sealed partial class LibraryIndex
                     using (var reader = query.ExecuteReader())
                         while (reader.Read()) current.Add(reader.GetString(0));
 
+                    // Replacement affects only clips carrying the old tag. A clip
+                    // without it must not acquire a new tag merely by being selected.
+                    if (replaceOnlyPresent && !current.Overlaps(removals.Keys)) continue;
                     var next = new HashSet<string>(current, StringComparer.Ordinal);
                     next.ExceptWith(removals.Keys);
                     next.UnionWith(additions.Keys);
