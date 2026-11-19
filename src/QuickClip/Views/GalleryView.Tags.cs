@@ -162,6 +162,52 @@ public partial class GalleryView
         }
     }
 
+    private async void TagColors_Click(object sender, RoutedEventArgs e)
+    {
+        if (!PersonalLibrary.Enabled || _released || _loading || _editingAnnotations ||
+            Window.GetWindow(this) is not { IsVisible: true, Content: Panel } owner ||
+            !await FlushAnnotationsAsync() || _released || _loading || _editingAnnotations) return;
+        _editingAnnotations = true;
+        try
+        {
+            var tags = new ComboBox { ItemsSource = KnownTags.ToArray(), SelectedIndex = 0 };
+            var colors = new ComboBox { ItemsSource = TagPalette.Choices, SelectedIndex = 0 };
+            AutomationProperties.SetName(tags, "Tag to color");
+            AutomationProperties.SetName(colors, "Tag color");
+            void SelectColor()
+            {
+                if (tags.SelectedItem is not string name) return;
+                string key = LibraryFiles.TextKey(name);
+                var color = _clips.Select(clip => clip.Details.TagColors.GetValueOrDefault(key))
+                    .FirstOrDefault(value => value != null);
+                colors.SelectedItem = TagPalette.Choices.FirstOrDefault(choice => choice.Hex == color) ?? TagPalette.Choices[0];
+            }
+            tags.SelectionChanged += (_, _) => SelectColor();
+            SelectColor();
+            var panel = new StackPanel();
+            panel.Children.Add(new TextBlock { Text = "Choose a color for this tag throughout your library. Default removes the color. Tag names remain visible regardless of color.", TextWrapping = TextWrapping.Wrap });
+            panel.Children.Add(new TextBlock { Text = "Tag", Margin = new Thickness(0, 10, 0, 4) });
+            panel.Children.Add(tags);
+            panel.Children.Add(new TextBlock { Text = "Color", Margin = new Thickness(0, 10, 0, 4) });
+            panel.Children.Add(colors);
+            if (!ModalDialog.Run(owner, "Tag colors", panel, "Apply color", "Cancel", safeDefault: true,
+                validate: () => tags.SelectedItem is string && colors.SelectedItem is TagColorChoice)) return;
+            if (_released || !PersonalLibrary.Enabled || tags.SelectedItem is not string tag ||
+                colors.SelectedItem is not TagColorChoice choice) return;
+            var job = PersonalLibrary.Current.SetTagColorAsync(tag, choice.Hex, _lifetime.Token);
+            _annotationJob = job;
+            await job;
+            if (!_released) await ReloadAsync(rereadIndex: true);
+        }
+        catch (OperationCanceledException) when (_lifetime.IsCancellationRequested) { }
+        catch (Exception ex)
+        {
+            Log.Failure(DiagnosticCategory.Library, "Tag color update failed", ex);
+            if (!_released) ShowStatus("Could not change tag color. Refresh before retrying.");
+        }
+        finally { _annotationJob = null; _editingAnnotations = false; }
+    }
+
     private sealed record TagChoice(string Name, int Count)
     {
         public string Label => $"{Name}  ·  {Count:N0}";
