@@ -244,6 +244,7 @@ public partial class SettingsView : UserControl
             int stepIndex = Array.FindIndex(RecordingPresets.BufferSteps, v => v >= s.BufferSeconds);
             BufferSlider.Value = stepIndex < 0 ? RecordingPresets.BufferSteps.Length - 1 : stepIndex;
 
+            RefreshReplayOverlap(s);
             QualityCombo.ItemsSource = Enum.GetValues<RecordingQuality>().Reverse().Select(q => new Choice(RecordingPresets.Label(q), q)).ToList();
             Select(QualityCombo, s.RecordQuality);
             FpsCombo.ItemsSource = RecordingPresets.FrameRates.Select(f => new Choice($"{f} fps", f)).ToList();
@@ -701,6 +702,11 @@ public partial class SettingsView : UserControl
     {
         if (!AppProfile.IsPersonal) return;
         AppSettings.Current.EnableLibraryIndex = IndexLibraryCheck.IsChecked == true;
+        ReplayAutomaticCoordinator.Current.Invalidate();
+        bool loading = _loading;
+        _loading = true;
+        try { RefreshReplayOverlap(AppSettings.Current); }
+        finally { _loading = loading; }
         AppSettings.Current.Save();
         _ = RefreshRecordingFoldersAsync();
     }
@@ -725,6 +731,48 @@ public partial class SettingsView : UserControl
     {
         SharingDialogs.Manage(Window.GetWindow(this));
         ShowDefaultSharing();
+    }
+
+    private void RefreshReplayOverlap(AppSettings s)
+    {
+        ReplayOverlapCard.Visibility = AppProfile.IsPersonal ? Visibility.Visible : Visibility.Collapsed;
+        if (!AppProfile.IsPersonal) return;
+        OverlapModeCombo.ItemsSource = new Choice[]
+        {
+            new("Save separately (default)", ReplayOverlapMode.Separate),
+            new("Extend previous clip", ReplayOverlapMode.ExtendPrevious),
+            new("Combine after recording ends", ReplayOverlapMode.CombineAfterRecording),
+        };
+        var policy = ReplayOverlapOptions.Read(s);
+        Select(OverlapModeCombo, policy.Mode);
+        OverlapLimitCombo.ItemsSource = new[] { 30, 60, 120, 300, 600, 900, 1800, 3600, policy.Seconds }
+            .Distinct().OrderBy(n => n).Select(n => new Choice(Fmt.Time(n), n)).ToList();
+        Select(OverlapLimitCombo, policy.Seconds);
+        OverlapModeCombo.IsEnabled = OverlapLimitCombo.IsEnabled = s.EnableLibraryIndex;
+        OverlapModeHint.Text = s.EnableLibraryIndex
+            ? "Automatic modes combine verified overlapping saves and move eligible originals to the Recycle Bin. Favorites, edited clips and clips in use are protected. If a merge cannot be verified, clips remain separate."
+            : "Enable the library index to combine overlapping replays.";
+    }
+
+    private void ReplayOverlap_Changed(object sender, SelectionChangedEventArgs e)
+    {
+        if (_loading || !IsLoaded || !AppProfile.IsPersonal) return;
+        var s = AppSettings.Current;
+        if (!s.EnableLibraryIndex || OverlapModeCombo.SelectedItem is not Choice { Value: ReplayOverlapMode mode } ||
+            OverlapLimitCombo.SelectedItem is not Choice { Value: int seconds }) return;
+        var oldMode = s.OverlapMode;
+        int oldSeconds = s.MaximumCombinedReplaySeconds;
+        if (oldMode == mode && oldSeconds == seconds) return;
+        s.OverlapMode = mode;
+        s.MaximumCombinedReplaySeconds = seconds;
+        ReplayAutomaticCoordinator.Current.Invalidate();
+        if (s.TrySave()) return;
+        s.OverlapMode = oldMode;
+        s.MaximumCombinedReplaySeconds = oldSeconds;
+        _loading = true;
+        try { RefreshReplayOverlap(s); }
+        finally { _loading = false; }
+        ModalDialog.Show(Window.GetWindow(this), "Could not save the replay overlap setting.", "QuickClip");
     }
 
     private void MediaConcurrency_Changed(object sender, RoutedEventArgs e)

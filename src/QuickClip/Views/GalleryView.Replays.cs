@@ -4,6 +4,7 @@ using System.Windows.Controls;
 using QuickClip.Gallery;
 using QuickClip.Library;
 using QuickClip.Media;
+using QuickClip.Recording;
 using QuickClip.Shell;
 
 namespace QuickClip.Views;
@@ -89,7 +90,7 @@ public partial class GalleryView
                     "The combined file inherits favorites, tags and bookmarks. Restore replay originals can recover the original files and their information while the Recycle Bin retains them. The combined file will be kept during recovery.",
                     "Replace overlapping clips", "Combine and recycle originals", "Keep originals", destructive: true))
                     return;
-                var job = ReplayCombine.Submit(selected, destination, ReplayCombine.MaxDuration, details,
+                var job = ReplayCombine.Submit(selected, destination, ReplayOverlapOptions.Read(AppSettings.Current).Limit, details,
                     replacement: replaceOriginals ? ReplayReplacementService.Current : null);
                 var result = await job.Completion;
                 if (_released) return;
@@ -111,7 +112,7 @@ public partial class GalleryView
                 try
                 {
                     selected = ReplayPlanner.Subset(clusters[clusterBox.SelectedIndex], firstBox.SelectedIndex,
-                        lastBox.SelectedIndex, ReplayCombine.MaxDuration);
+                        lastBox.SelectedIndex, ReplayOverlapOptions.Read(AppSettings.Current).Limit);
                     if (selected.Clips.Count > ReplayCombine.MaxSources)
                         throw new ExportException("Choose at most 32 clips at once.");
                     preview.Text = $"{selected.Clips.Count} consecutive clips\n" +

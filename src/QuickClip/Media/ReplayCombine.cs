@@ -11,7 +11,7 @@ internal static class ReplayCombine
 
     internal static (Guid Id, Task<MediaJobView> Completion) Submit(ReplayCluster cluster, string destination,
         TimeSpan limit, IReadOnlyList<ClipDetails> details, MediaJobs? jobs = null, ReplayProvenanceStore? store = null,
-        ReplayReplacementService? replacement = null, bool automatic = false)
+        ReplayReplacementService? replacement = null, bool automatic = false, Func<bool>? automaticAllowed = null)
     {
         var plan = ReplayPlanner.Subset(cluster, 0, cluster.Clips.Count - 1, limit);
         if (plan.Clips.Count > MaxSources || limit > MaxDuration || limit <= TimeSpan.Zero ||
@@ -34,6 +34,7 @@ internal static class ReplayCombine
         var request = new MediaJobRequest(Path.GetFileName(destination), false, sources, destination,
             async (job, ct) =>
             {
+                if (automaticAllowed?.Invoke() == false) throw new ExportException("Automatic replay settings changed.");
                 string directory = Path.GetDirectoryName(destination)!;
                 MediaProcessing.RequireSafeDirectory(directory);
                 MediaProcessing.CheckFreeSpace(directory, checked(sources.Sum(s => s.Stamp.Bytes)));
@@ -63,6 +64,7 @@ internal static class ReplayCombine
                     var snapshot = MediaSource.Capture(staged.Path) with { Path = destination };
                     void Publish()
                     {
+                        if (automaticAllowed?.Invoke() == false) throw new ExportException("Automatic replay settings changed.");
                         File.Move(staged.Path, destination); // never overwrite an existing file
                         try
                         {
@@ -91,7 +93,7 @@ internal static class ReplayCombine
                 ProtectEditorSources = true,
                 Replace = (_, ct) => replacement.CommitAsync(transactionId,
                     published ?? throw new ExportException("The combined recording is not validated."),
-                    sources, details, automatic, ct),
+                    sources, details, automatic, ct, automaticAllowed),
             };
         return (jobs ?? MediaJobs.Current).Submit(request);
     }

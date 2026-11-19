@@ -475,6 +475,8 @@ internal sealed class Recorder
         IsRunning = false;
         if (stopNative) CaptureEngine.Stop();
         _runningEndpointPlan = [];
+        if (AppProfile.IsPersonal && _replaySession != Guid.Empty)
+            ReplayAutomaticCoordinator.Current.EndSession(_replaySession);
         _replaySession = Guid.Empty;
         _replayMarkers.Clear();
         (_sessionGame, _sessionGameId, _sessionDisplay, _desktopSource) = (null, null, null, null);
@@ -631,6 +633,7 @@ internal sealed class Recorder
         using var activity = QuickClip.Shell.BackgroundActivity.Begin("Saving clip");
         string? staged = null;
         MediaStaging? pendingProof = null;
+        ReplayAutomaticCoordinator.Ticket? automaticTicket = null;
         bool complete = false;
         try
         {
@@ -726,6 +729,8 @@ internal sealed class Recorder
                     !MaySaveFromDisplay(s, _lifecycle.Mode, _captureDisplayIdentity, ManualDesktopRequested) || CaptureEngine.VideoSourceLost()))
                     throw new IOException("The recording source changed before the replay could be saved.");
                 path = ClipNaming.Publish(stagingPath, dir, stem, ".mp4");
+                if (AppProfile.IsPersonal)
+                    automaticTicket = ReplayAutomaticCoordinator.Current.Reserve(sessionId, recorded == null ? null : recorded with { Path = path });
             }
             complete = true;
             TimeSpan? actual = span.DurationUs >= 0 ? ReplayMarkers.Time(span.DurationUs) : null;
@@ -763,9 +768,12 @@ internal sealed class Recorder
             catch (Exception ex) { Log.Failure(DiagnosticCategory.Capture, "Clip saved notification failed", ex); }
             try { ReplaySaved?.Invoke(receipt); }
             catch (Exception ex) { Log.Failure(DiagnosticCategory.Capture, "Replay receipt notification failed", ex); }
-            if (pendingProof != null && recorded != null && proofSource != null &&
-                ReplayProofJobs.TryQueue(recorded with { Path = path }, proofSource, pendingProof, sessionId, span) != null)
-                pendingProof = null; // Queue owns the staging receipt until its job settles.
+            Task<MediaJobView>? proofJob = null;
+            if (pendingProof != null && recorded != null && proofSource != null)
+                proofJob = ReplayProofJobs.TryQueue(recorded with { Path = path }, proofSource, pendingProof, sessionId, span);
+            if (proofJob != null) pendingProof = null; // Queue owns staging until its job settles.
+            automaticTicket?.Complete(proofJob);
+            automaticTicket = null;
             return (clip, receipt);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -781,6 +789,7 @@ internal sealed class Recorder
         }
         finally
         {
+            automaticTicket?.Complete(null);
             pendingProof?.Dispose();
             try { if (!complete && staged != null) File.Delete(staged); } catch (IOException) { } catch (UnauthorizedAccessException) { }
         }

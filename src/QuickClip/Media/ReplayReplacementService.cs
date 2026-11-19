@@ -21,10 +21,10 @@ internal sealed class ReplayReplacementService(string directory, ReplayReplaceme
     // Called by the scheduler AFTER release of immutable read handles, while
     // its exclusive source/destination/editor reservations are still held.
     internal async Task<string> CommitAsync(Guid id, MediaSource output, IReadOnlyList<MediaSource> sources,
-        IReadOnlyList<ClipDetails> details, bool automatic, CancellationToken token)
+        IReadOnlyList<ClipDetails> details, bool automatic, CancellationToken token, Func<bool>? automaticAllowed = null)
     {
         token.ThrowIfCancellationRequested();
-        if (!allowed(output.Path) || sources.Any(source => !allowed(source.Path)))
+        if (automaticAllowed?.Invoke() == false || !allowed(output.Path) || sources.Any(source => !allowed(source.Path)))
             throw new ExportException("The combined copy was saved; the current library configuration prevents replacing originals.");
         if (Records().Length >= MaxJournals)
             throw new ExportException("The combined copy was saved. Restore prior replay groups before replacing more originals.");
@@ -32,7 +32,7 @@ internal sealed class ReplayReplacementService(string directory, ReplayReplaceme
         try
         {
             policy.Stage(journal, details, automatic, token);
-            if (!allowed(output.Path) || sources.Any(source => !allowed(source.Path)))
+            if (automaticAllowed?.Invoke() == false || !allowed(output.Path) || sources.Any(source => !allowed(source.Path)))
                 throw new ExportException("Library locations changed during replay replacement.");
             await OnSta(() => journal.RecycleEscrow(token, recycle, find));
             return output.Path;
