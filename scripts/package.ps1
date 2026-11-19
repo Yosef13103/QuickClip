@@ -7,7 +7,7 @@
     The app is published self-contained, so neither needs .NET installed. Needs the tools from
     scripts\get-deps.ps1 (FFmpeg, libmpv, Inno Setup) and Visual Studio's C++ tools for the recording engine.
 #>
-param([switch]$Upstream, [switch]$Personal)
+param([switch]$Upstream, [switch]$Personal, [string]$FixtureVersion)
 
 $ErrorActionPreference = 'Stop'
 if ($Upstream -eq $Personal) {
@@ -18,6 +18,12 @@ $csproj = Join-Path $root 'src\QuickClip\QuickClip.csproj'
 $iscc = Join-Path $root 'deps\innosetup\ISCC.exe'
 
 $version = (Select-Xml -Path $csproj -XPath '//Version').Node.InnerText
+if ($FixtureVersion) {
+    if (!$Personal -or $env:GITHUB_ACTIONS -ne 'true' -or $env:RUNNER_ENVIRONMENT -ne 'github-hosted' -or $FixtureVersion -notmatch '^\d+\.\d+\.\d+$' -or [version]$FixtureVersion -le [version]'1.2.0') {
+        throw 'Fixture version overrides are restricted to a disposable hosted Personal upgrade test.'
+    }
+    $version = $FixtureVersion
+}
 if ($version -notmatch '^(\d+)\.(\d+)\.(\d+)(?:-(.+))?$') { throw "Unexpected version '$version' in QuickClip.csproj" }
 $numeric = "$($Matches[1]).$($Matches[2]).$($Matches[3]).0"
 $display = "$($Matches[1]).$($Matches[2])" + $(if ([int]$Matches[3] -gt 0) { ".$($Matches[3])" } else { '' }) +
@@ -37,7 +43,7 @@ if (Test-Path -LiteralPath $out) {
 $app = Join-Path $out $name
 
 Write-Host "Building QuickClip $version ($display)..."
-dotnet publish $csproj -c Release -r win-x64 --self-contained true -o $app "-p:QuickClipProfile=$profile" -p:RequireCaptureEngine=true -p:DebugType=none -nologo -v q
+dotnet publish $csproj -c Release -r win-x64 --self-contained true -o $app "-p:QuickClipProfile=$profile" "-p:Version=$version" -p:RequireCaptureEngine=true -p:DebugType=none -nologo -v q
 if ($LASTEXITCODE -ne 0) { throw 'Build failed.' }
 foreach ($required in 'QuickClip.exe', 'QuickClipCapture.dll', 'libmpv-2.dll', 'ffmpeg\ffmpeg.exe') {
     if (-not (Test-Path (Join-Path $app $required))) { throw "The build is missing $required." }

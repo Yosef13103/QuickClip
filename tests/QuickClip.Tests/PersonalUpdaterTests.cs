@@ -278,7 +278,7 @@ public sealed class PersonalUpdaterTests : IDisposable
                 throw 'Rollback did not preserve recovery state and unknown files'
             }
             try {
-                Complete-Restoration $root $pending
+                Complete-Restoration $root $backup $pending
                 throw 'Recovery completed despite unknown files'
             } catch {
                 if ($_.Exception.Message -notlike '*outside the installer inventory*') { throw }
@@ -286,8 +286,33 @@ public sealed class PersonalUpdaterTests : IDisposable
             if (![IO.File]::Exists($pending)) { throw 'Recovery marker was cleared too early' }
             # Only the fixture owns this known generated file. A real worker must not remove unknown files.
             [IO.File]::Delete($extra)
-            Complete-Restoration $root $pending
+            [IO.File]::WriteAllText($old, 'unexpected modification')
+            try {
+                Complete-Restoration $root $backup $pending
+                throw 'Changed file was accepted'
+            } catch {
+                if ($_.Exception.Message -notlike '*content differs from the backup*') { throw }
+            }
+            if (![IO.File]::Exists($pending)) { throw 'Recovery marker was cleared before content validation' }
+            Restore-Installation $root $backup $Version
+            Complete-Restoration $root $backup $pending
             if ([IO.File]::Exists($pending)) { throw 'Verified recovery did not clear its marker' }
+            """);
+    }
+
+    [Fact]
+    public async Task Worker_rejects_inventory_with_missing_owned_file()
+    {
+        await RunWorkerFixtureAsync("""
+            [IO.File]::WriteAllText((Join-Path $Scratch 'QuickClip.exe'), 'fixture')
+            [IO.File]::WriteAllText((Join-Path $Scratch 'unins000.exe'), 'fixture')
+            [IO.File]::WriteAllLines((Join-Path $Scratch 'quickclip-install-files.txt'), @('QuickClip.exe', 'missing.dll', 'worker.ps1', 'fixture.ps1'))
+            try {
+                $null = Read-OwnedFiles $Scratch
+                throw 'Missing owned file was accepted'
+            } catch {
+                if ($_.Exception.Message -notlike '*missing file*') { throw }
+            }
             """);
     }
 

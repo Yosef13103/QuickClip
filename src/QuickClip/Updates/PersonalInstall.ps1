@@ -61,6 +61,11 @@ function Read-OwnedFiles([string]$Root, [string[]]$AllowedExtra = @()) {
             Assert-OrdinaryPath $entry
         }
     }
+    foreach ($name in $files) {
+        $path = Join-Path $Root $name
+        Assert-OrdinaryPath $path
+        if (![IO.File]::Exists($path)) { throw 'The installation inventory names a missing file.' }
+    }
     return $files
 }
 
@@ -127,8 +132,18 @@ function Restore-Installation([string]$Root, [string]$Backup, [string]$Version) 
 # Restoring the previous binaries is not sufficient if a failed setup left
 # files outside the previous inventory. Preserve unknown files and the recovery
 # marker instead of reporting a complete rollback or launching mixed binaries.
-function Complete-Restoration([string]$Root, [string]$Pending) {
-    $null = Read-OwnedFiles $Root
+function Complete-Restoration([string]$Root, [string]$Backup, [string]$Pending) {
+    $restored = @(Read-OwnedFiles $Root)
+    $expected = @(Read-OwnedFiles $Backup)
+    if ($restored.Count -ne $expected.Count -or ($restored | Where-Object { $_ -notin $expected })) {
+        throw 'Restored installation inventory differs from the backup.'
+    }
+    foreach ($name in $expected) {
+        if ((Get-FileHash -LiteralPath (Join-Path $Root $name) -Algorithm SHA256).Hash -ne
+            (Get-FileHash -LiteralPath (Join-Path $Backup $name) -Algorithm SHA256).Hash) {
+            throw 'Restored installation file content differs from the backup.'
+        }
+    }
     [IO.File]::Delete($Pending)
 }
 
@@ -175,7 +190,7 @@ function Invoke-InstallTransaction([string]$Root, [string]$Backup, [string]$Pend
         try {
             Restore-Installation $Root $Backup $Previous
             & $RestoreRegistration
-            Complete-Restoration $Root $Pending
+            Complete-Restoration $Root $Backup $Pending
         } catch {
             throw "$errorMessage Recovery was incomplete. Keep the staging folder and run the recovery script after Setup exits. $($_.Exception.Message)"
         }
@@ -209,6 +224,10 @@ function Restore-UninstallRegistration([string]$BackupFile) {
     $keyName = 'Software\Microsoft\Windows\CurrentVersion\Uninstall\{90FB3786-4F27-41D1-B7D6-44E671DE28CA}_is1'
     $key = [Microsoft.Win32.Registry]::CurrentUser.CreateSubKey($keyName)
     try {
+        $expected = @($values | ForEach-Object { $_.Name })
+        foreach ($name in $key.GetValueNames()) {
+            if ($name -notin $expected) { $key.DeleteValue($name, $false) }
+        }
         foreach ($entry in $values) {
             $value = $entry.Data
             switch ($entry.Kind) {
@@ -260,7 +279,7 @@ function Invoke-PersonalInstall {
             }
             Restore-Installation $root $backup $plan.CurrentVersion
             Restore-UninstallRegistration $registration
-            Complete-Restoration $root $pending
+            Complete-Restoration $root $backup $pending
             $restart = $true
             return
         }
@@ -307,8 +326,15 @@ function Invoke-PersonalInstall {
         if ($recoveryMutex) { $recoveryMutex.Dispose() }
         if ($lease) { $lease.Dispose() }
         if ($restart) {
-            try { Start-Process -FilePath $installed -WorkingDirectory $root }
-            catch { $failure = 'Installation completed. Open QuickClip from the Start menu to restart it.' }
+            try {
+                $application = Start-Process -FilePath $installed -WorkingDirectory $root -PassThru
+                try {
+                    if ($application.WaitForExit(3000)) { throw "QuickClip exited during restart ($($application.ExitCode))." }
+                } finally { $application.Dispose() }
+            } catch {
+                $failure = 'Installation completed, but QuickClip did not stay running. Open it from the Start menu. The update backup has been retained.'
+                try { [IO.File]::WriteAllText((Join-Path $work 'error.txt'), $failure + ' ' + $_.Exception.Message) } catch { }
+            }
         }
         if ($failure -and ($Recover -or [IO.File]::Exists((Join-Path $work 'ready')))) {
             Add-Type -AssemblyName System.Windows.Forms
