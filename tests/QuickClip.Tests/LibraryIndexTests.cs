@@ -323,7 +323,7 @@ public sealed class LibraryIndexTests : IDisposable
         using (var connection = new LibraryDatabase(Db).Open())
         {
             LibraryDatabase.Execute(connection, null,
-                "DROP TABLE edit_drafts; DROP TABLE bookmarks; DROP TABLE clip_tags; DROP TABLE tags; PRAGMA user_version=1;");
+                "DROP INDEX clips_hidden; ALTER TABLE clips DROP COLUMN hidden; DROP TABLE edit_drafts; DROP TABLE bookmarks; DROP TABLE clip_tags; DROP TABLE tags; PRAGMA user_version=1;");
         }
         Assert.True((await index.GetAnnotationsAsync(id)).Favorite);
         await index.SetTagsAsync(id, ["Preserved"]);

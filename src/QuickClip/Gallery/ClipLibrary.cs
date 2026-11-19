@@ -36,6 +36,15 @@ public sealed class ClipItem : INotifyPropertyChanged
     public string Title => Details.Title ?? System.IO.Path.GetFileNameWithoutExtension(File.Name);
     public bool IsFavorite => Details.IsFavorite;
     public string TagText => string.Join("  ·  ", Details.Tags);
+    public sealed record TagBadge(string Name, System.Windows.Media.Brush Swatch);
+    public TagBadge[] TagBadges => Details.Tags.Select(tag =>
+    {
+        var color = Details.TagColors.GetValueOrDefault(LibraryFiles.TextKey(tag));
+        if (!TagPalette.Valid(color) || color == null) return new TagBadge(tag, Brushes.Transparent);
+        var brush = new SolidColorBrush((Color)ColorConverter.ConvertFromString(color));
+        brush.Freeze();
+        return new TagBadge(tag, brush);
+    }).ToArray();
     public DateTime Created { get; }
     public DateTime FileCreatedAt { get; }
     public string DateTooltip => $"Footage captured: {Created:F}\nFile created: {FileCreatedAt.ToLocalTime():F}\nRelative age uses the local file creation time.";
@@ -65,6 +74,7 @@ public sealed class ClipItem : INotifyPropertyChanged
         OnChanged(nameof(Title));
         OnChanged(nameof(IsFavorite));
         OnChanged(nameof(TagText));
+        OnChanged(nameof(TagBadges));
     }
 
     public string Ago

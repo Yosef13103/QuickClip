@@ -25,6 +25,10 @@ internal sealed record ClipDetails(DateTimeOffset CapturedAt, string Game, strin
 
     internal Guid? IndexId { get; init; }
     internal long IndexRevision { get; init; }
+    internal bool IsHidden { get; init; }
+    // A shared immutable empty value preserves legacy record equality on sidecar round trips.
+    internal IReadOnlyDictionary<string, string> TagColors { get; init; } =
+        System.Collections.Immutable.ImmutableDictionary<string, string>.Empty;
 
     public string[] Tags { get; init; } = [];
     public bool IsFavorite { get; init; }

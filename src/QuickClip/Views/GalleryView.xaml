@@ -97,18 +97,18 @@
                             </StackPanel>
                             <StackPanel Grid.Row="1" Grid.ColumnSpan="2" Margin="0,4,0,0">
                                 <TextBlock Text="{Binding Folder}" FontSize="{DynamicResource QuickClipText12}" Foreground="{DynamicResource SubtleText}" TextTrimming="CharacterEllipsis" />
-                                <TextBlock Text="{Binding TagText}" ToolTip="{Binding TagText}" FontSize="{DynamicResource QuickClipText12}"
-                                           Foreground="{DynamicResource SubtleText}" TextTrimming="CharacterEllipsis">
-                                    <TextBlock.Style>
-                                        <Style TargetType="TextBlock">
-                                            <Style.Triggers>
-                                                <DataTrigger Binding="{Binding TagText}" Value="">
-                                                    <Setter Property="Visibility" Value="Collapsed" />
-                                                </DataTrigger>
-                                            </Style.Triggers>
-                                        </Style>
-                                    </TextBlock.Style>
-                                </TextBlock>
+                                <ItemsControl ItemsSource="{Binding TagBadges}" ToolTip="{Binding TagText}" ClipToBounds="True">
+                                    <ItemsControl.ItemsPanel><ItemsPanelTemplate><StackPanel Orientation="Horizontal" /></ItemsPanelTemplate></ItemsControl.ItemsPanel>
+                                    <ItemsControl.ItemTemplate><DataTemplate>
+                                        <StackPanel Orientation="Horizontal" Margin="0,0,7,0">
+                                            <Ellipse Width="7" Height="7" Fill="{Binding Swatch}" Margin="0,0,3,0" VerticalAlignment="Center" />
+                                            <TextBlock Text="{Binding Name}" FontSize="{DynamicResource QuickClipText12}" Foreground="{DynamicResource SubtleText}" />
+                                        </StackPanel>
+                                    </DataTemplate></ItemsControl.ItemTemplate>
+                                    <ItemsControl.Style><Style TargetType="ItemsControl"><Style.Triggers>
+                                        <DataTrigger Binding="{Binding TagText}" Value=""><Setter Property="Visibility" Value="Collapsed" /></DataTrigger>
+                                    </Style.Triggers></Style></ItemsControl.Style>
+                                </ItemsControl>
                                 <TextBlock Margin="0,2,0,0" FontSize="{DynamicResource QuickClipText12}" Foreground="{DynamicResource SubtleText}"
                                            TextTrimming="CharacterEllipsis" ToolTip="{Binding DateTooltip}">
                                     <Run Text="{Binding Created, Mode=OneWay, StringFormat=t}" /><Run Text="  ·  " />
@@ -305,10 +305,19 @@
                                 </ComboBox.ItemsPanel>
                             </ComboBox>
                         </StackPanel>
+                        <Button Content="Tag colors…" Click="TagColors_Click" Style="{StaticResource TextButton}" Margin="0,0,8,4"
+                                Visibility="{Binding PersonalAnnotations, RelativeSource={RelativeSource AncestorType=views:GalleryView}, Converter={StaticResource ShowIf}}" />
+                        <Button Content="Library tags…" Click="LibraryTags_Click" Style="{StaticResource TextButton}" Margin="0,0,8,4"
+                                Visibility="{Binding PersonalAnnotations, RelativeSource={RelativeSource AncestorType=views:GalleryView}, Converter={StaticResource ShowIf}}" />
+                        <Button x:Name="MultiTagFilterButton" Content="Multiple tags…" Click="MultiTagFilter_Click" Style="{StaticResource TextButton}" Margin="0,0,8,4"
+                                Visibility="{Binding PersonalAnnotations, RelativeSource={RelativeSource AncestorType=views:GalleryView}, Converter={StaticResource ShowIf}}" />
                         <CheckBox Style="{StaticResource SwitchCheckBox}" x:Name="FavoritesFilter" Content="Favorites only" VerticalAlignment="Center" Margin="0,0,10,4"
                                   Checked="OrganizationFilter_Changed" Unchecked="OrganizationFilter_Changed" />
                         <CheckBox Style="{StaticResource SwitchCheckBox}" x:Name="FavoritesSort" Content="Favorites first within each day" VerticalAlignment="Center" Margin="0,0,10,4"
                                   Checked="OrganizationFilter_Changed" Unchecked="OrganizationFilter_Changed" />
+                        <CheckBox Style="{StaticResource SwitchCheckBox}" x:Name="HiddenClipsFilter" Content="Hidden clips only" VerticalAlignment="Center" Margin="0,0,10,4"
+                                  Checked="OrganizationFilter_Changed" Unchecked="OrganizationFilter_Changed"
+                                  Visibility="{Binding PersonalAnnotations, RelativeSource={RelativeSource AncestorType=views:GalleryView}, Converter={StaticResource ShowIf}}" />
                         <Button Content="Clear filters" Click="ClearFilters_Click" Style="{StaticResource TextButton}" Margin="0,0,8,4" />
                 </WrapPanel>
                 <Border x:Name="InlineDetails" DockPanel.Dock="Top" Visibility="Collapsed"
