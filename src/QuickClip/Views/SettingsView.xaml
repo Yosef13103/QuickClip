@@ -354,6 +354,35 @@
                         </StackPanel>
                     </Border>
 
+                    <StackPanel x:Name="GameProfilePanel" Visibility="Collapsed" Margin="0,12,0,0">
+                        <TextBlock Text="Recording profile" FontWeight="SemiBold" Margin="0,0,0,4" />
+                        <ComboBox x:Name="GameProfileCombo" SelectionChanged="GameProfile_Changed"
+                                  AutomationProperties.Name="Recording profile" MaxDropDownHeight="320">
+                            <ComboBox.ItemContainerStyle><Style TargetType="ComboBoxItem">
+                                <Setter Property="IsEnabled" Value="{Binding Enabled}" />
+                            </Style></ComboBox.ItemContainerStyle>
+                            <ComboBox.ItemTemplate><DataTemplate>
+                                <StackPanel Orientation="Horizontal">
+                                    <TextBlock Text="{Binding Label}" />
+                                    <TextBlock Text="  ·  Override" FontWeight="SemiBold" Margin="6,0,0,0">
+                                        <TextBlock.Style><Style TargetType="TextBlock"><Setter Property="Visibility" Value="Collapsed" />
+                                            <Style.Triggers><DataTrigger Binding="{Binding HasOverrides}" Value="True"><Setter Property="Visibility" Value="Visible" /></DataTrigger></Style.Triggers>
+                                        </Style></TextBlock.Style>
+                                    </TextBlock>
+                                </StackPanel>
+                            </DataTemplate></ComboBox.ItemTemplate>
+                        </ComboBox>
+                        <TextBlock x:Name="GameProfileStatus" Style="{StaticResource Hint}" TextWrapping="Wrap" Margin="0,4,0,0" />
+                        <StackPanel x:Name="GameTagsPanel" Visibility="Collapsed" Margin="0,8,0,0">
+                            <TextBlock Text="Automatic tags (one per line)" />
+                            <TextBox x:Name="GameTagBox" AcceptsReturn="True" MinHeight="55" MaxHeight="110"
+                                     MaxLength="600" VerticalScrollBarVisibility="Auto" AutomationProperties.Name="Automatic game tags" />
+                            <StackPanel Orientation="Horizontal" Margin="0,4,0,0">
+                                <Button Content="Save tags" Click="SaveGameTags_Click" Margin="0,0,8,0" />
+                                <Button Content="Reset tags" Click="ResetGameTags_Click" />
+                            </StackPanel>
+                        </StackPanel>
+                    </StackPanel>
                     <Grid Margin="0,12,0,0">
                         <Grid.ColumnDefinitions><ColumnDefinition x:Name="CaptureAreaColumn" Width="*" /><ColumnDefinition x:Name="CaptureAreaGap" Width="12" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
                         <StackPanel x:Name="CaptureAreaAdvanced" Grid.Column="0">
