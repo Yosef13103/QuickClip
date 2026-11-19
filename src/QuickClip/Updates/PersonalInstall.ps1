@@ -132,6 +132,13 @@ function Restore-Installation([string]$Root, [string]$Backup, [string]$Version) 
 # Restoring the previous binaries is not sufficient if a failed setup left
 # files outside the previous inventory. Preserve unknown files and the recovery
 # marker instead of reporting a complete rollback or launching mixed binaries.
+function Get-OwnedFileDigest([string]$Path) {
+    $stream = [IO.File]::OpenRead($Path)
+    $sha = [Security.Cryptography.SHA256]::Create()
+    try { return [BitConverter]::ToString($sha.ComputeHash($stream)) }
+    finally { $sha.Dispose(); $stream.Dispose() }
+}
+
 function Complete-Restoration([string]$Root, [string]$Backup, [string]$Pending) {
     $restored = @(Read-OwnedFiles $Root)
     $expected = @(Read-OwnedFiles $Backup)
@@ -139,8 +146,8 @@ function Complete-Restoration([string]$Root, [string]$Backup, [string]$Pending) 
         throw 'Restored installation inventory differs from the backup.'
     }
     foreach ($name in $expected) {
-        if ((Get-FileHash -LiteralPath (Join-Path $Root $name) -Algorithm SHA256).Hash -ne
-            (Get-FileHash -LiteralPath (Join-Path $Backup $name) -Algorithm SHA256).Hash) {
+        if ((Get-OwnedFileDigest (Join-Path $Root $name)) -ne
+            (Get-OwnedFileDigest (Join-Path $Backup $name))) {
             throw 'Restored installation file content differs from the backup.'
         }
     }
