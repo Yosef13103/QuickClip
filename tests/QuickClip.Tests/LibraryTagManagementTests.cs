@@ -139,6 +139,34 @@ public sealed class LibraryTagManagementTests
     }
 
     [Fact]
+    public async Task Hide_unhide_is_persisted_atomic_and_independent_of_other_annotations()
+    {
+        using var f = new Fixture();
+        await f.InitializeAsync();
+        await f.SeedAsync(f.First, ["Funny"]);
+        var a = await f.TargetAsync(f.First);
+        var b = await f.TargetAsync(f.Second);
+        Assert.False(a.Details.IsHidden);
+        Assert.Equal(1, await f.Index.ApplyTagDeltaAsync([a], [], [], hidden: true));
+        var hidden = await f.TargetAsync(f.First);
+        Assert.True(hidden.Details.IsHidden);
+        Assert.Equal(a.Source, hidden.Source);
+        Assert.Equal(a.Details.Tags, hidden.Details.Tags);
+        Assert.Equal(a.Details.IsFavorite, hidden.Details.IsFavorite);
+        Assert.Equal(a.Details.Bookmarks, hidden.Details.Bookmarks);
+        Assert.Equal(a.Details.IndexRevision + 1, hidden.Details.IndexRevision);
+        Assert.Equal(0, await f.Index.ApplyTagDeltaAsync([hidden], [], [], hidden: true));
+        await Assert.ThrowsAsync<LibraryConflictException>(() => f.Index.ApplyTagDeltaAsync([b, a], [], [], hidden: true));
+        Assert.False((await f.TargetAsync(f.Second)).Details.IsHidden);
+        await f.Index.ApplyTagDeltaAsync([hidden], ["New"], []);
+        var edited = await f.TargetAsync(f.First);
+        Assert.True(edited.Details.IsHidden);
+        Assert.Equal(1, await f.Index.ApplyTagDeltaAsync([edited], [], [], hidden: false));
+        Assert.False((await f.TargetAsync(f.First)).Details.IsHidden);
+        Assert.True(File.Exists(f.First));
+    }
+
+    [Fact]
     public async Task Limit_failure_is_atomic_and_cancelled_work_does_not_commit()
     {
         using var f = new Fixture();
