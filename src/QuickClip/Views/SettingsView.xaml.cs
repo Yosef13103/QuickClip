@@ -329,6 +329,7 @@ public partial class SettingsView : UserControl
         {
             _loading = false;
         }
+        RefreshGameProfiles((GameProfileCombo.SelectedItem as QuickClip.Discovery.RecordingProfileRow)?.GameId);
         ShowUpdateState();
         UpdateCropPreview();
         UpdateEstimates();
