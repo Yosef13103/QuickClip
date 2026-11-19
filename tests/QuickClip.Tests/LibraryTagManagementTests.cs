@@ -106,6 +106,25 @@ public sealed class LibraryTagManagementTests
     }
 
     [Fact]
+    public async Task Replacement_only_affects_clips_with_old_tag_and_merges_existing_destination()
+    {
+        using var f = new Fixture();
+        await f.InitializeAsync();
+        await f.SeedAsync(f.First, ["Old", "Keep", "New"]);
+        await f.SeedAsync(f.Second, ["Keep"]);
+        await f.SeedAsync(f.Other, ["OLD"]);
+        var a = await f.TargetAsync(f.First);
+        var b = await f.TargetAsync(f.Second);
+        var c = await f.TargetAsync(f.Other);
+        Assert.Equal(2, await f.Index.ApplyTagDeltaAsync([a, b, c], ["new"], ["old"], replaceOnlyPresent: true));
+        Assert.Equal(new[] { "Keep", "New" }, (await f.TargetAsync(f.First)).Details.Tags);
+        Assert.Equal(new[] { "Keep" }, (await f.TargetAsync(f.Second)).Details.Tags);
+        Assert.Equal(b.Details.IndexRevision, (await f.TargetAsync(f.Second)).Details.IndexRevision);
+        Assert.Equal(new[] { "New" }, (await f.TargetAsync(f.Other)).Details.Tags);
+        Assert.Equal(a.Details.IndexRevision + 1, (await f.TargetAsync(f.First)).Details.IndexRevision);
+    }
+
+    [Fact]
     public async Task Limit_failure_is_atomic_and_cancelled_work_does_not_commit()
     {
         using var f = new Fixture();
