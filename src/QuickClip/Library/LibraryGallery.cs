@@ -48,7 +48,7 @@ internal sealed partial class LibraryIndex
             return rows;
         });
 
-    internal Task<long> SaveGalleryDetailsAsync(ClipAnnotationTarget target, ClipDetails draft, CancellationToken token)
+    internal Task<long> SaveGalleryDetailsAsync(ClipAnnotationTarget target, ClipDetails draft, CancellationToken token, bool tagsOnly = false)
     {
         FileStamp stamp = default;
         return Mutate(target.Details.IndexId ?? Guid.Empty, target.Details.IndexRevision, token, (connection, transaction, id) =>
@@ -63,6 +63,14 @@ internal sealed partial class LibraryIndex
                     """, ("$id", id), ("$path", LibraryFiles.PathKey(target.Path)), ("$created", stamp.Created),
                     ("$modified", stamp.Modified), ("$bytes", stamp.Bytes), ("$identity", stamp.Identity))) != 1)
                 throw new LibraryConflictException("The media changed. Reopen it before saving details.");
+
+            if (tagsOnly)
+            {
+                // The same identity and revision checks fence this narrow mutation.
+                // Do not rewrite title/game override flags, favorites or bookmarks.
+                WriteGalleryTags(connection, transaction, id, draft.Normalize().Tags);
+                return;
+            }
 
             string? titleOverride = OptionalText(draft.Title, 256, nameof(draft.Title));
             string title = titleOverride ?? Path.GetFileNameWithoutExtension(target.Path);
@@ -90,18 +98,24 @@ internal sealed partial class LibraryIndex
         });
     }
 
+    private static void WriteGalleryTags(SqliteConnection connection, SqliteTransaction transaction,
+        string id, string[] tags)
+    {
+        Execute(connection, transaction, "DELETE FROM clip_tags WHERE clip_id=$id;", ("$id", id));
+        foreach (string name in tags.DistinctBy(LibraryFiles.TextKey))
+            Execute(connection, transaction, """
+                INSERT INTO tags(name,name_key) VALUES($name,$key) ON CONFLICT(name_key) DO NOTHING;
+                INSERT INTO clip_tags(clip_id,tag_id) SELECT $id,id FROM tags WHERE name_key=$key;
+                """, ("$name", name), ("$key", LibraryFiles.TextKey(name)), ("$id", id));
+    }
+
     private static void WriteGalleryAnnotations(SqliteConnection connection, SqliteTransaction transaction,
         string id, ClipDetails details, long? durationTicks, bool preserveExisting = false)
     {
         Execute(connection, transaction, """
             UPDATE clips SET favorite=$favorite WHERE id=$id;
-            DELETE FROM clip_tags WHERE clip_id=$id;
             """, ("$id", id), ("$favorite", details.IsFavorite ? 1 : 0));
-        foreach (string name in details.Tags)
-            Execute(connection, transaction, """
-                INSERT INTO tags(name,name_key) VALUES($name,$key) ON CONFLICT(name_key) DO NOTHING;
-                INSERT INTO clip_tags(clip_id,tag_id) SELECT $id,id FROM tags WHERE name_key=$key;
-                """, ("$name", name), ("$key", LibraryFiles.TextKey(name)), ("$id", id));
+        WriteGalleryTags(connection, transaction, id, details.Tags);
 
         var retained = new HashSet<string>();
         foreach (var mark in details.Bookmarks)
