@@ -4,14 +4,15 @@ using System.Text.Json;
 using Microsoft.Win32.SafeHandles;
 using QuickClip.Gallery;
 using QuickClip.Library;
+using QuickClip.Shell;
 
 namespace QuickClip.Media;
 
-internal enum ReplayOriginalState { Original, Escrowed, Conflict }
+internal enum ReplayOriginalState { Original, Escrowed, Recycled, Conflict }
 
 internal sealed record ReplayRecoveryItem(MediaSource Source, string Escrow);
 
-/// <summary>Durable intent for identity-preserving same-volume moves. No deletion or automatic recovery.
+/// <summary>Durable intent for identity-preserving same-volume moves and recoverable shell recycling.
 /// The caller must reserve output, all original and escrow paths exclusively through MediaOwnership.
 /// A restart can inspect and restore a partially applied batch without trusting a progress flag.</summary>
 internal sealed class ReplayRecoveryJournal
@@ -77,7 +78,7 @@ internal sealed class ReplayRecoveryJournal
 
     // Derive state from both names and the exact immutable file identity.
     // Unknown, inaccessible, replaced, or missing-both files always fail closed.
-    internal ReplayOriginalState Inspect(ReplayRecoveryItem item)
+    internal ReplayOriginalState Inspect(ReplayRecoveryItem item, Func<string, RecycledFile?>? find = null)
     {
         if (!_intent.Items.Contains(item)) throw new ExportException("Unrecognized replay recovery item.");
         var original = LibraryFiles.InspectPath(item.Source.Path, directory: false);
@@ -87,6 +88,9 @@ internal sealed class ReplayRecoveryJournal
         if (original == ClipAvailability.Missing && escrow == ClipAvailability.Available &&
             Matches(item.Source with { Path = item.Escrow }))
             return ReplayOriginalState.Escrowed;
+        if (original == ClipAvailability.Missing && escrow == ClipAvailability.Missing &&
+            find != null && FindVerifiedReceipt(item, find) != null)
+            return ReplayOriginalState.Recycled;
         return ReplayOriginalState.Conflict;
     }
 
@@ -110,16 +114,55 @@ internal sealed class ReplayRecoveryJournal
         }
     }
 
+    // The caller owns all reservations and runs the shell on an STA thread.
+    // Unique escrow names allow restart recovery even if interruption happens
+    // before the shell returns a receipt. A changed/missing receipt is a conflict.
+    internal void RecycleEscrow(CancellationToken token, Func<string, bool> recycle,
+        Func<string, RecycledFile?> find)
+    {
+        using var journal = OpenVerifiedIntent();
+        using var output = Output.OpenVerified();
+        foreach (var item in Items)
+        {
+            token.ThrowIfCancellationRequested();
+            var state = Inspect(item, find);
+            if (state == ReplayOriginalState.Recycled) continue;
+            if (state != ReplayOriginalState.Escrowed)
+                throw new ExportException("Replay originals are not fully staged. Restore the batch.");
+            (item.Source with { Path = item.Escrow }).Verify();
+            if (!recycle(item.Escrow) || Inspect(item, find) != ReplayOriginalState.Recycled)
+                throw new ExportException("Could not verify a recycled original. Restore the batch before retrying.");
+        }
+    }
+
+    private static RecycledFile? FindVerifiedReceipt(ReplayRecoveryItem item, Func<string, RecycledFile?> find)
+    {
+        var receipt = find(item.Escrow);
+        if (receipt == null || !string.Equals(receipt.OriginalPath, item.Escrow, StringComparison.OrdinalIgnoreCase) ||
+            !Path.IsPathFullyQualified(receipt.DataPath) ||
+            !string.Equals(Path.GetPathRoot(receipt.DataPath), Path.GetPathRoot(item.Escrow), StringComparison.OrdinalIgnoreCase) ||
+            !Matches(item.Source with { Path = receipt.DataPath }))
+            return null;
+        return receipt;
+    }
+
     // Restore does not require the combined output to be present. Never overwrite a
     // newly created occupant, and never remove the combined result in this primitive.
-    internal void Restore(CancellationToken token)
+    internal void Restore(CancellationToken token, Func<string, RecycledFile?>? find = null)
     {
         using var journal = OpenVerifiedIntent();
         foreach (var item in Items)
         {
             token.ThrowIfCancellationRequested();
-            switch (Inspect(item))
+            switch (Inspect(item, find))
             {
+                case ReplayOriginalState.Recycled:
+                    var receipt = FindVerifiedReceipt(item, find!) ??
+                        throw new ExportException("The recycled replay changed or is no longer available.");
+                    // Move the validated file identity itself, not the shell's mutable
+                    // path. An empty shell note can be tidied by Explorer.
+                    RenameVerified(item.Source with { Path = receipt.DataPath }, item.Source.Path, allowOtherDirectory: true);
+                    break;
                 case ReplayOriginalState.Escrowed:
                     RenameVerified(item.Source with { Path = item.Escrow }, item.Source.Path);
                     break;
@@ -201,13 +244,15 @@ internal sealed class ReplayRecoveryJournal
 
     // Rename the open, verified file itself, not a path that can be exchanged
     // between verification and a separate File.Move. Never replace an occupant.
-    private static void RenameVerified(MediaSource source, string destination)
+    private static void RenameVerified(MediaSource source, string destination, bool allowOtherDirectory = false)
     {
         string directory = Path.GetDirectoryName(source.Path)!;
-        if (!string.Equals(directory, Path.GetDirectoryName(destination), StringComparison.OrdinalIgnoreCase) ||
+        if ((!allowOtherDirectory && !string.Equals(directory, Path.GetDirectoryName(destination), StringComparison.OrdinalIgnoreCase)) ||
+            !string.Equals(Path.GetPathRoot(source.Path), Path.GetPathRoot(destination), StringComparison.OrdinalIgnoreCase) ||
             ClipLibrary.IsMomentsPath(source.Path) || LibraryFiles.InspectPath(source.Path, false) != ClipAvailability.Available)
             throw new ExportException("Unsafe replay recovery path.");
         MediaProcessing.RequireSafeDirectory(directory);
+        MediaProcessing.RequireSafeDirectory(Path.GetDirectoryName(destination)!);
         using var handle = CreateFileW(source.Path, 0x80010000, 1, IntPtr.Zero, 3, 0x00200000, IntPtr.Zero);
         if (handle.IsInvalid || LibraryFiles.IsUnavailable(File.GetAttributes(handle)) || LibraryFiles.ReadStamp(handle) != source.Stamp)
             throw new ExportException("The replay is changed or in use.");
