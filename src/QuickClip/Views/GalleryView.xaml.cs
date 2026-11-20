@@ -74,6 +74,7 @@ public partial class GalleryView : UserControl
     private int _columns = 3;
     private bool _loading, _reloadQueued, _rereadQueued, _released, _settingLists;
     private long _loadedOrganizationRevision = -1;
+    private QuickClip.Discovery.GameCatalogSettings? _loadedFolderCatalog;
     private bool _updatingSelection, _editingAnnotations;
     private Task? _annotationJob;
     private GalleryClipFilter _filter = new("", "", false, false);
@@ -160,7 +161,7 @@ public partial class GalleryView : UserControl
                 _hoverPreview.Stop();
                 return;
             }
-            if (PersonalLibrary.Enabled && _loadedOrganizationRevision != PersonalLibrary.Current.OrganizationRevision)
+            if (PersonalLibrary.Enabled && (_loadedOrganizationRevision != PersonalLibrary.Current.OrganizationRevision || !ReferenceEquals(_loadedFolderCatalog, AppSettings.Current.Games)))
                 _ = ReloadAsync(rereadIndex: true);
             var settings = AppSettings.Current;
             if (_renderedZone != null && !Equals(_renderedZone, TimeZoneInfo.Local)) ShowFolder(preserveScroll: true);
@@ -350,7 +351,11 @@ public partial class GalleryView : UserControl
             }
             _selected.IntersectWith(_clips.Select(c => c.Path));
             if (PersonalLibrary.Enabled)
+            {
+                var catalog = AppSettings.Current.Games;
                 _collectionDefinitions = await PersonalLibrary.Current.ReadCollectionsAsync(_lifetime.Token);
+                _loadedFolderCatalog = catalog;
+            }
             else _collectionDefinitions = [];
             _tagDefinitions = await PersonalLibrary.Current.ReadTagDefinitionsAsync(_lifetime.Token);
             if (_released) return;

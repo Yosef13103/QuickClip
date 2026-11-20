@@ -228,10 +228,17 @@ internal sealed class PersonalLibrary : IClipAnnotationActions, ILibraryInventor
         return OrganizationChangedAsync(_index.Value.DeleteTagDefinitionAsync(expected, token));
     }
 
-    internal Task<LibraryCollection[]> ReadCollectionsAsync(CancellationToken token)
+    internal async Task<LibraryCollection[]> ReadCollectionsAsync(CancellationToken token)
     {
         if (!Enabled) throw new LibraryConflictException("Collections require the library index.");
-        return _index.Value.ReadCollectionsAsync(token);
+        var state = AppSettings.Current.Games;
+        if (state != null)
+        {
+            var rows = QuickClip.Discovery.GameCatalogRuntime.Rows(state);
+            if (await _index.Value.EnsureDiscoveredTitleFoldersAsync(rows, token) > 0)
+                Interlocked.Increment(ref _organizationRevision);
+        }
+        return await _index.Value.ReadCollectionsAsync(token);
     }
 
     internal Task<LibraryCollection> CreateCollectionAsync(LibraryCollection definition, CancellationToken token)

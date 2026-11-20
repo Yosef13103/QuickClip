@@ -4,7 +4,7 @@ namespace QuickClip.Library;
 
 internal sealed class LibraryDatabase
 {
-    internal const int SchemaVersion = 6;
+    internal const int SchemaVersion = 7;
     private const int ApplicationId = 0x51434C49; // QCLI
     private readonly string _connectionString;
     private readonly object _initializationGate = new();
@@ -116,6 +116,21 @@ internal sealed class LibraryDatabase
             {
                 Execute(connection, transaction, ScopedTagSchema);
                 Execute(connection, transaction, "PRAGMA user_version=6;");
+                version = 6;
+            }
+            if (version == 6)
+            {
+                // A NULL collection is a retained tombstone: explicit deletion must
+                // not cause discovery to recreate a folder.
+                Execute(connection, transaction, """
+                    CREATE TABLE discovered_title_folders(
+                        game_id TEXT NOT NULL,
+                        title_id TEXT NOT NULL,
+                        collection_id TEXT REFERENCES collections(id) ON DELETE SET NULL,
+                        PRIMARY KEY(game_id,title_id)
+                    );
+                    """);
+                Execute(connection, transaction, "PRAGMA user_version=7;");
             }
             transaction.Commit();
         }

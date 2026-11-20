@@ -64,6 +64,83 @@ public sealed class LibraryCollectionTests
     }
 
     [Fact]
+    public async Task Version_six_upgrade_preserves_folder_membership_and_annotations()
+    {
+        using var f = new Fixture();
+        await f.InitializeAsync();
+        var folder = await f.Index.CreateCollectionAsync(new(Guid.NewGuid(), "Episode One", "steam:220", null, null));
+        await f.Index.AssignCollectionAsync(await f.TargetAsync(f.First), folder.Id);
+        var previous = (await f.TargetAsync(f.First)).Details;
+        using (var connection = new LibraryDatabase(f.Db).Open())
+            LibraryDatabase.Execute(connection, null, "DROP TABLE discovered_title_folders; PRAGMA user_version=6;");
+        var upgraded = new LibraryIndex(f.Db, f.Details, _ => new ClipHeader(10, null));
+        var row = Assert.Single(await upgraded.ReadGalleryAsync(null, f.First));
+        Assert.Equal(folder.Id, row.Details.Collection?.Id);
+        Assert.Equal(previous.IndexRevision, row.Details.IndexRevision);
+        Assert.Equal(previous.Tags, row.Details.Tags);
+        Assert.Equal(previous.Title, row.Details.Title);
+        Assert.True(row.Details.IsFavorite);
+        Assert.Equal(previous.Bookmarks, row.Details.Bookmarks);
+        Assert.Equal(folder, Assert.Single(await upgraded.ReadCollectionsAsync()));
+        Assert.Equal("fixture", File.ReadAllText(f.First));
+    }
+
+    [Fact]
+    public async Task Discovered_title_folders_stay_scoped_unassigned_and_respect_rename_deletion()
+    {
+        using var f = new Fixture();
+        await f.InitializeAsync();
+        var parent = new QuickClip.Discovery.CatalogEntry("steam:220", "Half-Life 2", QuickClip.Discovery.CatalogSource.Steam, [], [], new())
+        {
+            AliasIds = ["steam:380", "steam:420", "steam:340", "gog:duplicate"],
+            RelatedTitles = [new("steam:380", "Episode One"), new("steam:420", "Episode Two"), new("steam:340", "Lost Coast")]
+        };
+        var existing = await f.Index.CreateCollectionAsync(new(Guid.NewGuid(), "Episode One", parent.Id, "#60A5FA", null));
+        var global = await f.Index.CreateCollectionAsync(new(Guid.NewGuid(), "Episode Two", null, null, null));
+        Assert.Equal(2, await f.Index.EnsureDiscoveredTitleFoldersAsync([parent]));
+        var all = await f.Index.ReadCollectionsAsync();
+        Assert.Equal(4, all.Length);
+        Assert.Equal(existing, Assert.Single(all, item => item.Id == existing.Id));
+        Assert.Equal(global, Assert.Single(all, item => item.Id == global.Id));
+        Assert.Equal(3, all.Count(item => item.GameId == parent.Id));
+        Assert.Null((await f.TargetAsync(f.First)).Details.Collection);
+        Assert.Null((await f.TargetAsync(f.Second)).Details.Collection);
+        Assert.Null(new GameCollectionPreference().Resolve(null));
+        Assert.Equal(existing.Id, new GameCollectionPreference { ManualCollection = existing.Id }.Resolve(null));
+        Assert.Null(new GameCollectionPreference { Automatic = true }.Resolve(@"C:\Games\Half-Life 2\hl2.exe"));
+        Assert.Null(RecordingCollections.Resolve(new AppSettings(), parent.Id, null));
+        var ep2 = Assert.Single(all, item => item.GameId == parent.Id && item.Name == "Episode Two");
+        await f.Index.UpdateCollectionAsync(existing, existing with { Name = "My renamed episode" });
+        await f.Index.DeleteCollectionAsync(ep2);
+        var reopened = new LibraryIndex(f.Db, f.Details, _ => new ClipHeader(10, null));
+        Assert.Equal(0, await reopened.EnsureDiscoveredTitleFoldersAsync([parent]));
+        all = await reopened.ReadCollectionsAsync();
+        Assert.Equal("My renamed episode", Assert.Single(all, item => item.Id == existing.Id).Name);
+        Assert.DoesNotContain(all, item => item.Id == ep2.Id);
+        Assert.Single(all, item => item.Name == "Episode Two"); // global only
+        Assert.Equal("fixture", File.ReadAllText(f.First));
+    }
+
+    [Fact]
+    public async Task Folder_generation_requires_verified_distinct_title_evidence()
+    {
+        using var f = new Fixture();
+        await f.InitializeAsync();
+        var parent = new QuickClip.Discovery.CatalogEntry("steam:220", "Half-Life 2", QuickClip.Discovery.CatalogSource.Steam, [], [], new())
+        {
+            AliasIds = ["steam:380"], RelatedTitles = [new("steam:380", "Episode One")]
+        };
+        Assert.Equal(0, await f.Index.EnsureDiscoveredTitleFoldersAsync([
+            parent with { IsUnverified = true },
+            parent with { Rules = new(Inclusion: QuickClip.Discovery.CatalogInclusion.Exclude) },
+            parent with { Rules = new(Classification: QuickClip.Discovery.AppClassification.Companion) },
+            parent with { RelatedTitles = [] },
+            parent with { AliasIds = [] }
+        ]));
+        Assert.Empty(await f.Index.ReadCollectionsAsync());
+    }
+
+    [Fact]
     public async Task Turning_tag_into_folder_preserves_members_and_rejects_conflicts_atomically()
     {
         using var f = new Fixture();
@@ -177,14 +254,14 @@ public sealed class LibraryCollectionTests
         await f.InitializeAsync();
         var before = await f.TargetAsync(f.First);
         using (var connection = new LibraryDatabase(f.Db).Open())
-            LibraryDatabase.Execute(connection, null, "DROP TABLE clip_collections; DROP TABLE collections; CREATE TABLE tags_v4(id INTEGER PRIMARY KEY,name TEXT NOT NULL,name_key TEXT NOT NULL UNIQUE,color TEXT); INSERT INTO tags_v4 SELECT id,name,name_key,color FROM tags; CREATE TABLE clip_tags_v4(clip_id TEXT NOT NULL REFERENCES clips(id) ON DELETE CASCADE,tag_id INTEGER NOT NULL REFERENCES tags_v4(id),PRIMARY KEY(clip_id,tag_id)); INSERT INTO clip_tags_v4 SELECT * FROM clip_tags; DROP TABLE clip_tags; DROP TABLE tags; ALTER TABLE tags_v4 RENAME TO tags; ALTER TABLE clip_tags_v4 RENAME TO clip_tags; CREATE INDEX clip_tags_reverse ON clip_tags(tag_id,clip_id); PRAGMA user_version=4;");
+            LibraryDatabase.Execute(connection, null, "DROP TABLE discovered_title_folders; DROP TABLE clip_collections; DROP TABLE collections; CREATE TABLE tags_v4(id INTEGER PRIMARY KEY,name TEXT NOT NULL,name_key TEXT NOT NULL UNIQUE,color TEXT); INSERT INTO tags_v4 SELECT id,name,name_key,color FROM tags; CREATE TABLE clip_tags_v4(clip_id TEXT NOT NULL REFERENCES clips(id) ON DELETE CASCADE,tag_id INTEGER NOT NULL REFERENCES tags_v4(id),PRIMARY KEY(clip_id,tag_id)); INSERT INTO clip_tags_v4 SELECT * FROM clip_tags; DROP TABLE clip_tags; DROP TABLE tags; ALTER TABLE tags_v4 RENAME TO tags; ALTER TABLE clip_tags_v4 RENAME TO clip_tags; CREATE INDEX clip_tags_reverse ON clip_tags(tag_id,clip_id); PRAGMA user_version=4;");
         var newer = new LibraryIndex(f.Db);
         var after = Assert.Single(await newer.ReadGalleryAsync(null, f.First));
         Assert.Equal(before.Details.IndexId, after.Details.IndexId);
         Assert.Equal(before.Details.Tags, after.Details.Tags);
         Assert.Null(after.Details.Collection);
         using (var connection = new LibraryDatabase(f.Db).Open())
-            LibraryDatabase.Execute(connection, null, "DROP TABLE clip_collections; DROP TABLE collections; ALTER TABLE tags DROP COLUMN color; PRAGMA user_version=4;");
+            LibraryDatabase.Execute(connection, null, "DROP TABLE discovered_title_folders; DROP TABLE clip_collections; DROP TABLE collections; ALTER TABLE tags DROP COLUMN color; PRAGMA user_version=4;");
         await Assert.ThrowsAsync<InvalidDataException>(() => new LibraryIndex(f.Db).ReadCollectionsAsync());
         Assert.True(File.Exists(f.First));
     }

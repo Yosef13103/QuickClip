@@ -39,6 +39,8 @@ public sealed class GameCatalogTests : IDisposable
         Assert.Equal(CatalogMatchKind.Game, match.Kind);
         Assert.Equal("steam:220", match.Entry?.Id);
         Assert.Equal(new[] { "steam:340", "steam:380", "steam:420" }, match.Entry!.AliasIds.Order());
+        Assert.Equal(new[] { "Lost Coast", "Episode One", "Episode Two" }, match.Entry.RelatedTitles.Select(t => t.Name));
+        Assert.Empty(unified.Match(portal, true).Entry!.RelatedTitles);
         Assert.Equal(CatalogMatchKind.Application, unified.Match(hammer, true).Kind);
         Assert.Equal(CatalogMatchKind.Unknown, unified.Match(At("Unrelated", "bin", "hammer.exe"), true).Kind);
         Assert.Equal(CatalogMatchKind.Ignored, (await Scan([new("steam:380", new(Inclusion: CatalogInclusion.Exclude))])).Match(hl2, true).Kind);

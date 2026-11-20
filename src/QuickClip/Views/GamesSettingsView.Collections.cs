@@ -33,12 +33,12 @@ public partial class GamesSettingsView
                 if (!owner.IsVisible) return;
                 var preferences = AppSettings.Current.RecordingCollections;
                 var preference = preferences?.GetValueOrDefault(game.Id) ?? new GameCollectionPreference();
-                var choices = new[] { new RecordingChoice(null, "None"), new RecordingChoice(null, "Automatic (only explicitly linked executables)", true) }
+                var choices = new[] { new RecordingChoice(null, game.DisplayName + " (root)"), new RecordingChoice(null, "Automatic (only explicitly linked executables)", true) }
                     .Concat(definitions.Select(d => new RecordingChoice(d.Id, d.Name + (d.GameId == null ? " (all games)" : "")))).ToArray();
                 var active = new ComboBox { ItemsSource = choices, SelectedItem = preference.Automatic ? choices[1] :
                     choices.FirstOrDefault(c => !c.Automatic && c.Id == preference.ManualCollection) ?? choices[0] };
                 AutomationProperties.SetName(active, "Save new clips to");
-                active.ToolTip = "A folder for future clips. None leaves clips under the game.";
+                active.ToolTip = "Choose where new clips appear. The game root is the default.";
                 var panel = new StackPanel();
                 panel.Children.Add(new TextBlock { Text = "Save new clips to", Margin = new Thickness(0,0,0,4) });
                 panel.Children.Add(active);

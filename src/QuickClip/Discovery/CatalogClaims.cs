@@ -213,6 +213,7 @@ internal static class CatalogClaims
             .SelectMany(item => item.Entry.InstallDirectories.Select(path => (path, item)))
             .ToLookup(pair => pair.path, pair => pair.item, Paths);
         var sharedIds = new Dictionary<string, string>(StringComparer.Ordinal);
+        var related = new Dictionary<string, RelatedGameTitle>(StringComparer.Ordinal);
         foreach (var group in providers)
         {
             var linked = group.OrderByDescending(item => item.Verified).DistinctBy(item => item.Entry.Id).ToArray();
@@ -228,7 +229,21 @@ internal static class CatalogClaims
                     item.Entry.Id is "steam:380" or "steam:420" or "steam:340" &&
                     item.Entry.InstallDirectories.Length == 1 &&
                     item.Entry.Executables.Contains(Path.Combine(group.Key, "hl2.exe"), Paths)))
+                {
                     sharedIds[episode.Entry.Id] = "steam:220";
+                    if (episode.Verified)
+                    {
+                        // Steam may retain the same generic manifest title for every episode.
+                        // These are known distinct products, not cross-store copies of one title.
+                        string name = episode.Entry.Id switch
+                        {
+                            "steam:380" => "Episode One",
+                            "steam:420" => "Episode Two",
+                            _ => "Lost Coast",
+                        };
+                        related[episode.Entry.Id] = new(episode.Entry.Id, name);
+                    }
+                }
             }
             // Multiple product IDs from one launcher at that root may identify different editions.
             if (linked.Length < 2 || linked.Any(item => item.Entry.InstallDirectories.Length != 1) ||
@@ -260,7 +275,12 @@ internal static class CatalogClaims
 
         bool hasFolderOverrides = rules.Keys.Any(id => id.StartsWith("folder:", StringComparison.Ordinal));
         var rows = contributions.GroupBy(Identity, StringComparer.Ordinal)
-            .Select(group => Project(group.Key, group.ToArray(), rules, hasFolderOverrides));
+            .Select(group =>
+            {
+                var row = Project(group.Key, group.ToArray(), rules, hasFolderOverrides);
+                return row with { RelatedTitles = [.. row.AliasIds.Where(related.ContainsKey)
+                    .Select(alias => related[alias]).OrderBy(title => title.Id, StringComparer.Ordinal)] };
+            });
         var manual = settings.Request.ManualEntries.Select(entry =>
         {
             string id = "manual:" + entry.Id.ToString("N");
