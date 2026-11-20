@@ -29,7 +29,10 @@ internal sealed record ClipDetails(DateTimeOffset CapturedAt, string Game, strin
     // Organization identity only; never used to authorize capture.
     [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
     public string? GameId { get; init; }
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public Guid? RecordedCollectionId { get; init; }
     internal QuickClip.Library.LibraryCollection? Collection { get; init; }
+    internal QuickClip.Library.LibraryTagDefinition[] TagDefinitions { get; init; } = [];
     // A shared immutable empty value preserves legacy record equality on sidecar round trips.
     internal IReadOnlyDictionary<string, string> TagColors { get; init; } =
         System.Collections.Immutable.ImmutableDictionary<string, string>.Empty;

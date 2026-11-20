@@ -24,14 +24,16 @@ internal sealed partial class LibraryIndex
                         FROM bookmarks WHERE clip_id=c.id), c.file_id,c.hidden,
                     (SELECT json_group_object(t.name_key,t.color) FROM clip_tags ct JOIN tags t ON t.id=ct.tag_id
                         WHERE ct.clip_id=c.id AND t.color IS NOT NULL),
-                    c.game_id,d.id,d.name,d.game_id,d.color,d.folder_leaf
+                    c.game_id,d.id,d.name,d.game_id,d.color,d.folder_leaf,
+                    (SELECT json_group_array(json_object('Id',t.id,'Name',t.name,'GameId',nullif(t.game_id,''),'Color',t.color))
+                        FROM clip_tags ct JOIN tags t ON t.id=ct.tag_id WHERE ct.clip_id=c.id)
                 FROM clips c JOIN roots r ON r.id=c.root_id
                 LEFT JOIN clip_collections cc ON cc.clip_id=c.id
                 LEFT JOIN collections d ON d.id=cc.collection_id
                 WHERE r.availability=0 AND c.availability=0
                     AND ($root IS NULL OR c.root_id=$root) AND ($path IS NULL OR c.path_key=$path)
                     AND ($tag IS NULL OR EXISTS(SELECT 1 FROM clip_tags ct JOIN tags t ON t.id=ct.tag_id
-                        WHERE ct.clip_id=c.id AND t.name_key=$tag))
+                        WHERE ct.clip_id=c.id AND t.name_key=$tag AND t.game_id=''))
                 ORDER BY c.captured_ticks DESC,c.id;
                 """, ("$root", root?.ToString("N")), ("$path", path == null ? null : LibraryFiles.PathKey(path)),
                 ("$tag", exactTag == null ? null : LibraryFiles.TextKey(exactTag)));
@@ -52,6 +54,7 @@ internal sealed partial class LibraryIndex
                         reader.GetString(20) is { Length: > 0 } scope ? scope : null,
                         ReadText(reader, 21), ReadText(reader, 22)),
                     TagColors = JsonSerializer.Deserialize<Dictionary<string, string>>(reader.GetString(16)) ?? new(),
+                    TagDefinitions = JsonSerializer.Deserialize<LibraryTagDefinition[]>(reader.GetString(23)) ?? [],
                     Tags = JsonSerializer.Deserialize<string[]>(reader.GetString(12)) ?? [],
                     Bookmarks = (JsonSerializer.Deserialize<BookmarkRow[]>(reader.GetString(13)) ?? [])
                         .Select(mark => new Gallery.ClipBookmark(TimeSpan.FromTicks(mark.Ticks).TotalSeconds, mark.Label ?? "Marker")
@@ -111,13 +114,8 @@ internal sealed partial class LibraryIndex
     {
         Execute(connection, transaction, """
             UPDATE clips SET favorite=$favorite WHERE id=$id;
-            DELETE FROM clip_tags WHERE clip_id=$id;
             """, ("$id", id), ("$favorite", details.IsFavorite ? 1 : 0));
-        foreach (string name in details.Tags)
-            Execute(connection, transaction, """
-                INSERT INTO tags(name,name_key) VALUES($name,$key) ON CONFLICT(name_key) DO NOTHING;
-                INSERT INTO clip_tags(clip_id,tag_id) SELECT $id,id FROM tags WHERE name_key=$key;
-                """, ("$name", name), ("$key", LibraryFiles.TextKey(name)), ("$id", id));
+        ReplaceAssignedTags(connection, transaction, id, details.Tags, legacyImport: !preserveExisting);
 
         var retained = new HashSet<string>();
         foreach (var mark in details.Bookmarks)

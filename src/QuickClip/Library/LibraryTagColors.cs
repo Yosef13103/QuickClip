@@ -34,7 +34,7 @@ internal sealed partial class LibraryIndex
             using var connection = _database.Open();
             using var transaction = connection.BeginTransaction(deferred: false);
             int changed = Execute(connection, transaction,
-                "UPDATE tags SET color=$color WHERE name_key=$key AND color IS NOT $color;",
+                "UPDATE tags SET color=$color WHERE game_id='' AND name_key=$key AND color IS NOT $color;",
                 ("$color", color), ("$key", LibraryFiles.TextKey(name)));
             ct.ThrowIfCancellationRequested();
             transaction.Commit();

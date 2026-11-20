@@ -35,17 +35,27 @@ public sealed class ClipItem : INotifyPropertyChanged
     public string Folder => Details.Game;
     public string Title => Details.Title ?? System.IO.Path.GetFileNameWithoutExtension(File.Name);
     public bool IsFavorite => Details.IsFavorite;
-    public string TagText => string.Join("  ·  ", Details.Tags);
-    public sealed record TagBadge(string Name, Brush Fill, Brush Ink, string Tooltip);
-    public TagBadge[] TagBadges => Details.Tags.Select(tag =>
+    public string TagText => string.Join("  \u00B7  ", Details.Collection is { } collection ? new[] { collection.Name }.Concat(Details.Tags) : Details.Tags);
+    public sealed record TagBadge(string Name, Brush Fill, Brush Ink, string Tooltip, Guid? CollectionId = null, long? TagId = null);
+    public TagBadge[] TagBadges
     {
-        var color = Details.TagColors.GetValueOrDefault(LibraryFiles.TextKey(tag));
+        get
+        {
+            var tags = Details.Tags.Select(tag => MakeBadge(tag, Details.TagColors.GetValueOrDefault(LibraryFiles.TextKey(tag)), null, Details.TagDefinitions.FirstOrDefault(t => LibraryFiles.TextKey(t.Name) == LibraryFiles.TextKey(tag))?.Id));
+            return Details.Collection is { } collection
+                ? [MakeBadge(collection.Name, collection.Color, collection.Id), .. tags]
+                : tags.ToArray();
+        }
+    }
+    private static TagBadge MakeBadge(string tag, string? color, Guid? collectionId, long? tagId = null)
+    {
+
         // Neutral tags remain visible on both light and dark cards. Palette fills
         // are intentionally light enough for a dark label, independent of theme.
         var brush = new SolidColorBrush((Color)ColorConverter.ConvertFromString(TagPalette.Valid(color) && color != null ? color : "#CBD5E1"));
         brush.Freeze();
-        return new TagBadge(tag, brush, Brushes.Black, $"Filter by {tag}");
-    }).ToArray();
+        return new TagBadge(collectionId == null ? tag : "\u25B8 " + tag, brush, Brushes.Black, collectionId == null ? $"Filter by {tag}" : $"Browse collection {tag}", collectionId, tagId);
+    }
     public DateTime Created { get; }
     public DateTime FileCreatedAt { get; }
     public string DateTooltip => $"Footage captured: {Created:F}\nFile created: {FileCreatedAt.ToLocalTime():F}\nRelative age uses the local file creation time.";

@@ -156,6 +156,7 @@ public partial class MainWindow : Window
             Gallery.DetailsCommitted += _editor.ApplyCommittedDetails;
             _editor.EditDraftSaved += Gallery.ApplyEditDraft;
             _editor.KnownTags = () => Gallery.KnownTags;
+            _editor.AvailableTagsForGame = Gallery.AvailableTagsForGame;
             _editor.AnnotationActions = Library.PersonalLibrary.Current;
             _editor.FullscreenRequested += on =>
             {

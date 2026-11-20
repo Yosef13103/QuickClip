@@ -59,15 +59,7 @@ internal sealed partial class LibraryIndex
             ArgumentNullException.ThrowIfNull(tags);
             var names = tags.Take(65).Select(name => RequiredText(name, 64, nameof(tags))).ToArray();
             if (names.Length > 64) throw new ArgumentException("Use at most 64 tags.", nameof(tags));
-            Execute(connection, transaction, "DELETE FROM clip_tags WHERE clip_id=$id;", ("$id", id));
-            foreach (string name in names.DistinctBy(LibraryFiles.TextKey))
-            {
-                string key = LibraryFiles.TextKey(name);
-                Execute(connection, transaction, """
-                    INSERT INTO tags(name,name_key) VALUES($name,$key) ON CONFLICT(name_key) DO NOTHING;
-                    INSERT INTO clip_tags(clip_id,tag_id) SELECT $id,id FROM tags WHERE name_key=$key;
-                    """, ("$name", name), ("$key", key), ("$id", id));
-            }
+            ReplaceAssignedTags(connection, transaction, id, names);
         });
 
     /// <summary>Null or blank title and game reset their respective path-derived defaults.</summary>
@@ -89,12 +81,21 @@ internal sealed partial class LibraryIndex
             string? gameOverride = OptionalText(game, 256, nameof(game));
             string displayTitle = titleOverride ?? Path.GetFileNameWithoutExtension(path);
             string displayGame = gameOverride ?? ClipLibrary.InitialGame(root, path);
+            string? nextGameId = OptionalText(gameId, 256, nameof(gameId)) ?? ReadClipGameId(connection, transaction, id);
+            if (Convert.ToInt64(Scalar(connection, transaction, """
+                SELECT count(*) FROM (
+                    SELECT t.game_id FROM clip_tags ct JOIN tags t ON t.id=ct.tag_id WHERE ct.clip_id=$id
+                    UNION ALL
+                    SELECT d.game_id FROM clip_collections cc JOIN collections d ON d.id=cc.collection_id WHERE cc.clip_id=$id
+                ) WHERE game_id<>'' AND game_id IS NOT $game;
+                """, ("$id", id), ("$game", nextGameId))) != 0)
+                throw new LibraryConflictException("Clear scoped tags and collection before changing game identity.");
             Execute(connection, transaction, """
                 UPDATE clips SET title=$title,title_key=$titleKey,title_edited=$titleEdited,
                     game=$game,game_key=$gameKey,game_edited=$gameEdited,game_id=$gameId WHERE id=$id;
                 """, ("$title", displayTitle), ("$titleKey", LibraryFiles.TextKey(displayTitle)), ("$titleEdited", titleOverride != null ? 1 : 0),
                 ("$game", displayGame), ("$gameKey", LibraryFiles.TextKey(displayGame)), ("$gameEdited", gameOverride != null ? 1 : 0),
-                ("$gameId", OptionalText(gameId, 256, nameof(gameId))), ("$id", id));
+                ("$gameId", nextGameId), ("$id", id));
         });
 
     public Task<long> UpsertBookmarkAsync(Guid clipId, ClipBookmark bookmark, long? expectedRevision = null,

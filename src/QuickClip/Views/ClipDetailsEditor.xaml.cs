@@ -60,6 +60,7 @@ public partial class ClipDetailsEditor : UserControl
     internal event Action<IReadOnlyList<ClipBookmark>>? BookmarksChanged;
     internal Action<double>? SeekBookmark { get; set; }
     internal Func<IReadOnlyList<string>>? KnownTags { get; set; }
+    internal Func<string?, IReadOnlyList<string>>? AvailableTagsForGame { get; set; }
     internal IClipAnnotationActions AnnotationActions { get; set; } = LegacyClipAnnotationActions.Instance;
     internal bool IsSaving { get; private set; }
     internal ClipAnnotationTarget? AnnotationTarget => _path != null && _details != null
@@ -309,7 +310,7 @@ public partial class ClipDetailsEditor : UserControl
     private void UpdateTagSuggestions()
     {
         TagSuggestions.Children.Clear();
-        foreach (string tag in ClipTagChoices.Match(KnownTags?.Invoke() ?? [], TagBox.Text, _tags).Take(6))
+        foreach (string tag in ClipTagChoices.Match(AvailableTagsForGame?.Invoke(_details?.GameId) ?? KnownTags?.Invoke() ?? [], TagBox.Text, _tags).Take(6))
         {
             var button = new Button { Content = tag, Padding = new Thickness(6, 2, 6, 2), Margin = new Thickness(0, 0, 4, 2) };
             AutomationProperties.SetName(button, $"Add existing tag {tag}");

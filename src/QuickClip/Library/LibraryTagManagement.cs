@@ -27,7 +27,7 @@ internal sealed partial class LibraryIndex
                 SELECT t.name,COUNT(DISTINCT ct.clip_id)
                 FROM tags t JOIN clip_tags ct ON ct.tag_id=t.id
                 JOIN clips c ON c.id=ct.clip_id JOIN roots r ON r.id=c.root_id
-                WHERE c.availability=0 AND r.availability=0 AND c.root_id IN ({placeholders})
+                WHERE t.game_id='' AND c.availability=0 AND r.availability=0 AND c.root_id IN ({placeholders})
                 GROUP BY t.id ORDER BY t.name_key;
                 """, parameters);
             using var reader = query.ExecuteReader();
@@ -46,7 +46,9 @@ internal sealed partial class LibraryIndex
     // to legacy metadata writes or silently truncate existing tags.
     internal Task<int> ApplyTagDeltaAsync(IReadOnlyCollection<ClipAnnotationTarget> selection,
         IReadOnlyCollection<string> add, IReadOnlyCollection<string> remove, CancellationToken token = default,
-        bool replaceOnlyPresent = false, bool? hidden = null)
+        bool replaceOnlyPresent = false, bool? hidden = null,
+        IReadOnlyCollection<LibraryTagDefinition>? addDefinitions = null,
+        IReadOnlyCollection<LibraryTagDefinition>? removeDefinitions = null, bool globalOnly = false)
     {
         var targets = selection.Take(MaxTagBatch + 1).ToArray();
         if (targets.Length > MaxTagBatch ||
@@ -72,14 +74,18 @@ internal sealed partial class LibraryIndex
 
         var additions = Names(add);
         var removals = Names(remove);
-        if (replaceOnlyPresent && (removals.Count != 1 || additions.Count != 1))
-            throw new ArgumentException("Choose exactly one old and one replacement tag.");
-        if (additions.Keys.Any(removals.ContainsKey))
+        var typedAdds = (addDefinitions ?? []).DistinctBy(t => t.Id).ToArray();
+        var typedRemoves = (removeDefinitions ?? []).DistinctBy(t => t.Id).ToArray();
+        int addCount = additions.Count + typedAdds.Length, removeCount = removals.Count + typedRemoves.Length;
+        if (addCount > ClipDetails.MaxTags || removeCount > ClipDetails.MaxTags ||
+            replaceOnlyPresent && (addCount != 1 || removeCount != 1))
+            throw new ArgumentException("Invalid number of tag changes.");
+        if (additions.Keys.Any(removals.ContainsKey) || typedAdds.Select(t => t.Id).Intersect(typedRemoves.Select(t => t.Id)).Any())
             throw new ArgumentException("A tag cannot be added and removed in the same edit.");
 
         return Run(token, ct =>
         {
-            if (targets.Length == 0 || additions.Count + removals.Count == 0 && hidden == null) return 0;
+            if (targets.Length == 0 || addCount + removeCount == 0 && hidden == null) return 0;
             var leases = new List<SafeFileHandle>(targets.Length);
             try
             {
@@ -102,6 +108,7 @@ internal sealed partial class LibraryIndex
 
                 using var connection = _database.Open();
                 using var transaction = connection.BeginTransaction(deferred: false);
+                foreach (var definition in typedAdds.Concat(typedRemoves)) VerifyTag(connection, transaction, definition);
                 int changed = 0;
                 foreach (var target in targets)
                 {
@@ -118,35 +125,37 @@ internal sealed partial class LibraryIndex
                         ("$created", stamp.Created), ("$modified", stamp.Modified), ("$bytes", stamp.Bytes))) != 1)
                         throw new LibraryConflictException("Clip identity or metadata changed. Refresh before editing tags.");
 
-                    var current = new HashSet<string>(StringComparer.Ordinal);
-                    using (var query = Command(connection, transaction, """
-                        SELECT t.name_key FROM clip_tags ct JOIN tags t ON t.id=ct.tag_id WHERE ct.clip_id=$id;
-                        """, ("$id", id)))
-                    using (var reader = query.ExecuteReader())
-                        while (reader.Read()) current.Add(reader.GetString(0));
-
-                    // Replacement affects only clips carrying the old tag. A clip
-                    // without it must not acquire a new tag merely by being selected.
-                    if (replaceOnlyPresent && !current.Overlaps(removals.Keys)) continue;
-                    var next = new HashSet<string>(current, StringComparer.Ordinal);
-                    next.ExceptWith(removals.Keys);
-                    next.UnionWith(additions.Keys);
+                    var current = ReadAssignedTags(connection, transaction, id).ToDictionary(t => t.Id);
+                    var removed = current.Values.Where(t => typedRemoves.Any(r => r.Id == t.Id) ||
+                        (!globalOnly || t.GameId == null) && removals.ContainsKey(LibraryFiles.TextKey(t.Name)))
+                        .Select(t => t.Id).ToHashSet();
+                    if (replaceOnlyPresent && removed.Count == 0) continue;
+                    var next = current.Where(pair => !removed.Contains(pair.Key)).ToDictionary(pair => pair.Key, pair => pair.Value);
+                    foreach (var name in additions.Values)
+                    {
+                        var definition = ResolveTagForClip(connection, transaction, id, name, globalOnly: globalOnly);
+                        next[definition.Id] = definition;
+                    }
+                    var game = ReadClipGameId(connection, transaction, id);
+                    foreach (var definition in typedAdds)
+                    {
+                        if (!definition.AppliesTo(game))
+                            throw new LibraryConflictException("A selected tag is not available for every selected recording.");
+                        next[definition.Id] = definition;
+                    }
+                    if (next.Values.Select(t => LibraryFiles.TextKey(t.Name)).Distinct(StringComparer.Ordinal).Count() != next.Count)
+                        throw new LibraryConflictException("A recording cannot carry two definitions with the same tag name. Replace the existing tag first.");
+                    bool tagsChanged = !current.Keys.ToHashSet().SetEquals(next.Keys);
                     bool visibilityChanged = hidden is bool requested && requested != target.Details.IsHidden;
-                    if (next.SetEquals(current) && !visibilityChanged) continue;
-                    // Older index APIs allowed more tags; permit reducing those
-                    // sets, but do not increase an already over-limit count.
-                    if (!next.SetEquals(current) && next.Count > ClipDetails.MaxTags && next.Count >= current.Count)
+                    if (!tagsChanged && !visibilityChanged) continue;
+                    if (tagsChanged && next.Count > ClipDetails.MaxTags && next.Count >= current.Count)
                         throw new ArgumentException("A selected clip would exceed the tag limit.");
-
-                    foreach (var key in current.Except(next))
-                        Execute(connection, transaction, """
-                            DELETE FROM clip_tags WHERE clip_id=$id AND tag_id=(SELECT id FROM tags WHERE name_key=$key);
-                            """, ("$id", id), ("$key", key));
-                    foreach (var key in next.Except(current))
-                        Execute(connection, transaction, """
-                            INSERT INTO tags(name,name_key) VALUES($name,$key) ON CONFLICT(name_key) DO NOTHING;
-                            INSERT INTO clip_tags(clip_id,tag_id) SELECT $id,id FROM tags WHERE name_key=$key;
-                            """, ("$name", additions[key]), ("$key", key), ("$id", id));
+                    foreach (long tagId in current.Keys.Except(next.Keys))
+                        Execute(connection, transaction, "DELETE FROM clip_tags WHERE clip_id=$id AND tag_id=$tag;",
+                            ("$id", id), ("$tag", tagId));
+                    foreach (long tagId in next.Keys.Except(current.Keys))
+                        Execute(connection, transaction, "INSERT INTO clip_tags(clip_id,tag_id) VALUES($id,$tag);",
+                            ("$id", id), ("$tag", tagId));
                     Execute(connection, transaction, "UPDATE clips SET revision=revision+1,hidden=coalesce($hidden,hidden) WHERE id=$id;",
                         ("$id", id), ("$hidden", hidden));
                     changed++;

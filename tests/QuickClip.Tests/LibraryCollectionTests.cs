@@ -37,12 +37,12 @@ public sealed class LibraryCollectionTests
             await Index.ReconcileAsync(rootId);
         }
 
-        private void WriteMetadata(string path, string gameId, string game)
+        internal void WriteMetadata(string path, string gameId, string game, Guid? collectionId = null)
         {
             var file = new FileInfo(path);
             var details = new ClipDetails(DateTimeOffset.UtcNow, game, "Preserve title")
             {
-                GameId = gameId, IsFavorite = true, Tags = ["Funny", "Multiplayer"],
+                GameId = gameId, RecordedCollectionId = collectionId, IsFavorite = true, Tags = ["Funny", "Multiplayer"],
                 Bookmarks = [new QuickClip.Gallery.ClipBookmark(2, "Marker")],
             };
             string key = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(path.ToUpperInvariant())));
@@ -134,7 +134,7 @@ public sealed class LibraryCollectionTests
         await f.InitializeAsync();
         var before = await f.TargetAsync(f.First);
         using (var connection = new LibraryDatabase(f.Db).Open())
-            LibraryDatabase.Execute(connection, null, "DROP TABLE clip_collections; DROP TABLE collections; PRAGMA user_version=4;");
+            LibraryDatabase.Execute(connection, null, "DROP TABLE clip_collections; DROP TABLE collections; CREATE TABLE tags_v4(id INTEGER PRIMARY KEY,name TEXT NOT NULL,name_key TEXT NOT NULL UNIQUE,color TEXT); INSERT INTO tags_v4 SELECT id,name,name_key,color FROM tags; CREATE TABLE clip_tags_v4(clip_id TEXT NOT NULL REFERENCES clips(id) ON DELETE CASCADE,tag_id INTEGER NOT NULL REFERENCES tags_v4(id),PRIMARY KEY(clip_id,tag_id)); INSERT INTO clip_tags_v4 SELECT * FROM clip_tags; DROP TABLE clip_tags; DROP TABLE tags; ALTER TABLE tags_v4 RENAME TO tags; ALTER TABLE clip_tags_v4 RENAME TO clip_tags; CREATE INDEX clip_tags_reverse ON clip_tags(tag_id,clip_id); PRAGMA user_version=4;");
         var newer = new LibraryIndex(f.Db);
         var after = Assert.Single(await newer.ReadGalleryAsync(null, f.First));
         Assert.Equal(before.Details.IndexId, after.Details.IndexId);
@@ -144,5 +144,159 @@ public sealed class LibraryCollectionTests
             LibraryDatabase.Execute(connection, null, "DROP TABLE clip_collections; DROP TABLE collections; ALTER TABLE tags DROP COLUMN color; PRAGMA user_version=4;");
         await Assert.ThrowsAsync<InvalidDataException>(() => new LibraryIndex(f.Db).ReadCollectionsAsync());
         Assert.True(File.Exists(f.First));
+    }
+    [Fact]
+    public async Task Management_preserves_membership_on_edit_and_clears_only_membership_on_delete()
+    {
+        using var f = new Fixture();
+        await f.InitializeAsync();
+        var original = await f.Index.CreateCollectionAsync(new(Guid.NewGuid(), "Episode 1", null, null, null));
+        await f.Index.AssignCollectionAsync(await f.TargetAsync(f.First), original.Id);
+        var before = await f.TargetAsync(f.First);
+        var edited = original with { Name = "Episode One", GameId = "steam:220", Color = "#FB923C", FolderLeaf = "Episode One" };
+        await f.Index.UpdateCollectionAsync(original, edited);
+        Assert.Equal(edited, (await f.TargetAsync(f.First)).Details.Collection);
+        await Assert.ThrowsAsync<LibraryConflictException>(() => f.Index.UpdateCollectionAsync(edited, edited with { GameId = "steam:400" }));
+        await Assert.ThrowsAsync<LibraryConflictException>(() => f.Index.DeleteCollectionAsync(original));
+        Assert.Equal(1, await f.Index.DeleteCollectionAsync(edited));
+        var after = await f.TargetAsync(f.First);
+        Assert.Null(after.Details.Collection);
+        Assert.Equal(before.Source, after.Source);
+        Assert.Equal(before.Details.Tags, after.Details.Tags);
+        Assert.Equal(before.Details.Bookmarks, after.Details.Bookmarks);
+        Assert.Equal(before.Details.IndexId, after.Details.IndexId);
+        Assert.Equal(before.Details.IndexRevision + 1, after.Details.IndexRevision);
+        Assert.False(Directory.Exists(Path.Combine(f.Root, "Episode One")));
+    }
+    [Fact]
+    public async Task Bulk_assignment_is_atomic_and_explicit_legacy_association_preserves_annotations()
+    {
+        using var f = new Fixture();
+        await f.InitializeAsync();
+        var collection = await f.Index.CreateCollectionAsync(new(Guid.NewGuid(), "Episode", "steam:220", null, null));
+        var first = await f.TargetAsync(f.First);
+        var second = await f.TargetAsync(f.Second);
+        var legacy = await f.TargetAsync(f.Legacy);
+        await Assert.ThrowsAsync<LibraryConflictException>(() => f.Index.AssignCollectionsAsync([first, second], collection.Id, null));
+        Assert.Equal(first.Details.IndexRevision, (await f.TargetAsync(f.First)).Details.IndexRevision);
+        Assert.Null((await f.TargetAsync(f.First)).Details.Collection);
+        await Assert.ThrowsAsync<LibraryConflictException>(() => f.Index.AssignCollectionsAsync([legacy], collection.Id, null));
+        Assert.Equal(2, await f.Index.AssignCollectionsAsync([first, legacy], collection.Id, "steam:220"));
+        var associated = await f.TargetAsync(f.Legacy);
+        Assert.Equal("steam:220", associated.Details.GameId);
+        Assert.Equal(collection, associated.Details.Collection);
+        Assert.Equal(legacy.Details.IndexId, associated.Details.IndexId);
+        Assert.Equal(legacy.Source, associated.Source);
+        Assert.Equal(legacy.Details.Tags, associated.Details.Tags);
+        await Assert.ThrowsAsync<LibraryConflictException>(() => f.Index.AssignCollectionsAsync([associated], null, "steam:400"));
+        Assert.Equal(1, await f.Index.AssignCollectionsAsync([associated], null, null));
+        Assert.Null((await f.TargetAsync(f.Legacy)).Details.Collection);
+    }
+
+    [Fact]
+    public void Collection_navigation_uses_ids_not_names()
+    {
+        var id = Guid.NewGuid();
+        var collection = new LibraryCollection(id, "Episode 1", "steam:220", null, null);
+        var first = new ClipDetails(DateTimeOffset.UtcNow, "Same name") { GameId = "steam:220", Collection = collection };
+        var unrelated = first with { GameId = "steam:400", Collection = null };
+        var legacy = first with { GameId = null, Collection = null };
+        var group = GalleryFolderKey.For(first);
+        Assert.True(new GalleryFolderSelection(group).Matches(first));
+        Assert.False(new GalleryFolderSelection(group).Matches(unrelated));
+        Assert.False(new GalleryFolderSelection(group).Matches(legacy));
+        Assert.True(new GalleryFolderSelection(group, true, id).Matches(first));
+        Assert.False(new GalleryFolderSelection(group, true).Matches(first));
+        Assert.True(new GalleryFolderSelection(group, true).Matches(first with { Collection = null }));
+        Assert.True(new GalleryFolderSelection(GalleryFolderKey.All).Matches(legacy));
+    }
+
+    [Fact]
+    public async Task Recorded_collection_import_and_late_repair_are_scope_checked_and_do_not_reapply_after_edits()
+    {
+        using var f = new Fixture();
+        await f.InitializeAsync();
+        var collection = await f.Index.CreateCollectionAsync(new(Guid.NewGuid(), "Episode 1", "steam:220", null, null));
+        f.WriteMetadata(f.Legacy, "steam:220", "Half-Life 2", collection.Id);
+        Assert.True(await f.Index.RepairRecordedCollectionAsync(f.Legacy));
+        var repaired = await f.TargetAsync(f.Legacy);
+        Assert.Equal(collection, repaired.Details.Collection);
+        await f.Index.AssignCollectionsAsync([repaired], null, null);
+        Assert.False(await f.Index.RepairRecordedCollectionAsync(f.Legacy));
+        Assert.Null((await f.TargetAsync(f.Legacy)).Details.Collection);
+
+        string fresh = Path.Combine(f.Root, "new.mp4");
+        File.WriteAllText(fresh, "new fixture");
+        f.WriteMetadata(fresh, "steam:220", "Half-Life 2", collection.Id);
+        string wrong = Path.Combine(f.Root, "other.mp4");
+        File.WriteAllText(wrong, "other fixture");
+        f.WriteMetadata(wrong, "steam:400", "Portal", collection.Id);
+        await f.InitializeAsync();
+        Assert.Equal(collection, (await f.TargetAsync(fresh)).Details.Collection);
+        Assert.Null((await f.TargetAsync(wrong)).Details.Collection);
+    }
+
+    [Fact]
+    public void Collection_preference_manual_none_automatic_exact_match_and_json_roundtrip()
+    {
+        var first = Guid.NewGuid();
+        var second = Guid.NewGuid();
+        var pref = new GameCollectionPreference
+        {
+            ManualCollection = first,
+            Executables = System.Collections.Immutable.ImmutableDictionary<string,Guid>.Empty
+                .Add(@"C:\Games\Test\game.exe", second)
+        };
+        var settings = new AppSettings { EnableLibraryIndex = true, RecordingCollections =
+            System.Collections.Immutable.ImmutableDictionary<string,GameCollectionPreference>.Empty.Add("steam:42", pref) };
+        Assert.Equal(first, RecordingCollections.Resolve(settings, "steam:42", @"C:\Games\Test\game.exe"));
+        Assert.Null(RecordingCollections.Resolve(settings, null, @"C:\Games\Test\game.exe"));
+        var loaded = AppSettings.Parse(settings.ToJson());
+        Assert.Equal(first, RecordingCollections.Resolve(loaded, "steam:42", null));
+        var automatic = pref with { Automatic = true };
+        Assert.Equal(second, automatic.Resolve(@"c:\games\test\GAME.exe"));
+        Assert.Null(automatic.Resolve(@"C:\Other\game.exe"));
+        Assert.Null((pref with { ManualCollection = null }).Resolve(@"C:\Games\Test\game.exe"));
+        Assert.Null((automatic with { Executables = automatic.Executables.Add(@"c:\games\test\GAME.exe", first) }).Resolve(@"C:\Games\Test\game.exe"));
+    }
+
+    [Fact]
+    public async Task Scoped_tags_are_distinct_and_batch_assignment_is_atomic()
+    {
+        using var f = new Fixture();
+        await f.InitializeAsync();
+        var hl = await f.Index.CreateTagDefinitionAsync(new(0, "Modded", "steam:220", "#FB923C"));
+        var portal = await f.Index.CreateTagDefinitionAsync(new(0, "Modded", "steam:400", "#60A5FA"));
+        var global = await f.Index.CreateTagDefinitionAsync(new(0, "Modded", null, null));
+        Assert.NotEqual(hl.Id, portal.Id);
+        Assert.False(hl.AppliesTo("steam:400"));
+        Assert.True(global.AppliesTo(null));
+        var a = await f.TargetAsync(f.First);
+        var b = await f.TargetAsync(f.Second);
+        await Assert.ThrowsAsync<LibraryConflictException>(() =>
+            f.Index.ApplyTagDeltaAsync([a,b], [], [], default, addDefinitions: [hl]));
+        Assert.Equal(a.Details.IndexRevision, (await f.TargetAsync(f.First)).Details.IndexRevision);
+        await f.Index.ApplyTagDeltaAsync([a], [], [], default, addDefinitions: [hl]);
+        await f.Index.ApplyTagDeltaAsync([b], [], [], default, addDefinitions: [portal]);
+        a = await f.TargetAsync(f.First);
+        b = await f.TargetAsync(f.Second);
+        Assert.Contains(hl, a.Details.TagDefinitions);
+        Assert.Contains(portal, b.Details.TagDefinitions);
+        Assert.True(new GalleryTagFilter(hl.Id, hl.Name).Matches(a.Details));
+        Assert.False(new GalleryTagFilter(hl.Id, hl.Name).Matches(b.Details));
+        await Assert.ThrowsAsync<LibraryConflictException>(() =>
+            f.Index.ApplyTagDeltaAsync([a], [], [], default, addDefinitions: [global]));
+        await f.Index.SaveGalleryDetailsAsync(a, a.Details with { IsFavorite = false }, default);
+        a = await f.TargetAsync(f.First);
+        Assert.Contains(hl, a.Details.TagDefinitions);
+        await Assert.ThrowsAsync<LibraryConflictException>(() =>
+            f.Index.UpdateTagDefinitionAsync(hl, hl with { GameId = "steam:400", Name = "Other" }));
+        await f.Index.ApplyTagDeltaAsync([a], [], [], default, addDefinitions: [global], removeDefinitions: [hl]);
+        Assert.Contains(global, (await f.TargetAsync(f.First)).Details.TagDefinitions);
+        await f.Index.DeleteTagDefinitionAsync(portal);
+        Assert.DoesNotContain(portal, (await f.TargetAsync(f.Second)).Details.TagDefinitions);
+        var recreated = await f.Index.CreateTagDefinitionAsync(portal with { Id = 0 });
+        Assert.NotEqual(portal.Id, recreated.Id);
+        Assert.Equal("fixture", File.ReadAllText(f.First));
     }
 }

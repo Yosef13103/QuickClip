@@ -14,6 +14,8 @@ internal sealed class AppSettings
         EnabledLaunchers = AppProfile.IsPersonal ? [.. Enum.GetValues<CatalogSource>().Where(LocalLaunchers.IsSupported)] : [],
     };
     public string[] IgnoredGameIssues { get; set; } = [];
+    public System.Collections.Immutable.ImmutableDictionary<string, Library.GameCollectionPreference> RecordingCollections { get; set; } =
+        System.Collections.Immutable.ImmutableDictionary<string, Library.GameCollectionPreference>.Empty;
 
     // The editor's encoder, quality, size and frame rate start at "same as original" for every clip.
     public InterfaceScale InterfaceScale { get; set; } = new();

@@ -86,6 +86,7 @@ public partial class EditorView : UserControl
     internal void RefreshTheme() => QueueNativePreviewRepaint();
     internal event Action<string, ClipDetails>? ClipDetailsSaved;
     internal Func<IReadOnlyList<string>>? KnownTags { get; set; }
+    internal Func<string?, IReadOnlyList<string>>? AvailableTagsForGame { get; set; }
     internal IClipAnnotationActions AnnotationActions
     {
         get => MetadataEditor.AnnotationActions;
@@ -475,6 +476,7 @@ public partial class EditorView : UserControl
                 if (_exportCts == null) await FlushEditDraftAsync();
             }, Dispatcher) { IsEnabled = false };
         MetadataEditor.KnownTags = () => KnownTags?.Invoke() ?? [];
+        MetadataEditor.AvailableTagsForGame = gameId => AvailableTagsForGame?.Invoke(gameId) ?? KnownTags?.Invoke() ?? [];
         MetadataEditor.SeekBookmark = seconds => OnSeekRequested(seconds, true);
         MetadataEditor.BookmarksChanged += Timeline.SetBookmarks;
         Timeline.BookmarkActivated += mark =>

@@ -403,6 +403,8 @@ internal sealed partial class LibraryIndex
             ("$title", title), ("$titleKey", LibraryFiles.TextKey(title)), ("$game", game), ("$gameKey", LibraryFiles.TextKey(game)),
             ("$titleEdited", legacy?.Title != null ? 1 : 0), ("$gameEdited", legacy != null ? 1 : 0),
             ("$gameId", QuickClip.Discovery.GameRecordingPolicy.IsId(legacy?.GameId, 256) ? legacy?.GameId : null));
+        if (legacy?.RecordedCollectionId is Guid selected && selected != Guid.Empty && legacy.GameId != null)
+            AssignImportedCollection(connection, transaction, clipId, selected);
         if (legacy != null)
             WriteGalleryAnnotations(connection, transaction, clipId, legacy.Normalize(), ticks);
     }

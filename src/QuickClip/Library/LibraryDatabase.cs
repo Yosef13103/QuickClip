@@ -4,7 +4,7 @@ namespace QuickClip.Library;
 
 internal sealed class LibraryDatabase
 {
-    internal const int SchemaVersion = 5;
+    internal const int SchemaVersion = 6;
     private const int ApplicationId = 0x51434C49; // QCLI
     private readonly string _connectionString;
     private readonly object _initializationGate = new();
@@ -110,6 +110,12 @@ internal sealed class LibraryDatabase
                     throw new InvalidDataException("This preview requires the E1 library schema. Keep the replay-consolidation database separate.");
                 Execute(connection, transaction, CollectionSchema);
                 Execute(connection, transaction, "PRAGMA user_version=5;");
+                version = 5;
+            }
+            if (version == 5)
+            {
+                Execute(connection, transaction, ScopedTagSchema);
+                Execute(connection, transaction, "PRAGMA user_version=6;");
             }
             transaction.Commit();
         }
@@ -175,6 +181,27 @@ internal sealed class LibraryDatabase
             collection_id TEXT NOT NULL REFERENCES collections(id)
         ) WITHOUT ROWID;
         CREATE INDEX clip_collections_reverse ON clip_collections(collection_id,clip_id);
+        """;
+
+    // Preserve existing IDs, colors and memberships; all preexisting tags
+    // remain global. AUTOINCREMENT prevents stale UI IDs from being reused.
+    private const string ScopedTagSchema = """
+        CREATE TABLE tags_v6 (
+            id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, name_key TEXT NOT NULL,
+            game_id TEXT NOT NULL DEFAULT '', color TEXT, UNIQUE(game_id,name_key)
+        );
+        INSERT INTO tags_v6(id,name,name_key,color) SELECT id,name,name_key,color FROM tags;
+        CREATE TABLE clip_tags_v6 (
+            clip_id TEXT NOT NULL REFERENCES clips(id) ON DELETE CASCADE,
+            tag_id INTEGER NOT NULL REFERENCES tags_v6(id), PRIMARY KEY(clip_id,tag_id)
+        );
+        INSERT INTO clip_tags_v6(clip_id,tag_id) SELECT clip_id,tag_id FROM clip_tags;
+        DROP TABLE clip_tags;
+        DROP TABLE tags;
+        ALTER TABLE tags_v6 RENAME TO tags;
+        ALTER TABLE clip_tags_v6 RENAME TO clip_tags;
+        CREATE INDEX clip_tags_reverse ON clip_tags(tag_id,clip_id);
+        CREATE INDEX tags_name_scope ON tags(name_key,game_id);
         """;
 
     private const string DraftSchema = """

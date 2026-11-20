@@ -8,7 +8,20 @@ namespace QuickClip.Views;
 
 public partial class GalleryView
 {
-    private string[] _exactTags = [];
+    private sealed record TagFilterChoice(long? Id, string Name, string Label)
+    {
+        public string Key => Id is long id ? "id:" + id : "name:" + LibraryFiles.TextKey(Name);
+        public override string ToString() => Label;
+    }
+    private TagFilterChoice[] _exactTags = [];
+    private TagFilterChoice TagChoiceFor(LibraryTagDefinition tag) => new(tag.Id, tag.Name,
+        tag.GameId == null ? tag.Name : tag.Name + " (" + GameScopeLabel(tag.GameId) + ")");
+    private string GameScopeLabel(string gameId) => _clips.FirstOrDefault(c => c.Details.GameId == gameId)?.Details.Game ??
+        QuickClip.Discovery.GameCatalogRuntime.Rows(AppSettings.Current.Games ?? new())
+            .FirstOrDefault(g => g.Id == gameId)?.DisplayName ?? gameId;
+    private IEnumerable<TagFilterChoice> AvailableTagFilters() => PersonalLibrary.Enabled
+        ? _tagDefinitions.Where(t => _folderSelection.Game.IsAll || t.AppliesTo(_folderSelection.Game.GameId)).Select(TagChoiceFor)
+        : KnownTags.Select(name => new TagFilterChoice(null, name, name));
     private bool _matchAllTags = true;
 
     private void RefreshTagFilterButton()
@@ -17,16 +30,16 @@ public partial class GalleryView
         MultiTagFilterButton.Content = _exactTags.Length == 0
             ? "Tags ▾" : $"Tags ({_exactTags.Length} · {(_matchAllTags ? "all" : "any")}) ▾";
         MultiTagFilterButton.ToolTip = _exactTags.Length == 0
-            ? "Filter by one or more tags" : string.Join(", ", _exactTags);
+            ? "Filter by one or more tags" : string.Join(", ", _exactTags.Select(t => t.Label));
         ActiveTagFilters.ItemsSource = _exactTags;
         ActiveTagFilters.Visibility = _exactTags.Length == 0 ? Visibility.Collapsed : Visibility.Visible;
     }
 
-    private void ToggleTagFilter(string tag)
+    private void ToggleTagFilter(TagFilterChoice tag)
     {
-        string key = LibraryFiles.TextKey(tag);
-        _exactTags = _exactTags.Any(t => LibraryFiles.TextKey(t) == key)
-            ? _exactTags.Where(t => LibraryFiles.TextKey(t) != key).ToArray()
+        string key = tag.Key;
+        _exactTags = _exactTags.Any(t => t.Key == key)
+            ? _exactTags.Where(t => t.Key != key).ToArray()
             : [.. _exactTags, tag];
         RefreshTagFilterButton();
         OrganizationFilter_Changed(this, new RoutedEventArgs());
@@ -36,12 +49,25 @@ public partial class GalleryView
     {
         if (_released || !PersonalAnnotations || sender is not Button { DataContext: ClipItem.TagBadge badge }) return;
         e.Handled = true;
-        ToggleTagFilter(badge.Name);
+        if (badge.CollectionId is Guid collectionId && sender is Button button)
+        {
+            if (FindCollectionClip(button) is { } clip)
+            {
+                var key = GalleryFolderKey.For(clip.Details);
+                _expandedGames.Add(key);
+                _folderSelection = new(key, true, collectionId);
+                _searchCancellation?.Cancel();
+                RebuildFolders();
+            }
+            return;
+        }
+        ToggleTagFilter(badge.TagId is long id && _tagDefinitions.FirstOrDefault(t => t.Id == id) is { } definition
+            ? TagChoiceFor(definition) : new(null, badge.Name, badge.Name));
     }
 
     private void ActiveTag_Click(object sender, RoutedEventArgs e)
     {
-        if (sender is Button { DataContext: string tag }) ToggleTagFilter(tag);
+        if (sender is Button { DataContext: TagFilterChoice tag }) ToggleTagFilter(tag);
     }
 
     private void MultiTagFilter_Click(object sender, RoutedEventArgs e)
@@ -64,12 +90,12 @@ public partial class GalleryView
         void Populate()
         {
             list.Children.Clear();
-            foreach (string name in KnownTags.Concat(_exactTags).DistinctBy(LibraryFiles.TextKey)
-                .Where(tag => tag.Contains(search.Text.Trim(), StringComparison.OrdinalIgnoreCase))
-                .OrderBy(tag => tag, StringComparer.OrdinalIgnoreCase))
+            foreach (var choice in AvailableTagFilters().Concat(_exactTags).DistinctBy(t => t.Key)
+                .Where(tag => tag.Label.Contains(search.Text.Trim(), StringComparison.OrdinalIgnoreCase))
+                .OrderBy(tag => tag.Label, StringComparer.OrdinalIgnoreCase))
             {
-                var check = new CheckBox { Content = name, IsChecked = _exactTags.Any(tag => LibraryFiles.TextKey(tag) == LibraryFiles.TextKey(name)), Margin = new Thickness(0, 3, 0, 3) };
-                check.Click += (_, _) => ToggleTagFilter(name);
+                var check = new CheckBox { Content = choice.Label, IsChecked = _exactTags.Any(tag => tag.Key == choice.Key), Margin = new Thickness(0, 3, 0, 3) };
+                check.Click += (_, _) => ToggleTagFilter(choice);
                 list.Children.Add(check);
             }
         }
@@ -149,7 +175,7 @@ public partial class GalleryView
                 "Confirm library tag replacement", "Replace tags")) return;
             if (_released || !PersonalLibrary.Enabled) return;
             var job = WithProgressAsync("Replacing library tag", targets.Length, _ =>
-                PersonalLibrary.Current.ApplyTagDeltaAsync(targets, [newTag], [sourceTag], _lifetime.Token, replaceOnlyPresent: true));
+                PersonalLibrary.Current.ApplyTagDeltaAsync(targets, [newTag], [sourceTag], _lifetime.Token, replaceOnlyPresent: true, globalOnly: true));
             _annotationJob = job;
             int changed = await job;
             if (_released) return;
@@ -217,9 +243,9 @@ public partial class GalleryView
         finally { _annotationJob = null; _editingAnnotations = false; }
     }
 
-    private sealed record TagChoice(string Name, int Count)
+    private sealed record TagChoice(LibraryTagDefinition Definition, string Name, int Count)
     {
-        public string Label => $"{Name}  ·  {Count:N0}";
+        public string Label => $"{Name}  ({Count:N0})";
     }
 
     // The selection is captured after flushing pending metadata edits. The
@@ -247,14 +273,15 @@ public partial class GalleryView
             if (targets.Any(target => target.Source?.Identity == null))
                 throw new LibraryConflictException("A selected file is unavailable. Refresh and try again.");
 
-            static TagChoice[] Choices(IEnumerable<ClipDetails> details) => details
-                .SelectMany(d => d.Tags.DistinctBy(LibraryFiles.TextKey))
-                .GroupBy(LibraryFiles.TextKey)
-                .Select(group => new TagChoice(group.First(), group.Count()))
-                .OrderBy(tag => tag.Name, StringComparer.OrdinalIgnoreCase).ToArray();
-
-            var available = Choices(_clips.Select(clip => clip.Details));
-            var assigned = Choices(targets.Select(target => target.Details));
+            var defs = await PersonalLibrary.Current.ReadTagDefinitionsAsync(_lifetime.Token);
+            if (_released) return;
+            var allCounts = _clips.SelectMany(c => c.Details.TagDefinitions).GroupBy(t => t.Id).ToDictionary(g => g.Key, g => g.Count());
+            var selectionCounts = targets.SelectMany(t => t.Details.TagDefinitions).GroupBy(t => t.Id).ToDictionary(g => g.Key, g => g.Count());
+            TagChoice Choice(LibraryTagDefinition tag, int count) => new(tag, TagChoiceFor(tag).Label, count);
+            var available = defs.Where(d => targets.All(t => d.AppliesTo(t.Details.GameId)))
+                .Select(d => Choice(d, allCounts.GetValueOrDefault(d.Id))).OrderBy(c => c.Name, StringComparer.OrdinalIgnoreCase).ToArray();
+            var assigned = defs.Where(d => selectionCounts.ContainsKey(d.Id))
+                .Select(d => Choice(d, selectionCounts[d.Id])).OrderBy(c => c.Name, StringComparer.OrdinalIgnoreCase).ToArray();
             var add = new ListBox { ItemsSource = available, DisplayMemberPath = nameof(TagChoice.Label),
                 SelectionMode = replace ? SelectionMode.Single : SelectionMode.Multiple, MaxHeight = 160, MinHeight = 40 };
             var remove = new ListBox { ItemsSource = assigned, DisplayMemberPath = nameof(TagChoice.Label),
@@ -273,24 +300,25 @@ public partial class GalleryView
             panel.Children.Add(new TextBlock { Text = replace ? "Old tag (selected clip counts)" : "Remove tags (selected clip counts)", Margin = new Thickness(0, 12, 0, 4) });
             panel.Children.Add(remove);
             panel.Children.Add(error);
-            string[] Additions() => add.SelectedItems.Cast<TagChoice>().Select(t => t.Name)
-                .Concat(string.IsNullOrWhiteSpace(input.Text) ? Array.Empty<string>() : new[] { input.Text.Trim() })
-                .DistinctBy(LibraryFiles.TextKey).ToArray();
-            string[] Removals() => remove.SelectedItems.Cast<TagChoice>().Select(t => t.Name).ToArray();
+            string[] Additions() => string.IsNullOrWhiteSpace(input.Text) ? [] : [input.Text.Trim()];
+            LibraryTagDefinition[] SelectedAdds() => add.SelectedItems.Cast<TagChoice>().Select(t => t.Definition).ToArray();
+            LibraryTagDefinition[] SelectedRemoves() => remove.SelectedItems.Cast<TagChoice>().Select(t => t.Definition).ToArray();
 
             if (!ModalDialog.Run(owner, replace ? "Replace tag" : "Manage tags", panel, replace ? "Replace tag" : "Apply tags", "Cancel", safeDefault: true,
                 validate: () =>
                 {
                     var additions = Additions();
-                    var removals = Removals();
-                    if (replace && (additions.Length != 1 || removals.Length != 1))
+                    var typedAdds = SelectedAdds();
+                    var removals = SelectedRemoves();
+                    int addCount = additions.Length + typedAdds.Length;
+                    if (replace && (addCount != 1 || removals.Length != 1))
                         error.Text = "Choose one old tag and one replacement tag.";
-                    else if (additions.Length + removals.Length == 0)
+                    else if (addCount + removals.Length == 0)
                         error.Text = "Choose at least one change.";
-                    else if (additions.Length > ClipDetails.MaxTags || removals.Length > ClipDetails.MaxTags ||
+                    else if (addCount > ClipDetails.MaxTags || removals.Length > ClipDetails.MaxTags ||
                         additions.Any(t => !ClipDetails.IsValidTag(t)))
                         error.Text = "Too many tags, or an invalid tag.";
-                    else if (additions.Select(LibraryFiles.TextKey).Intersect(removals.Select(LibraryFiles.TextKey)).Any())
+                    else if (typedAdds.Select(t => t.Id).Intersect(removals.Select(t => t.Id)).Any())
                         error.Text = "A tag cannot be added and removed at the same time.";
                     else { error.Text = ""; return true; }
                     return false;
@@ -298,7 +326,7 @@ public partial class GalleryView
             if (_released || !PersonalLibrary.Enabled) return;
 
             var job = WithProgressAsync("Updating tags", targets.Length, _ =>
-                PersonalLibrary.Current.ApplyTagDeltaAsync(targets, Additions(), Removals(), _lifetime.Token, replaceOnlyPresent: replace));
+                PersonalLibrary.Current.ApplyTagDeltaAsync(targets, Additions(), [], _lifetime.Token, replaceOnlyPresent: replace, addDefinitions: SelectedAdds(), removeDefinitions: SelectedRemoves()));
             _annotationJob = job;
             int changed = await job;
             if (_released) return;

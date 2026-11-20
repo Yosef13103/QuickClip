@@ -42,6 +42,7 @@ internal sealed class Recorder
     private long _manualRequestSequence;
     private readonly HashSet<string> _manualAuthorized = new(StringComparer.OrdinalIgnoreCase);
     private string? _sessionGameId;
+    private string? _sessionGameExecutable;
     private string? _sessionGame;
     private string? _sessionDisplay;
     private string? _actualMonitorName;
@@ -356,6 +357,7 @@ internal sealed class Recorder
         }
         _sessionGame = game?.VerifiedTarget?.Game;
         _sessionGameId = activation.GameId;
+        _sessionGameExecutable = game?.Executable;
         _sessionDisplay = _actualMonitorName ?? activation.Display.Device;
         _captureStartedAt = Environment.TickCount64;
         return null;
@@ -478,6 +480,7 @@ internal sealed class Recorder
         _replaySession = Guid.Empty;
         _replayMarkers.Clear();
         (_sessionGame, _sessionGameId, _sessionDisplay, _desktopSource) = (null, null, null, null);
+        _sessionGameExecutable = null;
         _actualMonitorName = null;
         _captureDevice = null;
         _captureDisplayIdentity = null;
@@ -642,6 +645,7 @@ internal sealed class Recorder
             ReplayDesktopSource? desktopSource;
             string? gameContext;
             string? gameId;
+            Guid? collectionId;
             lock (_gate)
             {
                 if (!IsRunning || generation != _replayGeneration ||
@@ -655,6 +659,8 @@ internal sealed class Recorder
                 gameLookback = requestedSeconds.HasValue ? Math.Min(seconds, _replayBufferSeconds) : seconds;
                 gameContext = AppProfile.IsPersonal ? _sessionGame : _captureTarget?.Game ?? _games.GameForClip(gameLookback);
                 gameId = _sessionGameId;
+                collectionId = AppProfile.IsPersonal && _lifecycle.Mode == RecordingMode.GameTriggered
+                    ? Library.RecordingCollections.Resolve(s, gameId, _sessionGameExecutable) : null;
             }
             long positionAtTick = requestedAtTick.HasValue ? Stopwatch.GetTimestamp() : 0;
             var anchors = candidates.Select(item => new CaptureEngine.ReplayAnchor { Sequence = item.Sequence, OffsetUs = -1 }).ToArray();
@@ -729,6 +735,7 @@ internal sealed class Recorder
                 ClipDetailsStore.TryWrite(path, new ClipDetails(capture, folder)
                 {
                     GameId = gameId,
+                    RecordedCollectionId = collectionId,
                     Bookmarks = receipt.Markers.Select(mark => new ClipBookmark(mark.Offset.TotalSeconds, mark.Marker.Label ?? "Marker")
                     { SessionId = mark.Marker.SessionId }).ToArray(),
                 });

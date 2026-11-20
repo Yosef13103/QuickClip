@@ -24,7 +24,17 @@ public partial class GalleryView : UserControl
     private readonly LinkedList<ClipItem> _decodedThumbnails = new();
     private readonly Dictionary<ClipItem, LinkedListNode<ClipItem>> _thumbnailNodes = [];
 
-    private sealed record Folder(string Name, int Count, DateTime Latest);
+    private sealed record Folder(GalleryFolderSelection Selection, string Name, int Count, DateTime Latest,
+        bool Expandable = false, bool Expanded = false)
+    {
+        public Visibility ExpandVisibility => Expandable ? Visibility.Visible : Visibility.Hidden;
+        public string ExpandGlyph => Expanded ? "\u25BC" : "\u25B6";
+        public Thickness Indent => new(Selection.IsChild ? 18 : 0, 0, 0, 0);
+    }
+    private GalleryFolderSelection _folderSelection = new(GalleryFolderKey.All);
+    private readonly HashSet<GalleryFolderKey> _expandedGames = [];
+    private LibraryCollection[] _collectionDefinitions = [];
+    private LibraryTagDefinition[] _tagDefinitions = [];
 
     private const double CardGap = 14; // must match the card's right margin
     private const double PreferredCardWidth = 440;
@@ -62,7 +72,8 @@ public partial class GalleryView : UserControl
     private string[] _loadedSources = [];
     private string[] _availableSources = [];
     private int _columns = 3;
-    private bool _loading, _reloadQueued, _released, _settingLists;
+    private bool _loading, _reloadQueued, _rereadQueued, _released, _settingLists;
+    private long _loadedOrganizationRevision = -1;
     private bool _updatingSelection, _editingAnnotations;
     private Task? _annotationJob;
     private GalleryClipFilter _filter = new("", "", false, false);
@@ -101,6 +112,7 @@ public partial class GalleryView : UserControl
     {
         InitializeComponent();
         GalleryDetailsEditor.KnownTags = () => KnownTags;
+        GalleryDetailsEditor.AvailableTagsForGame = AvailableTagsForGame;
         GalleryDetailsEditor.AutoSaveEnabled = AppProfile.IsPersonal;
         GalleryDetailsEditor.AutoSaved += ApplyClipDetails;
         AnnotationActions = PersonalLibrary.Current;
@@ -148,6 +160,8 @@ public partial class GalleryView : UserControl
                 _hoverPreview.Stop();
                 return;
             }
+            if (PersonalLibrary.Enabled && _loadedOrganizationRevision != PersonalLibrary.Current.OrganizationRevision)
+                _ = ReloadAsync(rereadIndex: true);
             var settings = AppSettings.Current;
             if (_renderedZone != null && !Equals(_renderedZone, TimeZoneInfo.Local)) ShowFolder(preserveScroll: true);
             var sources = SavedRecordingFolders.Additional(settings);
@@ -185,7 +199,14 @@ public partial class GalleryView : UserControl
         await ProjectPane.CloseAsync();
     }
 
-    private void OnClipSaved(SavedClip clip) => Dispatcher.BeginInvoke(() => QueueScopedReload(clip.Path));
+    private void OnClipSaved(SavedClip clip) => Dispatcher.BeginInvoke(async () =>
+    {
+        if (_released) return;
+        try { await PersonalLibrary.Current.RepairRecordedCollectionAsync(clip.Path, _lifetime.Token); }
+        catch (OperationCanceledException) when (_lifetime.IsCancellationRequested) { }
+        catch (Exception ex) { Log.Failure(DiagnosticCategory.Library, "Could not recover saved collection metadata", ex); }
+        if (!_released) QueueScopedReload(clip.Path);
+    });
 
     private void QueueScopedReload(string path)
     {
@@ -224,9 +245,12 @@ public partial class GalleryView : UserControl
         if (_loading)
         {
             _reloadQueued = true;
+            _rereadQueued |= rereadIndex;
             return;
         }
         _loading = true;
+        long organizationRevision = PersonalLibrary.Current.OrganizationRevision;
+        rereadIndex |= organizationRevision != _loadedOrganizationRevision;
         using var activity = QuickClip.Shell.BackgroundActivity.Begin("Refreshing Gallery");
         try
         {
@@ -325,6 +349,18 @@ public partial class GalleryView : UserControl
                 clip.SelectionChanged += OnClipSelectionChanged;
             }
             _selected.IntersectWith(_clips.Select(c => c.Path));
+            if (PersonalLibrary.Enabled)
+                _collectionDefinitions = await PersonalLibrary.Current.ReadCollectionsAsync(_lifetime.Token);
+            else _collectionDefinitions = [];
+            _tagDefinitions = await PersonalLibrary.Current.ReadTagDefinitionsAsync(_lifetime.Token);
+            if (_released) return;
+            _loadedOrganizationRevision = organizationRevision;
+            if (organizationRevision != PersonalLibrary.Current.OrganizationRevision)
+            {
+                _reloadQueued = true;
+                _rereadQueued = true;
+            }
+            _searchCancellation?.Cancel();
             RefreshKnownTags();
             RebuildFolders();
             RebuildProjects();
@@ -346,8 +382,10 @@ public partial class GalleryView : UserControl
             if (_reloadQueued && !_released)
             {
                 _reloadQueued = false;
+                bool reread = _rereadQueued;
+                _rereadQueued = false;
                 // Schedule after this lease exits, including early-return paths.
-                _ = Dispatcher.BeginInvoke(new Action(() => _ = ReloadAsync()));
+                _ = Dispatcher.BeginInvoke(new Action(() => _ = ReloadAsync(rereadIndex: reread)));
             }
         }
     }
@@ -421,16 +459,46 @@ public partial class GalleryView : UserControl
     private void RebuildFolders(bool preserveScroll = false)
     {
         var visible = _clips.ToArray();
-        var folders = new List<Folder> { new(ClipLibrary.AllClips, visible.Length, visible.FirstOrDefault()?.Created ?? DateTime.MinValue) };
-        folders.AddRange(visible.GroupBy(c => c.Folder, StringComparer.OrdinalIgnoreCase)
-            .Select(g => new Folder(g.First().Folder, g.Count(), g.Max(c => c.Created)))
-            .OrderByDescending(f => f.Latest));
-        if (folders.All(f => !string.Equals(f.Name, _folder, StringComparison.OrdinalIgnoreCase))) _folder = ClipLibrary.AllClips;
+        var folders = new List<Folder> { new(new(GalleryFolderKey.All), ClipLibrary.AllClips, visible.Length,
+            visible.FirstOrDefault()?.Created ?? DateTime.MinValue) };
+        var associatedNames = visible.Where(c => c.Details.GameId != null).Select(c => c.Folder).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var scopedDefinitions = _collectionDefinitions.Where(d => d.GameId != null).ToLookup(d => d.GameId);
+        foreach (var group in visible.GroupBy(c => GalleryFolderKey.For(c.Details)).OrderByDescending(g => g.Max(c => c.Created)))
+        {
+            var clips = group.ToArray();
+            var key = group.Key;
+            string name = clips[0].Folder;
+            if (key.GameId == null && associatedNames.Contains(name)) name += " (unassociated)";
+            var definitions = scopedDefinitions[key.GameId]
+                .Concat(clips.Select(c => c.Details.Collection).OfType<LibraryCollection>())
+                .DistinctBy(d => d.Id).OrderBy(d => d.Name, StringComparer.OrdinalIgnoreCase).ToArray();
+            bool expanded = definitions.Length > 0 && _expandedGames.Contains(key);
+            folders.Add(new(new(key), name, clips.Length, clips.Max(c => c.Created), definitions.Length > 0, expanded));
+            if (!expanded) continue;
+            folders.Add(new(new(key, true), "Uncategorized", clips.Count(c => c.Details.Collection == null), DateTime.MinValue));
+            foreach (var definition in definitions)
+                folders.Add(new(new(key, true, definition.Id), definition.Name,
+                    clips.Count(c => c.Details.Collection?.Id == definition.Id), DateTime.MinValue));
+        }
+        var chosen = folders.FirstOrDefault(f => f.Selection == _folderSelection)
+            ?? folders.FirstOrDefault(f => f.Selection == new GalleryFolderSelection(_folderSelection.Game))
+            ?? folders[0];
+        _folderSelection = chosen.Selection;
+        _folder = chosen.Name;
         _settingLists = true;
         FolderList.ItemsSource = folders;
-        FolderList.SelectedItem = _openProject != null ? null : folders.First(f => string.Equals(f.Name, _folder, StringComparison.OrdinalIgnoreCase));
+        FolderList.SelectedItem = _openProject != null ? null : chosen;
         _settingLists = false;
         ShowFolder(preserveScroll);
+    }
+
+    private void ExpandFolder_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not Button { DataContext: Folder { Expandable: true } f }) return;
+        e.Handled = true;
+        if (!_expandedGames.Add(f.Selection.Game)) _expandedGames.Remove(f.Selection.Game);
+        _searchCancellation?.Cancel();
+        RebuildFolders(preserveScroll: true);
     }
 
     private void FolderList_SelectionChanged(object sender, SelectionChangedEventArgs e)
@@ -438,7 +506,9 @@ public partial class GalleryView : UserControl
         if (_settingLists || FolderList.SelectedItem is not Folder f) return;
         CloseStorage();
         if (_openProject != null) CloseProject();
-        if (f.Name == _folder) return;
+        if (f.Selection == _folderSelection) return;
+        _searchCancellation?.Cancel();
+        _folderSelection = f.Selection;
         _folder = f.Name;
         ShowFolder();
     }
@@ -458,15 +528,15 @@ public partial class GalleryView : UserControl
     {
         var filter = new GalleryClipFilter(ClipSearchBox.Text.Trim(), "",
             FavoritesFilter.IsChecked == true, FavoritesSort.IsChecked == true)
-        { ExactTags = _exactTags, MatchAllTags = _matchAllTags };
-        string folder = _folder;
+        { DefinitionFilters = _exactTags.Select(t => new GalleryTagFilter(t.Id, t.Name)).ToArray(), MatchAllTags = _matchAllTags };
+        var folder = _folderSelection;
         var clips = _clips;
         _searchCancellation?.Cancel();
         using var cancellation = new CancellationTokenSource();
         _searchCancellation = cancellation;
         try
         {
-            var matches = await Task.Run(() => filter.Apply(clips, folder, cancellation.Token), cancellation.Token);
+            var matches = await Task.Run(() => filter.Apply(clips.Where(c => folder.Matches(c.Details)), ClipLibrary.AllClips, cancellation.Token), cancellation.Token);
             if (cancellation.IsCancellationRequested || _released) return;
             _filter = filter;
             ApplyRows(matches, preserveScroll: true);
@@ -480,15 +550,30 @@ public partial class GalleryView : UserControl
 
     private void RefreshKnownTags()
     {
-        KnownTags = ClipTagChoices.Match(_clips.SelectMany(clip => clip.Details.Tags), "", []).ToArray();
+        if (PersonalLibrary.Enabled)
+        {
+            _tagDefinitions = _tagDefinitions.Concat(_clips.SelectMany(c => c.Details.TagDefinitions))
+                .DistinctBy(t => t.Id).ToArray();
+            KnownTags = ClipTagChoices.Match(_tagDefinitions.Where(t => t.GameId == null).Select(t => t.Name), "", []).ToArray();
+            _exactTags = _exactTags.Select(t => t.Id is long id
+                ? _tagDefinitions.FirstOrDefault(d => d.Id == id) is { } definition ? TagChoiceFor(definition) : null
+                : t).OfType<TagFilterChoice>().ToArray();
+        }
+        else KnownTags = ClipTagChoices.Match(_clips.SelectMany(clip => clip.Details.Tags), "", []).ToArray();
+        _filter = _filter with { DefinitionFilters = _exactTags.Select(t => new GalleryTagFilter(t.Id, t.Name)).ToArray() };
         RefreshTagFilterButton();
     }
+
+    internal IReadOnlyList<string> AvailableTagsForGame(string? gameId) => PersonalLibrary.Enabled
+        ? ClipTagChoices.Match(_tagDefinitions.Where(t => t.AppliesTo(gameId)).Select(t => t.Name), "", []).ToArray()
+        : KnownTags;
 
     private void ClearFilters_Click(object sender, RoutedEventArgs e)
     {
         ClipSearchBox.Clear();
         _exactTags = [];
         _matchAllTags = true;
+        _filter = _filter with { DefinitionFilters = _exactTags.Select(t => new GalleryTagFilter(t.Id, t.Name)).ToArray() };
         RefreshTagFilterButton();
         OrganizationFilter_Changed(this, new RoutedEventArgs());
         FavoritesFilter.IsChecked = FavoritesSort.IsChecked = false;
@@ -508,7 +593,7 @@ public partial class GalleryView : UserControl
         {
             if (!saved.TryGetValue(clip.Path, out var details)) continue;
             if (clip.Details.IndexId == details.IndexId && clip.Details.IndexRevision > details.IndexRevision) continue;
-            regroup |= clip.Folder != details.Game;
+            regroup |= clip.Folder != details.Game || clip.Details.GameId != details.GameId || clip.Details.Collection != details.Collection;
             clip.ApplyDetails(details);
         }
         if (saved.Count == 0) return;
@@ -528,7 +613,7 @@ public partial class GalleryView : UserControl
     {
         if (_searchCancellation is { IsCancellationRequested: false })
             OrganizationFilter_Changed(this, new RoutedEventArgs());
-        ApplyRows(_filter.Apply(_clips, _folder), preserveScroll);
+        ApplyRows(_filter.Apply(_clips.Where(c => _folderSelection.Matches(c.Details)), ClipLibrary.AllClips), preserveScroll);
     }
 
     private IReadOnlyList<ClipItem> _filteredClips = [];
@@ -537,7 +622,9 @@ public partial class GalleryView : UserControl
 
     private void ApplyRows(IReadOnlyList<ClipItem> clips, bool preserveScroll)
     {
-        FolderTitle.Text = _folder;
+        FolderTitle.Text = _folderSelection.IsChild && FolderList.ItemsSource is List<Folder> folders
+            ? (folders.FirstOrDefault(f => f.Selection == new GalleryFolderSelection(_folderSelection.Game))?.Name ?? "") + " / " + _folder
+            : _folder;
         FolderInfo.Text = clips.Count == 0 ? "" : $"{clips.Count} clip{(clips.Count == 1 ? "" : "s")}  ·  {Fmt.Size(clips.Sum(c => c.Size))}";
         var zone = TimeZoneInfo.Local;
         if (_renderedColumns != _columns || _renderedFavoritesFirst != _filter.FavoritesFirst ||
@@ -746,6 +833,7 @@ public partial class GalleryView : UserControl
             if (entry.Tag is "share-profiles")
                 SharingDialogs.Populate(entry.Items, Window.GetWindow(this), profile => _ = ClipSharing.ShareAsync(item.Path, profile));
             if (entry.Tag is "details" or "favorite") entry.Visibility = PersonalAnnotations ? Visibility.Visible : Visibility.Collapsed;
+            if (entry.Tag is "collection") entry.Visibility = PersonalLibrary.Enabled ? Visibility.Visible : Visibility.Collapsed;
             if (entry.Tag is "favorite") entry.Header = item.IsFavorite ? "Remove from favorites" : "Add to favorites";
             if (entry.Tag as string == "copy") entry.Header = count == 1 ? "Copy to folder…" : $"Copy{clips} to folder…";
             if (entry.Tag as string != "projects") continue;
@@ -809,6 +897,9 @@ public partial class GalleryView : UserControl
             var manage = new MenuItem { Header = "Manage tags…" };
             manage.Click += async (_, _) => await ManageSelectedTagsAsync();
             menu.Items.Add(manage);
+            var collection = new MenuItem { Header = "Assign collection..." };
+            collection.Click += async (_, _) => await AssignCollectionToAsync(CurrentClips.Where(c => c.IsSelected).ToArray());
+            menu.Items.Add(collection);
             var replace = new MenuItem { Header = "Replace tag…" };
             replace.Click += async (_, _) => await ManageSelectedTagsAsync(replace: true);
             menu.Items.Add(replace);
@@ -1257,7 +1348,7 @@ public partial class GalleryView : UserControl
         ClipsPane.Visibility = Visibility.Visible;
         _settingLists = true;
         ProjectList.SelectedItem = null;
-        FolderList.SelectedItem = (FolderList.ItemsSource as List<Folder>)?.FirstOrDefault(f => f.Name == _folder);
+        FolderList.SelectedItem = (FolderList.ItemsSource as List<Folder>)?.FirstOrDefault(f => f.Selection == _folderSelection);
         _settingLists = false;
     }
 

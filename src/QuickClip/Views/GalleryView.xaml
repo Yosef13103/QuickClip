@@ -31,6 +31,7 @@
                             <MenuItem Header="Organize" Tag="organize">
                                 <MenuItem Header="Edit title, game or tags…" Click="EditClipDetails_Click" Tag="details" />
                                 <MenuItem Header="Add to favorites" Click="FavoriteMenu_Click" Tag="favorite" />
+                                <MenuItem Header="Assign collection..." Click="AssignCollection_Click" Tag="collection" />
                                 <MenuItem Header="Copy to folder…" Tag="copy" Click="CopyClipsToFolder_Click" />
                             </MenuItem>
                             <MenuItem Header="Add to project" Tag="projects">
@@ -200,7 +201,9 @@
                             <DataTemplate>
                                 <DockPanel>
                                     <TextBlock DockPanel.Dock="Right" Text="{Binding Count}" Foreground="{DynamicResource SubtleText}" Margin="8,0,0,0" />
-                                    <TextBlock Text="{Binding Name}" TextTrimming="CharacterEllipsis" />
+                                    <Button DockPanel.Dock="Left" Visibility="{Binding ExpandVisibility}" Content="{Binding ExpandGlyph}"
+                                            Click="ExpandFolder_Click" ToolTip="Expand or collapse collections" Padding="2,0" Margin="0,0,3,0" />
+                                    <TextBlock Text="{Binding Name}" Margin="{Binding Indent}" TextTrimming="CharacterEllipsis" />
                                 </DockPanel>
                             </DataTemplate>
                         </ListBox.ItemTemplate>
@@ -307,8 +310,7 @@
                         <StackPanel Orientation="Horizontal" Margin="0,0,8,4">
                             <Button x:Name="MultiTagFilterButton" Content="Tags ▾" Click="MultiTagFilter_Click" Style="{StaticResource TextButton}"
                                     ToolTip="Filter by one or more tags" AutomationProperties.Name="Tag filters" />
-                            <Button Content="&#xE790;" Click="TagColors_Click" Style="{StaticResource IconButton}" ToolTip="Tag colors" AutomationProperties.Name="Tag colors" />
-                            <Button Content="&#xE713;" Click="LibraryTags_Click" Style="{StaticResource IconButton}" ToolTip="Rename or merge library tags" AutomationProperties.Name="Manage library tags" />
+                            <Button Content="&#xE713;" Click="CollectionsManager_Click" Style="{StaticResource IconButton}" ToolTip="Collections &amp; Tags" AutomationProperties.Name="Manage collections and tags" />
                         </StackPanel>
                         <ItemsControl x:Name="ActiveTagFilters" Visibility="Collapsed" Margin="0,0,6,4">
                             <ItemsControl.ItemsPanel><ItemsPanelTemplate><WrapPanel /></ItemsPanelTemplate></ItemsControl.ItemsPanel>
