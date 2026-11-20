@@ -217,32 +217,29 @@ internal static class CatalogClaims
         foreach (var group in providers)
         {
             var linked = group.OrderByDescending(item => item.Verified).DistinctBy(item => item.Entry.Id).ToArray();
-            // Valve's 2024 anniversary update folded both Episodes and Lost Coast
-            // into HL2. Their legacy manifests may still claim exactly the same renderer.
-            // Only merge this known family at the same verified installation, not other
-            // Source games, unrelated shared executables or separate legacy installations.
-            if (linked.Any(item => item.Verified && item.Entry.Source == CatalogSource.Steam &&
-                    item.Entry.Id == "steam:220" && item.Entry.InstallDirectories.Length == 1 &&
-                    item.Entry.Executables.Contains(Path.Combine(group.Key, "hl2.exe"), Paths)))
+            // Verified distinct titles may share one install and renderer. Only
+            // consolidate a uniquely named base title and qualified child titles
+            // from the same provider with identical nonempty renderer sets.
+            // No title names, product IDs or executable basenames are special-cased.
+            foreach (var family in linked.Where(item => item.Verified &&
+                         item.Entry.InstallDirectories.Length == 1).GroupBy(item => item.Entry.Source))
             {
-                foreach (var episode in linked.Where(item => item.Entry.Source == CatalogSource.Steam &&
-                    item.Entry.Id is "steam:380" or "steam:420" or "steam:340" &&
-                    item.Entry.InstallDirectories.Length == 1 &&
-                    item.Entry.Executables.Contains(Path.Combine(group.Key, "hl2.exe"), Paths)))
+                var titles = family.ToArray();
+                foreach (var child in titles)
                 {
-                    sharedIds[episode.Entry.Id] = "steam:220";
-                    if (episode.Verified)
-                    {
-                        // Steam may retain the same generic manifest title for every episode.
-                        // These are known distinct products, not cross-store copies of one title.
-                        string name = episode.Entry.Id switch
-                        {
-                            "steam:380" => "Episode One",
-                            "steam:420" => "Episode Two",
-                            _ => "Lost Coast",
-                        };
-                        related[episode.Entry.Id] = new(episode.Entry.Id, name);
-                    }
+                    var parents = titles.Where(parent => parent != child &&
+                        RelatedTitleName(parent.Entry.Name, child.Entry.Name) != null &&
+                        SharedRendererSet(parent.Entry, child.Entry)).ToArray();
+                    if (parents.Length != 1) continue;
+                    var parent = parents[0];
+                    // Do not create a nested/ambiguous chain or choose between
+                    // duplicate base claims. Matching names alone prove nothing.
+                    if (titles.Any(ancestor => ancestor != parent &&
+                        RelatedTitleName(ancestor.Entry.Name, parent.Entry.Name) != null &&
+                        SharedRendererSet(ancestor.Entry, parent.Entry))) continue;
+                    string name = RelatedTitleName(parent.Entry.Name, child.Entry.Name)!;
+                    sharedIds[child.Entry.Id] = parent.Entry.Id;
+                    related[child.Entry.Id] = new(child.Entry.Id, name);
                 }
             }
             // Multiple product IDs from one launcher at that root may identify different editions.
@@ -288,6 +285,32 @@ internal static class CatalogClaims
                 [.. AllowedPaths(entry.Executables)], rules.GetValueOrDefault(id) ?? new());
         });
         return [.. rows.Concat(manual).OrderBy(row => row.DisplayName, Paths).ThenBy(row => row.Id, StringComparer.Ordinal)];
+    }
+
+    private static string? RelatedTitleName(string baseName, string childName)
+    {
+        baseName = baseName.Trim();
+        childName = childName.Trim();
+        if (baseName.Length == 0 || !childName.StartsWith(baseName, StringComparison.OrdinalIgnoreCase))
+            return null;
+        string suffix = childName[baseName.Length..];
+        // Require a title boundary, not a coincidental prefix like Game/Game2.
+        if (!(suffix.StartsWith(":", StringComparison.Ordinal) ||
+              suffix.StartsWith(" - ", StringComparison.Ordinal) ||
+              suffix.StartsWith(" \u2013 ", StringComparison.Ordinal) ||
+              suffix.StartsWith(" \u2014 ", StringComparison.Ordinal))) return null;
+        string title = suffix.TrimStart(' ', ':', '-', '\u2013', '\u2014').Trim();
+        return title.Length > 0 ? title : null;
+    }
+
+    private static bool SharedRendererSet(CatalogEntry left, CatalogEntry right)
+    {
+        static IEnumerable<string> Renderers(CatalogEntry entry) =>
+            (entry.Source == CatalogSource.Steam ? entry.Executables : entry.RendererExecutables ?? [])
+                .Where(path => CatalogPaths.DefaultRole(path) == CatalogMatchKind.Unknown &&
+                    !entry.DetectedLaunchers.Contains(path, Paths));
+        var paths = Renderers(left).ToHashSet(Paths);
+        return paths.Count > 0 && paths.SetEquals(Renderers(right));
     }
 
     internal static IEnumerable<string> BlockedExecutables(GameCatalogSettings settings)
