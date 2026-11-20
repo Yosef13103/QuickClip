@@ -30,6 +30,7 @@ internal sealed class Recorder
     private Guid _replaySession;
     private long _replayGeneration;
     private int _replayBufferSeconds;
+    private RecordingVideoOptions? _activeVideoOptions;
     private ImmutableArray<EndpointTrack> _runningEndpointPlan = [];
     private readonly GameDetector _games = new();
     private readonly ForegroundGameHandoff _gameHandoff = new();
@@ -177,6 +178,37 @@ internal sealed class Recorder
             }
         }
         StateChanged?.Invoke(State);
+    });
+
+    // A saved profile edit may restart only the current authorized game graph.
+    // Re-read its effective settings under the same gate as source transitions.
+    internal Task RefreshActiveProfileAsync() => Task.Run(() =>
+    {
+        RecorderState before, after;
+        lock (_gate)
+        {
+            if (!AppProfile.IsPersonal || !AppSettings.Current.RecordingEnabled ||
+                _lifecycle.Mode != RecordingMode.GameTriggered || !IsRunning || _sessionGameId == null) return;
+            before = State;
+            try
+            {
+                var settings = AppSettings.Current;
+                var next = RecordingVideoOptions.Resolve(settings, RecordingVideoOptions.LoadPolicy(_sessionGameId, settings));
+                if (next == _activeVideoOptions) return;
+                // Invalidate only the graph, preserving handoff and polling state.
+                _lifecycle.InvalidateGraph();
+                ReconcilePersonal();
+            }
+            catch (Exception ex)
+            {
+                // Do not continue recording silently with a rejected profile.
+                _lifecycle.FailActive("The current game's recording profile could not be applied.");
+                Error = _lifecycle.Error;
+                Log.Essential(DiagnosticCategory.Capture, "Applying game recording profile failed", ex);
+            }
+            after = State;
+        }
+        if (after != before) StateChanged?.Invoke(after);
     });
 
     // Permission changes re-evaluate the active source without unconditionally
@@ -346,7 +378,7 @@ internal sealed class Recorder
         if (game != null && !CaptureSourcePolicy.AllowsRecordingDisplay(s, activation.Display.Identity))
             return "The game's entire display needs permission.";
         StartCore(activation.Display.Device, CaptureEngine.MonitorBackend.MonitorOnlyDuplication,
-            activation.Display.Identity, activation.GameOwner);
+            activation.Display.Identity, activation.GameOwner, activation.GameId);
         if (!IsRunning) return Error ?? "The selected display could not be recorded.";
         if (!s.RecordingEnabled || !CaptureSourcePolicy.AllowsRecordingDisplay(s, activation.Display.Identity) ||
             (game == null ? !ManualDesktopRequested : !Eligible(game)))
@@ -364,7 +396,7 @@ internal sealed class Recorder
     }
 
     private void StartCore(string? display = null, CaptureEngine.MonitorBackend? fixedBackend = null,
-        string? displayIdentity = null, WindowOwner? gameOwner = null)
+        string? displayIdentity = null, WindowOwner? gameOwner = null, string? gameId = null)
     {
         var s = AppSettings.Current;
         Error = null;
@@ -376,6 +408,8 @@ internal sealed class Recorder
         }
         try
         {
+            var policy = AppProfile.IsPersonal && gameOwner != null ? RecordingVideoOptions.LoadPolicy(gameId, s) : null;
+            var videoOptions = RecordingVideoOptions.Resolve(s, policy);
             CaptureEngine.Initialize();
             var monitors = Monitors.List();
             var monitor = CaptureSourcePolicy.SelectMonitor(monitors, display ?? s.RecordMonitor, AppProfile.IsPersonal);
@@ -387,32 +421,33 @@ internal sealed class Recorder
             }
 
             var available = VideoEncoders.GetAvailableAsync().GetAwaiter().GetResult();
-            string? encoder = RecordingPresets.RecordingEncoderOrder.Contains(s.RecordEncoder) && available.Contains(s.RecordEncoder)
-                ? s.RecordEncoder
-                : RecordingPresets.DefaultEncoder(available)?.Id;
+            string? encoder = videoOptions.SelectEncoder(available, policy?.EncoderId is { Length: > 0 });
             if (encoder == null)
             {
-                Error = "No graphics card video encoder works on this PC (NVIDIA, AMD or Intel). Updating the graphics driver may help.";
+                Error = policy?.EncoderId is { Length: > 0 } || policy?.Codec is GameRecordingCodec.H264 or GameRecordingCodec.Hevc or GameRecordingCodec.Av1
+                    ? "The game profile encoder is unavailable. Choose another encoder or reset its override."
+                    : "No graphics card video encoder works on this PC (NVIDIA, AMD or Intel). Updating the graphics driver may help.";
                 return;
             }
 
             // The aspect ratio is for the monitor: a game recorded by its window is taken as it is.
-            string aspect = s.RecordAspect;
+            string aspect = videoOptions.Aspect;
             var area = RecordingPresets.Area(monitor.Width, monitor.Height, aspect);
             bool cropped = aspect != "" && (area.Width != monitor.Width || area.Height != monitor.Height);
-            var (w, h) = RecordingPresets.OutputSize(area.Width, area.Height, s.RecordResolution);
+            var (w, h) = RecordingPresets.OutputSize(area.Width, area.Height, videoOptions.Resolution);
+            if (w < 16 || h < 16) { Error = "The configured capture area is too small for this display."; return; }
             bool scaled = w != area.Width || h != area.Height;
             string family = VideoEncoders.Find(encoder)?.Family ?? "h264";
-            VideoKbps = RecordingPresets.VideoKbps(s.RecordQuality, w, h, s.RecordFps, family);
+            VideoKbps = RecordingPresets.VideoKbps(videoOptions.Quality, w, h, videoOptions.Fps, family, videoOptions.TargetKbps);
             var endpoints = EndpointAudio.Plan(s);
             var mics = endpoints == null && s.RecordMic ? Microphones.Plan(s.MicDeviceIds, CaptureEngine.EnumMicrophones()) : [];
             bool separateMics = s.SeparateMicTracks && mics.Count > 1;
             bool splitChat = RecordingPresets.SplitChat(s), splitMusic = RecordingPresets.SplitMusic(s);
             AudioTracks = endpoints?.Count ?? (1 + (splitChat ? 1 : 0) + (splitMusic ? 1 : 0) + (separateMics ? mics.Count : Math.Min(mics.Count, 1)));
 
-            Error = CaptureEngine.Start(monitor.DeviceName, aspect, s.RecordFps, scaled ? w : 0, scaled ? h : 0, encoder, VideoKbps,
-                RecordingPresets.AudioKbps, s.BufferSeconds, s.CaptureCursor, splitChat, splitMusic, mics, separateMics, endpoints,
-                new() { Backend = backend, Preset = s.NvencPreset, Diagnostics = s.RecordingDiagnostics ? 1 : 0 }, displayIdentity, gameOwner);
+            Error = CaptureEngine.Start(monitor.DeviceName, aspect, videoOptions.Fps, scaled ? w : 0, scaled ? h : 0, encoder, VideoKbps,
+                RecordingPresets.AudioKbps, videoOptions.ReplaySeconds, s.CaptureCursor, splitChat, splitMusic, mics, separateMics, endpoints,
+                new() { Backend = backend, Preset = videoOptions.NvencPreset, Diagnostics = s.RecordingDiagnostics ? 1 : 0 }, displayIdentity, gameOwner);
             if (Error != null)
             {
                 Log.Essential(DiagnosticCategory.Capture, "Capture engine failed to start");
@@ -425,7 +460,8 @@ internal sealed class Recorder
             _replaySession = Guid.NewGuid();
             Interlocked.Increment(ref _replayGeneration);
             IsRunning = true;
-            _replayBufferSeconds = s.BufferSeconds;
+            _replayBufferSeconds = videoOptions.ReplaySeconds;
+            _activeVideoOptions = videoOptions;
             _family = family;
             _captureTarget = null;
             _desktopSource = backend switch
@@ -447,7 +483,7 @@ internal sealed class Recorder
             _captureWindowSize = default;
             if (endpoints != null) (_chatApps, _musicApps) = ([], []);
             lock (_audioProcesses) _audioProcesses.Clear();
-            _summary = $"{h}p{s.RecordFps}{(cropped ? $" {aspect}" : "")} · {family.ToUpperInvariant()} · {RecordingPresets.Label(s.RecordQuality)}" +
+            _summary = $"{h}p{videoOptions.Fps}{(cropped ? $" {aspect}" : "")} · {family.ToUpperInvariant()} · {RecordingPresets.Label(videoOptions.Quality)}" +
                        (endpoints == null ? "" : endpoints.Count == 0 ? " · video only" : $" · {endpoints.Count} endpoint audio tracks");
             Log.Event(DiagnosticCategory.Capture, "Recorder started");
         }
@@ -478,6 +514,7 @@ internal sealed class Recorder
         if (stopNative) CaptureEngine.Stop();
         _runningEndpointPlan = [];
         _replaySession = Guid.Empty;
+        _activeVideoOptions = null;
         _replayMarkers.Clear();
         (_sessionGame, _sessionGameId, _sessionDisplay, _desktopSource) = (null, null, null, null);
         _sessionGameExecutable = null;
@@ -558,8 +595,9 @@ internal sealed class Recorder
             StateChanged?.Invoke(State);
             return;
         }
-        var (w, h) = RecordingPresets.OutputSize(size.Width & ~7, size.Height & ~1, s.RecordResolution);
-        int kbps = RecordingPresets.VideoKbps(s.RecordQuality, w, h, s.RecordFps, _family);
+        var options = _activeVideoOptions ?? RecordingVideoOptions.Resolve(s, null);
+        var (w, h) = RecordingPresets.OutputSize(size.Width & ~7, size.Height & ~1, options.Resolution);
+        int kbps = RecordingPresets.VideoKbps(options.Quality, w, h, options.Fps, _family, options.TargetKbps);
         CaptureEngine.SetCaptureWindow(window, w, h, kbps);
         Log.Event(DiagnosticCategory.Capture, "Recorder switched to game window capture");
         StateChanged?.Invoke(State);
@@ -637,7 +675,7 @@ internal sealed class Recorder
         try
         {
             var s = AppSettings.Current;
-            int seconds = requestedSeconds ?? s.BufferSeconds;
+            int seconds;
             CaptureEngine.ReplayPosition position;
             ReplayMarkers.Candidate[] candidates;
             Guid sessionId;
@@ -652,6 +690,8 @@ internal sealed class Recorder
                     (AppProfile.IsPersonal && !MaySaveFromDisplay(s, _lifecycle.Mode, _captureDisplayIdentity, ManualDesktopRequested)) ||
                     CaptureEngine.GetReplayPosition() is not { } active)
                     throw new IOException("The recording session has ended.");
+                // The active graph, not a mutable global setting, owns its replay length.
+                seconds = requestedSeconds ?? _replayBufferSeconds;
                 position = active;
                 sessionId = _replaySession;
                 desktopSource = _desktopSource;

@@ -41,6 +41,16 @@ public partial class SettingsView
                 items.Add(new Choice($"Custom ({w} × {h})", value));
             }
         }
+        if (EditingGame != null)
+        {
+            // Profile settings follow a game across displays; the current preview
+            // should not prevent configuring a limit for a larger display.
+            foreach (int preset in RecordingPresets.Resolutions.Where(limit => limit > 0))
+                if (items.All(choice => !Equals(choice.Value, preset)))
+                    items.Add(new Choice($"{preset}p limit (Native on smaller displays)", preset));
+            if (value > 0 && items.All(choice => !Equals(choice.Value, value)))
+                items.Add(new Choice($"{value}-pixel short-side limit", value));
+        }
         bool wasLoading = _loading;
         _loading = true;
         ResolutionCombo.ItemsSource = items;
@@ -61,7 +71,7 @@ public partial class SettingsView
             return;
         }
 
-        int limit = AppSettings.Current.RecordResolution;
+        int limit = EditingVideo().Resolution;
         var (width, height) = RecordingPresets.OutputSize(area.Width, area.Height, limit);
         CropPreview.Visibility = Visibility.Visible;
         CropPreview.SetArea(monitor.Width, monitor.Height, area);
@@ -75,7 +85,9 @@ public partial class SettingsView
         UseNativeButton.Visibility = usingFallbackSize ? Visibility.Visible : Visibility.Collapsed;
         if (usingFallbackSize)
             notes.Add($"This area uses Native. The saved {limit}-pixel short-side limit can still apply to larger sources.");
-        if (automatic)
+        if (EditingGame != null)
+            notes.Add("Preview uses the selected display only; actual recording follows the game to its authorized display.");
+        else if (automatic)
             notes.Add("Game windows keep their own aspect. The output short-side limit still applies when a game window is captured.");
         PreviewHint.Text = string.Join(" ", notes);
     }
@@ -92,7 +104,7 @@ public partial class SettingsView
     {
         _updatingDimensionFields = true;
         var (width, height) = SelectedArea is { } area
-            ? RecordingPresets.OutputSize(area.Width, area.Height, AppSettings.Current.RecordResolution) : default;
+            ? RecordingPresets.OutputSize(area.Width, area.Height, EditingVideo().Resolution) : default;
         CustomWidthBox.Text = width > 0 ? width.ToString(CultureInfo.InvariantCulture) : "";
         CustomHeightBox.Text = height > 0 ? height.ToString(CultureInfo.InvariantCulture) : "";
         _widthEdited = _heightEdited = false;
@@ -130,7 +142,7 @@ public partial class SettingsView
     private void ApplyAspect_Click(object sender, RoutedEventArgs e)
     {
         if (_loading || !TryCustomAspect(out string aspect)) return;
-        ApplyDimensions(aspect, AppSettings.Current.RecordResolution);
+        ApplyDimensions(aspect, EditingVideo().Resolution, overrideResolution: false);
     }
 
     private void CustomDimension_Changed(object sender, TextChangedEventArgs e)
@@ -185,7 +197,7 @@ public partial class SettingsView
     private void ApplySize_Click(object sender, RoutedEventArgs e)
     {
         var result = CheckCustomSize();
-        if (!_loading && result.Matches) ApplyDimensions(SelectedAspect, result.Limit);
+        if (!_loading && result.Matches) ApplyDimensions(SelectedAspect, result.Limit, overrideAspect: false);
     }
 
     private void CropToFit_Click(object sender, RoutedEventArgs e)
@@ -198,11 +210,20 @@ public partial class SettingsView
 
     private void UseNative_Click(object sender, RoutedEventArgs e)
     {
-        if (!_loading) ApplyDimensions(SelectedAspect, 0);
+        if (!_loading) ApplyDimensions(SelectedAspect, 0, overrideAspect: false);
     }
 
-    private void ApplyDimensions(string aspect, int limit)
+    private void ApplyDimensions(string aspect, int limit, bool overrideAspect = true, bool overrideResolution = true)
     {
+        if (EditingGame != null)
+        {
+            SaveProfileChange(p => p with
+            {
+                Aspect = overrideAspect ? aspect : p.Aspect,
+                ResolutionShortSide = overrideResolution ? limit : p.ResolutionShortSide,
+            });
+            return;
+        }
         var settings = AppSettings.Current;
         bool changed = settings.RecordAspect != aspect || settings.RecordResolution != limit;
         settings.RecordAspect = aspect;
