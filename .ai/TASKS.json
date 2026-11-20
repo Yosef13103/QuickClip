@@ -895,18 +895,18 @@
       ],
       "effort": "high",
       "status": "in_progress",
-      "candidate": "37d76c07a060d4871e169746c035a40058bdab0f",
+      "candidate": "93b90c66780cbec656e66495f9d4016277141c37",
       "gates": {
-        "local": "pending",
+        "local": "passed",
         "ci": "pending",
         "review": "pending",
         "hardware": "pending"
       },
       "evidence": [
-        "First collection model, migration, guarded assignment and fixture tests committed; no local build or owner library access."
+        "Virtual collection and scoped tag preview: 937 passed, 23 opt-in skips, zero failures; strict Personal build and runtime dependency smoke pass. Private evidence: 7. Evidence/E2-virtual-collections-v6-checkpoint.md."
       ],
-      "blocker": "Actual B/E1/E2 schema reconciliation and physical publication/recovery needed before filesystem organization.",
-      "next_action": "Validate first slice in CI; wire unified manager, game association/alias resolution, scoped tags, Gallery hierarchy and current collection selection."
+      "blocker": "Owner UI/live-save acceptance, catalog aliases, B/E1/E2 schema reconciliation and physical publication/recovery remain pending.",
+      "next_action": "Owner test isolated virtual preview; refine UI, reconcile branches and migration, validate live recording metadata; physical routing/moves only after B gates."
     }
   ]
 }
