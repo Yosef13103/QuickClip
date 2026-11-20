@@ -53,22 +53,26 @@ public sealed class FrontendWindowAcceptanceTests(ITestOutputHelper output)
                 File.Delete(path);
             }
             Assert.Equal(2, profile.SavedCustomThemes.Length);
-            Assert.Equal(6, view.ThemePicker.Items.Count);
+            Assert.Equal(7, view.ThemePicker.Items.Count);
             await VerifyThemePopupAsync(view.ThemePicker, "Fixture Slate", "Fixture AMOLED");
             view.ThemePicker.SelectionChanged += (_, e) => output.WriteLine($"selection={view.ThemePicker.SelectedIndex}, loaded={view.IsLoaded}, pickerLoaded={view.ThemePicker.IsLoaded}, applied={profile.Theme}, source={e.OriginalSource?.GetType().Name}");
             view.ThemePicker.SelectedIndex = 3; // Light changes the WPF Fluent theme mode.
             await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
             Assert.Equal(nameof(ThemeChoice.Light), profile.Theme);
-            Assert.Equal(6, view.ThemePicker.Items.Count);
+            Assert.Equal(7, view.ThemePicker.Items.Count);
             output.WriteLine($"before returning to custom: selection={view.ThemePicker.SelectedIndex}, loaded={view.IsLoaded}, pickerLoaded={view.ThemePicker.IsLoaded}");
-            view.ThemePicker.SelectedIndex = 4;
+            view.ThemePicker.SelectedIndex = 4; // Broadcast uses the new neutral palette.
+            await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
+            Assert.Equal(nameof(ThemeChoice.Broadcast), profile.Theme);
+            Assert.Equal(nameof(ThemeChoice.Broadcast), AppSettings.Parse(File.ReadAllText(AppSettings.FilePath)).Theme);
+            view.ThemePicker.SelectedIndex = 5;
             await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
             Assert.Equal(nameof(ThemeChoice.Custom), profile.Theme);
-            Assert.Equal(6, view.ThemePicker.Items.Count);
+            Assert.Equal(7, view.ThemePicker.Items.Count);
             var persisted = AppSettings.Parse(File.ReadAllText(AppSettings.FilePath));
             var reopened = new AppearanceSettings();
             reopened.RefreshSelection(persisted);
-            Assert.Equal(6, reopened.ThemePicker.Items.Count);
+            Assert.Equal(7, reopened.ThemePicker.Items.Count);
             Assert.Equal(view.ThemePicker.SelectedIndex, reopened.ThemePicker.SelectedIndex);
             Assert.Equal(2, persisted.SavedCustomThemes.Length);
             await VerifyThemePopupAsync(view.ThemePicker, "Fixture Slate", "Fixture AMOLED");
