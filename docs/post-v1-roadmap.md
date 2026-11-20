@@ -1,5 +1,7 @@
 # QuickClip Personal — post-v1 roadmap (four waves)
 
+**Latest owner correction:** [Usability and simple labels](usability-and-simple-labels.md) supersedes earlier session-browsing/design proposals. Remove session UI/timeline/export from scope; keep internal replay provenance. Simplify labels, folders, Basic settings and guided setup.
+
 **Latest owner scope:** [Consolidated 2026-11-20 roadmap](owner-roadmap-2026-11-20.md) and [Rewind-inspired UI adaptation](rewind-ui-adaptation.md) supersede conflicting scope below; historical wave history retained. The task ledger remains the implementation record.
 
 Reconciled 2026-11-15 from v1.1.0 release, owner acceptance and design-time GitHub verification. This is scope and sequencing, not a dispatch or evidence of task completion. Active ledger `.ai/TASKS.json` owns implementation progress; root `AGENTS.md` and `.ai/PRODUCT.md` own contracts.

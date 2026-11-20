@@ -1,4 +1,6 @@
 # Rewind-inspired QuickClip UI — owner direction 2026-11-20
+
+**Latest owner correction:** [Usability and simple labels](usability-and-simple-labels.md) supersedes earlier session-browsing/design proposals. Remove session UI/timeline/export from scope; keep internal replay provenance. Simplify labels, folders, Basic settings and guided setup.
 Design backlog, not implementation or pixel-perfect mandate. Owner approved game hubs and recording sessions; interactive timeline is optional/deferred, not required. Owner likes Rewind's layout, theme/colors, recording status, straightforward controls; exclude achievements, auto-clipping, match stats and per-game integrations. Keep QuickClip's identity, functionality, existing WPF and configurable appearance. Source reviewed at Rewind 15755d04b78da9b8735402958982d0bf37f7ef93 (v0.2.6). Reimplement ideas in existing code; Rewind is GPLv3, attribution/license review if actual code/assets adopted.
 
 ## Visual references (immutable)
