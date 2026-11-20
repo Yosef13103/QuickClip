@@ -24,10 +24,8 @@ public partial class GalleryView
         try
         {
             string? selectedScope = _folderSelection.Game.GameId;
-            string draftName = "";
             string? draftColor = null;
-            bool draftFolder = false;
-            while (!_released)
+            bool busy = false, changed = false, closed = false;
             {
                 var definitions = await PersonalLibrary.Current.ReadCollectionsAsync(_lifetime.Token);
                 var tags = await PersonalLibrary.Current.ReadTagDefinitionsAsync(_lifetime.Token);
@@ -39,35 +37,112 @@ public partial class GalleryView
                 panel.Children.Add(new TextBlock { Text = "Available for", Margin = new Thickness(0,0,0,5) });
                 panel.Children.Add(scope);
                 var rows = new StackPanel { Margin = new Thickness(0,12,0,8) };
-                panel.Children.Add(new ScrollViewer { Content = rows, MaxHeight = 290, VerticalScrollBarVisibility = ScrollBarVisibility.Auto });
-                var dismiss = new Button();
-                ManagedLabel? existing = null;
-                string? action = null, newName = null, newColor = null;
-                var createName = new TextBox { Text = draftName, MaxLength = ClipDetails.MaxTagLength, MinWidth = 100, VerticalContentAlignment = VerticalAlignment.Center };
+                var rowScroll = new ScrollViewer { Content = rows, MaxHeight = 290, VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
+                panel.Children.Add(rowScroll);
+                var status = new TextBlock { TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0,6,0,0) };
+                var createName = new TextBox { MaxLength = ClipDetails.MaxTagLength, MinWidth = 100, VerticalContentAlignment = VerticalAlignment.Center };
                 AutomationProperties.SetName(createName, "New label name");
-                var createFolder = new CheckBox { Content = "Create as folder", IsChecked = draftFolder, Margin = new Thickness(0,8,0,0) };
-                void Select(string next, ManagedLabel? label = null)
+                var createFolder = new CheckBox { Content = "Create as folder", Margin = new Thickness(0,8,0,0) };
+                async void Select(string action, ManagedLabel? existing = null, string? newName = null, string? newColor = null)
                 {
-                    draftName = createName.Text;
-                    draftFolder = createFolder.IsChecked == true;
-                    action = next; existing = label;
-                    dismiss.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                    if (busy || closed || _released || !owner.IsVisible) return;
+                    busy = true;
+                    var focused = System.Windows.Input.Keyboard.FocusedElement as FrameworkElement;
+                    string? focusName = focused != null ? AutomationProperties.GetName(focused) : null;
+                    double offset = rowScroll.VerticalOffset;
+                    try
+                    {
+                        if (action == "delete" && existing != null &&
+                            !ModalDialog.AskConfirmation(owner, $"Delete {existing.Label}? Your video files stay.", "Delete label", "Delete")) return;
+                        if (action == "convert" && existing?.Tag is { } confirmTag &&
+                            !ModalDialog.AskConfirmation(owner, $"Move clips tagged {confirmTag.Name} into a Gallery folder? Their video files stay where they are.", "Make folder", "Make folder")) return;
+                        if (_released || !owner.IsVisible) return;
+                        panel.IsEnabled = false;
+                        status.Text = "Saving...";
+                        if (action == "delete" && existing != null)
+                        {
+                            if (existing.Collection is { } collection) await PersonalLibrary.Current.DeleteCollectionAsync(collection, _lifetime.Token);
+                            else await PersonalLibrary.Current.DeleteTagDefinitionAsync(existing.Tag!, _lifetime.Token);
+                        }
+                        else if (action == "convert" && existing?.Tag is { } tag)
+                            await PersonalLibrary.Current.ConvertTagToCollectionAsync(tag, _lifetime.Token);
+                        else if ((action == "rename" || action == "color") && existing != null)
+                        {
+                            if (existing.Collection is { } collection)
+                                await PersonalLibrary.Current.UpdateCollectionAsync(collection, collection with { Name = newName ?? collection.Name, Color = action == "color" ? newColor : collection.Color }, _lifetime.Token);
+                            else if (existing.Tag is { } item)
+                                await PersonalLibrary.Current.UpdateTagDefinitionAsync(item, item with { Name = newName ?? item.Name, Color = action == "color" ? newColor : item.Color }, _lifetime.Token);
+                        }
+                        else if (action == "create")
+                        {
+                            if (createFolder.IsChecked == true)
+                                await PersonalLibrary.Current.CreateCollectionAsync(new(Guid.NewGuid(), createName.Text, selectedScope, draftColor, null), _lifetime.Token);
+                            else await PersonalLibrary.Current.CreateTagDefinitionAsync(new(0, createName.Text, selectedScope, draftColor), _lifetime.Token);
+                        }
+                        else return;
+                        changed = true;
+                        if (closed || _released || !owner.IsVisible) return;
+                        if (action == "create")
+                        {
+                            createName.Clear();
+                            // Keep the chosen color/type for the next label.
+                            focusName = "New label name";
+                        }
+                        definitions = await PersonalLibrary.Current.ReadCollectionsAsync(_lifetime.Token);
+                        tags = await PersonalLibrary.Current.ReadTagDefinitionsAsync(_lifetime.Token);
+                        if (closed || _released || !owner.IsVisible) return;
+                        if (action == "rename" && existing != null && focusName != null)
+                            focusName = focusName.Replace(existing.Label, newName?.Trim() ?? existing.Label, StringComparison.Ordinal);
+                        Populate();
+                        rowScroll.ScrollToVerticalOffset(offset);
+                        status.Text = "";
+                    }
+                    catch (OperationCanceledException) when (_lifetime.IsCancellationRequested) { }
+                    catch (Exception ex)
+                    {
+                        Log.Failure(DiagnosticCategory.Library, "Label update failed", ex);
+                        if (!closed && !_released && owner.IsVisible)
+                            status.Text = ex is LibraryConflictException or ArgumentException ? ex.Message : "Could not update label. Try again.";
+                    }
+                    finally
+                    {
+                        busy = false;
+                        if (!closed && !_released && owner.IsVisible)
+                        {
+                            panel.IsEnabled = true;
+                            if (status.Text == "Saving...") status.Text = "";
+                            if (focused is { IsVisible: true }) focused.Focus();
+                            else
+                            {
+                                FrameworkElement? FindFocus(DependencyObject root)
+                                {
+                                    if (root is FrameworkElement element && element.Focusable && element.IsEnabled &&
+                                        AutomationProperties.GetName(element) == focusName && !string.IsNullOrEmpty(focusName)) return element;
+                                    foreach (var child in LogicalTreeHelper.GetChildren(root).OfType<DependencyObject>())
+                                        if (FindFocus(child) is { } found) return found;
+                                    return null;
+                                }
+                                (FindFocus(panel) ?? createName).Focus();
+                            }
+                        }
+                    }
                 }
                 Button IconButton(string glyph, string hint, Action click)
                 {
-                    var button = new Button { Content = glyph, ToolTip = hint, Width = 34, Height = 34, Padding = new Thickness(4), Margin = new Thickness(3,0,0,0), Focusable = true };
-                    button.SetResourceReference(FrameworkElement.StyleProperty, "IconButton");
+                    var button = new Button { Content = glyph, ToolTip = hint, Margin = new Thickness(3,0,0,0), Focusable = true };
+                    button.Style = (Style)FindResource("ActionIconButton");
                     AutomationProperties.SetName(button, hint);
                     button.Click += (_, _) => click();
                     return button;
                 }
                 System.Windows.Media.Brush ColorBrush(string? hex) =>
                     (System.Windows.Media.Brush)new System.Windows.Media.BrushConverter().ConvertFromString(hex ?? "#9AA3B0")!;
-                Button Swatch(string? hex, Action<string?> change, string label)
+                Button Swatch(string? hex, Action<string?> change, string label, bool draft = false)
                 {
                     var circle = new System.Windows.Shapes.Ellipse { Width = 19, Height = 19, Fill = ColorBrush(hex), StrokeThickness = 1 };
                     circle.SetResourceReference(System.Windows.Shapes.Shape.StrokeProperty, "BorderBrush");
-                    var button = new Button { Content = circle, Width = 34, Height = 34, Padding = new Thickness(4), ToolTip = "Change color: " + label, Margin = new Thickness(0,0,6,0) };
+                    var button = new Button { Content = circle, ToolTip = "Change color: " + label, Margin = new Thickness(0,0,6,0) };
+                    button.Style = (Style)FindResource("ActionIconButton");
                     AutomationProperties.SetName(button, "Change color: " + label);
                     var popup = new System.Windows.Controls.Primitives.Popup { PlacementTarget = button, Placement = System.Windows.Controls.Primitives.PlacementMode.Bottom, StaysOpen = false, AllowsTransparency = true };
                     var palette = new WrapPanel { MaxWidth = 168 };
@@ -79,9 +154,10 @@ public partial class GalleryView
                     {
                         var dot = new System.Windows.Shapes.Ellipse { Width = 19, Height = 19, Fill = ColorBrush(choice.Hex), StrokeThickness = choice.Hex == hex ? 3 : 1 };
                         dot.SetResourceReference(System.Windows.Shapes.Shape.StrokeProperty, "PrimaryTextBrush");
-                        var pick = new Button { Content = dot, Width = 34, Height = 34, Padding = new Thickness(4), ToolTip = choice.Label, Margin = new Thickness(1) };
+                        var pick = new Button { Content = dot, ToolTip = choice.Label, Margin = new Thickness(1) };
+                        pick.Style = (Style)FindResource("ActionIconButton");
                         AutomationProperties.SetName(pick, choice.Label);
-                        pick.Click += (_, _) => { popup.IsOpen = false; circle.Fill = ColorBrush(choice.Hex); change(choice.Hex); };
+                        pick.Click += (_, _) => { popup.IsOpen = false; button.Focus(); if (draft) circle.Fill = ColorBrush(choice.Hex); change(choice.Hex); };
                         palette.Children.Add(pick);
                     }
                     button.Click += (_, _) => popup.IsOpen = !popup.IsOpen;
@@ -99,7 +175,7 @@ public partial class GalleryView
                     foreach (var label in labels)
                     {
                         var row = new DockPanel { Margin = new Thickness(0,3,0,3), LastChildFill = true };
-                        var swatch = Swatch(label.Collection?.Color ?? label.Tag?.Color, hex => { newColor = hex; Select("color", label); }, label.Label);
+                        var swatch = Swatch(label.Collection?.Color ?? label.Tag?.Color, hex => Select("color", label, newColor: hex), label.Label);
                         DockPanel.SetDock(swatch, Dock.Left); row.Children.Add(swatch);
                         var actions = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
                         DockPanel.SetDock(actions, Dock.Right);
@@ -111,10 +187,10 @@ public partial class GalleryView
                         void SaveRename()
                         {
                             if (!ClipDetails.IsValidTag(input.Text.Trim())) { input.ToolTip = "Enter a valid label name"; return; }
-                            newName = input.Text; Select("rename", label);
+                            Select("rename", label, newName: input.Text);
                         }
-                        void CancelRename() { editing = false; input.Visibility = Visibility.Collapsed; title.Visibility = Visibility.Visible; rename!.Content = "\uE8AC"; input.Text = label.Label; }
-                        rename = IconButton("\uE8AC", "Rename " + label.Label, () =>
+                        void CancelRename() { editing = false; input.Visibility = Visibility.Collapsed; title.Visibility = Visibility.Visible; rename!.Content = "\uE70F"; input.Text = label.Label; }
+                        rename = IconButton("\uE70F", "Rename " + label.Label, () =>
                         {
                             if (editing) { SaveRename(); return; }
                             editing = true; title.Visibility = Visibility.Collapsed; input.Visibility = Visibility.Visible; rename!.Content = "\uE73E"; input.Focus(); input.SelectAll();
@@ -139,7 +215,7 @@ public partial class GalleryView
                 scope.SelectionChanged += (_, _) => Populate();
                 Populate();
                 var add = new DockPanel { LastChildFill = true };
-                var addColor = Swatch(draftColor, hex => draftColor = hex, "New label");
+                var addColor = Swatch(draftColor, hex => draftColor = hex, "New label", draft: true);
                 DockPanel.SetDock(addColor, Dock.Left); add.Children.Add(addColor);
                 var create = new Button { Content = "+ Add label", Margin = new Thickness(6,0,0,0), Padding = new Thickness(8,4,8,4) };
                 create.IsEnabled = ClipDetails.IsValidTag(createName.Text.Trim());
@@ -150,45 +226,13 @@ public partial class GalleryView
                 panel.Children.Add(add);
                 panel.Children.Add(createFolder);
                 panel.Children.Add(new TextBlock { Text = "Folders group matching clips in the Gallery. Video files stay in their current location.", TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0,7,0,0) });
-                ModalDialog.Run(owner, "Manage labels", panel, "Close", null, safeDefault: true, wide: true, dismissOnClick: dismiss, handleTextKeys: true);
-                if (_released || !owner.IsVisible || action == null) break;
-                try
-                {
-                    if (action == "delete" && existing != null)
-                    {
-                        if (ModalDialog.AskConfirmation(owner, $"Delete {existing.Label}? Your video files stay.", "Delete label", "Delete"))
-                        {
-                            if (existing.Collection is { } collection) await PersonalLibrary.Current.DeleteCollectionAsync(collection, _lifetime.Token);
-                            else await PersonalLibrary.Current.DeleteTagDefinitionAsync(existing.Tag!, _lifetime.Token);
-                        }
-                    }
-                    else if (action == "convert" && existing?.Tag is { } tag)
-                    {
-                        if (ModalDialog.AskConfirmation(owner, $"Move clips tagged {tag.Name} into a Gallery folder? Their video files stay where they are.", "Make folder", "Make folder"))
-                            await PersonalLibrary.Current.ConvertTagToCollectionAsync(tag, _lifetime.Token);
-                    }
-                    else if ((action == "rename" || action == "color") && existing != null)
-                    {
-                        if (existing.Collection is { } collection)
-                            await PersonalLibrary.Current.UpdateCollectionAsync(collection, collection with { Name = newName ?? collection.Name, Color = action == "color" ? newColor : collection.Color }, _lifetime.Token);
-                        else if (existing.Tag is { } item)
-                            await PersonalLibrary.Current.UpdateTagDefinitionAsync(item, item with { Name = newName ?? item.Name, Color = action == "color" ? newColor : item.Color }, _lifetime.Token);
-                    }
-                    else if (action == "create")
-                    {
-                        if (draftFolder) await PersonalLibrary.Current.CreateCollectionAsync(new(Guid.NewGuid(), draftName, selectedScope, draftColor, null), _lifetime.Token);
-                        else await PersonalLibrary.Current.CreateTagDefinitionAsync(new(0, draftName, selectedScope, draftColor), _lifetime.Token);
-                        draftName = ""; draftColor = null; draftFolder = false;
-                    }
-                    if (!_released) await ReloadAsync(rereadIndex: true);
-                }
-                catch (Exception ex) when (ex is LibraryConflictException or ArgumentException)
-                {
-                    if (!_released && owner.IsVisible) ModalDialog.Show(owner, ex.Message, "Couldn't update label");
-                }
+                panel.Children.Add(status);
+                ModalDialog.Run(owner, "Manage labels", panel, "Close", null,
+                    safeDefault: true, wide: true, handleTextKeys: true, canClose: () => !busy);
+                closed = true;
+                if (changed && !_released && owner.IsVisible) await ReloadAsync(rereadIndex: true);
             }
         }
-
         catch (OperationCanceledException) when (_lifetime.IsCancellationRequested) { }
         catch (Exception ex)
         {

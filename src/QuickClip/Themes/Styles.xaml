@@ -14,6 +14,19 @@
         <Setter Property="FontFamily" Value="{StaticResource IconFont}" />
         <Setter Property="FontSize" Value="{DynamicResource QuickClipVisual15}" />
     </Style>
+    <!-- Square icon actions share one visual size; text buttons remain flexible. -->
+    <Style x:Key="ActionIconButton" TargetType="Button" BasedOn="{StaticResource IconButton}">
+        <Setter Property="Width" Value="{DynamicResource QuickClipVisual36}" />
+        <Setter Property="Height" Value="{DynamicResource QuickClipVisual36}" />
+        <Setter Property="MinWidth" Value="{DynamicResource QuickClipVisual36}" />
+        <Setter Property="MinHeight" Value="{DynamicResource QuickClipVisual36}" />
+        <Setter Property="Padding" Value="4" />
+        <Setter Property="HorizontalContentAlignment" Value="Center" />
+        <Setter Property="VerticalContentAlignment" Value="Center" />
+        <Setter Property="Focusable" Value="True" />
+        <Setter Property="ToolTipService.InitialShowDelay" Value="350" />
+        <Setter Property="ToolTipService.ShowOnDisabled" Value="True" />
+    </Style>
     <Style x:Key="TextButton" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
         <Setter Property="Foreground" Value="{DynamicResource PrimaryTextBrush}" />
         <Setter Property="Background" Value="{DynamicResource SurfaceBrush}" />
@@ -29,7 +42,7 @@
         <Setter Property="MinWidth" Value="0" />
         <Setter Property="MinHeight" Value="0" />
     </Style>
-    <Style x:Key="FavoriteButtonStyle" TargetType="Button" BasedOn="{StaticResource IconButton}">
+    <Style x:Key="FavoriteButtonStyle" TargetType="Button" BasedOn="{StaticResource ActionIconButton}">
         <Setter Property="Focusable" Value="True" />
         <Setter Property="AutomationProperties.Name" Value="Add to favorites" />
         <Setter Property="ToolTip" Value="Add to favorites" />

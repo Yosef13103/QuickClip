@@ -112,6 +112,122 @@ public sealed class FrontendWindowAcceptanceTests(ITestOutputHelper output)
         }
     });
 
+    [OptInFact("QUICKCLIP_TEST_FRONTEND_WINDOWS")]
+    public Task Label_manager_keeps_same_overlay_for_several_committed_edits() => OnDispatcher(async () =>
+    {
+        if (!AppProfile.IsPersonal) return;
+        var app = new ThemeTestApp();
+        app.ShutdownMode = ShutdownMode.OnExplicitShutdown;
+        app.Themes.Attach(app);
+        var settings = AppSettings.Current;
+        var originalFolder = settings.ClipsFolder;
+        var originalIndex = settings.EnableLibraryIndex;
+        var fixture = Directory.CreateTempSubdirectory("quickclip-label-window-");
+        settings.ClipsFolder = fixture.FullName;
+        settings.EnableLibraryIndex = true;
+        app.Themes.Apply(app, settings);
+        var view = new GalleryView();
+        var root = new Grid();
+        root.Children.Add(view);
+        var window = new Window
+        {
+            Width = 1000, Height = 720, Left = -16000, Top = -16000, Content = root,
+            ShowActivated = false, ShowInTaskbar = false, WindowStartupLocation = WindowStartupLocation.Manual,
+        };
+        Exception? error = null;
+        try
+        {
+            window.Show();
+            var loading = typeof(GalleryView).GetField("_loading", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!;
+            await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
+            await Task.Delay(400);
+            await Wait(() => !(bool)loading.GetValue(view)!);
+            Assert.True(QuickClip.Library.PersonalLibrary.Enabled);
+            Assert.True(await view.FlushAnnotationsAsync());
+            var sort = new[] { view.FolderNameSort, view.FolderDateSort };
+            foreach (var button in sort)
+            {
+                button.UpdateLayout();
+                Assert.Equal(button.ActualWidth, button.ActualHeight, 2);
+                Assert.True(button.ActualWidth >= 32);
+                Assert.NotNull(button.ToolTip);
+            }
+            var manage = Visuals(view).OfType<Button>().First(b => System.Windows.Automation.AutomationProperties.GetName(b) == "Manage labels");
+            var interaction = window.Dispatcher.InvokeAsync(async () =>
+            {
+                Grid? overlay = null;
+                try
+                {
+                    await Wait(() => root.Children.Count > 1);
+                    overlay = Assert.IsType<Grid>(root.Children[1]);
+                    var name = Find<TextBox>(overlay, "New label name");
+                    name.Text = "Fixture label";
+                    Click(Find<Button>(overlay, "+ Add label", content: true));
+                    await Wait(() => Visuals(overlay).OfType<Button>().Any(b => System.Windows.Automation.AutomationProperties.GetName(b) == "Rename Fixture label"));
+                    Assert.Same(overlay, root.Children[1]);
+                    Assert.Same(name, Find<TextBox>(overlay, "New label name"));
+                    Click(Find<Button>(overlay, "Rename Fixture label"));
+                    var rename = Find<TextBox>(overlay, "Rename Fixture label");
+                    rename.Text = "Renamed label";
+                    Click(Find<Button>(overlay, "Rename Fixture label"));
+                    await Wait(() => Visuals(overlay).OfType<Button>().Any(b => System.Windows.Automation.AutomationProperties.GetName(b) == "Rename Renamed label"));
+                    Assert.Same(overlay, root.Children[1]);
+                    Assert.Same(name, Find<TextBox>(overlay, "New label name"));
+                    var tags = await QuickClip.Library.PersonalLibrary.Current.ReadTagDefinitionsAsync(default);
+                    Assert.Contains(tags, t => t.Name == "Renamed label");
+                    var confirm = window.Dispatcher.InvokeAsync(() =>
+                    {
+                        var nested = Assert.IsType<Grid>(root.Children[2]);
+                        Click(Find<Button>(nested, "Delete", content: true));
+                    }, DispatcherPriority.ApplicationIdle);
+                    Click(Find<Button>(overlay, "Delete Renamed label"));
+                    await confirm.Task;
+                    await Wait(() => !Visuals(overlay).OfType<Button>().Any(b => System.Windows.Automation.AutomationProperties.GetName(b) == "Rename Renamed label"));
+                    Assert.Same(overlay, root.Children[1]);
+                    Assert.DoesNotContain(await QuickClip.Library.PersonalLibrary.Current.ReadTagDefinitionsAsync(default), t => t.Name == "Renamed label");
+                    Click(Find<Button>(overlay, "Close", content: true));
+                }
+                catch (Exception ex)
+                {
+                    error = ex;
+                    window.Close();
+                }
+            }, DispatcherPriority.ApplicationIdle);
+            Click(manage);
+            await interaction.Task.Unwrap();
+            Assert.Null(error);
+            await Wait(() => root.Children.Count == 1);
+        }
+        finally
+        {
+            await view.CloseAsync();
+            if (window.IsVisible) window.Close();
+            settings.ClipsFolder = originalFolder;
+            settings.EnableLibraryIndex = originalIndex;
+            fixture.Delete(recursive: true);
+        }
+
+        static async Task Wait(Func<bool> ready)
+        {
+            var until = DateTime.UtcNow.AddSeconds(5);
+            while (!ready())
+            {
+                if (DateTime.UtcNow > until) throw new TimeoutException("Label UI did not reach the expected state.");
+                await Task.Delay(30);
+            }
+        }
+        static T Find<T>(DependencyObject node, string label, bool content = false) where T : FrameworkElement =>
+            Visuals(node).OfType<T>().First(e => content ? e is Button b && Equals(b.Content, label) :
+                System.Windows.Automation.AutomationProperties.GetName(e) == label);
+        static void Click(Button button) => button.RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent));
+        static IEnumerable<DependencyObject> Visuals(DependencyObject node)
+        {
+            yield return node;
+            for (int i = 0; i < VisualTreeHelper.GetChildrenCount(node); i++)
+                foreach (var child in Visuals(VisualTreeHelper.GetChild(node, i))) yield return child;
+        }
+    });
+
     private static async Task VerifyThemePopupAsync(ComboBox picker, params string[] names)
     {
         picker.ApplyTemplate();

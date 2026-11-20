@@ -481,17 +481,41 @@ public partial class GalleryView : UserControl
     private IEnumerable<T> SortFolders<T>(IEnumerable<T> source, Func<T,string> name, Func<T,DateTime> date) =>
         GalleryFolderSort.Apply(source, name, date, _sortFoldersByName, _sortFoldersDescending);
 
+    private static void UpdateSortButton(Button button, bool alphabetical, bool descending, bool active, string nextAction)
+    {
+        var glyph = new System.Windows.Controls.Canvas { Width = 24, Height = 24, IsHitTestVisible = false };
+        System.Windows.Shapes.Path Stroke(string data)
+        {
+            var path = new System.Windows.Shapes.Path
+            {
+                Data = System.Windows.Media.Geometry.Parse(data), StrokeThickness = 1.7,
+                StrokeStartLineCap = System.Windows.Media.PenLineCap.Round,
+                StrokeEndLineCap = System.Windows.Media.PenLineCap.Round,
+                StrokeLineJoin = System.Windows.Media.PenLineJoin.Round
+            };
+            path.SetResourceReference(System.Windows.Shapes.Shape.StrokeProperty, "PrimaryTextBrush");
+            return path;
+        }
+        glyph.Children.Add(Stroke(alphabetical
+            ? (descending ? "M3,3 H11 L3,10 H11 M3,21 L7,14 L11,21 M4.5,19 H9.5"
+                : "M3,10 L7,3 L11,10 M4.5,8 H9.5 M3,14 H11 L3,21 H11")
+            : "M13,11 A6,6 0 1 1 1,11 A6,6 0 1 1 13,11 M7,7 V11 L10,13"));
+        glyph.Children.Add(Stroke(descending ? "M18,4 V20 M14,16 L18,20 L22,16" : "M18,20 V4 M14,8 L18,4 L22,8"));
+        button.Content = new Viewbox { Child = glyph, Width = 22, Height = 22 };
+        button.SetResourceReference(Control.BorderBrushProperty, active ? "AccentFillColorDefaultBrush" : "BorderBrush");
+        string current = active ? (alphabetical ? (descending ? "Z to A" : "A to Z") : (descending ? "Newest clip first" : "Oldest clip first")) + ". " : "";
+        button.ToolTip = current + nextAction;
+        System.Windows.Automation.AutomationProperties.SetName(button, current + nextAction);
+    }
+
     private void RebuildFolders(bool preserveScroll = false)
     {
-        string nameSort = _sortFoldersByName && !_sortFoldersDescending ? "Z to A" : "A to Z";
-        string dateSort = !_sortFoldersByName && _sortFoldersDescending ? "Oldest clips first" : "Newest clips first";
-        FolderNameSort.ToolTip = "Sort folders " + nameSort;
-        FolderDateSort.ToolTip = dateSort;
-        FolderNameSort.Content = _sortFoldersByName ? (_sortFoldersDescending ? "Z↓" : "A↑") : "AZ";
-        FolderDateSort.Content = !_sortFoldersByName && !_sortFoldersDescending ? "\uE74A" : "\uE74B";
-        FolderNameSort.FontFamily = new System.Windows.Media.FontFamily("Segoe UI");
-        System.Windows.Automation.AutomationProperties.SetName(FolderNameSort, "Sort folders " + nameSort);
-        System.Windows.Automation.AutomationProperties.SetName(FolderDateSort, dateSort);
+        bool nameDescending = _sortFoldersByName && _sortFoldersDescending;
+        bool dateDescending = _sortFoldersByName || _sortFoldersDescending;
+        string nameSort = _sortFoldersByName && !_sortFoldersDescending ? "Sort folders Z to A" : "Sort folders A to Z";
+        string dateSort = !_sortFoldersByName && _sortFoldersDescending ? "Sort folders by oldest clip" : "Sort folders by newest clip";
+        UpdateSortButton(FolderNameSort, true, nameDescending, _sortFoldersByName, nameSort);
+        UpdateSortButton(FolderDateSort, false, dateDescending, !_sortFoldersByName, dateSort);
         var visible = _clips.ToArray();
         var folders = new List<Folder> { new(new(GalleryFolderKey.All), ClipLibrary.AllClips, visible.Length,
             visible.FirstOrDefault()?.Created ?? DateTime.MinValue) };

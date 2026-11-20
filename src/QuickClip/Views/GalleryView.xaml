@@ -81,19 +81,19 @@
                                          LostKeyboardFocus="RenameTitle_LostKeyboardFocus" DataContextChanged="RenameTitle_DataContextChanged" />
                             </Grid>
                             <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
-                                <Button x:Name="RenameTitleButton" Content="&#xE8AC;" Click="RenameTitle_Click"
-                                        Style="{StaticResource IconButton}" Tag="{Binding ElementName=RenameTitleBox}"
+                                <Button x:Name="RenameTitleButton" Content="&#xE70F;" Click="RenameTitle_Click"
+                                        Style="{StaticResource ActionIconButton}" Tag="{Binding ElementName=RenameTitleBox}"
                                         VerticalAlignment="Center" Visibility="Collapsed" ToolTip="Rename clip (F2)" AutomationProperties.Name="Rename clip" />
-                                <Button x:Name="CancelRenameButton" Content="&#xE711;" Style="{StaticResource IconButton}" Visibility="Collapsed"
+                                <Button x:Name="CancelRenameButton" Content="&#xE711;" Style="{StaticResource ActionIconButton}" Visibility="Collapsed"
                                         VerticalAlignment="Center" Focusable="False" Tag="{Binding ElementName=RenameTitleBox}"
                                         Click="CancelRename_Click" ToolTip="Cancel rename (Esc)" AutomationProperties.Name="Cancel rename" />
                                 <Button Tag="{Binding IsFavorite}" Style="{StaticResource FavoriteButtonStyle}"
                                         Click="FavoriteCard_Click" VerticalAlignment="Center"
                                         Visibility="{Binding PersonalAnnotations, RelativeSource={RelativeSource AncestorType=views:GalleryView}, Converter={StaticResource ShowIf}}" />
-                                <Button Content="&#xE72D;" Style="{StaticResource IconButton}" Click="ShareClip_Click"
+                                <Button Content="&#xE72D;" Style="{StaticResource ActionIconButton}" Click="ShareClip_Click"
                                         Focusable="True" VerticalAlignment="Center" AutomationProperties.Name="Share clip"
                                         ToolTip="Share clip · copy to clipboard" />
-                                <Button Content="⋯" Style="{StaticResource TextButton}" Padding="5,2" Width="30" FontSize="{DynamicResource QuickClipText15}"
+                                <Button Content="&#xE712;" Style="{StaticResource ActionIconButton}"
                                         VerticalAlignment="Center" Tag="{Binding ElementName=Card}" Click="ClipOverflow_Click"
                                         AutomationProperties.Name="Clip actions" ToolTip="Clip actions" />
                             </StackPanel>
@@ -204,8 +204,8 @@
             <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
                 <StackPanel Margin="10,6,10,10">
                     <DockPanel Margin="8,14,0,8">
-                        <Button x:Name="FolderDateSort" DockPanel.Dock="Right" Style="{StaticResource IconButton}" Content="&#xE823;" Click="FolderDateSort_Click" ToolTip="Newest clips first" AutomationProperties.Name="Newest clips first" Focusable="True" Padding="4,3"/>
-                        <Button x:Name="FolderNameSort" DockPanel.Dock="Right" Style="{StaticResource IconButton}" Content="&#xE8CB;" Click="FolderNameSort_Click" ToolTip="Sort folders A to Z" AutomationProperties.Name="Sort folders A to Z" Focusable="True" Padding="4,3"/>
+                        <Button x:Name="FolderDateSort" DockPanel.Dock="Right" Style="{StaticResource ActionIconButton}" Content="&#xE823;" Click="FolderDateSort_Click" ToolTip="Newest clips first" AutomationProperties.Name="Newest clips first" Focusable="True"/>
+                        <Button x:Name="FolderNameSort" DockPanel.Dock="Right" Style="{StaticResource ActionIconButton}" Content="&#xE8CB;" Click="FolderNameSort_Click" ToolTip="Sort folders A to Z" AutomationProperties.Name="Sort folders A to Z" Focusable="True"/>
                         <TextBlock Text="FOLDERS" Style="{StaticResource SectionHeader}" VerticalAlignment="Center"/>
                     </DockPanel>
                     <ListBox x:Name="FolderList" Template="{StaticResource PlainList}" ItemContainerStyle="{StaticResource ThemedNavigationItem}" SelectionChanged="FolderList_SelectionChanged">
@@ -214,7 +214,7 @@
                                 <DockPanel>
                                     <TextBlock DockPanel.Dock="Right" Text="{Binding Count}" Foreground="{DynamicResource SubtleText}" Margin="8,0,0,0" />
                                     <Button DockPanel.Dock="Left" Visibility="{Binding ExpandVisibility}" Content="{Binding ExpandGlyph}"
-                                            Click="ExpandFolder_Click" ToolTip="Show or hide folders" Padding="2,0" Margin="0,0,3,0" />
+                                            Click="ExpandFolder_Click" AutomationProperties.Name="Show or hide folders" ToolTip="Show or hide folders" Padding="2,0" Margin="0,0,3,0" />
                                     <TextBlock Text="{Binding Name}" Margin="{Binding Indent}" TextTrimming="CharacterEllipsis" />
                                 </DockPanel>
                             </DataTemplate>
@@ -222,8 +222,8 @@
                     </ListBox>
 
                     <DockPanel Margin="8,22,0,6">
-                        <Button DockPanel.Dock="Right" Style="{StaticResource IconButton}" Content="&#xE710;" FontSize="{DynamicResource QuickClipVisual12}" Padding="7,4" Margin="0"
-                                Click="NewProject_Click" ToolTip="New project (or drop clips here to start one with them)"
+                        <Button DockPanel.Dock="Right" Style="{StaticResource ActionIconButton}" Content="&#xE710;" Margin="0"
+                                Click="NewProject_Click" AutomationProperties.Name="New project" ToolTip="New project (or drop clips here to start one with them)"
                                 AllowDrop="True" DragEnter="NewProject_DragOver" DragOver="NewProject_DragOver" Drop="NewProject_Drop" />
                         <TextBlock Text="PROJECTS" Style="{StaticResource SectionHeader}" Margin="0" VerticalAlignment="Center" />
                     </DockPanel>
@@ -332,7 +332,7 @@
                         <StackPanel Orientation="Horizontal" Margin="0,0,8,4">
                             <Button x:Name="MultiTagFilterButton" Content="Tags ▾" Click="MultiTagFilter_Click" Style="{StaticResource TextButton}"
                                     ToolTip="Filter by one or more tags" AutomationProperties.Name="Tag filters" />
-                            <Button Content="&#xE713;" Click="CollectionsManager_Click" Style="{StaticResource IconButton}" ToolTip="Manage labels" AutomationProperties.Name="Manage labels" />
+                            <Button Content="&#xE713;" Click="CollectionsManager_Click" Style="{StaticResource ActionIconButton}" ToolTip="Manage labels" AutomationProperties.Name="Manage labels" />
                         </StackPanel>
                         <ItemsControl x:Name="ActiveTagFilters" Visibility="Collapsed" Margin="0,0,6,4">
                             <ItemsControl.ItemsPanel><ItemsPanelTemplate><WrapPanel /></ItemsPanelTemplate></ItemsControl.ItemsPanel>
