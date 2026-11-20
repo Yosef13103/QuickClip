@@ -58,6 +58,11 @@ internal sealed class AppSettings
     public int BufferSeconds { get; set; } = 60;
     public bool CaptureCursor { get; set; } = true;
     public bool PreferGameWindow { get; set; } = AppProfile.IsPersonal;
+    // Discord companion capture is always opt-in, separately from display/game permission.
+    public bool DiscordCaptureEnabled { get; set; }
+    public Recording.Companion.DiscordCaptureMode DiscordCaptureMode { get; set; } =
+        Recording.Companion.DiscordCaptureMode.DuringCalls;
+
     // Preserve the original physical-display grant without broadening it on upgrade.
     // Fresh Personal profiles permit identifiable displays until the user blocks one.
     // Legacy whitelist profiles retain their grants until a deliberate migration.

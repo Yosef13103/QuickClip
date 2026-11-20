@@ -29,6 +29,7 @@ public partial class SettingsView : UserControl
     public SettingsView()
     {
         InitializeComponent();
+        InitializeDiscord();
         InitializeMicrophoneMeters();
         BuildHotkeyRows();
         InitializeInterfaceSettings();
@@ -103,6 +104,8 @@ public partial class SettingsView : UserControl
         LibraryCard.Visibility = SectionVisibility(LibrarySection);
         GeneralCard.Visibility = SectionVisibility(GeneralSection);
         NotificationsCard.Visibility = SectionVisibility(NotificationsSection);
+        CompanionsCard.Visibility = SectionVisibility(CompanionsSection);
+        RefreshDiscordUi();
         UpdatesCard.Visibility = Updater.IsEnabled ? SectionVisibility(GeneralSection) : Visibility.Collapsed;
         DiagnosticsCard.Visibility = SectionVisibility(DiagnosticsSection);
         if (AppProfile.IsPersonal) ApplyExperienceContent();

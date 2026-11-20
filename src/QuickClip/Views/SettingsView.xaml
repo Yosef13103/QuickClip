@@ -188,6 +188,7 @@
                     <RadioButton x:Name="RecordingSection" Content="Recording" Tag="&#xE714;" IsChecked="True" />
                     <RadioButton x:Name="AudioSection" Content="Audio" Tag="&#xE767;" />
                     <RadioButton x:Name="GamesSection" Content="Games" Tag="&#xE7FC;" />
+                    <RadioButton x:Name="CompanionsSection" Content="Companions" Tag="&#xE8F2;" ToolTip="Record Discord calls without capturing the desktop" />
                     <RadioButton x:Name="HotkeysSection" Content="Hotkeys" Tag="&#xE765;" />
                     <RadioButton x:Name="SharingSection" Content="Sharing" Tag="&#xE72D;" />
                     <RadioButton x:Name="LibrarySection" Content="Library" Tag="&#xE8B7;" />
@@ -721,6 +722,42 @@
                         <TextBlock Text="Add &quot;Edit with QuickClip&quot; to the right-click menu of video and audio files" TextWrapping="Wrap" />
                     </CheckBox>
                     </StackPanel>
+                </StackPanel>
+            </Border>
+            <!-- Explicitly scoped companion capture; never bundled with display permissions. -->
+            <Border x:Name="CompanionsCard" Style="{StaticResource Card}" Visibility="Collapsed">
+                <StackPanel>
+                    <TextBlock Text="Discord" Style="{StaticResource CardTitle}" />
+                    <CheckBox x:Name="DiscordEnableCheck" Content="Capture Discord"
+                              Style="{StaticResource SwitchCheckBox}" Margin="0,10,0,6"
+                              Click="DiscordOption_Click"
+                              ToolTip="Allow QuickClip to record Discord's windows without recording the desktop" />
+                    <TextBlock Text="When to capture" Margin="0,8,0,5" FontWeight="SemiBold" />
+                    <ComboBox x:Name="DiscordModeCombo" SelectionChanged="DiscordMode_Changed"
+                              AutomationProperties.Name="When to capture Discord" ToolTip="Discord recording starts only when QuickClip recording is enabled">
+                        <ComboBoxItem Content="During voice and video calls" Tag="DuringCalls"/>
+                        <ComboBoxItem Content="While Discord is open" Tag="WhileOpen"/>
+                        <ComboBoxItem Content="Only when I start it" Tag="Manual"/>
+                    </ComboBox>
+                    <TextBlock Text="All visible Discord windows, including popped-out streams and cameras, share one recording. Games take priority."
+                               Style="{StaticResource Hint}" TextWrapping="Wrap" Margin="0,9,0,4" />
+                    <Border Background="{DynamicResource ElevatedSurfaceBrush}" CornerRadius="7" Padding="10,8" Margin="0,7,0,7">
+                        <StackPanel>
+                            <TextBlock Text="Privacy" FontWeight="SemiBold"/>
+                            <TextBlock Text="Discord messages and profiles may appear in your clip. No other applications or desktops are captured."
+                                       Style="{StaticResource Hint}" TextWrapping="Wrap" Margin="0,3,0,0" />
+                        </StackPanel>
+                    </Border>
+                    <WrapPanel Margin="0,8,0,0" VerticalAlignment="Center">
+                        <Button x:Name="DiscordManualButton" Visibility="Collapsed" Content="Start Discord capture"
+                                Margin="0,0,9,5" Click="DiscordManual_Click"
+                                ToolTip="Manually start or stop Discord replay capture" />
+                        <TextBlock x:Name="DiscordStatusText" Text="Off" VerticalAlignment="Center"
+                                   Foreground="{DynamicResource SecondaryTextBrush}" TextWrapping="Wrap"
+                                   AutomationProperties.LiveSetting="Polite" />
+                    </WrapPanel>
+                    <TextBlock Text="Your selected playback and microphone tracks are used once, regardless of how many windows Discord opens."
+                               Style="{StaticResource Hint}" TextWrapping="Wrap" Margin="0,8,0,0" />
                 </StackPanel>
             </Border>
             <Border x:Name="NotificationsCard" Style="{StaticResource Card}">

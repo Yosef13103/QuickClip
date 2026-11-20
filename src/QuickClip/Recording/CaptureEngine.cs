@@ -152,7 +152,8 @@ internal static partial class CaptureEngine
     /// <param name="separateMics">Each microphone on its own track, named by its title, instead of all on one Mic track.</param>
     public static string? Start(string monitorDevice, string aspect, int fps, int outWidth, int outHeight, string encoder, int videoKbps,
         int audioKbps, int bufferSeconds, bool cursor, bool splitChat, bool splitMusic, IReadOnlyList<Microphones.Input> mics,
-        bool separateMics, IReadOnlyList<EndpointTrack>? endpointTracks = null, VideoOptions video = default, string? displayIdentity = null, WindowOwner? game = null)
+        bool separateMics, IReadOnlyList<EndpointTrack>? endpointTracks = null, VideoOptions video = default, string? displayIdentity = null, WindowOwner? game = null,
+        IReadOnlyList<WindowOwner>? companion = null)
     {
         var strings = new List<IntPtr>();
         IntPtr Uni(string? s) { var p = s == null ? IntPtr.Zero : Marshal.StringToHGlobalUni(s); strings.Add(p); return p; }
@@ -195,7 +196,16 @@ internal static partial class CaptureEngine
                     Title = Uni(t.Label),
                 }).ToArray();
             int count = endpointTracks == null ? -1 : tracks.Length;
-            int started = game is { } owner
+            if (companion != null &&
+                (companion.Count is < 1 or > 4 || game != null || displayIdentity != null ||
+                 companion.Any(owner => !GameDetector.IsCurrent(owner)) ||
+                 companion.Select(owner => owner.Handle).Distinct().Count() != companion.Count))
+                return "The authorized companion window group is unavailable.";
+            int started = companion is { Count: > 0 }
+                ? qc_start_companion(ref config, tracks, count, ref video,
+                    companion.Select(owner => new GameWindow(owner.Handle, owner.ThreadId,
+                        owner.ProcessId, owner.Started)).ToArray(), companion.Count, error, error.Length)
+                : game is { } owner
                 ? qc_start_with_source(ref config, tracks, count, ref video, displayIdentity,
                     new GameWindow(owner.Handle, owner.ThreadId, owner.ProcessId, owner.Started), error, error.Length)
                 : qc_start_with_display(ref config, tracks, count, ref video, displayIdentity, error, error.Length);
@@ -206,6 +216,13 @@ internal static partial class CaptureEngine
             foreach (var p in strings) if (p != IntPtr.Zero) Marshal.FreeHGlobal(p);
         }
     }
+
+    internal static bool UpdateCompanionWindows(IReadOnlyList<WindowOwner> owners) =>
+        owners.Count is >= 1 and <= 4 &&
+        owners.Select(owner => owner.Handle).Distinct().Count() == owners.Count &&
+        owners.All(GameDetector.IsCurrent) &&
+        qc_update_companion(owners.Select(owner => new GameWindow(owner.Handle,
+            owner.ThreadId, owner.ProcessId, owner.Started)).ToArray(), owners.Count) != 0;
 
     public static void Stop() => qc_stop();
 
@@ -314,6 +331,12 @@ internal static partial class CaptureEngine
         int count, ref VideoOptions video, string? displayIdentity, [Out] char[] error, int errorLength);
     [DllImport(Dll, CharSet = CharSet.Unicode)] private static extern void qc_video_diagnostics([Out] char[] text, int length);
     [DllImport(Dll, CharSet = CharSet.Unicode)] private static extern void qc_display_diagnostics([Out] char[] text, int length);
+    [DllImport(Dll, CharSet = CharSet.Unicode)]
+    private static extern int qc_start_companion(ref Config config,
+        [In] EndpointConfig[] endpoints, int count, ref VideoOptions video,
+        [In] GameWindow[] windows, int windowCount, [Out] char[] error, int errorLength);
+    [DllImport(Dll)]
+    private static extern int qc_update_companion([In] GameWindow[] windows, int count);
     [DllImport(Dll)] private static extern void qc_stop();
     [DllImport(Dll)] private static extern void qc_restart_video();
     [DllImport(Dll)] private static extern void qc_set_capture_window(ulong window, int width, int height, int videoKbps);

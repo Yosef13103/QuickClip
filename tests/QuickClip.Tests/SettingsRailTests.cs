@@ -21,10 +21,18 @@ public sealed class SettingsRailTests
                 view.UpdateLayout();
 
                 var sections = view.SettingsSections.Children.OfType<RadioButton>().ToArray();
-                Assert.Equal(9, sections.Length);
+                Assert.Equal(10, sections.Length);
                 Assert.Single(sections, section => Equals(section.Content, "Notifications"));
                 Assert.Equal("Recording", sections[0].Content);
                 Assert.Equal("Diagnostics", sections[^1].Content);
+                view.CompanionsSection.IsChecked = true;
+                Assert.Equal(Visibility.Visible, view.CompanionsCard.Visibility);
+                Assert.Equal(Visibility.Collapsed, view.GeneralCard.Visibility);
+                Assert.Equal(AppSettings.Current.DiscordCaptureEnabled, view.DiscordEnableCheck.IsChecked == true);
+                Assert.Equal(AppSettings.Current.DiscordCaptureMode.ToString(),
+                    ((ComboBoxItem)view.DiscordModeCombo.SelectedItem).Tag?.ToString());
+                view.NotificationsSection.IsChecked = true;
+                Assert.Equal(Visibility.Collapsed, view.CompanionsCard.Visibility);
                 view.NotificationsSection.IsChecked = true;
                 Assert.Equal(Visibility.Visible, view.NotificationsCard.Visibility);
                 Assert.Equal(Visibility.Collapsed, view.GeneralCard.Visibility);

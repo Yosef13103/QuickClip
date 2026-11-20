@@ -396,6 +396,7 @@ public partial class MainWindow : Window
                 {
                     RecordingBadge.Game => "Recording a game",
                     RecordingBadge.Desktop => "Recording the desktop",
+                    RecordingBadge.Companion => "Recording Discord windows",
                     RecordingBadge.Standby => "Instant replay on standby",
                     _ => "Recording off"
                 };

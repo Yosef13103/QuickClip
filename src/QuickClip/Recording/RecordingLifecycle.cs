@@ -1,6 +1,6 @@
 namespace QuickClip.Recording;
 
-public enum RecordingMode { Off, Armed, GameTriggered, ManualDesktop, Unavailable, Recovering }
+public enum RecordingMode { Off, Armed, GameTriggered, ManualDesktop, Unavailable, Recovering, Companion }
 
 internal sealed record CaptureDisplay(string Device, string Identity);
 

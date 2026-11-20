@@ -19,11 +19,12 @@ $vs = if (Test-Path $vswhere) { & $vswhere -latest -products * -requires Microso
 if (-not $vs) { throw 'Visual Studio C++ build tools were not found (needed to build the recording engine).' }
 $vcvars = Join-Path $vs 'VC\Auxiliary\Build\vcvars64.bat'
 
-$sources = (Get-ChildItem $src -Filter *.cpp | ForEach-Object { "`"$($_.FullName)`"" }) -join ' '
-$libs = 'avcodec.lib avformat.lib avfilter.lib avutil.lib swresample.lib dxgi.lib ole32.lib avrt.lib mmdevapi.lib winmm.lib user32.lib'
+$sources = (Get-ChildItem $src -Filter *.cpp | Where-Object Name -ne 'GroupCapture.cpp' | ForEach-Object { "`"$($_.FullName)`"" }) -join ' '
+$libs = 'avcodec.lib avformat.lib avfilter.lib avutil.lib swresample.lib dxgi.lib d3d11.lib d3dcompiler.lib runtimeobject.lib windowsapp.lib ole32.lib avrt.lib mmdevapi.lib winmm.lib user32.lib'
 $commands = @(
     "call `"$vcvars`" >nul 2>nul",
-    "cl /nologo /O2 /EHsc /std:c++20 /MT /W4 /DUNICODE /D_UNICODE /external:I `"$ffdev\include`" /external:W0 /LD /Fo`"$out\\`" $sources /link /OUT:`"$out\QuickClipCapture.dll`" /IMPLIB:`"$out\QuickClipCapture.lib`" /LIBPATH:`"$ffdev\lib`" $libs"
+    "cl /nologo /O2 /EHsc /await /std:c++17 /MT /W4 /DUNICODE /D_UNICODE /external:I `"$ffdev\include`" /external:W0 /c /Fo`"$out\GroupCapture.obj`" `"$src\GroupCapture.cpp`"",
+    "cl /nologo /O2 /EHsc /std:c++20 /MT /W4 /DUNICODE /D_UNICODE /external:I `"$ffdev\include`" /external:W0 /LD /Fo`"$out\\`" $sources `"$out\GroupCapture.obj`" /link /OUT:`"$out\QuickClipCapture.dll`" /IMPLIB:`"$out\QuickClipCapture.lib`" /LIBPATH:`"$ffdev\lib`" $libs"
 ) -join ' && '
 cmd /c $commands
 if ($LASTEXITCODE -ne 0) { throw 'Building the recording engine failed.' }
