@@ -37,12 +37,12 @@ public sealed class LibraryCollectionTests
             await Index.ReconcileAsync(rootId);
         }
 
-        internal void WriteMetadata(string path, string gameId, string game, Guid? collectionId = null)
+        internal void WriteMetadata(string path, string gameId, string game, Guid? collectionId = null, Guid? sessionId = null)
         {
             var file = new FileInfo(path);
             var details = new ClipDetails(DateTimeOffset.UtcNow, game, "Preserve title")
             {
-                GameId = gameId, RecordedCollectionId = collectionId, IsFavorite = true, Tags = ["Funny", "Multiplayer"],
+                GameId = gameId, RecordedCollectionId = collectionId, RecordingSessionId = sessionId, IsFavorite = true, Tags = ["Funny", "Multiplayer"],
                 Bookmarks = [new QuickClip.Gallery.ClipBookmark(2, "Marker")],
             };
             string key = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(path.ToUpperInvariant())));
@@ -61,6 +61,21 @@ public sealed class LibraryCollectionTests
         }
 
         public void Dispose() => _scratch.Delete(recursive: true);
+    }
+
+    [Fact]
+    public async Task Session_identity_round_trips_through_index_and_fresh_save_repair()
+    {
+        using var f = new Fixture();
+        var session = Guid.NewGuid();
+        f.WriteMetadata(f.First, "steam:220", "Half-Life 2", sessionId: session);
+        await f.InitializeAsync();
+        Assert.Equal(session, (await f.TargetAsync(f.First)).Details.RecordingSessionId);
+        Assert.Null((await f.TargetAsync(f.Legacy)).Details.RecordingSessionId);
+        f.WriteMetadata(f.Legacy, "steam:220", "Half-Life 2", sessionId: session);
+        Assert.True(await f.Index.RepairRecordedCollectionAsync(f.Legacy));
+        Assert.Equal(session, (await f.TargetAsync(f.Legacy)).Details.RecordingSessionId);
+        Assert.False(await f.Index.RepairRecordedCollectionAsync(f.Legacy));
     }
 
     [Fact]

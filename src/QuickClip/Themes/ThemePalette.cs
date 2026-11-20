@@ -3,7 +3,7 @@ using System.Windows.Media;
 
 namespace QuickClip.Themes;
 
-internal enum ThemeChoice { Dark, Amoled, Slate, Light, Custom }
+internal enum ThemeChoice { Dark, Amoled, Slate, Light, Custom, Broadcast }
 
 internal enum ThemeColor
 {
@@ -24,11 +24,15 @@ internal static class ThemePalette
     private static readonly IReadOnlyDictionary<ThemeColor, Color> Light = Make(
         "#F4F6FA #FFFFFF #E8EDF4 #E4E9F0 #77869A #182332 #46566A #225DA1 #194C8A #DCE8F8 #087247 #815000 #AD2534 #687688 #FFFFFF");
 
+    private static readonly IReadOnlyDictionary<ThemeColor, Color> Broadcast = Make(
+        "#08090B #101216 #181B21 #101216 #454A55 #E8EBEF #9AA3B0 #DCE3EC #B9C4D2 #282D36 #37D39B #F5A524 #EA5257 #7E8794 #101216");
+
     internal static IReadOnlyDictionary<ThemeColor, Color> Get(ThemeChoice choice) => choice switch
     {
         ThemeChoice.Amoled => Amoled,
         ThemeChoice.Slate => Slate,
         ThemeChoice.Light => Light,
+        ThemeChoice.Broadcast => Broadcast,
         _ => Dark,
     };
 

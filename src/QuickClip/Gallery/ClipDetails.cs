@@ -31,6 +31,8 @@ internal sealed record ClipDetails(DateTimeOffset CapturedAt, string Game, strin
     public string? GameId { get; init; }
     [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
     public Guid? RecordedCollectionId { get; init; }
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public Guid? RecordingSessionId { get; init; }
     internal QuickClip.Library.LibraryCollection? Collection { get; init; }
     internal QuickClip.Library.LibraryTagDefinition[] TagDefinitions { get; init; } = [];
     // A shared immutable empty value preserves legacy record equality on sidecar round trips.

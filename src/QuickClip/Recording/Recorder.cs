@@ -736,6 +736,7 @@ internal sealed class Recorder
                 {
                     GameId = gameId,
                     RecordedCollectionId = collectionId,
+                    RecordingSessionId = sessionId == Guid.Empty ? null : sessionId,
                     Bookmarks = receipt.Markers.Select(mark => new ClipBookmark(mark.Offset.TotalSeconds, mark.Marker.Label ?? "Marker")
                     { SessionId = mark.Marker.SessionId }).ToArray(),
                 });

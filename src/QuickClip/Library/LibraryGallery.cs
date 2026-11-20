@@ -26,7 +26,7 @@ internal sealed partial class LibraryIndex
                         WHERE ct.clip_id=c.id AND t.color IS NOT NULL),
                     c.game_id,d.id,d.name,d.game_id,d.color,d.folder_leaf,
                     (SELECT json_group_array(json_object('Id',t.id,'Name',t.name,'GameId',nullif(t.game_id,''),'Color',t.color))
-                        FROM clip_tags ct JOIN tags t ON t.id=ct.tag_id WHERE ct.clip_id=c.id)
+                        FROM clip_tags ct JOIN tags t ON t.id=ct.tag_id WHERE ct.clip_id=c.id),c.session_id
                 FROM clips c JOIN roots r ON r.id=c.root_id
                 LEFT JOIN clip_collections cc ON cc.clip_id=c.id
                 LEFT JOIN collections d ON d.id=cc.collection_id
@@ -49,6 +49,7 @@ internal sealed partial class LibraryIndex
                     IsFavorite = reader.GetBoolean(9),
                     IsHidden = reader.GetBoolean(15),
                     GameId = ReadText(reader, 17),
+                    RecordingSessionId = Guid.TryParse(ReadText(reader, 24), out var session) && session != Guid.Empty ? session : null,
                     Collection = reader.IsDBNull(18) ? null : new LibraryCollection(
                         Guid.Parse(reader.GetString(18)), reader.GetString(19),
                         reader.GetString(20) is { Length: > 0 } scope ? scope : null,

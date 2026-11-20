@@ -33,21 +33,24 @@ internal sealed partial class LibraryIndex
             var stamp = LibraryFiles.ReadStamp(lease);
             if (stamp.Identity == null) return false;
             var details = LegacyLibraryMetadata.Read(_legacyDetails, path, stamp).Details;
-            if (details == null || !GameRecordingPolicy.IsId(details.GameId, 256)) return false;
+            if (details == null) return false;
+            string? gameId = GameRecordingPolicy.IsId(details.GameId, 256) ? details.GameId : null;
+            string? sessionId = details.RecordingSessionId is Guid session && session != Guid.Empty ? Id(session) : null;
+            if (gameId == null && sessionId == null) return false;
             using var connection = _database.Open();
             using var tx = connection.BeginTransaction(deferred: false);
             var id = Scalar(connection, tx, """
                 SELECT c.id FROM clips c JOIN roots r ON c.root_id=r.id
                 WHERE c.path_key=$path AND c.file_id=$identity AND c.created_ticks=$created
                   AND c.modified_ticks=$modified AND c.bytes=$bytes AND c.availability=0 AND r.availability=0
-                  AND c.revision=0 AND c.game_id IS NULL AND c.legacy_metadata<>$imported
+                  AND c.revision=0 AND c.game_id IS NULL AND c.session_id IS NULL AND c.legacy_metadata<>$imported
                   AND NOT EXISTS(SELECT 1 FROM clip_collections cc WHERE cc.clip_id=c.id);
                 """, ("$path", LibraryFiles.PathKey(path)), ("$identity", stamp.Identity),
                 ("$created", stamp.Created), ("$modified", stamp.Modified), ("$bytes", stamp.Bytes),
                 ("$imported", (int)LegacyMetadataStatus.Imported)) as string;
             if (id == null) return false;
-            Execute(connection, tx, "UPDATE clips SET game_id=$game,revision=revision+1 WHERE id=$id;",
-                ("$game", details.GameId), ("$id", id));
+            Execute(connection, tx, "UPDATE clips SET game_id=$game,session_id=$session,revision=revision+1 WHERE id=$id;",
+                ("$game", gameId), ("$session", sessionId), ("$id", id));
             if (details.RecordedCollectionId is Guid selected && selected != Guid.Empty)
                 AssignImportedCollection(connection, tx, id, selected);
             ct.ThrowIfCancellationRequested();

@@ -508,6 +508,7 @@ public partial class GalleryView : UserControl
         if (_openProject != null) CloseProject();
         if (f.Selection == _folderSelection) return;
         _searchCancellation?.Cancel();
+        _activeSession = null;
         _folderSelection = f.Selection;
         _folder = f.Name;
         ShowFolder();
@@ -593,7 +594,7 @@ public partial class GalleryView : UserControl
         {
             if (!saved.TryGetValue(clip.Path, out var details)) continue;
             if (clip.Details.IndexId == details.IndexId && clip.Details.IndexRevision > details.IndexRevision) continue;
-            regroup |= clip.Folder != details.Game || clip.Details.GameId != details.GameId || clip.Details.Collection != details.Collection;
+            regroup |= clip.Folder != details.Game || clip.Details.GameId != details.GameId || clip.Details.Collection != details.Collection || clip.Details.RecordingSessionId != details.RecordingSessionId;
             clip.ApplyDetails(details);
         }
         if (saved.Count == 0) return;
@@ -627,6 +628,17 @@ public partial class GalleryView : UserControl
             : _folder;
         FolderInfo.Text = clips.Count == 0 ? "" : $"{clips.Count} clip{(clips.Count == 1 ? "" : "s")}  ·  {Fmt.Size(clips.Sum(c => c.Size))}";
         var zone = TimeZoneInfo.Local;
+        clips = ApplySessionView(clips, zone, out bool sessionOverview);
+        if (sessionOverview)
+        {
+            _visibleClips = [];
+            _renderedColumns = 0;
+            UpdateSelection();
+            EmptyState.Visibility = clips.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+            EmptyTitle.Text = "No matching sessions";
+            EmptyText.Text = "Save a clip or change your filters to see recordings grouped by session.";
+            return;
+        }
         if (_renderedColumns != _columns || _renderedFavoritesFirst != _filter.FavoritesFirst ||
             !Equals(_renderedZone, zone) || !_filteredClips.SequenceEqual(clips))
         {
@@ -716,7 +728,7 @@ public partial class GalleryView : UserControl
 
     private async void RequestThumbnail(FrameworkElement card)
     {
-        if (ItemOf(card) is not { } item) return;
+        if ((ItemOf(card) ?? (card.DataContext as GallerySessionCard)?.Representative) is not { } item) return;
         int width = ThumbnailCache.WidthFor(CardWidth * VisualTreeHelper.GetDpi(card).DpiScaleX);
         if (item.ThumbnailWidth >= width)
         {

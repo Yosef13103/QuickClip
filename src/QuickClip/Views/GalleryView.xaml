@@ -159,6 +159,24 @@
                     </DataTrigger>
                 </DataTemplate.Triggers>
             </DataTemplate>
+            <DataTemplate DataType="{x:Type gallery:GallerySessionCard}">
+                <Button Margin="0,0,14,10" Padding="10" HorizontalContentAlignment="Stretch"
+                        Click="SessionCard_Click" Loaded="Card_Loaded" DataContextChanged="Card_DataContextChanged"
+                        AutomationProperties.Name="{Binding Heading}">
+                    <Grid>
+                        <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                        <Border Width="144" Height="81" CornerRadius="4">
+                            <Border.Background><ImageBrush ImageSource="{Binding Representative.Thumbnail}" Stretch="UniformToFill"/></Border.Background>
+                        </Border>
+                        <StackPanel Grid.Column="1" Margin="12,0,8,0" VerticalAlignment="Center">
+                            <TextBlock Text="{Binding Heading}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"/>
+                            <TextBlock Text="{Binding Summary}" Style="{StaticResource Hint}" TextWrapping="Wrap" Margin="0,4,0,2"/>
+                            <TextBlock Text="{Binding Context}" Style="{StaticResource Hint}" TextWrapping="Wrap"/>
+                        </StackPanel>
+                        <TextBlock Grid.Column="2" Text="&#xE76C;" FontFamily="{StaticResource IconFont}" VerticalAlignment="Center"/>
+                    </Grid>
+                </Button>
+            </DataTemplate>
             <DataTemplate DataType="{x:Type gallery:GalleryDayHeader}">
                 <DockPanel Margin="0,12,14,8">
                     <CheckBox DockPanel.Dock="Left" IsThreeState="True" IsChecked="{Binding Selection, Mode=OneWay}"
@@ -268,6 +286,23 @@
                         <TextBlock x:Name="FolderInfo" Margin="0,2,0,0" Style="{StaticResource Hint}" />
                     </StackPanel>
                 </DockPanel>
+
+                <Border x:Name="GameHub" DockPanel.Dock="Top" Margin="0,0,14,10" Padding="10" CornerRadius="8"
+                        Background="{DynamicResource PanelBrush}" Visibility="Collapsed">
+                    <WrapPanel>
+                        <StackPanel Margin="0,0,24,4"><TextBlock Text="Clips" Style="{StaticResource Hint}"/><TextBlock x:Name="HubClips" FontWeight="SemiBold" FontSize="{DynamicResource QuickClipText18}"/></StackPanel>
+                        <StackPanel Margin="0,0,24,4"><TextBlock Text="Sessions" Style="{StaticResource Hint}"/><TextBlock x:Name="HubSessions" FontWeight="SemiBold" FontSize="{DynamicResource QuickClipText18}"/></StackPanel>
+                        <StackPanel Margin="0,0,24,4"><TextBlock Text="Storage" Style="{StaticResource Hint}"/><TextBlock x:Name="HubStorage" FontWeight="SemiBold" FontSize="{DynamicResource QuickClipText18}"/></StackPanel>
+                        <StackPanel Margin="0,0,12,4"><TextBlock Text="Collections" Style="{StaticResource Hint}"/><TextBlock x:Name="HubCollections" FontWeight="SemiBold" FontSize="{DynamicResource QuickClipText18}"/></StackPanel>
+                        <Button Content="Collections &amp; tags..." Style="{StaticResource TextButton}" Click="CollectionsManager_Click" VerticalAlignment="Center"/>
+                    </WrapPanel>
+                </Border>
+                <WrapPanel x:Name="SessionNavigation" DockPanel.Dock="Top" Margin="0,0,14,8" Visibility="Collapsed">
+                    <Button x:Name="ClipsModeButton" Content="Clips" Style="{StaticResource TextButton}" Click="ClipsMode_Click" AutomationProperties.Name="Browse individual clips"/>
+                    <Button x:Name="SessionsModeButton" Content="Sessions" Style="{StaticResource TextButton}" Click="SessionsMode_Click" AutomationProperties.Name="Browse recording sessions"/>
+                    <Button x:Name="SessionBackButton" Content="Back to sessions" Style="{StaticResource TextButton}" Click="SessionBack_Click" Visibility="Collapsed"/>
+                    <TextBlock x:Name="SessionInfo" VerticalAlignment="Center" Style="{StaticResource Hint}" TextWrapping="Wrap"/>
+                </WrapPanel>
 
                 <!-- What to do with the selected clips -->
                 <Border x:Name="SelectionBar" DockPanel.Dock="Top" Background="{DynamicResource PanelBrush}" CornerRadius="6" Padding="14,6,8,6"
