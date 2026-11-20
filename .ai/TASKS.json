@@ -895,7 +895,7 @@
       ],
       "effort": "high",
       "status": "in_progress",
-      "candidate": "93b90c66780cbec656e66495f9d4016277141c37",
+      "candidate": "6900b4e",
       "gates": {
         "local": "passed",
         "ci": "pending",
@@ -905,8 +905,8 @@
       "evidence": [
         "Virtual collection and scoped tag preview: 937 passed, 23 opt-in skips, zero failures; strict Personal build and runtime dependency smoke pass. Private evidence: 7. Evidence/E2-virtual-collections-v6-checkpoint.md."
       ],
-      "blocker": "Owner UI/live-save acceptance, catalog aliases, B/E1/E2 schema reconciliation and physical publication/recovery remain pending.",
-      "next_action": "Owner test isolated virtual preview; refine UI, reconcile branches and migration, validate live recording metadata; physical routing/moves only after B gates."
+      "blocker": "Development owner live-save/profile acceptance, B schema reconciliation, CI/review and physical publication/recovery remain pending.",
+      "next_action": "Owner tests consolidated development with copied production preferences. Validate live recording metadata and profile transitions; reconcile B in isolated migration/recovery candidate before physical routing/moves. UI polish and capture research remain separate gates."
     }
   ]
 }

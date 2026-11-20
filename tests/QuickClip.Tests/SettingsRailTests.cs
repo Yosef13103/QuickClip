@@ -25,6 +25,13 @@ public sealed class SettingsRailTests
                 Assert.Single(sections, section => Equals(section.Content, "Notifications"));
                 Assert.Equal("Recording", sections[0].Content);
                 Assert.Equal("Diagnostics", sections[^1].Content);
+                view.NotificationsSection.IsChecked = true;
+                Assert.Equal(Visibility.Visible, view.NotificationsCard.Visibility);
+                Assert.Equal(Visibility.Collapsed, view.GeneralCard.Visibility);
+                view.GeneralSection.IsChecked = true;
+                Assert.Equal(Visibility.Collapsed, view.NotificationsCard.Visibility);
+                Assert.Equal(Visibility.Visible, view.GeneralCard.Visibility);
+                view.RecordingSection.IsChecked = true;
 
                 foreach (var section in sections)
                 {
