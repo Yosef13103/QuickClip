@@ -64,6 +64,34 @@ public sealed class LibraryCollectionTests
     }
 
     [Fact]
+    public async Task Turning_tag_into_folder_preserves_members_and_rejects_conflicts_atomically()
+    {
+        using var f = new Fixture();
+        await f.InitializeAsync();
+        var tag = Assert.Single(await f.Index.ReadTagDefinitionsAsync(), t => t.Name == "Funny");
+        var before = await f.TargetAsync(f.First);
+        var other = await f.Index.CreateCollectionAsync(new(Guid.NewGuid(), "Other", "steam:220", null, null));
+        await f.Index.AssignCollectionAsync(before, other.Id);
+        await Assert.ThrowsAsync<LibraryConflictException>(() => f.Index.ConvertTagToCollectionAsync(tag));
+        Assert.Contains("Funny", (await f.TargetAsync(f.First)).Details.Tags);
+        Assert.DoesNotContain(await f.Index.ReadCollectionsAsync(), c => c.Name == "Funny");
+        await f.Index.AssignCollectionAsync(await f.TargetAsync(f.First), null);
+        var count = await f.Index.ConvertTagToCollectionAsync(tag);
+        Assert.Equal(2, count);
+        var folder = Assert.Single(await f.Index.ReadCollectionsAsync(), c => c.Name == "Funny");
+        foreach (var path in new[] { f.First, f.Second })
+        {
+            var after = await f.TargetAsync(path);
+            Assert.Equal(folder.Id, after.Details.Collection?.Id);
+            Assert.DoesNotContain("Funny", after.Details.Tags);
+            Assert.Contains("Multiplayer", after.Details.Tags);
+            Assert.True(after.Details.IsFavorite);
+            Assert.Equal("fixture", File.ReadAllText(path));
+        }
+        Assert.DoesNotContain(await f.Index.ReadTagDefinitionsAsync(), t => t.Id == tag.Id);
+    }
+
+    [Fact]
     public async Task Session_identity_round_trips_through_index_and_fresh_save_repair()
     {
         using var f = new Fixture();

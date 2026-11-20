@@ -16,15 +16,15 @@ public partial class SettingsView
 
     private static readonly (string Title, string Hint)[] GuideSteps =
     [
-        ("Save the moments you want to keep", "QuickClip can remember the last few minutes while you play. Press your save shortcut to keep that moment as a clip. Your choices save as you go. You decide when to turn recording on."),
-        ("Where should clips go?", "Choose a local folder for new clips. Existing videos are never moved. You can return here to change the location later."),
-        ("How will you save a clip?", "Assign a shortcut you can remember. Check that Windows registered it. You can always save from the QuickClip window too."),
-        ("What should your clips sound like?", "Choose computer sound and a microphone. Use Test microphone and speak to check that QuickClip can hear you."),
-        ("Choose recording quality", "Set how much gameplay to keep before you press Save Clip. Higher resolution, frame rate and quality make bigger clips."),
-        ("Find your games", "Let QuickClip look for installed games. Use Add Game if one is missing."),
-        ("Choose which displays QuickClip can record", "Choose each display you want to allow. QuickClip records everything visible on the game's display, including other windows and messages. Manual recording also needs display permission and a separate start action."),
-        ("Know when your clips are saved", "Choose a sound, notifications, and optional recording status icons. Preview the save feedback without recording. Detailed customization is available in Advanced settings."),
-        ("Review and finish", "Your preferences are saved. Review the summary and choose whether to enable recording. Enabling waits for an eligible game and uses only existing display permissions. You can return to any page or finish without changing recording.")
+        ("Welcome to QuickClip", "Play. Press Save Clip. Keep the last few minutes."),
+        ("Save location", "Choose where new clips go."),
+        ("Save shortcut", "Pick a shortcut. You can also save from the app."),
+        ("Audio", "Choose what to hear. Test your microphone."),
+        ("Video quality", "Choose a preset or customize the video."),
+        ("Your games", "Find installed games or add a missing game."),
+        ("Display permissions", "Allowed displays can capture everything visible, including messages. Only allow displays you want recorded."),
+        ("Clip feedback", "Pick a sound and notification. Try the preview."),
+        ("You're ready", "Review your choices. Enable recording only when ready.")
     ];
 
     internal void BeginGuidedSetup()
@@ -87,14 +87,15 @@ public partial class SettingsView
         if (!AppProfile.IsPersonal || CaptureAreaAdvanced == null) return;
         bool basic = IsBasicExperience;
         var advanced = basic ? Visibility.Collapsed : Visibility.Visible;
-        foreach (FrameworkElement element in new FrameworkElement[] { CaptureAreaAdvanced, CustomSizeAdvanced,
-            CropPreviewAdvanced, EncoderAdvanced, EncoderTuningAdvanced, AudioLanesAdvanced, LibraryOptions, SoundOutputPanel,
-            AdvancedNotificationOptions, BitrateText, RamText })
+        foreach (FrameworkElement element in new FrameworkElement[] { CustomSizeAdvanced,
+            CropPreviewAdvanced, EncoderTuningAdvanced, AudioLanesAdvanced,
+            BitrateText, RamText })
             element.Visibility = advanced;
         SplitMusicCheck.Visibility = MusicText.Visibility = !basic && AudioRouting.SeparateTracks ? Visibility.Visible : Visibility.Collapsed;
         GamesPage.UseBasicPresentation(basic);
-        CaptureAreaColumn.Width = basic ? new GridLength(0) : new GridLength(1, GridUnitType.Star);
-        CaptureAreaGap.Width = new GridLength(basic ? 0 : 12);
+        CaptureAreaAdvanced.Visibility = Visibility.Visible;
+        CaptureAreaColumn.Width = new GridLength(1, GridUnitType.Star);
+        CaptureAreaGap.Width = new GridLength(12);
         BasicQualityHint.Visibility = BasicAudioHint.Visibility = BasicNotificationPreview.Visibility =
             basic ? Visibility.Visible : Visibility.Collapsed;
         var settings = AppSettings.Current;
@@ -102,7 +103,7 @@ public partial class SettingsView
         BasicQualityHint.Text = _loading ? "Checking recording hardware…" :
             preferred != null && _encoders.Contains(preferred)
                 ? "Recording hardware is ready."
-                : "QuickClip couldn't confirm recording hardware. Check Recording in Advanced settings.";
+                : "Recording hardware not confirmed. Check encoder settings.";
         UpdateBasicAudio();
         UpdateEstimates();
         for (int i = 0; i < HotkeyRows.Children.Count && i < _hotkeyRows.Count; i++)
@@ -123,7 +124,7 @@ public partial class SettingsView
         RecordingCheck.Visibility = _guideActive ? hidden : visible;
         CapturePermissionCard.Visibility = !_guideActive || step == 6 ? visible : hidden;
         RecordingQualityControls.Visibility = !_guideActive || step == 4 ? visible : hidden;
-        SetupQualityPresets.Visibility = _guideActive && step == 4 ? visible : hidden;
+        SetupQualityPresets.Visibility = basic && (!_guideActive || step == 4) ? visible : hidden;
         UpdateSetupPresetStatus();
         GeneralPreferences.Visibility = _guideActive ? hidden : visible;
         ManualDesktopButton.Visibility = _guideActive ? hidden : visible;
@@ -228,14 +229,14 @@ public partial class SettingsView
 
     private void UpdateSetupPresetStatus()
     {
-        if (SetupPresetStatus == null || SetupPresetRecommendation == null || !_guideActive || GuideStep != 4) return;
+        if (SetupPresetStatus == null || SetupPresetRecommendation == null || !IsBasicExperience || (_guideActive && GuideStep != 4)) return;
         var settings = AppSettings.Current;
         string? preferred = settings.RecordEncoder.Length == 0 ? RecordingPresets.DefaultEncoder(_encoders)?.Id : settings.RecordEncoder;
         bool direct = preferred != null && _encoders.Contains(preferred) && !preferred.EndsWith("_mf", StringComparison.Ordinal);
         SetupPresetRecommendation.Text = _loading ? "Checking hardware…" : preferred == null || !_encoders.Contains(preferred)
-            ? "No encoder confirmed yet. Check Advanced settings before enabling recording."
-            : direct ? "Balanced is a starting point for a confirmed hardware encoder. Choose Performance for lower overhead."
-            : "Performance is a conservative starting point for Windows compatibility encoding.";
+            ? "No encoder detected. Check recording hardware."
+            : direct ? "Balanced recommended."
+            : "Performance recommended.";
         var active = SetupPresets.FirstOrDefault(p => p.Resolution == settings.RecordResolution && p.Fps == settings.RecordFps &&
             p.Quality == settings.RecordQuality && (!string.IsNullOrEmpty(preferred) && preferred.EndsWith("_nvenc", StringComparison.Ordinal)
                 ? p.Speed == settings.NvencPreset : true));
@@ -244,7 +245,7 @@ public partial class SettingsView
 
     private void SetupPreset_Click(object sender, RoutedEventArgs e)
     {
-        if (!_guideActive || GuideStep != 4 || _loading || _finishingGuide ||
+        if (!IsBasicExperience || (_guideActive && GuideStep != 4) || _loading || _finishingGuide ||
             sender is not Button { Tag: string name } || SetupPresets.FirstOrDefault(p => p.Name == name) is not { } preset) return;
         var settings = AppSettings.Current;
         var previous = (settings.RecordResolution, settings.RecordFps, settings.RecordQuality, settings.NvencPreset);
@@ -253,7 +254,7 @@ public partial class SettingsView
         if (!settings.TrySave())
         {
             (settings.RecordResolution, settings.RecordFps, settings.RecordQuality, settings.NvencPreset) = previous;
-            GuideError.Text = "Could not save recording preset.";
+            GuideError.Text = SetupPresetStatus.Text = "Could not save recording preset.";
             return;
         }
         GuideError.Text = "";

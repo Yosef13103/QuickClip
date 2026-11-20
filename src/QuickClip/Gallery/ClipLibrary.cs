@@ -54,7 +54,7 @@ public sealed class ClipItem : INotifyPropertyChanged
         // are intentionally light enough for a dark label, independent of theme.
         var brush = new SolidColorBrush((Color)ColorConverter.ConvertFromString(TagPalette.Valid(color) && color != null ? color : "#CBD5E1"));
         brush.Freeze();
-        return new TagBadge(collectionId == null ? tag : "\u25B8 " + tag, brush, Brushes.Black, collectionId == null ? $"Filter by {tag}" : $"Browse collection {tag}", collectionId, tagId);
+        return new TagBadge(tag, brush, Brushes.Black, collectionId == null ? $"Filter by {tag}" : $"Open folder {tag}", collectionId, tagId);
     }
     public DateTime Created { get; }
     public DateTime FileCreatedAt { get; }

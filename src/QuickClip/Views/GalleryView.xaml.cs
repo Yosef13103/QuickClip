@@ -508,7 +508,6 @@ public partial class GalleryView : UserControl
         if (_openProject != null) CloseProject();
         if (f.Selection == _folderSelection) return;
         _searchCancellation?.Cancel();
-        _activeSession = null;
         _folderSelection = f.Selection;
         _folder = f.Name;
         ShowFolder();
@@ -628,17 +627,7 @@ public partial class GalleryView : UserControl
             : _folder;
         FolderInfo.Text = clips.Count == 0 ? "" : $"{clips.Count} clip{(clips.Count == 1 ? "" : "s")}  ·  {Fmt.Size(clips.Sum(c => c.Size))}";
         var zone = TimeZoneInfo.Local;
-        clips = ApplySessionView(clips, zone, out bool sessionOverview);
-        if (sessionOverview)
-        {
-            _visibleClips = [];
-            _renderedColumns = 0;
-            UpdateSelection();
-            EmptyState.Visibility = clips.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
-            EmptyTitle.Text = "No matching sessions";
-            EmptyText.Text = "Save a clip or change your filters to see recordings grouped by session.";
-            return;
-        }
+        UpdateGameHub(clips);
         if (_renderedColumns != _columns || _renderedFavoritesFirst != _filter.FavoritesFirst ||
             !Equals(_renderedZone, zone) || !_filteredClips.SequenceEqual(clips))
         {
@@ -728,7 +717,7 @@ public partial class GalleryView : UserControl
 
     private async void RequestThumbnail(FrameworkElement card)
     {
-        if ((ItemOf(card) ?? (card.DataContext as GallerySessionCard)?.Representative) is not { } item) return;
+        if (ItemOf(card) is not { } item) return;
         int width = ThumbnailCache.WidthFor(CardWidth * VisualTreeHelper.GetDpi(card).DpiScaleX);
         if (item.ThumbnailWidth >= width)
         {
@@ -889,6 +878,12 @@ public partial class GalleryView : UserControl
         if (ItemOf(sender) is { } item) await UpdateAnnotationsAsync([item], favorite: !item.IsFavorite);
     }
 
+    private async void EditTagsMenu_Click(object sender, RoutedEventArgs e)
+    {
+        if (ItemOf(sender) is { } item)
+            await ManageSelectedTagsAsync(explicitClips: item.IsSelected ? CurrentClips.Where(c => c.IsSelected).ToArray() : [item]);
+    }
+
     private void OrganizeSelected_Click(object sender, RoutedEventArgs e)
     {
         var menu = new ContextMenu { PlacementTarget = OrganizeSelectedButton, Placement = PlacementMode.Bottom };
@@ -909,7 +904,7 @@ public partial class GalleryView : UserControl
             var manage = new MenuItem { Header = "Manage tags…" };
             manage.Click += async (_, _) => await ManageSelectedTagsAsync();
             menu.Items.Add(manage);
-            var collection = new MenuItem { Header = "Assign collection..." };
+            var collection = new MenuItem { Header = "Move to folder..." };
             collection.Click += async (_, _) => await AssignCollectionToAsync(CurrentClips.Where(c => c.IsSelected).ToArray());
             menu.Items.Add(collection);
             var replace = new MenuItem { Header = "Replace tag…" };
@@ -939,7 +934,9 @@ public partial class GalleryView : UserControl
         try
         {
             var targets = clips.Select(ClipAnnotationTarget.For).ToArray();
-            var job = WithProgressAsync("Updating annotations", targets.Length,
+            var job = targets.Length == 1 && favorite.HasValue && addTag == null
+                ? AnnotationActions.ApplyAsync(targets, addTag, favorite, CancellationToken.None)
+                : WithProgressAsync("Updating annotations", targets.Length,
                 _ => AnnotationActions.ApplyAsync(targets, addTag, favorite, CancellationToken.None));
             _annotationJob = job;
             var results = await job;

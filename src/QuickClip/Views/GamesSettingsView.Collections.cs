@@ -33,63 +33,46 @@ public partial class GamesSettingsView
                 if (!owner.IsVisible) return;
                 var preferences = AppSettings.Current.RecordingCollections;
                 var preference = preferences?.GetValueOrDefault(game.Id) ?? new GameCollectionPreference();
-                var choices = new[] { new RecordingChoice(null, "None"), new RecordingChoice(null, "Automatic (linked game executable)", true) }
+                var choices = new[] { new RecordingChoice(null, "None"), new RecordingChoice(null, "Automatic (linked executable)", true) }
                     .Concat(definitions.Select(d => new RecordingChoice(d.Id, d.Name + (d.GameId == null ? " (all games)" : "")))).ToArray();
                 var active = new ComboBox { ItemsSource = choices, SelectedItem = preference.Automatic ? choices[1] :
                     choices.FirstOrDefault(c => !c.Automatic && c.Id == preference.ManualCollection) ?? choices[0] };
-                var list = new ListBox { ItemsSource = definitions, DisplayMemberPath = nameof(LibraryCollection.Name), SelectedIndex = 0, MinHeight = 50, MaxHeight = 150 };
-                var action = new ComboBox { ItemsSource = new[] { "Save recording selection", "Create collection", "Edit selected collection", "Delete selected collection", "Link gameplay executable", "Remove executable link", "Create game-specific tag" }, SelectedIndex = 0 };
-                AutomationProperties.SetName(active, "Recording collection");
-                AutomationProperties.SetName(list, "Available collections");
-                AutomationProperties.SetName(action, "Collection action");
-                active.ToolTip = "Manual selection applies to subsequent saves. Automatic requires an exact linked gameplay executable; unmatched recordings remain Uncategorized.";
+                AutomationProperties.SetName(active, "Save new clips to");
+                active.ToolTip = "A folder for future clips. None leaves clips under the game.";
                 var panel = new StackPanel();
-                panel.Children.Add(new TextBlock { Text = "Choose a collection for new recordings of this game. Existing clips and recording permissions do not change.", TextWrapping = TextWrapping.Wrap });
-                panel.Children.Add(new TextBlock { Text = "Recording collection", Margin = new Thickness(0,10,0,4) });
+                panel.Children.Add(new TextBlock { Text = "Save new clips to", Margin = new Thickness(0,0,0,4) });
                 panel.Children.Add(active);
-                panel.Children.Add(new TextBlock { Text = "Available collections", Margin = new Thickness(0,10,0,4) });
-                panel.Children.Add(list);
-                panel.Children.Add(new TextBlock { Text = "Action", Margin = new Thickness(0,10,0,4) });
-                panel.Children.Add(action);
-                if (!ModalDialog.Run(owner, game.DisplayName + " — Collections", panel, "Continue", "Close", safeDefault: true,
-                    validate: () => action.SelectedIndex is 0 or 1 or 5 or 6 || list.SelectedItem is LibraryCollection)) break;
+                panel.Children.Add(new TextBlock { Text = "Optional. Existing clips stay unchanged.", TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0,6,0,8) });
+                var list = new ComboBox { ItemsSource = definitions, DisplayMemberPath = nameof(LibraryCollection.Name), SelectedIndex = 0 };
+                AutomationProperties.SetName(list, "Folder to link");
+                var extra = new StackPanel();
+                extra.Children.Add(new TextBlock { Text = "Link a folder to a game executable", TextWrapping = TextWrapping.Wrap });
+                extra.Children.Add(list);
+                var buttons = new WrapPanel { Margin = new Thickness(0,6,0,0) };
+                var link = new Button { Content = "Link executable", IsEnabled = definitions.Length > 0, Margin = new Thickness(0,0,6,0) };
+                var remove = new Button { Content = "Remove link" };
+                buttons.Children.Add(link); buttons.Children.Add(remove); extra.Children.Add(buttons);
+                var dismiss = new Button();
+                string? action = null;
+                link.Click += (_, _) => { action = "link"; dismiss.RaiseEvent(new RoutedEventArgs(Button.ClickEvent)); };
+                remove.Click += (_, _) => { action = "remove"; dismiss.RaiseEvent(new RoutedEventArgs(Button.ClickEvent)); };
+                panel.Children.Add(new Expander { Header = "Automatic folder selection", Content = extra, Margin = new Thickness(0,6,0,0) });
+                bool saved = ModalDialog.Run(owner, game.DisplayName + " — Clip folder", panel, "Save", "Cancel",
+                    safeDefault: true, dismissOnClick: dismiss, validate: () => active.SelectedItem is RecordingChoice);
                 if (!owner.IsVisible || !PersonalLibrary.Enabled) break;
-                var selected = list.SelectedItem as LibraryCollection;
-                switch (action.SelectedIndex)
+                if (saved)
                 {
-                    case 0:
-                        if (active.SelectedItem is RecordingChoice choice &&
-                            !RecordingCollections.SavePreference(game.Id, preference with { Automatic = choice.Automatic, ManualCollection = choice.Id }))
-                            throw new IOException("Could not save recording collection selection.");
-                        Status.Text = "Recording collection selection saved.";
-                        return;
-                    case 1:
-                    case 2:
-                        var original = action.SelectedIndex == 2 ? selected : null;
-                        var scopes = new GalleryView.CollectionScope[] { new(game.Id, game.DisplayName), new(null, "All games") };
-                        var edited = GalleryView.EditCollection(owner, scopes, original, game.Id);
-                        if (edited == null) break;
-                        if (original == null) await PersonalLibrary.Current.CreateCollectionAsync(edited, default);
-                        else await PersonalLibrary.Current.UpdateCollectionAsync(original, edited, default);
-                        break;
-                    case 3:
-                        if (selected != null && ModalDialog.AskConfirmation(owner,
-                            $"Delete {selected.Name}? Its recordings become Uncategorized. No files or ordinary tags are deleted.",
-                            "Delete collection", "Delete collection"))
-                            await PersonalLibrary.Current.DeleteCollectionAsync(selected, default);
-                        break;
-                    case 4:
-                        if (selected != null)
-                            LinkCollection(owner, game, selected, preference);
-                        break;
-                    case 5:
-                        RemoveCollectionLink(owner, game.Id, preference);
-                        break;
-                    case 6:
-                        var tag = GalleryView.EditTag(owner, [new(game.Id, game.DisplayName), new(null, "All games")], null, game.Id);
-                        if (tag != null) await PersonalLibrary.Current.CreateTagDefinitionAsync(tag, default);
-                        break;
+                    if (active.SelectedItem is RecordingChoice choice &&
+                        !RecordingCollections.SavePreference(game.Id, preference with { Automatic = choice.Automatic, ManualCollection = choice.Id }))
+                        throw new IOException("Could not save folder preference.");
+                    Status.Text = "Default folder saved.";
+                    return;
                 }
+                if (action == "link" && list.SelectedItem is LibraryCollection selected)
+                    LinkCollection(owner, game, selected, preference);
+                else if (action == "remove")
+                    RemoveCollectionLink(owner, game.Id, preference);
+                else break;
             }
         }
         catch (Exception ex)

@@ -31,7 +31,8 @@
                             <MenuItem Header="Organize" Tag="organize">
                                 <MenuItem Header="Edit title, game or tags…" Click="EditClipDetails_Click" Tag="details" />
                                 <MenuItem Header="Add to favorites" Click="FavoriteMenu_Click" Tag="favorite" />
-                                <MenuItem Header="Assign collection..." Click="AssignCollection_Click" Tag="collection" />
+                                <MenuItem Header="Edit tags..." Click="EditTagsMenu_Click" Tag="collection" />
+                                <MenuItem Header="Move to folder..." Click="AssignCollection_Click" Tag="collection" />
                                 <MenuItem Header="Copy to folder…" Tag="copy" Click="CopyClipsToFolder_Click" />
                             </MenuItem>
                             <MenuItem Header="Add to project" Tag="projects">
@@ -114,7 +115,14 @@
                                                     <Trigger Property="IsKeyboardFocused" Value="True"><Setter TargetName="Chip" Property="BorderBrush" Value="{DynamicResource AccentFillColorDefaultBrush}" /></Trigger>
                                                 </ControlTemplate.Triggers>
                                             </ControlTemplate></Button.Template>
-                                            <TextBlock Text="{Binding Name}" TextTrimming="CharacterEllipsis" MaxWidth="108" />
+                                            <StackPanel Orientation="Horizontal">
+                                                <TextBlock FontFamily="{StaticResource IconFont}" Text="&#xE838;" Margin="0,0,4,0" VerticalAlignment="Center">
+                                                    <TextBlock.Style><Style TargetType="TextBlock"><Setter Property="Visibility" Value="Visible"/>
+                                                        <Style.Triggers><DataTrigger Binding="{Binding CollectionId}" Value="{x:Null}"><Setter Property="Visibility" Value="Collapsed"/></DataTrigger></Style.Triggers>
+                                                    </Style></TextBlock.Style>
+                                                </TextBlock>
+                                                <TextBlock Text="{Binding Name}" TextTrimming="CharacterEllipsis" MaxWidth="90" />
+                                            </StackPanel>
                                         </Button>
                                     </DataTemplate></ItemsControl.ItemTemplate>
                                     <ItemsControl.Style><Style TargetType="ItemsControl"><Style.Triggers>
@@ -159,24 +167,6 @@
                     </DataTrigger>
                 </DataTemplate.Triggers>
             </DataTemplate>
-            <DataTemplate DataType="{x:Type gallery:GallerySessionCard}">
-                <Button Margin="0,0,14,10" Padding="10" HorizontalContentAlignment="Stretch"
-                        Click="SessionCard_Click" Loaded="Card_Loaded" DataContextChanged="Card_DataContextChanged"
-                        AutomationProperties.Name="{Binding Heading}">
-                    <Grid>
-                        <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
-                        <Border Width="144" Height="81" CornerRadius="4">
-                            <Border.Background><ImageBrush ImageSource="{Binding Representative.Thumbnail}" Stretch="UniformToFill"/></Border.Background>
-                        </Border>
-                        <StackPanel Grid.Column="1" Margin="12,0,8,0" VerticalAlignment="Center">
-                            <TextBlock Text="{Binding Heading}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"/>
-                            <TextBlock Text="{Binding Summary}" Style="{StaticResource Hint}" TextWrapping="Wrap" Margin="0,4,0,2"/>
-                            <TextBlock Text="{Binding Context}" Style="{StaticResource Hint}" TextWrapping="Wrap"/>
-                        </StackPanel>
-                        <TextBlock Grid.Column="2" Text="&#xE76C;" FontFamily="{StaticResource IconFont}" VerticalAlignment="Center"/>
-                    </Grid>
-                </Button>
-            </DataTemplate>
             <DataTemplate DataType="{x:Type gallery:GalleryDayHeader}">
                 <DockPanel Margin="0,12,14,8">
                     <CheckBox DockPanel.Dock="Left" IsThreeState="True" IsChecked="{Binding Selection, Mode=OneWay}"
@@ -220,7 +210,7 @@
                                 <DockPanel>
                                     <TextBlock DockPanel.Dock="Right" Text="{Binding Count}" Foreground="{DynamicResource SubtleText}" Margin="8,0,0,0" />
                                     <Button DockPanel.Dock="Left" Visibility="{Binding ExpandVisibility}" Content="{Binding ExpandGlyph}"
-                                            Click="ExpandFolder_Click" ToolTip="Expand or collapse collections" Padding="2,0" Margin="0,0,3,0" />
+                                            Click="ExpandFolder_Click" ToolTip="Show or hide folders" Padding="2,0" Margin="0,0,3,0" />
                                     <TextBlock Text="{Binding Name}" Margin="{Binding Indent}" TextTrimming="CharacterEllipsis" />
                                 </DockPanel>
                             </DataTemplate>
@@ -291,18 +281,11 @@
                         Background="{DynamicResource PanelBrush}" Visibility="Collapsed">
                     <WrapPanel>
                         <StackPanel Margin="0,0,24,4"><TextBlock Text="Clips" Style="{StaticResource Hint}"/><TextBlock x:Name="HubClips" FontWeight="SemiBold" FontSize="{DynamicResource QuickClipText18}"/></StackPanel>
-                        <StackPanel Margin="0,0,24,4"><TextBlock Text="Sessions" Style="{StaticResource Hint}"/><TextBlock x:Name="HubSessions" FontWeight="SemiBold" FontSize="{DynamicResource QuickClipText18}"/></StackPanel>
                         <StackPanel Margin="0,0,24,4"><TextBlock Text="Storage" Style="{StaticResource Hint}"/><TextBlock x:Name="HubStorage" FontWeight="SemiBold" FontSize="{DynamicResource QuickClipText18}"/></StackPanel>
-                        <StackPanel Margin="0,0,12,4"><TextBlock Text="Collections" Style="{StaticResource Hint}"/><TextBlock x:Name="HubCollections" FontWeight="SemiBold" FontSize="{DynamicResource QuickClipText18}"/></StackPanel>
-                        <Button Content="Collections &amp; tags..." Style="{StaticResource TextButton}" Click="CollectionsManager_Click" VerticalAlignment="Center"/>
+                        <StackPanel Margin="0,0,12,4"><TextBlock Text="Folders" Style="{StaticResource Hint}"/><TextBlock x:Name="HubCollections" FontWeight="SemiBold" FontSize="{DynamicResource QuickClipText18}"/></StackPanel>
+                        <Button Content="Manage labels" Style="{StaticResource TextButton}" Click="CollectionsManager_Click" VerticalAlignment="Center"/>
                     </WrapPanel>
                 </Border>
-                <WrapPanel x:Name="SessionNavigation" DockPanel.Dock="Top" Margin="0,0,14,8" Visibility="Collapsed">
-                    <Button x:Name="ClipsModeButton" Content="Clips" Style="{StaticResource TextButton}" Click="ClipsMode_Click" AutomationProperties.Name="Browse individual clips"/>
-                    <Button x:Name="SessionsModeButton" Content="Sessions" Style="{StaticResource TextButton}" Click="SessionsMode_Click" AutomationProperties.Name="Browse recording sessions"/>
-                    <Button x:Name="SessionBackButton" Content="Back to sessions" Style="{StaticResource TextButton}" Click="SessionBack_Click" Visibility="Collapsed"/>
-                    <TextBlock x:Name="SessionInfo" VerticalAlignment="Center" Style="{StaticResource Hint}" TextWrapping="Wrap"/>
-                </WrapPanel>
 
                 <!-- What to do with the selected clips -->
                 <Border x:Name="SelectionBar" DockPanel.Dock="Top" Background="{DynamicResource PanelBrush}" CornerRadius="6" Padding="14,6,8,6"
@@ -345,7 +328,7 @@
                         <StackPanel Orientation="Horizontal" Margin="0,0,8,4">
                             <Button x:Name="MultiTagFilterButton" Content="Tags ▾" Click="MultiTagFilter_Click" Style="{StaticResource TextButton}"
                                     ToolTip="Filter by one or more tags" AutomationProperties.Name="Tag filters" />
-                            <Button Content="&#xE713;" Click="CollectionsManager_Click" Style="{StaticResource IconButton}" ToolTip="Collections &amp; Tags" AutomationProperties.Name="Manage collections and tags" />
+                            <Button Content="&#xE713;" Click="CollectionsManager_Click" Style="{StaticResource IconButton}" ToolTip="Manage labels" AutomationProperties.Name="Manage labels" />
                         </StackPanel>
                         <ItemsControl x:Name="ActiveTagFilters" Visibility="Collapsed" Margin="0,0,6,4">
                             <ItemsControl.ItemsPanel><ItemsPanelTemplate><WrapPanel /></ItemsPanelTemplate></ItemsControl.ItemsPanel>

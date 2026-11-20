@@ -250,13 +250,13 @@ public partial class GalleryView
 
     // The selection is captured after flushing pending metadata edits. The
     // dialog works only on that snapshot, never a later select-all/filter result.
-    private async Task ManageSelectedTagsAsync(bool replace = false)
+    private async Task ManageSelectedTagsAsync(bool replace = false, IReadOnlyList<ClipItem>? explicitClips = null)
     {
         if (!PersonalLibrary.Enabled || _editingAnnotations || _released || _loading ||
             !SelectionActions.IsEnabled || Window.GetWindow(this) is not { IsVisible: true, Content: Panel } owner)
             return;
         if (!await FlushAnnotationsAsync() || _released || _editingAnnotations || _loading) return;
-        var clips = CurrentClips.Where(clip => clip.IsSelected).ToArray();
+        var clips = explicitClips?.ToArray() ?? CurrentClips.Where(clip => clip.IsSelected).ToArray();
         if (clips.Length == 0) return;
         if (clips.Length > 256 || clips.Any(clip => clip.Details.IndexId == null || !IsAvailable(clip)))
         {
@@ -292,12 +292,12 @@ public partial class GalleryView
             AutomationProperties.SetName(input, "New tag");
             var error = new TextBlock { TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 8, 0, 0) };
             var panel = new StackPanel();
-            panel.Children.Add(new TextBlock { Text = replace ? $"Replace one tag on {targets.Length:N0} selected clip(s). Only clips carrying the old tag are changed." : $"Edit tags on {targets.Length:N0} selected clip(s). Click multiple tags to select them. Unselected tags are unchanged.", TextWrapping = TextWrapping.Wrap });
-            panel.Children.Add(new TextBlock { Text = "Add existing tags (Gallery counts)", Margin = new Thickness(0, 12, 0, 4) });
+            panel.Children.Add(new TextBlock { Text = replace ? $"Replace one tag on {targets.Length:N0} selected clip(s). Only clips carrying the old tag are changed." : $"Edit tags on {targets.Length:N0} clip(s). Unselected tags stay.", TextWrapping = TextWrapping.Wrap });
+            panel.Children.Add(new TextBlock { Text = "Add tags", Margin = new Thickness(0, 12, 0, 4) });
             panel.Children.Add(add);
             panel.Children.Add(new TextBlock { Text = "Or add a new tag", Margin = new Thickness(0, 8, 0, 4) });
             panel.Children.Add(input);
-            panel.Children.Add(new TextBlock { Text = replace ? "Old tag (selected clip counts)" : "Remove tags (selected clip counts)", Margin = new Thickness(0, 12, 0, 4) });
+            panel.Children.Add(new TextBlock { Text = replace ? "Old tag (selected clip counts)" : "Remove tags", Margin = new Thickness(0, 12, 0, 4) });
             panel.Children.Add(remove);
             panel.Children.Add(error);
             string[] Additions() => string.IsNullOrWhiteSpace(input.Text) ? [] : [input.Text.Trim()];

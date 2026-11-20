@@ -216,6 +216,12 @@ internal sealed class PersonalLibrary : IClipAnnotationActions, ILibraryInventor
         if (!Enabled) throw new LibraryConflictException("Tags require the library index.");
         return OrganizationChangedAsync(_index.Value.UpdateTagDefinitionAsync(expected, replacement, token));
     }
+    internal Task<int> ConvertTagToCollectionAsync(LibraryTagDefinition expected, CancellationToken token)
+    {
+        if (!Enabled) throw new LibraryConflictException("Labels require the library index.");
+        return OrganizationChangedAsync(_index.Value.ConvertTagToCollectionAsync(expected, token));
+    }
+
     internal Task<int> DeleteTagDefinitionAsync(LibraryTagDefinition expected, CancellationToken token)
     {
         if (!Enabled) throw new LibraryConflictException("Tags require the library index.");

@@ -345,12 +345,12 @@
                             <TextBlock Text="Recording presets" FontWeight="SemiBold" />
                             <TextBlock x:Name="SetupPresetRecommendation" Style="{StaticResource Hint}" TextWrapping="Wrap" Margin="0,4,0,6" />
                             <WrapPanel>
-                                <Button Content="Performance" Tag="Performance" Click="SetupPreset_Click" Margin="0,0,6,4" ToolTip="720p, 30 FPS, Medium, fast NVENC preset" />
-                                <Button Content="Balanced" Tag="Balanced" Click="SetupPreset_Click" Margin="0,0,6,4" ToolTip="1080p, 60 FPS, High, fast NVENC preset" />
-                                <Button Content="Quality" Tag="Quality" Click="SetupPreset_Click" Margin="0,0,6,4" ToolTip="Native size, 60 FPS, Ultra, fast NVENC preset" />
+                                <Button Content="Performance · 720p / 30" Tag="Performance" Click="SetupPreset_Click" Margin="0,0,6,4" ToolTip="720p, 30 FPS, Medium, fast NVENC preset" />
+                                <Button Content="Balanced · 1080p / 60" Tag="Balanced" Click="SetupPreset_Click" Margin="0,0,6,4" ToolTip="1080p, 60 FPS, High, fast NVENC preset" />
+                                <Button Content="Quality · Native / 60" Tag="Quality" Click="SetupPreset_Click" Margin="0,0,6,4" ToolTip="Native size, 60 FPS, Ultra, fast NVENC preset" />
                             </WrapPanel>
                             <TextBlock x:Name="SetupPresetStatus" Style="{StaticResource Hint}" TextWrapping="Wrap" />
-                            <TextBlock Text="Customize resolution, clip length, quality and FPS below. Presets adjust video resolution, frame rate, quality and NVENC speed (P2 for all three). AMD, Intel and other encoders retain their existing tuning. Audio, clip length, permissions and encoder selection are unchanged." Style="{StaticResource Hint}" TextWrapping="Wrap" Margin="0,4,0,0" />
+                            <TextBlock Text="Adjust any video setting below. Audio and clip length stay unchanged." Style="{StaticResource Hint}" TextWrapping="Wrap" Margin="0,4,0,0" />
                         </StackPanel>
                     </Border>
 
@@ -529,7 +529,7 @@
                               Margin="0,8,0,0" Checked="EndpointMode_Changed" Unchecked="EndpointMode_Changed" />
                     <StackPanel x:Name="EndpointPanel" Visibility="Collapsed" Margin="0,8,0,0">
                         <TextBlock x:Name="EndpointDetailHint" Style="{StaticResource Hint}" TextWrapping="Wrap"
-                                   Text="Each enabled device gets its own track. With no devices enabled, the clip is video only. Changing these settings restarts the replay buffer." />
+                                   Text="One track per device. Changes restart the replay buffer." />
                         <TextBlock Text="Playback (what you hear)" Style="{StaticResource SectionHeader}" />
                         <DockPanel>
                             <Button x:Name="AddPlaybackButton" DockPanel.Dock="Right" Content="Add playback" Margin="8,0,0,0"
@@ -573,11 +573,11 @@
                         <TextBlock x:Name="AudioHint" Style="{StaticResource Hint}" TextWrapping="Wrap"
                                    Text="Clips get a separate track for each source, named in the editor, so you can set their volumes or merge them when exporting." />
                         <CheckBox Style="{StaticResource SwitchCheckBox}" x:Name="SplitChatCheck" Margin="0,12,0,0" Checked="Changed" Unchecked="Changed">
-                            <TextBlock Text="Put voice chat on its own track (Discord, TeamSpeak, Mumble, Teams, Zoom and more)" TextWrapping="Wrap" />
+                            <TextBlock Text="Separate voice chat" TextWrapping="Wrap" />
                         </CheckBox>
                         <TextBlock x:Name="ChatText" Margin="28,4,0,0" Style="{StaticResource Hint}" />
                         <CheckBox Style="{StaticResource SwitchCheckBox}" x:Name="SplitMusicCheck" Margin="0,10,0,0" Checked="Changed" Unchecked="Changed">
-                            <TextBlock Text="Put music on its own track (Spotify, TIDAL, Apple Music, Deezer, Amazon Music and more)" TextWrapping="Wrap" />
+                            <TextBlock Text="Separate music" TextWrapping="Wrap" />
                         </CheckBox>
                         <TextBlock x:Name="MusicText" Margin="28,4,0,0" Style="{StaticResource Hint}" />
 
@@ -897,7 +897,7 @@
                         </WrapPanel>
                         <CheckBox Style="{StaticResource SwitchCheckBox}" x:Name="IndexLibraryCheck" Content="Smart library catalog"
                                   Click="IndexLibrary_Click" Margin="0,0,0,4" />
-                        <TextBlock Style="{StaticResource Hint}" Text="Keeps a local catalog of your clips, favorites, tags and bookmarks, and powers storage statistics. The first scan may take a while; later scans reuse saved metadata. Existing clips stay in their original folders." Margin="0,0,0,12" />
+                        <TextBlock Style="{StaticResource Hint}" Text="Required for labels and library organization. Files stay unchanged." Margin="0,0,0,12" />
                         <TextBlock Text="Clip filename template" />
                         <TextBox x:Name="FilenameTemplate" Margin="0,5,0,0" TextChanged="FilenameTemplate_Changed"
                                  LostKeyboardFocus="FilenameTemplate_Commit" />

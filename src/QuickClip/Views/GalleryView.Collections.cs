@@ -23,102 +23,153 @@ public partial class GalleryView
         _editingAnnotations = true;
         try
         {
+            string? selectedScope = _folderSelection.Game.GameId;
             while (!_released)
             {
                 var definitions = await PersonalLibrary.Current.ReadCollectionsAsync(_lifetime.Token);
-                if (_released) return;
                 var tags = await PersonalLibrary.Current.ReadTagDefinitionsAsync(_lifetime.Token);
-                if (_released) return;
+                if (_released || !owner.IsVisible) return;
                 var scopes = CollectionScopes(definitions, tags);
-                var scope = new ComboBox { ItemsSource = scopes, SelectedItem = scopes.FirstOrDefault(s => s.Id == _folderSelection.Game.GameId) ?? scopes[0] };
-                var list = new ListBox { MinHeight = 80, MaxHeight = 230 };
-                var action = new ComboBox { ItemsSource = new[] { "Create label", "Edit selected label", "Delete selected label", "Rename or merge global tag", "Recording collection for this game" }, SelectedIndex = 0 };
+                var scope = new ComboBox { ItemsSource = scopes, SelectedItem = scopes.FirstOrDefault(s => s.Id == selectedScope) ?? scopes[0] };
+                AutomationProperties.SetName(scope, "Show labels for");
                 var panel = new StackPanel();
-                panel.Children.Add(new TextBlock { Text = "Collections are optional virtual homes for clips. Ordinary tags remain independent. No files are moved.", TextWrapping = TextWrapping.Wrap });
-                panel.Children.Add(new TextBlock { Text = "Scope", Margin = new Thickness(0, 10, 0, 4) });
+                panel.Children.Add(new TextBlock { Text = "Tags help you find clips. Folders group them.", TextWrapping = TextWrapping.Wrap });
+                panel.Children.Add(new TextBlock { Text = "Available for", Margin = new Thickness(0, 12, 0, 4) });
                 panel.Children.Add(scope);
-                panel.Children.Add(list);
-                panel.Children.Add(action);
-                AutomationProperties.SetName(scope, "Collection scope");
-                AutomationProperties.SetName(list, "Collections and tags");
-                AutomationProperties.SetName(action, "Management action");
+                var rows = new StackPanel { Margin = new Thickness(0, 8, 0, 8) };
+                panel.Children.Add(new ScrollViewer { Content = rows, MaxHeight = 310, VerticalScrollBarVisibility = ScrollBarVisibility.Auto });
+                var dismiss = new Button();
+                ManagedLabel? existing = null;
+                string? action = null;
+                void Select(string next, ManagedLabel? label = null)
+                {
+                    action = next; existing = label;
+                    dismiss.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                }
+                Button MakeButton(string text, string hint, Action click)
+                {
+                    var button = new Button { Content = text, ToolTip = hint, Padding = new Thickness(7, 5, 7, 5), Margin = new Thickness(4, 0, 0, 0) };
+                    AutomationProperties.SetName(button, hint);
+                    button.Click += (_, _) => click();
+                    return button;
+                }
                 void Populate()
                 {
-                    var selected = (scope.SelectedItem as CollectionScope)?.Id;
-                    list.ItemsSource = definitions.Where(d => d.GameId == selected).Select(d =>
-                        new ManagedLabel(d, null, d.Name + "  [Collection]" + (d.FolderLeaf == null ? "" : " / " + d.FolderLeaf)))
-                        .Concat(tags.Where(t => t.GameId == selected).Select(t => new ManagedLabel(null, t, t.Name + "  [Tag]")))
+                    selectedScope = (scope.SelectedItem as CollectionScope)?.Id;
+                    rows.Children.Clear();
+                    var labels = definitions.Where(d => d.GameId == selectedScope).Select(d => new ManagedLabel(d, null, d.Name))
+                        .Concat(tags.Where(t => t.GameId == selectedScope).Select(t => new ManagedLabel(null, t, t.Name)))
                         .OrderBy(t => t.Label, StringComparer.OrdinalIgnoreCase).ToArray();
-                    list.DisplayMemberPath = nameof(ManagedLabel.Label);
-                    list.SelectedIndex = 0;
+                    if (labels.Length == 0)
+                        rows.Children.Add(new TextBlock { Text = "No labels yet. Create one below.", Margin = new Thickness(0, 12, 0, 12) });
+                    foreach (var label in labels)
+                    {
+                        var row = new DockPanel { Margin = new Thickness(0, 3, 0, 3), LastChildFill = true };
+                        var buttons = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
+                        DockPanel.SetDock(buttons, Dock.Right);
+                        var edit = MakeButton("\uE70F", "Edit " + label.Label, () => Select("edit", label));
+                        edit.SetResourceReference(Control.FontFamilyProperty, "IconFont");
+                        edit.MinWidth = 36;
+                        buttons.Children.Add(edit);
+                        var delete = MakeButton("\uE74D", "Delete " + label.Label, () => Select("delete", label));
+                        delete.SetResourceReference(Control.FontFamilyProperty, "IconFont");
+                        delete.MinWidth = 36;
+                        buttons.Children.Add(delete);
+                        if (label.Tag != null)
+                            buttons.Children.Add(MakeButton("Make folder", "Turn " + label.Label + " into a Gallery folder", () => Select("convert", label)));
+                        row.Children.Add(buttons);
+                        var name = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
+                        var kindIcon = new TextBlock { Text = label.Collection != null ? "\uE838" : "\uE8EC", Margin = new Thickness(0,0,7,0), VerticalAlignment = VerticalAlignment.Center };
+                        kindIcon.SetResourceReference(TextBlock.FontFamilyProperty, "IconFont");
+                        DockPanel.SetDock(kindIcon, Dock.Left);
+                        row.Children.Add(kindIcon);
+                        var title = new TextBlock { Text = label.Label, TextTrimming = TextTrimming.CharacterEllipsis, FontWeight = FontWeights.SemiBold, ToolTip = label.Label };
+                        string? hex = label.Collection?.Color ?? label.Tag?.Color;
+                        if (hex != null)
+                        {
+                            var brush = (System.Windows.Media.Brush)new System.Windows.Media.BrushConverter().ConvertFromString(hex)!;
+                            var swatch = new System.Windows.Shapes.Ellipse { Width = 10, Height = 10, Fill = brush, Margin = new Thickness(0,0,6,0) };
+                            var heading = new DockPanel(); DockPanel.SetDock(swatch, Dock.Left); heading.Children.Add(swatch); heading.Children.Add(title); name.Children.Add(heading);
+                        }
+                        else name.Children.Add(title);
+                        var kindText = new TextBlock { Text = label.Collection != null ? "Folder" : "Tag" };
+                        kindText.SetResourceReference(TextBlock.FontSizeProperty, "QuickClipText12");
+                        name.Children.Add(kindText);
+                        row.Children.Add(name);
+                        rows.Children.Add(row);
+                    }
                 }
                 scope.SelectionChanged += (_, _) => Populate();
                 Populate();
-                if (!ModalDialog.Run(owner, "Collections & Tags", panel, "Continue", "Close", safeDefault: true,
-                    validate: () => action.SelectedIndex switch { 0 or 3 => true, 4 => (scope.SelectedItem as CollectionScope)?.Id != null, _ => list.SelectedItem is ManagedLabel })) break;
-                if (_released) return;
-                string? selectedScope = (scope.SelectedItem as CollectionScope)?.Id;
-                if (action.SelectedIndex == 3)
+                panel.Children.Add(MakeButton("+ Create label", "Create label", () => Select("create")));
+                panel.Children.Add(MakeButton("Merge tags...", "Rename or merge global tags", () => Select("merge")));
+                ModalDialog.Run(owner, "Manage labels", panel, "Close", null, safeDefault: true, wide: true, dismissOnClick: dismiss);
+                if (_released || !owner.IsVisible || action == null) break;
+                if (action == "merge")
                 {
                     _editingAnnotations = false;
-                    // Leave this modal loop and enter the existing bounded global
-                    // merge workflow after its finally has released ownership.
                     _ = Dispatcher.BeginInvoke(() => LibraryTags_Click(sender, e));
                     return;
                 }
-                if (action.SelectedIndex == 4)
+                try
                 {
-                    if (selectedScope != null)
-                        ChooseRecordingCollection(owner, selectedScope, definitions);
-                    continue;
-                }
-                var existing = list.SelectedItem as ManagedLabel;
-                if (action.SelectedIndex == 2 && existing != null)
-                {
-                    string label = existing.Collection?.Name ?? existing.Tag!.Name;
-                    if (ModalDialog.AskConfirmation(owner,
-                        existing.Collection != null
-                            ? $"Delete {label}? Its recordings become Uncategorized. Files and ordinary tags stay unchanged."
-                            : $"Delete {label} and remove that tag from all its recordings, including offline ones? Files and other labels stay unchanged.",
-                        "Delete label", "Delete label"))
+                    if (action == "delete" && existing != null)
+                    {
+                        if (ModalDialog.AskConfirmation(owner, $"Delete {existing.Label}? Your video files stay.", "Delete label", "Delete"))
+                        {
+                            if (existing.Collection is { } collection)
+                                await PersonalLibrary.Current.DeleteCollectionAsync(collection, _lifetime.Token);
+                            else await PersonalLibrary.Current.DeleteTagDefinitionAsync(existing.Tag!, _lifetime.Token);
+                        }
+                    }
+                    else if (action == "convert" && existing?.Tag is { } tag)
+                    {
+                        if (ModalDialog.AskConfirmation(owner, $"Turn {tag.Name} into a Gallery folder? Tagged clips join it. No files move.", "Make folder", "Make folder"))
+                            await PersonalLibrary.Current.ConvertTagToCollectionAsync(tag, _lifetime.Token);
+                    }
+                    else if (action == "edit" && existing != null)
                     {
                         if (existing.Collection is { } collection)
-                            await PersonalLibrary.Current.DeleteCollectionAsync(collection, _lifetime.Token);
-                        else await PersonalLibrary.Current.DeleteTagDefinitionAsync(existing.Tag!, _lifetime.Token);
+                        {
+                            var edited = EditCollection(owner, scopes, collection, selectedScope);
+                            if (edited != null) await PersonalLibrary.Current.UpdateCollectionAsync(collection, edited, _lifetime.Token);
+                        }
+                        else
+                        {
+                            var edited = EditTag(owner, scopes, existing.Tag, selectedScope);
+                            if (edited != null) await PersonalLibrary.Current.UpdateTagDefinitionAsync(existing.Tag!, edited, _lifetime.Token);
+                        }
                     }
+                    else if (action == "create")
+                    {
+                        var name = new TextBox { MaxLength = ClipDetails.MaxTagLength };
+                        AutomationProperties.SetName(name, "Label name");
+                        var folder = new CheckBox { Content = "Show as a Gallery folder", Margin = new Thickness(0, 10, 0, 0) };
+                        var color = new ComboBox { ItemsSource = TagPalette.Choices, SelectedIndex = 0 };
+                        AutomationProperties.SetName(color, "Color");
+                        var create = new StackPanel();
+                        create.Children.Add(new TextBlock { Text = "Name" });
+                        create.Children.Add(name);
+                        create.Children.Add(new TextBlock { Text = "Color", Margin = new Thickness(0, 8, 0, 4) });
+                        create.Children.Add(color);
+                        create.Children.Add(folder);
+                        var hint = new TextBlock { Text = "One folder per clip. No files move.", TextWrapping = TextWrapping.Wrap };
+                        create.Children.Add(hint);
+                        if (ModalDialog.Run(owner, "Create label", create, "Create", "Cancel", initialFocus: name,
+                            validate: () => { if (ClipDetails.IsValidTag(name.Text.Trim())) return true; hint.Text = "Enter a name (1–32 characters)."; return false; }))
+                        {
+                            var hex = (color.SelectedItem as TagColorChoice)?.Hex;
+                            if (folder.IsChecked == true)
+                                await PersonalLibrary.Current.CreateCollectionAsync(new(Guid.NewGuid(), name.Text, selectedScope, hex, null), _lifetime.Token);
+                            else await PersonalLibrary.Current.CreateTagDefinitionAsync(new(0, name.Text, selectedScope, hex), _lifetime.Token);
+                        }
+                    }
+                    if (!_released) await ReloadAsync(rereadIndex: true);
                 }
-                else if (action.SelectedIndex == 1 && existing != null)
+                catch (Exception ex) when (ex is LibraryConflictException or ArgumentException)
                 {
-                    if (existing.Collection is { } collection)
-                    {
-                        var edited = EditCollection(owner, scopes, collection, selectedScope);
-                        if (edited != null) await PersonalLibrary.Current.UpdateCollectionAsync(collection, edited, _lifetime.Token);
-                    }
-                    else
-                    {
-                        var edited = EditTag(owner, scopes, existing.Tag, selectedScope);
-                        if (edited != null) await PersonalLibrary.Current.UpdateTagDefinitionAsync(existing.Tag!, edited, _lifetime.Token);
-                    }
+                    if (!_released && owner.IsVisible) ModalDialog.Show(owner, ex.Message, "Couldn't update label");
                 }
-                else if (action.SelectedIndex == 0)
-                {
-                    var kind = new ComboBox { ItemsSource = new[] { "Ordinary tag", "Collection (optional folder)" }, SelectedIndex = 0 };
-                    var typePanel = new StackPanel();
-                    typePanel.Children.Add(new TextBlock { Text = "Tags are independent labels. A clip can belong to one collection, with an optional physical folder preference.", TextWrapping = TextWrapping.Wrap });
-                    typePanel.Children.Add(kind);
-                    if (!ModalDialog.Run(owner, "Create label", typePanel, "Continue", "Cancel", safeDefault: true)) continue;
-                    if (kind.SelectedIndex == 0)
-                    {
-                        var tag = EditTag(owner, scopes, null, selectedScope);
-                        if (tag != null) await PersonalLibrary.Current.CreateTagDefinitionAsync(tag, _lifetime.Token);
-                    }
-                    else
-                    {
-                        var collection = EditCollection(owner, scopes, null, selectedScope);
-                        if (collection != null) await PersonalLibrary.Current.CreateCollectionAsync(collection, _lifetime.Token);
-                    }
-                }
-                if (!_released) await ReloadAsync(rereadIndex: true);
             }
         }
         catch (OperationCanceledException) when (_lifetime.IsCancellationRequested) { }
@@ -163,7 +214,7 @@ public partial class GalleryView
         Field("Color", color);
         panel.Children.Add(error);
         LibraryTagDefinition? result = null;
-        bool accepted = ModalDialog.Run(owner, original == null ? "Create ordinary tag" : "Edit ordinary tag", panel, "Save", "Cancel", safeDefault: true,
+        bool accepted = ModalDialog.Run(owner, original == null ? "Create tag" : "Edit tag", panel, "Save", "Cancel", safeDefault: true,
             validate: () =>
             {
                 try
@@ -177,30 +228,11 @@ public partial class GalleryView
         return accepted ? result : null;
     }
 
-    private static void ChooseRecordingCollection(Window owner, string gameId, LibraryCollection[] definitions)
-    {
-        var prior = AppSettings.Current.RecordingCollections?.GetValueOrDefault(gameId) ?? new GameCollectionPreference();
-        var choices = new[] { new CollectionChoice(null, "None") }.Concat(definitions.Where(d => d.AppliesTo(gameId))
-            .Select(d => new CollectionChoice(d.Id, d.Name + (d.GameId == null ? " (all games)" : "")))).ToArray();
-        var combo = new ComboBox { ItemsSource = choices, DisplayMemberPath = nameof(CollectionChoice.Label),
-            SelectedItem = prior.Automatic ? null : choices.FirstOrDefault(c => c.Id == prior.ManualCollection) ?? choices[0] };
-        combo.ToolTip = "Manual choice overrides executable linking. Configure automatic linking in Games.";
-        AutomationProperties.SetName(combo, "Active recording collection");
-        if (ModalDialog.Run(owner, "Recording collection for subsequent saves", combo, "Save", "Cancel", safeDefault: true,
-            validate: () => combo.SelectedItem is CollectionChoice) && combo.SelectedItem is CollectionChoice selected &&
-            !RecordingCollections.SavePreference(gameId, prior with { Automatic = false, ManualCollection = selected.Id }))
-            throw new IOException("Could not save recording collection.");
-    }
-
     internal static LibraryCollection? EditCollection(Window owner, CollectionScope[] scopes, LibraryCollection? original, string? initialScope)
     {
         var name = new TextBox { Text = original?.Name ?? "", MaxLength = ClipDetails.MaxTagLength };
         var scope = new ComboBox { ItemsSource = scopes, SelectedItem = scopes.FirstOrDefault(s => s.Id == (original == null ? initialScope : original.GameId)) ?? scopes[0] };
         var color = new ComboBox { ItemsSource = TagPalette.Choices, SelectedItem = TagPalette.Choices.FirstOrDefault(c => c.Hex == original?.Color) ?? TagPalette.Choices[0] };
-        var folder = new CheckBox { Content = "Remember optional subfolder preference", IsChecked = original?.FolderLeaf != null };
-        var leaf = new TextBox { Text = original?.FolderLeaf ?? "", MaxLength = 64, IsEnabled = folder.IsChecked == true };
-        folder.Checked += (_, _) => { leaf.IsEnabled = true; if (leaf.Text.Length == 0) leaf.Text = name.Text.Trim(); };
-        folder.Unchecked += (_, _) => leaf.IsEnabled = false;
         var error = new TextBlock { TextWrapping = TextWrapping.Wrap };
         var panel = new StackPanel();
         void Field(string label, Control input)
@@ -212,18 +244,16 @@ public partial class GalleryView
         Field("Name", name);
         Field("Available for", scope);
         Field("Color", color);
-        panel.Children.Add(folder);
-        Field("Folder name (inactive until physical organization is supported)", leaf);
         panel.Children.Add(error);
         LibraryCollection? result = null;
-        bool accepted = ModalDialog.Run(owner, original == null ? "Create collection" : "Edit collection", panel, "Save", "Cancel", safeDefault: true,
+        bool accepted = ModalDialog.Run(owner, original == null ? "Create folder" : "Edit folder", panel, "Save", "Cancel", safeDefault: true,
             validate: () =>
             {
                 try
                 {
                     result = new LibraryCollection(original?.Id ?? Guid.NewGuid(), name.Text,
                         (scope.SelectedItem as CollectionScope)?.Id, (color.SelectedItem as TagColorChoice)?.Hex,
-                        folder.IsChecked == true ? leaf.Text : null).Normalize();
+                        original?.FolderLeaf).Normalize();
                     return true;
                 }
                 catch (ArgumentException ex) { error.Text = ex.Message; return false; }
@@ -263,11 +293,11 @@ public partial class GalleryView
             var list = new ComboBox { ItemsSource = options, DisplayMemberPath = nameof(CollectionChoice.Label), SelectedIndex = -1 };
             if (targets.Select(t => t.Details.Collection?.Id).Distinct().Count() == 1)
                 list.SelectedItem = options.FirstOrDefault(o => o.Id == targets[0].Details.Collection?.Id);
-            AutomationProperties.SetName(list, "Assign collection");
+            AutomationProperties.SetName(list, "Move to folder");
             var panel = new StackPanel();
-            panel.Children.Add(new TextBlock { Text = $"Choose one collection for {targets.Length} recording(s). Ordinary tags and files are unchanged.", TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0,0,0,8) });
+            panel.Children.Add(new TextBlock { Text = $"Choose a folder for {targets.Length} clip(s). Files stay where they are.", TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0,0,0,8) });
             panel.Children.Add(list);
-            if (!ModalDialog.Run(owner, "Assign collection", panel, "Apply", "Cancel", safeDefault: true,
+            if (!ModalDialog.Run(owner, "Move to folder", panel, "Apply", "Cancel", safeDefault: true,
                 validate: () => list.SelectedItem is CollectionChoice) || _released ||
                 list.SelectedItem is not CollectionChoice selected) return;
             var definition = definitions.FirstOrDefault(d => d.Id == selected.Id);
