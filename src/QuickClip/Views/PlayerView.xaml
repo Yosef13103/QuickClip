@@ -27,7 +27,7 @@
                         <TextBlock Text="Share" />
                     </StackPanel>
                 </Button>
-                <Button Style="{StaticResource TextButton}" Content="▾" Click="ShareOptions_Click"
+                <Button Style="{StaticResource IconButton}" Content="&#xE70D;" Click="ShareOptions_Click"
                         AutomationProperties.Name="Sharing options" ToolTip="Sharing options" />
                 <Button Style="{StaticResource TextButton}" Click="Edit_Click" ToolTip="Trim, crop and export this clip (E)">
                     <StackPanel Orientation="Horizontal">
@@ -77,7 +77,7 @@
             </Grid>
             <DockPanel Margin="4,5,4,0">
                 <StackPanel DockPanel.Dock="Left" Orientation="Horizontal" VerticalAlignment="Center">
-                    <Button x:Name="PlayButton" Style="{StaticResource IconButton}" Content="&#xE768;" Padding="16,6" Click="Play_Click"
+                    <Button x:Name="PlayButton" Style="{StaticResource IconButton}" Content="&#xE768;" Click="Play_Click"
                             ToolTip="Play / pause (Space)" />
                     <TextBlock x:Name="TimeText" Margin="10,0,0,0" VerticalAlignment="Center" FontFamily="Consolas" FontSize="{DynamicResource QuickClipText14}" Text="0:00" />
                     <TextBlock x:Name="DurationText" VerticalAlignment="Center" FontFamily="Consolas" FontSize="{DynamicResource QuickClipText13}"

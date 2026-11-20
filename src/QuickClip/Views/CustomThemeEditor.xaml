@@ -1,6 +1,9 @@
 <UserControl x:Class="QuickClip.Views.CustomThemeEditor"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <UserControl.Resources>
+        <ResourceDictionary Source="/QuickClip;component/Themes/Styles.xaml" />
+    </UserControl.Resources>
     <StackPanel>
         <Label Content="Theme _name" Target="{Binding ElementName=NameBox}" Padding="0,0,0,4" />
         <TextBox x:Name="NameBox" MaxLength="48" HorizontalAlignment="Left" MinWidth="240"

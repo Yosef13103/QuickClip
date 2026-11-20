@@ -161,6 +161,12 @@ public sealed class FrontendWindowAcceptanceTests(ITestOutputHelper output)
                     await Wait(() => root.Children.Count > 1);
                     overlay = Assert.IsType<Grid>(root.Children[1]);
                     var name = Find<TextBox>(overlay, "New label name");
+                    var swatch = Find<Button>(overlay, "Change color: New label");
+                    swatch.ApplyTemplate();
+                    var surface = Assert.IsType<Border>(swatch.Template.FindName("Surface", swatch));
+                    Assert.Equal(Colors.Transparent, Assert.IsType<SolidColorBrush>(surface.Background).Color);
+                    Assert.Equal(Colors.Transparent, Assert.IsType<SolidColorBrush>(surface.BorderBrush).Color);
+                    Assert.IsType<System.Windows.Shapes.Ellipse>(swatch.Content);
                     name.Text = "Fixture label";
                     Click(Find<Button>(overlay, "+ Add label", content: true));
                     await Wait(() => Visuals(overlay).OfType<Button>().Any(b => System.Windows.Automation.AutomationProperties.GetName(b) == "Rename Fixture label"));

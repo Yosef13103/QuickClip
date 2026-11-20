@@ -2,6 +2,9 @@
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              Loaded="Loaded_View" Unloaded="Unloaded_View" IsVisibleChanged="Visibility_Changed">
+    <UserControl.Resources>
+        <ResourceDictionary Source="/QuickClip;component/Themes/Styles.xaml" />
+    </UserControl.Resources>
     <Grid>
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>

@@ -301,7 +301,7 @@
                                     Visibility="{Binding PersonalAnnotations, RelativeSource={RelativeSource AncestorType=views:GalleryView}, Converter={StaticResource ShowIf}}" />
                             <Button x:Name="DeleteSelectedButton" Content="Delete selected…" Style="{StaticResource DangerButtonStyle}" Click="DeleteSelected_Click"
                                     ToolTip="Delete selected clips visible in this view" />
-                            <Button x:Name="AddToProjectButton" Style="{DynamicResource AccentButtonStyle}" Padding="12,5" Focusable="False"
+                            <Button VerticalContentAlignment="Center" HorizontalContentAlignment="Center" MinHeight="{DynamicResource QuickClipVisual36}" MinWidth="{DynamicResource QuickClipVisual36}" x:Name="AddToProjectButton" Style="{DynamicResource AccentButtonStyle}" Padding="12,5" Focusable="False"
                                     Click="AddToProject_Click">
                                 <StackPanel Orientation="Horizontal">
                                     <TextBlock FontFamily="{StaticResource IconFont}" Text="&#xE8F4;" VerticalAlignment="Center" Margin="0,0,7,0" />

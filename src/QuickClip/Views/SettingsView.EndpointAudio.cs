@@ -181,7 +181,6 @@ public partial class SettingsView
     {
         var button = new Button { Content = caption, IsEnabled = enabled, Focusable = true, ToolTip = accessibleName,
             Style = (Style)FindResource(icon ? "IconButton" : "TextButton") };
-        if (icon) { button.MinWidth = 32; button.MinHeight = 32; }
         AutomationProperties.SetName(button, accessibleName);
         button.Click += (_, _) => run();
         return button;

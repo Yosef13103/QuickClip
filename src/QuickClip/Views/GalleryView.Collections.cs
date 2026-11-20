@@ -139,10 +139,11 @@ public partial class GalleryView
                     (System.Windows.Media.Brush)new System.Windows.Media.BrushConverter().ConvertFromString(hex ?? "#9AA3B0")!;
                 Button Swatch(string? hex, Action<string?> change, string label, bool draft = false)
                 {
-                    var circle = new System.Windows.Shapes.Ellipse { Width = 19, Height = 19, Fill = ColorBrush(hex), StrokeThickness = 1 };
-                    circle.SetResourceReference(System.Windows.Shapes.Shape.StrokeProperty, "BorderBrush");
+                    var circle = new System.Windows.Shapes.Ellipse { Fill = ColorBrush(hex), StrokeThickness = 0 };
+                    circle.SetResourceReference(FrameworkElement.WidthProperty, "QuickClipVisual19");
+                    circle.SetResourceReference(FrameworkElement.HeightProperty, "QuickClipVisual19");
                     var button = new Button { Content = circle, ToolTip = "Change color: " + label, Margin = new Thickness(0,0,6,0) };
-                    button.Style = (Style)FindResource("ActionIconButton");
+                    button.Style = (Style)FindResource("ColorSwatchButton");
                     AutomationProperties.SetName(button, "Change color: " + label);
                     var popup = new System.Windows.Controls.Primitives.Popup { PlacementTarget = button, Placement = System.Windows.Controls.Primitives.PlacementMode.Bottom, StaysOpen = false, AllowsTransparency = true };
                     var palette = new WrapPanel { MaxWidth = 168 };
@@ -152,10 +153,12 @@ public partial class GalleryView
                     popup.Child = frame;
                     foreach (var choice in TagPalette.Choices)
                     {
-                        var dot = new System.Windows.Shapes.Ellipse { Width = 19, Height = 19, Fill = ColorBrush(choice.Hex), StrokeThickness = choice.Hex == hex ? 3 : 1 };
+                        var dot = new System.Windows.Shapes.Ellipse { Fill = ColorBrush(choice.Hex), StrokeThickness = choice.Hex == hex ? 2 : 0 };
+                        dot.SetResourceReference(FrameworkElement.WidthProperty, "QuickClipVisual19");
+                        dot.SetResourceReference(FrameworkElement.HeightProperty, "QuickClipVisual19");
                         dot.SetResourceReference(System.Windows.Shapes.Shape.StrokeProperty, "PrimaryTextBrush");
                         var pick = new Button { Content = dot, ToolTip = choice.Label, Margin = new Thickness(1) };
-                        pick.Style = (Style)FindResource("ActionIconButton");
+                        pick.Style = (Style)FindResource("ColorSwatchButton");
                         AutomationProperties.SetName(pick, choice.Label);
                         pick.Click += (_, _) => { popup.IsOpen = false; button.Focus(); if (draft) circle.Fill = ColorBrush(choice.Hex); change(choice.Hex); };
                         palette.Children.Add(pick);

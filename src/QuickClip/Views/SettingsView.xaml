@@ -232,9 +232,9 @@
                             <StackPanel HorizontalAlignment="Right">
                                 <WrapPanel HorizontalAlignment="Right" FlowDirection="LeftToRight">
                                     <Button x:Name="GuideSkip" Content="Skip remaining setup" Click="GuideSkip_Click" Margin="0,0,8,4" />
-                                    <Button x:Name="GuideNext" Content="Continue" Click="GuideNext_Click" Margin="0,0,0,4" Style="{DynamicResource AccentButtonStyle}" Background="#187644" Foreground="White" />
+                                    <Button VerticalContentAlignment="Center" HorizontalContentAlignment="Center" MinHeight="{DynamicResource QuickClipVisual36}" MinWidth="{DynamicResource QuickClipVisual36}" x:Name="GuideNext" Content="Continue" Click="GuideNext_Click" Margin="0,0,0,4" Style="{DynamicResource AccentButtonStyle}" Background="#187644" Foreground="White" />
                                 </WrapPanel>
-                                <Button x:Name="GuideEnable" Content="Enable recording and finish" Style="{DynamicResource AccentButtonStyle}" Background="#187644" Foreground="White" Click="GuideEnable_Click" Margin="0,0,0,4" HorizontalAlignment="Right" Visibility="Collapsed" />
+                                <Button VerticalContentAlignment="Center" HorizontalContentAlignment="Center" MinHeight="{DynamicResource QuickClipVisual36}" MinWidth="{DynamicResource QuickClipVisual36}" x:Name="GuideEnable" Content="Enable recording and finish" Style="{DynamicResource AccentButtonStyle}" Background="#187644" Foreground="White" Click="GuideEnable_Click" Margin="0,0,0,4" HorizontalAlignment="Right" Visibility="Collapsed" />
                             </StackPanel>
                         </DockPanel>
                         <TextBlock x:Name="GuideError" TextWrapping="Wrap" Foreground="{DynamicResource DangerBrush}" AutomationProperties.LiveSetting="Assertive" />
@@ -277,7 +277,7 @@
                     </DockPanel>
                     <TextBlock x:Name="UpdateStatusText" Margin="0,12,0,0" TextWrapping="Wrap" />
                     <StackPanel x:Name="UpdateActions" Orientation="Horizontal" Margin="0,10,0,0" Visibility="Collapsed">
-                        <Button x:Name="InstallUpdateButton" Style="{DynamicResource AccentButtonStyle}" Padding="12,5" Focusable="False" Click="InstallUpdate_Click">
+                        <Button VerticalContentAlignment="Center" HorizontalContentAlignment="Center" MinHeight="{DynamicResource QuickClipVisual36}" MinWidth="{DynamicResource QuickClipVisual36}" x:Name="InstallUpdateButton" Style="{DynamicResource AccentButtonStyle}" Padding="12,5" Focusable="False" Click="InstallUpdate_Click">
                             <StackPanel Orientation="Horizontal">
                                 <TextBlock FontFamily="{StaticResource IconFont}" Text="&#xE896;" VerticalAlignment="Center" Margin="0,0,7,0"  TextWrapping="Wrap" />
                                 <TextBlock x:Name="InstallUpdateLabel" Text="Install and restart" />

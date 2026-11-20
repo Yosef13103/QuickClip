@@ -63,7 +63,7 @@
             <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
 
-        <Border x:Name="TitleBar" Grid.ColumnSpan="2" Height="40" Visibility="Collapsed"
+        <Border x:Name="TitleBar" Grid.ColumnSpan="2" MinHeight="40" Visibility="Collapsed"
                 Background="{DynamicResource RailBrush}">
             <DockPanel Margin="6,0,6,0">
                 <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
@@ -85,7 +85,7 @@
                     <Button Content="&#xE8BB;" Click="CaptionClose_Click" AutomationProperties.Name="Close" ToolTip="Close" />
                 </StackPanel>
                 <Button x:Name="CaptionMenu" DockPanel.Dock="Left" Style="{StaticResource IconButton}"
-                        shell:WindowChrome.IsHitTestVisibleInChrome="True" Focusable="True" Width="34" Margin="3,0,5,0"
+                        shell:WindowChrome.IsHitTestVisibleInChrome="True" Focusable="True" Margin="3,0,5,0"
                         Background="Transparent" BorderBrush="Transparent" Padding="0"
                         AutomationProperties.Name="Window menu" ToolTip="Window menu (Alt+Space)" Click="CaptionMenu_Click">
                     <Image Source="Assets/QuickClip.ico" Width="19" Height="19" />

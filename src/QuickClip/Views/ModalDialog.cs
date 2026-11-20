@@ -104,6 +104,12 @@ internal static class ModalDialog
         var buttons = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right };
         var primary = new Button { Content = accept, MinWidth = 84, Padding = new Thickness(12, 6, 12, 6) };
         var secondary = new Button { Content = cancel ?? "", MinWidth = 84, Padding = new Thickness(12, 6, 12, 6), Margin = new Thickness(0, 0, 8, 0) };
+        foreach (var button in new[] { primary, secondary })
+        {
+            button.SetResourceReference(FrameworkElement.MinHeightProperty, "QuickClipVisual36");
+            button.HorizontalContentAlignment = HorizontalAlignment.Center;
+            button.VerticalContentAlignment = VerticalAlignment.Center;
+        }
         if (accent) primary.SetResourceReference(FrameworkElement.StyleProperty, "AccentButtonStyle");
         if (destructive && owner.TryFindResource("DangerButtonStyle") is Style danger)
             primary.Style = danger;
