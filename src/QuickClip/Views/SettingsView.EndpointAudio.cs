@@ -139,7 +139,7 @@ public partial class SettingsView
             fields.Children.Add(rename);
             fields.Children.Add(label);
             string deviceText = $"{i + 1} · {FlowName(track.Flow)} · " +
-                (device != null ? EndpointName(device) : availabilityChecked ? "Missing device (selection kept)" : "Availability not checked");
+                (device != null ? EndpointName(device) + (device.IsDefault ? " (Windows default)" : "") : availabilityChecked ? "Missing device (selection kept)" : "Availability not checked");
             fields.Children.Add(new TextBlock
             {
                 Text = deviceText,
@@ -165,12 +165,13 @@ public partial class SettingsView
             var previous = (picker.SelectedItem as Choice)?.Value as AudioEndpoint;
             var assigned = tracks.Select(track => track.DeviceId).ToHashSet(StringComparer.OrdinalIgnoreCase);
             var choices = EndpointAudio.ForFlow(endpoints, flow).Where(endpoint => !assigned.Contains(endpoint.Id))
-                .OrderBy(EndpointName, StringComparer.CurrentCultureIgnoreCase)
+                .OrderByDescending(endpoint => endpoint.IsDefault).ThenBy(EndpointName, StringComparer.CurrentCultureIgnoreCase)
                 .Select(endpoint => new Choice(EndpointName(endpoint) + (endpoint.IsDefault ? " (Windows default)" : ""), endpoint))
                 .ToArray();
             picker.ItemsSource = choices;
-            picker.SelectedItem = previous == null ? null : choices.FirstOrDefault(choice => choice.Value is AudioEndpoint endpoint &&
-                EndpointAudio.SameDevice(endpoint.Flow, endpoint.Id, previous.Flow, previous.Id));
+            picker.SelectedItem = (previous == null ? null : choices.FirstOrDefault(choice => choice.Value is AudioEndpoint endpoint &&
+                EndpointAudio.SameDevice(endpoint.Flow, endpoint.Id, previous.Flow, previous.Id)))
+                ?? choices.FirstOrDefault(choice => choice.Value is AudioEndpoint { IsDefault: true });
             picker.IsEnabled = tracks.Count < EndpointAudio.MaxTracks && choices.Length != 0;
             placeholder.Text = tracks.Count >= EndpointAudio.MaxTracks ? "Track limit reached" :
                 availabilityChecked && choices.Length == 0 ? "No unassigned devices" : prompt;
@@ -193,6 +194,8 @@ public partial class SettingsView
         if (AddPlaybackButton == null || AddMicrophoneButton == null || PlaybackPicker == null || MicrophonePicker == null) return;
         AddPlaybackButton.IsEnabled = PlaybackPicker.IsEnabled && PlaybackPicker.SelectedItem is Choice;
         AddMicrophoneButton.IsEnabled = MicrophonePicker.IsEnabled && MicrophonePicker.SelectedItem is Choice;
+        foreach (var button in new[] { AddPlaybackButton, AddMicrophoneButton })
+            button.SetResourceReference(Control.BorderBrushProperty, button.IsEnabled ? "AccentBrush" : "BorderBrush");
     }
 
     private void AddEndpoint_Click(object sender, RoutedEventArgs e)

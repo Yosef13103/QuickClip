@@ -563,11 +563,11 @@
                               Margin="0,8,0,0" Checked="EndpointMode_Changed" Unchecked="EndpointMode_Changed" />
                     <StackPanel x:Name="EndpointPanel" Visibility="Collapsed" Margin="0,8,0,0">
                         <TextBlock x:Name="EndpointDetailHint" Style="{StaticResource Hint}" TextWrapping="Wrap"
-                                   Text="One track per device. Changes restart the replay buffer." />
+                                   Text="Add your Windows default devices, or choose others. Each device adds one separate track; changes restart the replay buffer." />
                         <TextBlock Text="Playback (what you hear)" Style="{StaticResource SectionHeader}" />
                         <DockPanel>
                             <Button x:Name="AddPlaybackButton" DockPanel.Dock="Right" Content="Add playback" Margin="8,0,0,0"
-                                    Click="AddEndpoint_Click" />
+                                    Click="AddEndpoint_Click" ToolTip="Add the selected device as a separate recording track" />
                             <Grid>
                                 <ComboBox x:Name="PlaybackPicker" SelectionChanged="EndpointPicker_Changed"
                                           AutomationProperties.Name="Playback device" />
@@ -578,7 +578,7 @@
                         <TextBlock Text="Microphones (input)" Style="{StaticResource SectionHeader}" />
                         <DockPanel>
                             <Button x:Name="AddMicrophoneButton" DockPanel.Dock="Right" Content="Add microphone" Margin="8,0,0,0"
-                                    Click="AddEndpoint_Click" />
+                                    Click="AddEndpoint_Click" ToolTip="Add the selected device as a separate recording track" />
                             <Grid>
                                 <ComboBox x:Name="MicrophonePicker" SelectionChanged="EndpointPicker_Changed"
                                           AutomationProperties.Name="Microphone input device" />

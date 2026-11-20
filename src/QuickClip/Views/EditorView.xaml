@@ -268,10 +268,10 @@
                             <Grid Margin="0,3,0,0">
                                 <Grid.Style>
                                     <Style TargetType="Grid">
-                                        <Setter Property="Height" Value="54" />
+                                        <Setter Property="MinHeight" Value="54" />
                                         <Style.Triggers>
                                             <DataTrigger Binding="{Binding ExpandedTracks, RelativeSource={RelativeSource AncestorType=views:EditorView}}" Value="True">
-                                                <Setter Property="Height" Value="74" />
+                                                <Setter Property="MinHeight" Value="74" />
                                             </DataTrigger>
                                         </Style.Triggers>
                                     </Style>
@@ -292,9 +292,9 @@
                                             <ColumnDefinition Width="*" />
                                             <ColumnDefinition Width="Auto" />
                                         </Grid.ColumnDefinitions>
-                                        <CheckBox Style="{StaticResource EditorTrackCheck}" IsChecked="{Binding Include}" VerticalAlignment="Center" Margin="0,0,-4,0" MinHeight="0"
+                                        <CheckBox Style="{StaticResource EditorTrackCheck}" IsChecked="{Binding Include}" VerticalAlignment="Center" Margin="0,0,6,0" MinWidth="{DynamicResource QuickClipVisual24}" MinHeight="{DynamicResource QuickClipVisual24}" AutomationProperties.Name="Include track in export"
                                                   ToolTip="Include this track in the export" />
-                                        <TextBox Grid.Column="1" Style="{StaticResource CompactBox}" Text="{Binding Name, UpdateSourceTrigger=PropertyChanged}"
+                                        <TextBox Grid.Column="1" Style="{StaticResource CompactBox}" Text="{Binding Name, UpdateSourceTrigger=PropertyChanged}" MinWidth="0"
                                                  ToolTip="{Binding Description}" VerticalAlignment="Center" />
                                         <StackPanel Grid.Column="2" Orientation="Horizontal">
                                             <ToggleButton Style="{StaticResource EditorOptionToggle}" IsChecked="{Binding Solo}" Margin="4,0,0,0" Padding="7,3"
@@ -304,10 +304,10 @@
                                                     VerticalAlignment="Center" Click="RemoveSound_Click" ToolTip="Remove this sound"
                                                     Visibility="{Binding IsSound, Converter={StaticResource ShowIf}}" />
                                         </StackPanel>
-                                        <Grid Grid.Row="1" Grid.ColumnSpan="3" VerticalAlignment="Center">
+                                        <Grid Grid.Row="1" Grid.ColumnSpan="3" VerticalAlignment="Center" MinHeight="{DynamicResource QuickClipVisual24}" Margin="0,2,0,0">
                                             <Grid.ColumnDefinitions>
                                                 <ColumnDefinition Width="*" />
-                                                <ColumnDefinition Width="82" />
+                                                <ColumnDefinition Width="Auto" MinWidth="82" />
                                             </Grid.ColumnDefinitions>
                                             <Slider Minimum="0" Maximum="200" Value="{Binding VolumePercent}" SmallChange="1" LargeChange="10"
                                                     Style="{StaticResource ThemedMediaSlider}" AutomationProperties.Name="Track volume" VerticalAlignment="Center" IsMoveToPointEnabled="True"

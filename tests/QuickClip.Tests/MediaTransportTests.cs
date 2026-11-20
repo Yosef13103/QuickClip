@@ -13,6 +13,52 @@ namespace QuickClip.Tests;
 public sealed class MediaTransportTests
 {
     [Fact]
+    public Task Track_and_navigation_layouts_reserve_separate_control_space_at_all_scales() => OnSta(() =>
+    {
+        var editor = new EditorView();
+        var track = new AudioTrack(new QuickClip.Media.AudioStreamInfo { Title = "Sonar - Microphone", Channels = 2 }, new TimelineState(), 30);
+        var row = Assert.IsType<Grid>(editor.TrackList.ItemTemplate.LoadContent());
+        row.DataContext = track;
+        var header = Assert.IsType<Border>(row.Children[0]);
+        var fields = Assert.IsType<Grid>(header.Child);
+        var check = Assert.IsType<CheckBox>(fields.Children[0]);
+        var name = Assert.IsType<TextBox>(fields.Children[1]);
+        var actions = Assert.IsType<StackPanel>(fields.Children[2]);
+        var volume = Assert.IsType<Grid>(fields.Children[3]);
+        var host = new StackPanel();
+        host.Resources.MergedDictionaries.Add(new ResourceDictionary
+        {
+            Source = new Uri("/QuickClip;component/Themes/Styles.xaml", UriKind.Relative)
+        });
+        new ThemeResources().Apply(host.Resources, ThemeChoice.Amoled);
+        host.Children.Add(row);
+        var nav = new ListBoxItem
+        {
+            Style = (Style)host.FindResource("ThemedNavigationItem"),
+            Content = new TextBlock { Text = "All clips" }
+        };
+        host.Children.Add(nav);
+        foreach (int scale in new[] { 90, 100, 125 })
+        {
+            new InterfaceScale(110, scale).Apply(host.Resources);
+            host.Measure(new Size(600, 600));
+            host.Arrange(new Rect(0, 0, 600, 600));
+            host.UpdateLayout();
+            Point checkAt = check.TranslatePoint(new Point(), fields);
+            Point nameAt = name.TranslatePoint(new Point(), fields);
+            Point actionsAt = actions.TranslatePoint(new Point(), fields);
+            Point volumeAt = volume.TranslatePoint(new Point(), fields);
+            Assert.True(checkAt.X + check.ActualWidth <= nameAt.X, "Checkbox and name intersect");
+            Assert.True(nameAt.X + name.ActualWidth <= actionsAt.X + .1, "Name and actions intersect");
+            Assert.True(actionsAt.Y + actions.ActualHeight <= volumeAt.Y + .1, "Actions and slider intersect");
+            Assert.True(volumeAt.Y + volume.ActualHeight <= fields.ActualHeight + .1, "Volume clips outside track");
+            Assert.InRange(nav.ActualHeight, 30 * scale / 100d, 44 * scale / 100d);
+            var navText = Assert.IsType<TextBlock>(nav.Content);
+            Assert.InRange(navText.TranslatePoint(new Point(), nav).X, 0, 12);
+        }
+    });
+
+    [Fact]
     public Task Shared_action_buttons_are_square_centered_and_scale_with_controls() => OnSta(() =>
     {
         var host = new StackPanel();

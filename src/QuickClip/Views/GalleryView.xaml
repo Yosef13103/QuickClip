@@ -121,7 +121,7 @@
                                                         <Style.Triggers><DataTrigger Binding="{Binding CollectionId}" Value="{x:Null}"><Setter Property="Visibility" Value="Collapsed"/></DataTrigger></Style.Triggers>
                                                     </Style></TextBlock.Style>
                                                 </TextBlock>
-                                                <TextBlock Text="{Binding Name}" TextTrimming="CharacterEllipsis" MaxWidth="90" />
+                                                <TextBlock Text="{Binding Name}" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" MaxWidth="90" />
                                             </StackPanel>
                                         </Button>
                                     </DataTemplate></ItemsControl.ItemTemplate>
@@ -212,10 +212,10 @@
                         <ListBox.ItemTemplate>
                             <DataTemplate>
                                 <DockPanel>
-                                    <TextBlock DockPanel.Dock="Right" Text="{Binding Count}" Foreground="{DynamicResource SubtleText}" Margin="8,0,0,0" />
-                                    <Button DockPanel.Dock="Left" Visibility="{Binding ExpandVisibility}" Content="{Binding ExpandGlyph}"
-                                            Click="ExpandFolder_Click" AutomationProperties.Name="Show or hide folders" ToolTip="Show or hide folders" Padding="2,0" Margin="0,0,3,0" />
-                                    <TextBlock Text="{Binding Name}" Margin="{Binding Indent}" TextTrimming="CharacterEllipsis" />
+                                    <TextBlock DockPanel.Dock="Right" Text="{Binding Count}" Foreground="{DynamicResource SubtleText}" Margin="8,0,0,0" VerticalAlignment="Center" />
+                                    <Button DockPanel.Dock="Right" Style="{StaticResource FolderDisclosureButton}" Visibility="{Binding ExpandVisibility}" Content="{Binding ExpandGlyph}"
+                                            Click="ExpandFolder_Click" AutomationProperties.Name="Show or hide folders" ToolTip="Show or hide folders" Margin="3,0,0,0" />
+                                    <TextBlock Text="{Binding Name}" Margin="{Binding Indent}" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" />
                                 </DockPanel>
                             </DataTemplate>
                         </ListBox.ItemTemplate>
@@ -241,8 +241,8 @@
                                             <MenuItem Header="Delete project" Foreground="{DynamicResource DangerBrush}" Click="DeleteProject_Click" />
                                         </ContextMenu>
                                     </DockPanel.ContextMenu>
-                                    <TextBlock DockPanel.Dock="Right" Text="{Binding ClipCount}" Foreground="{DynamicResource SubtleText}" Margin="8,0,0,0" />
-                                    <TextBlock Text="{Binding Name}" TextTrimming="CharacterEllipsis" />
+                                    <TextBlock DockPanel.Dock="Right" Text="{Binding ClipCount}" Foreground="{DynamicResource SubtleText}" Margin="8,0,0,0" VerticalAlignment="Center" />
+                                    <TextBlock Text="{Binding Name}" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" />
                                 </DockPanel>
                             </DataTemplate>
                         </ListBox.ItemTemplate>

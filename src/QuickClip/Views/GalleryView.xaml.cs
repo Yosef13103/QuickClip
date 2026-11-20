@@ -27,9 +27,9 @@ public partial class GalleryView : UserControl
     private sealed record Folder(GalleryFolderSelection Selection, string Name, int Count, DateTime Latest,
         bool Expandable = false, bool Expanded = false)
     {
-        public Visibility ExpandVisibility => Expandable ? Visibility.Visible : Visibility.Hidden;
-        public string ExpandGlyph => Expanded ? "\u25BC" : "\u25B6";
-        public Thickness Indent => new(Selection.IsChild ? 18 : 0, 0, 0, 0);
+        public Visibility ExpandVisibility => Expandable ? Visibility.Visible : Visibility.Collapsed;
+        public string ExpandGlyph => Expanded ? "\uE70D" : "\uE76C";
+        public Thickness Indent => new(Selection.IsChild ? 16 : 0, 0, 0, 0);
     }
     private GalleryFolderSelection _folderSelection = new(GalleryFolderKey.All);
     private readonly HashSet<GalleryFolderKey> _expandedGames = [];
