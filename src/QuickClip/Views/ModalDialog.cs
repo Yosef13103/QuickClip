@@ -62,7 +62,7 @@ internal static class ModalDialog
 
     internal static bool Run(Window owner, string title, FrameworkElement content, string accept, string? cancel,
         bool safeDefault = false, bool destructive = false, IInputElement? initialFocus = null, Button? dismissOnClick = null,
-        bool accent = false, bool wide = false, Func<bool>? validate = null)
+        bool accent = false, bool wide = false, Func<bool>? validate = null, bool handleTextKeys = false)
     {
         var host = (Panel)owner.Content;
         var overlay = new Grid { Background = new SolidColorBrush(Color.FromArgb(140, 0, 0, 0)) };
@@ -121,7 +121,7 @@ internal static class ModalDialog
         if (dismissOnClick != null) dismissOnClick.Click += dismiss;
         void Keys(object sender, KeyEventArgs args)
         {
-            if (!overlay.IsKeyboardFocusWithin) return;
+            if (!overlay.IsKeyboardFocusWithin || (handleTextKeys && Keyboard.FocusedElement is TextBox && args.Key is Key.Enter or Key.Escape)) return;
             if (args.Key == Key.Escape)
             {
                 frame.Continue = false;

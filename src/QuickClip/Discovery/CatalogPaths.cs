@@ -62,6 +62,17 @@ internal static class CatalogPaths
         if (IsDiscordProcess(path)) return CatalogMatchKind.Companion;
         string name = Path.GetFileNameWithoutExtension(path).ToUpperInvariant();
         if (name == "ZOOM") return CatalogMatchKind.Companion;
+        // Source SDK tools in the engine bin directory are not gameplay. Avoid
+        // a global basename rule for generic names such as hammer or vpk.
+        if (Path.GetDirectoryName(path) is { } bin &&
+            Path.GetFileName(bin).Equals("bin", StringComparison.OrdinalIgnoreCase) &&
+            string.Equals(Path.GetFileName(Path.GetDirectoryName(bin)), "Half-Life 2", StringComparison.OrdinalIgnoreCase) &&
+            name is "BSPZIP" or "CAPTIONCOMPILER" or "DEMOINFO" or "DMXCONVERT" or "DMXEDIT" or
+                "ELEMENTVIEWER" or "GLVIEW" or "HAMMER" or "HEIGHT2NORMAL" or "HEIGHT2SSBUMP" or
+                "HLFACEPOSER" or "HLMV" or "MKSHEET" or "MOTIONMAPPER" or "NORMAL2SSBUMP" or
+                "PFM2TGAS" or "QC_EYES" or "SHADERCOMPILE" or "SPLITSKYBOX" or "STUDIOMDL" or
+                "VBSP" or "VBSPINFO" or "VPK" or "VRAD" or "VTEX" or "VTF2TGA" or "VVIS")
+            return CatalogMatchKind.Application;
         if (name is "STEAM" or "STEAMWEBHELPER" or "EPICGAMESLAUNCHER" or "LAUNCHER" or "GAMELAUNCHER"
             or "BATTLE.NET" or "RIOTCLIENTSERVICES" or "EADESKTOP" or "EALAUNCHER" or "GALAXYCLIENT"
             or "UBISOFTCONNECT" or "ROCKSTAR GAMES LAUNCHER" or "BOOTSTRAPPACKAGEDGAME" or "START_PROTECTED_GAME"

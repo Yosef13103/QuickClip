@@ -456,14 +456,43 @@ public partial class GalleryView : UserControl
 
     // ---- folders ------------------------------------------------------------------------------
 
+    private bool _sortFoldersByName;
+    private bool _sortFoldersDescending = true;
+
+    private void FolderNameSort_Click(object sender, RoutedEventArgs e)
+    {
+        _sortFoldersDescending = _sortFoldersByName && !_sortFoldersDescending;
+        _sortFoldersByName = true;
+        RebuildFolders(preserveScroll: true);
+    }
+
+    private void FolderDateSort_Click(object sender, RoutedEventArgs e)
+    {
+        _sortFoldersDescending = _sortFoldersByName || !_sortFoldersDescending;
+        _sortFoldersByName = false;
+        RebuildFolders(preserveScroll: true);
+    }
+
+    private IEnumerable<T> SortFolders<T>(IEnumerable<T> source, Func<T,string> name, Func<T,DateTime> date) =>
+        GalleryFolderSort.Apply(source, name, date, _sortFoldersByName, _sortFoldersDescending);
+
     private void RebuildFolders(bool preserveScroll = false)
     {
+        string nameSort = _sortFoldersByName && !_sortFoldersDescending ? "Z to A" : "A to Z";
+        string dateSort = !_sortFoldersByName && _sortFoldersDescending ? "Oldest clips first" : "Newest clips first";
+        FolderNameSort.ToolTip = "Sort folders " + nameSort;
+        FolderDateSort.ToolTip = dateSort;
+        FolderNameSort.Content = _sortFoldersByName ? (_sortFoldersDescending ? "Z↓" : "A↑") : "AZ";
+        FolderDateSort.Content = !_sortFoldersByName && !_sortFoldersDescending ? "\uE74A" : "\uE74B";
+        FolderNameSort.FontFamily = new System.Windows.Media.FontFamily("Segoe UI");
+        System.Windows.Automation.AutomationProperties.SetName(FolderNameSort, "Sort folders " + nameSort);
+        System.Windows.Automation.AutomationProperties.SetName(FolderDateSort, dateSort);
         var visible = _clips.ToArray();
         var folders = new List<Folder> { new(new(GalleryFolderKey.All), ClipLibrary.AllClips, visible.Length,
             visible.FirstOrDefault()?.Created ?? DateTime.MinValue) };
         var associatedNames = visible.Where(c => c.Details.GameId != null).Select(c => c.Folder).ToHashSet(StringComparer.OrdinalIgnoreCase);
         var scopedDefinitions = _collectionDefinitions.Where(d => d.GameId != null).ToLookup(d => d.GameId);
-        foreach (var group in visible.GroupBy(c => GalleryFolderKey.For(c.Details)).OrderByDescending(g => g.Max(c => c.Created)))
+        foreach (var group in SortFolders(visible.GroupBy(c => GalleryFolderKey.For(c.Details)), g => g.First().Folder, g => g.Max(c => c.Created)))
         {
             var clips = group.ToArray();
             var key = group.Key;
@@ -476,7 +505,7 @@ public partial class GalleryView : UserControl
             folders.Add(new(new(key), name, clips.Length, clips.Max(c => c.Created), definitions.Length > 0, expanded));
             if (!expanded) continue;
             folders.Add(new(new(key, true), "Uncategorized", clips.Count(c => c.Details.Collection == null), DateTime.MinValue));
-            foreach (var definition in definitions)
+            foreach (var definition in SortFolders(definitions, d => d.Name, d => clips.Where(c => c.Details.Collection?.Id == d.Id).Select(c => c.Created).DefaultIfEmpty(DateTime.MinValue).Max()))
                 folders.Add(new(new(key, true, definition.Id), definition.Name,
                     clips.Count(c => c.Details.Collection?.Id == definition.Id), DateTime.MinValue));
         }
@@ -527,7 +556,7 @@ public partial class GalleryView : UserControl
     private async Task SearchAsync()
     {
         var filter = new GalleryClipFilter(ClipSearchBox.Text.Trim(), "",
-            FavoritesFilter.IsChecked == true, FavoritesSort.IsChecked == true)
+            FavoritesFilter.IsChecked == true, false)
         { DefinitionFilters = _exactTags.Select(t => new GalleryTagFilter(t.Id, t.Name)).ToArray(), MatchAllTags = _matchAllTags };
         var folder = _folderSelection;
         var clips = _clips;
@@ -576,7 +605,7 @@ public partial class GalleryView : UserControl
         _filter = _filter with { DefinitionFilters = _exactTags.Select(t => new GalleryTagFilter(t.Id, t.Name)).ToArray() };
         RefreshTagFilterButton();
         OrganizationFilter_Changed(this, new RoutedEventArgs());
-        FavoritesFilter.IsChecked = FavoritesSort.IsChecked = false;
+        FavoritesFilter.IsChecked = false;
     }
 
     internal event Action<string, ClipDetails>? DetailsCommitted;
@@ -869,8 +898,18 @@ public partial class GalleryView : UserControl
     private async void FavoriteCard_Click(object sender, RoutedEventArgs e)
     {
         if (ItemOf(sender) is not { } item) return;
+        if (_editingAnnotations || sender is not Button button) return;
         bool next = !item.IsFavorite;
-        await UpdateAnnotationsAsync([item], favorite: next);
+        button.SetCurrentValue(UIElement.IsEnabledProperty, false);
+        var animation = new System.Windows.Media.Animation.DoubleAnimation(0.55, 1,
+            TimeSpan.FromMilliseconds(280)) { AutoReverse = true, RepeatBehavior = System.Windows.Media.Animation.RepeatBehavior.Forever };
+        button.BeginAnimation(UIElement.OpacityProperty, animation);
+        try { await UpdateAnnotationsAsync([item], favorite: next); }
+        finally
+        {
+            button.BeginAnimation(UIElement.OpacityProperty, null);
+            button.SetCurrentValue(UIElement.IsEnabledProperty, true);
+        }
     }
 
     private async void FavoriteMenu_Click(object sender, RoutedEventArgs e)

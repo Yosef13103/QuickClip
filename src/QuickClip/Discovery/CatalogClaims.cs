@@ -216,6 +216,20 @@ internal static class CatalogClaims
         foreach (var group in providers)
         {
             var linked = group.OrderByDescending(item => item.Verified).DistinctBy(item => item.Entry.Id).ToArray();
+            // Valve's 2024 anniversary update folded both Episodes and Lost Coast
+            // into HL2. Their legacy manifests may still claim exactly the same renderer.
+            // Only merge this known family at the same verified installation, not other
+            // Source games, unrelated shared executables or separate legacy installations.
+            if (linked.Any(item => item.Verified && item.Entry.Source == CatalogSource.Steam &&
+                    item.Entry.Id == "steam:220" && item.Entry.InstallDirectories.Length == 1 &&
+                    item.Entry.Executables.Contains(Path.Combine(group.Key, "hl2.exe"), Paths)))
+            {
+                foreach (var episode in linked.Where(item => item.Entry.Source == CatalogSource.Steam &&
+                    item.Entry.Id is "steam:380" or "steam:420" or "steam:340" &&
+                    item.Entry.InstallDirectories.Length == 1 &&
+                    item.Entry.Executables.Contains(Path.Combine(group.Key, "hl2.exe"), Paths)))
+                    sharedIds[episode.Entry.Id] = "steam:220";
+            }
             // Multiple product IDs from one launcher at that root may identify different editions.
             if (linked.Length < 2 || linked.Any(item => item.Entry.InstallDirectories.Length != 1) ||
                 linked.DistinctBy(item => item.Entry.Source).Count() != linked.Length) continue;

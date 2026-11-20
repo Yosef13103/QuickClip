@@ -203,7 +203,11 @@
         <Border x:Name="GallerySidebar" Background="{DynamicResource InternalSidebarBrush}">
             <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
                 <StackPanel Margin="10,6,10,10">
-                    <TextBlock Text="FOLDERS" Style="{StaticResource SectionHeader}" Margin="8,14,0,8" />
+                    <DockPanel Margin="8,14,0,8">
+                        <Button x:Name="FolderDateSort" DockPanel.Dock="Right" Style="{StaticResource IconButton}" Content="&#xE823;" Click="FolderDateSort_Click" ToolTip="Newest clips first" AutomationProperties.Name="Newest clips first" Focusable="True" Padding="4,3"/>
+                        <Button x:Name="FolderNameSort" DockPanel.Dock="Right" Style="{StaticResource IconButton}" Content="&#xE8CB;" Click="FolderNameSort_Click" ToolTip="Sort folders A to Z" AutomationProperties.Name="Sort folders A to Z" Focusable="True" Padding="4,3"/>
+                        <TextBlock Text="FOLDERS" Style="{StaticResource SectionHeader}" VerticalAlignment="Center"/>
+                    </DockPanel>
                     <ListBox x:Name="FolderList" Template="{StaticResource PlainList}" ItemContainerStyle="{StaticResource ThemedNavigationItem}" SelectionChanged="FolderList_SelectionChanged">
                         <ListBox.ItemTemplate>
                             <DataTemplate>
@@ -339,8 +343,6 @@
                             </DataTemplate></ItemsControl.ItemTemplate>
                         </ItemsControl>
                         <CheckBox Style="{StaticResource SwitchCheckBox}" x:Name="FavoritesFilter" Content="Favorites only" VerticalAlignment="Center" Margin="0,0,10,4"
-                                  Checked="OrganizationFilter_Changed" Unchecked="OrganizationFilter_Changed" />
-                        <CheckBox Style="{StaticResource SwitchCheckBox}" x:Name="FavoritesSort" Content="Favorites first within each day" VerticalAlignment="Center" Margin="0,0,10,4"
                                   Checked="OrganizationFilter_Changed" Unchecked="OrganizationFilter_Changed" />
                         <Button Content="Clear filters" Click="ClearFilters_Click" Style="{StaticResource TextButton}" Margin="0,0,8,4" />
                 </WrapPanel>

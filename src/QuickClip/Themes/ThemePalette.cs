@@ -17,8 +17,6 @@ internal static class ThemePalette
 
     private static readonly IReadOnlyDictionary<ThemeColor, Color> Dark = Make(
         "#181A1F #202329 #282C34 #14161A #545C69 #F3F5F8 #B0B8C5 #83B9FF #A8CDFF #303D50 #62D9A0 #F6C76E #FF828B #777F8D #22262D");
-    private static readonly IReadOnlyDictionary<ThemeColor, Color> Amoled = Make(
-        "#000000 #101214 #1C2023 #000000 #50585D #F4F7F8 #AFBCC2 #74D6D0 #9CE9E4 #183739 #65E2AE #FFD072 #FF7982 #758087 #101416");
     private static readonly IReadOnlyDictionary<ThemeColor, Color> Slate = Make(
         "#1D2532 #253041 #303D50 #161E2A #65768D #F2F5FA #BAC8D9 #91C5FF #B6D9FF #34475D #72DDB0 #F4CB80 #FF8993 #8495AB #253041");
     private static readonly IReadOnlyDictionary<ThemeColor, Color> Light = Make(
@@ -29,7 +27,7 @@ internal static class ThemePalette
 
     internal static IReadOnlyDictionary<ThemeColor, Color> Get(ThemeChoice choice) => choice switch
     {
-        ThemeChoice.Amoled => Amoled,
+        ThemeChoice.Amoled => Broadcast,
         ThemeChoice.Slate => Slate,
         ThemeChoice.Light => Light,
         ThemeChoice.Broadcast => Broadcast,

@@ -24,6 +24,9 @@ public partial class GalleryView
         try
         {
             string? selectedScope = _folderSelection.Game.GameId;
+            string draftName = "";
+            string? draftColor = null;
+            bool draftFolder = false;
             while (!_released)
             {
                 var definitions = await PersonalLibrary.Current.ReadCollectionsAsync(_lifetime.Token);
@@ -31,26 +34,58 @@ public partial class GalleryView
                 if (_released || !owner.IsVisible) return;
                 var scopes = CollectionScopes(definitions, tags);
                 var scope = new ComboBox { ItemsSource = scopes, SelectedItem = scopes.FirstOrDefault(s => s.Id == selectedScope) ?? scopes[0] };
-                AutomationProperties.SetName(scope, "Show labels for");
+                AutomationProperties.SetName(scope, "Available for");
                 var panel = new StackPanel();
-                panel.Children.Add(new TextBlock { Text = "Tags help you find clips. Folders group them.", TextWrapping = TextWrapping.Wrap });
-                panel.Children.Add(new TextBlock { Text = "Available for", Margin = new Thickness(0, 12, 0, 4) });
+                panel.Children.Add(new TextBlock { Text = "Available for", Margin = new Thickness(0,0,0,5) });
                 panel.Children.Add(scope);
-                var rows = new StackPanel { Margin = new Thickness(0, 8, 0, 8) };
-                panel.Children.Add(new ScrollViewer { Content = rows, MaxHeight = 310, VerticalScrollBarVisibility = ScrollBarVisibility.Auto });
+                var rows = new StackPanel { Margin = new Thickness(0,12,0,8) };
+                panel.Children.Add(new ScrollViewer { Content = rows, MaxHeight = 290, VerticalScrollBarVisibility = ScrollBarVisibility.Auto });
                 var dismiss = new Button();
                 ManagedLabel? existing = null;
-                string? action = null;
+                string? action = null, newName = null, newColor = null;
+                var createName = new TextBox { Text = draftName, MaxLength = ClipDetails.MaxTagLength, MinWidth = 100, VerticalContentAlignment = VerticalAlignment.Center };
+                AutomationProperties.SetName(createName, "New label name");
+                var createFolder = new CheckBox { Content = "Create as folder", IsChecked = draftFolder, Margin = new Thickness(0,8,0,0) };
                 void Select(string next, ManagedLabel? label = null)
                 {
+                    draftName = createName.Text;
+                    draftFolder = createFolder.IsChecked == true;
                     action = next; existing = label;
                     dismiss.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
                 }
-                Button MakeButton(string text, string hint, Action click)
+                Button IconButton(string glyph, string hint, Action click)
                 {
-                    var button = new Button { Content = text, ToolTip = hint, Padding = new Thickness(7, 5, 7, 5), Margin = new Thickness(4, 0, 0, 0) };
+                    var button = new Button { Content = glyph, ToolTip = hint, Width = 34, Height = 34, Padding = new Thickness(4), Margin = new Thickness(3,0,0,0), Focusable = true };
+                    button.SetResourceReference(FrameworkElement.StyleProperty, "IconButton");
                     AutomationProperties.SetName(button, hint);
                     button.Click += (_, _) => click();
+                    return button;
+                }
+                System.Windows.Media.Brush ColorBrush(string? hex) =>
+                    (System.Windows.Media.Brush)new System.Windows.Media.BrushConverter().ConvertFromString(hex ?? "#9AA3B0")!;
+                Button Swatch(string? hex, Action<string?> change, string label)
+                {
+                    var circle = new System.Windows.Shapes.Ellipse { Width = 19, Height = 19, Fill = ColorBrush(hex), StrokeThickness = 1 };
+                    circle.SetResourceReference(System.Windows.Shapes.Shape.StrokeProperty, "BorderBrush");
+                    var button = new Button { Content = circle, Width = 34, Height = 34, Padding = new Thickness(4), ToolTip = "Change color: " + label, Margin = new Thickness(0,0,6,0) };
+                    AutomationProperties.SetName(button, "Change color: " + label);
+                    var popup = new System.Windows.Controls.Primitives.Popup { PlacementTarget = button, Placement = System.Windows.Controls.Primitives.PlacementMode.Bottom, StaysOpen = false, AllowsTransparency = true };
+                    var palette = new WrapPanel { MaxWidth = 168 };
+                    var frame = new Border { Child = palette, Padding = new Thickness(5), CornerRadius = new CornerRadius(6), BorderThickness = new Thickness(1) };
+                    frame.SetResourceReference(Border.BackgroundProperty, "OverlayBackgroundBrush");
+                    frame.SetResourceReference(Border.BorderBrushProperty, "BorderBrush");
+                    popup.Child = frame;
+                    foreach (var choice in TagPalette.Choices)
+                    {
+                        var dot = new System.Windows.Shapes.Ellipse { Width = 19, Height = 19, Fill = ColorBrush(choice.Hex), StrokeThickness = choice.Hex == hex ? 3 : 1 };
+                        dot.SetResourceReference(System.Windows.Shapes.Shape.StrokeProperty, "PrimaryTextBrush");
+                        var pick = new Button { Content = dot, Width = 34, Height = 34, Padding = new Thickness(4), ToolTip = choice.Label, Margin = new Thickness(1) };
+                        AutomationProperties.SetName(pick, choice.Label);
+                        pick.Click += (_, _) => { popup.IsOpen = false; circle.Fill = ColorBrush(choice.Hex); change(choice.Hex); };
+                        palette.Children.Add(pick);
+                    }
+                    button.Click += (_, _) => popup.IsOpen = !popup.IsOpen;
+                    button.Unloaded += (_, _) => popup.IsOpen = false;
                     return button;
                 }
                 void Populate()
@@ -60,109 +95,90 @@ public partial class GalleryView
                     var labels = definitions.Where(d => d.GameId == selectedScope).Select(d => new ManagedLabel(d, null, d.Name))
                         .Concat(tags.Where(t => t.GameId == selectedScope).Select(t => new ManagedLabel(null, t, t.Name)))
                         .OrderBy(t => t.Label, StringComparer.OrdinalIgnoreCase).ToArray();
-                    if (labels.Length == 0)
-                        rows.Children.Add(new TextBlock { Text = "No labels yet. Create one below.", Margin = new Thickness(0, 12, 0, 12) });
+                    if (labels.Length == 0) rows.Children.Add(new TextBlock { Text = "No labels yet.", Margin = new Thickness(0,8,0,8) });
                     foreach (var label in labels)
                     {
-                        var row = new DockPanel { Margin = new Thickness(0, 3, 0, 3), LastChildFill = true };
-                        var buttons = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
-                        DockPanel.SetDock(buttons, Dock.Right);
-                        var edit = MakeButton("\uE70F", "Edit " + label.Label, () => Select("edit", label));
-                        edit.SetResourceReference(Control.FontFamilyProperty, "IconFont");
-                        edit.MinWidth = 36;
-                        buttons.Children.Add(edit);
-                        var delete = MakeButton("\uE74D", "Delete " + label.Label, () => Select("delete", label));
-                        delete.SetResourceReference(Control.FontFamilyProperty, "IconFont");
-                        delete.MinWidth = 36;
-                        buttons.Children.Add(delete);
-                        if (label.Tag != null)
-                            buttons.Children.Add(MakeButton("Make folder", "Turn " + label.Label + " into a Gallery folder", () => Select("convert", label)));
-                        row.Children.Add(buttons);
-                        var name = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
-                        var kindIcon = new TextBlock { Text = label.Collection != null ? "\uE838" : "\uE8EC", Margin = new Thickness(0,0,7,0), VerticalAlignment = VerticalAlignment.Center };
-                        kindIcon.SetResourceReference(TextBlock.FontFamilyProperty, "IconFont");
-                        DockPanel.SetDock(kindIcon, Dock.Left);
-                        row.Children.Add(kindIcon);
-                        var title = new TextBlock { Text = label.Label, TextTrimming = TextTrimming.CharacterEllipsis, FontWeight = FontWeights.SemiBold, ToolTip = label.Label };
-                        string? hex = label.Collection?.Color ?? label.Tag?.Color;
-                        if (hex != null)
+                        var row = new DockPanel { Margin = new Thickness(0,3,0,3), LastChildFill = true };
+                        var swatch = Swatch(label.Collection?.Color ?? label.Tag?.Color, hex => { newColor = hex; Select("color", label); }, label.Label);
+                        DockPanel.SetDock(swatch, Dock.Left); row.Children.Add(swatch);
+                        var actions = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
+                        DockPanel.SetDock(actions, Dock.Right);
+                        var input = new TextBox { Text = label.Label, MaxLength = ClipDetails.MaxTagLength, Visibility = Visibility.Collapsed, VerticalContentAlignment = VerticalAlignment.Center };
+                        AutomationProperties.SetName(input, "Rename " + label.Label);
+                        var title = new TextBlock { Text = label.Label, TextTrimming = TextTrimming.CharacterEllipsis, VerticalAlignment = VerticalAlignment.Center, ToolTip = label.Label };
+                        bool editing = false;
+                        Button? rename = null;
+                        void SaveRename()
                         {
-                            var brush = (System.Windows.Media.Brush)new System.Windows.Media.BrushConverter().ConvertFromString(hex)!;
-                            var swatch = new System.Windows.Shapes.Ellipse { Width = 10, Height = 10, Fill = brush, Margin = new Thickness(0,0,6,0) };
-                            var heading = new DockPanel(); DockPanel.SetDock(swatch, Dock.Left); heading.Children.Add(swatch); heading.Children.Add(title); name.Children.Add(heading);
+                            if (!ClipDetails.IsValidTag(input.Text.Trim())) { input.ToolTip = "Enter a valid label name"; return; }
+                            newName = input.Text; Select("rename", label);
                         }
-                        else name.Children.Add(title);
-                        var kindText = new TextBlock { Text = label.Collection != null ? "Folder" : "Tag" };
-                        kindText.SetResourceReference(TextBlock.FontSizeProperty, "QuickClipText12");
-                        name.Children.Add(kindText);
-                        row.Children.Add(name);
+                        void CancelRename() { editing = false; input.Visibility = Visibility.Collapsed; title.Visibility = Visibility.Visible; rename!.Content = "\uE8AC"; input.Text = label.Label; }
+                        rename = IconButton("\uE8AC", "Rename " + label.Label, () =>
+                        {
+                            if (editing) { SaveRename(); return; }
+                            editing = true; title.Visibility = Visibility.Collapsed; input.Visibility = Visibility.Visible; rename!.Content = "\uE73E"; input.Focus(); input.SelectAll();
+                        });
+                        input.PreviewKeyDown += (_, args) =>
+                        {
+                            if (args.Key == System.Windows.Input.Key.Enter) { args.Handled = true; SaveRename(); }
+                            else if (args.Key == System.Windows.Input.Key.Escape) { args.Handled = true; CancelRename(); }
+                        };
+                        actions.Children.Add(rename);
+                        actions.Children.Add(IconButton("\uE74D", "Delete " + label.Label, () => Select("delete", label)));
+                        var folder = IconButton("\uE838", label.Collection != null ? "Gallery folder" : "Make folder: related clips will appear in this Gallery folder", () => Select("convert", label));
+                        folder.IsEnabled = label.Tag != null;
+                        if (label.Collection != null) folder.SetResourceReference(Control.ForegroundProperty, "AccentBrush");
+                        actions.Children.Add(folder);
+                        row.Children.Add(actions);
+                        var body = new Grid { VerticalAlignment = VerticalAlignment.Center };
+                        body.Children.Add(title); body.Children.Add(input); row.Children.Add(body);
                         rows.Children.Add(row);
                     }
                 }
                 scope.SelectionChanged += (_, _) => Populate();
                 Populate();
-                panel.Children.Add(MakeButton("+ Create label", "Create label", () => Select("create")));
-                panel.Children.Add(MakeButton("Merge tags...", "Rename or merge global tags", () => Select("merge")));
-                ModalDialog.Run(owner, "Manage labels", panel, "Close", null, safeDefault: true, wide: true, dismissOnClick: dismiss);
+                var add = new DockPanel { LastChildFill = true };
+                var addColor = Swatch(draftColor, hex => draftColor = hex, "New label");
+                DockPanel.SetDock(addColor, Dock.Left); add.Children.Add(addColor);
+                var create = new Button { Content = "+ Add label", Margin = new Thickness(6,0,0,0), Padding = new Thickness(8,4,8,4) };
+                create.IsEnabled = ClipDetails.IsValidTag(createName.Text.Trim());
+                createName.TextChanged += (_, _) => create.IsEnabled = ClipDetails.IsValidTag(createName.Text.Trim());
+                create.Click += (_, _) => { if (create.IsEnabled) Select("create"); };
+                createName.PreviewKeyDown += (_, args) => { if (args.Key == System.Windows.Input.Key.Enter) { args.Handled = true; if (create.IsEnabled) Select("create"); } };
+                DockPanel.SetDock(create, Dock.Right); add.Children.Add(create); add.Children.Add(createName);
+                panel.Children.Add(add);
+                panel.Children.Add(createFolder);
+                panel.Children.Add(new TextBlock { Text = "Folders group matching clips in the Gallery. Video files stay in their current location.", TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0,7,0,0) });
+                ModalDialog.Run(owner, "Manage labels", panel, "Close", null, safeDefault: true, wide: true, dismissOnClick: dismiss, handleTextKeys: true);
                 if (_released || !owner.IsVisible || action == null) break;
-                if (action == "merge")
-                {
-                    _editingAnnotations = false;
-                    _ = Dispatcher.BeginInvoke(() => LibraryTags_Click(sender, e));
-                    return;
-                }
                 try
                 {
                     if (action == "delete" && existing != null)
                     {
                         if (ModalDialog.AskConfirmation(owner, $"Delete {existing.Label}? Your video files stay.", "Delete label", "Delete"))
                         {
-                            if (existing.Collection is { } collection)
-                                await PersonalLibrary.Current.DeleteCollectionAsync(collection, _lifetime.Token);
+                            if (existing.Collection is { } collection) await PersonalLibrary.Current.DeleteCollectionAsync(collection, _lifetime.Token);
                             else await PersonalLibrary.Current.DeleteTagDefinitionAsync(existing.Tag!, _lifetime.Token);
                         }
                     }
                     else if (action == "convert" && existing?.Tag is { } tag)
                     {
-                        if (ModalDialog.AskConfirmation(owner, $"Turn {tag.Name} into a Gallery folder? Tagged clips join it. No files move.", "Make folder", "Make folder"))
+                        if (ModalDialog.AskConfirmation(owner, $"Move clips tagged {tag.Name} into a Gallery folder? Their video files stay where they are.", "Make folder", "Make folder"))
                             await PersonalLibrary.Current.ConvertTagToCollectionAsync(tag, _lifetime.Token);
                     }
-                    else if (action == "edit" && existing != null)
+                    else if ((action == "rename" || action == "color") && existing != null)
                     {
                         if (existing.Collection is { } collection)
-                        {
-                            var edited = EditCollection(owner, scopes, collection, selectedScope);
-                            if (edited != null) await PersonalLibrary.Current.UpdateCollectionAsync(collection, edited, _lifetime.Token);
-                        }
-                        else
-                        {
-                            var edited = EditTag(owner, scopes, existing.Tag, selectedScope);
-                            if (edited != null) await PersonalLibrary.Current.UpdateTagDefinitionAsync(existing.Tag!, edited, _lifetime.Token);
-                        }
+                            await PersonalLibrary.Current.UpdateCollectionAsync(collection, collection with { Name = newName ?? collection.Name, Color = action == "color" ? newColor : collection.Color }, _lifetime.Token);
+                        else if (existing.Tag is { } item)
+                            await PersonalLibrary.Current.UpdateTagDefinitionAsync(item, item with { Name = newName ?? item.Name, Color = action == "color" ? newColor : item.Color }, _lifetime.Token);
                     }
                     else if (action == "create")
                     {
-                        var name = new TextBox { MaxLength = ClipDetails.MaxTagLength };
-                        AutomationProperties.SetName(name, "Label name");
-                        var folder = new CheckBox { Content = "Show as a Gallery folder", Margin = new Thickness(0, 10, 0, 0) };
-                        var color = new ComboBox { ItemsSource = TagPalette.Choices, SelectedIndex = 0 };
-                        AutomationProperties.SetName(color, "Color");
-                        var create = new StackPanel();
-                        create.Children.Add(new TextBlock { Text = "Name" });
-                        create.Children.Add(name);
-                        create.Children.Add(new TextBlock { Text = "Color", Margin = new Thickness(0, 8, 0, 4) });
-                        create.Children.Add(color);
-                        create.Children.Add(folder);
-                        var hint = new TextBlock { Text = "One folder per clip. No files move.", TextWrapping = TextWrapping.Wrap };
-                        create.Children.Add(hint);
-                        if (ModalDialog.Run(owner, "Create label", create, "Create", "Cancel", initialFocus: name,
-                            validate: () => { if (ClipDetails.IsValidTag(name.Text.Trim())) return true; hint.Text = "Enter a name (1–32 characters)."; return false; }))
-                        {
-                            var hex = (color.SelectedItem as TagColorChoice)?.Hex;
-                            if (folder.IsChecked == true)
-                                await PersonalLibrary.Current.CreateCollectionAsync(new(Guid.NewGuid(), name.Text, selectedScope, hex, null), _lifetime.Token);
-                            else await PersonalLibrary.Current.CreateTagDefinitionAsync(new(0, name.Text, selectedScope, hex), _lifetime.Token);
-                        }
+                        if (draftFolder) await PersonalLibrary.Current.CreateCollectionAsync(new(Guid.NewGuid(), draftName, selectedScope, draftColor, null), _lifetime.Token);
+                        else await PersonalLibrary.Current.CreateTagDefinitionAsync(new(0, draftName, selectedScope, draftColor), _lifetime.Token);
+                        draftName = ""; draftColor = null; draftFolder = false;
                     }
                     if (!_released) await ReloadAsync(rereadIndex: true);
                 }
@@ -172,6 +188,7 @@ public partial class GalleryView
                 }
             }
         }
+
         catch (OperationCanceledException) when (_lifetime.IsCancellationRequested) { }
         catch (Exception ex)
         {

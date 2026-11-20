@@ -33,7 +33,7 @@ public partial class GamesSettingsView
                 if (!owner.IsVisible) return;
                 var preferences = AppSettings.Current.RecordingCollections;
                 var preference = preferences?.GetValueOrDefault(game.Id) ?? new GameCollectionPreference();
-                var choices = new[] { new RecordingChoice(null, "None"), new RecordingChoice(null, "Automatic (linked executable)", true) }
+                var choices = new[] { new RecordingChoice(null, "None"), new RecordingChoice(null, "Automatic (only explicitly linked executables)", true) }
                     .Concat(definitions.Select(d => new RecordingChoice(d.Id, d.Name + (d.GameId == null ? " (all games)" : "")))).ToArray();
                 var active = new ComboBox { ItemsSource = choices, SelectedItem = preference.Automatic ? choices[1] :
                     choices.FirstOrDefault(c => !c.Automatic && c.Id == preference.ManualCollection) ?? choices[0] };
@@ -43,13 +43,14 @@ public partial class GamesSettingsView
                 panel.Children.Add(new TextBlock { Text = "Save new clips to", Margin = new Thickness(0,0,0,4) });
                 panel.Children.Add(active);
                 panel.Children.Add(new TextBlock { Text = "Optional. Existing clips stay unchanged.", TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0,6,0,8) });
-                var list = new ComboBox { ItemsSource = definitions, DisplayMemberPath = nameof(LibraryCollection.Name), SelectedIndex = 0 };
+                var list = new ComboBox { ItemsSource = definitions, DisplayMemberPath = nameof(LibraryCollection.Name), SelectedIndex = -1 };
                 AutomationProperties.SetName(list, "Folder to link");
                 var extra = new StackPanel();
                 extra.Children.Add(new TextBlock { Text = "Link a folder to a game executable", TextWrapping = TextWrapping.Wrap });
                 extra.Children.Add(list);
                 var buttons = new WrapPanel { Margin = new Thickness(0,6,0,0) };
-                var link = new Button { Content = "Link executable", IsEnabled = definitions.Length > 0, Margin = new Thickness(0,0,6,0) };
+                var link = new Button { Content = "Link executable", IsEnabled = false, Margin = new Thickness(0,0,6,0) };
+                list.SelectionChanged += (_, _) => link.IsEnabled = list.SelectedItem is LibraryCollection;
                 var remove = new Button { Content = "Remove link" };
                 buttons.Children.Add(link); buttons.Children.Add(remove); extra.Children.Add(buttons);
                 var dismiss = new Button();
@@ -63,7 +64,7 @@ public partial class GamesSettingsView
                 if (saved)
                 {
                     if (active.SelectedItem is RecordingChoice choice &&
-                        !RecordingCollections.SavePreference(game.Id, preference with { Automatic = choice.Automatic, ManualCollection = choice.Id }))
+                        !RecordingCollections.SavePreference(game.Id, preference with { Automatic = choice.Automatic, ManualCollection = choice.Automatic ? null : choice.Id }))
                         throw new IOException("Could not save folder preference.");
                     Status.Text = "Default folder saved.";
                     return;
@@ -100,7 +101,7 @@ public partial class GamesSettingsView
             return;
         }
         var current = preference.Executables ?? ImmutableDictionary<string, Guid>.Empty;
-        var selector = new ComboBox { ItemsSource = paths, SelectedIndex = 0, MaxWidth = 410 };
+        var selector = new ComboBox { ItemsSource = paths, SelectedIndex = -1, MaxWidth = 410 };
         AutomationProperties.SetName(selector, "Verified gameplay executable");
         var panel = new StackPanel();
         panel.Children.Add(new TextBlock { Text = $"Link an exact gameplay executable to {collection.Name}. Shared launchers and identical game executables cannot tell game modes apart. This does not change game detection or recording permissions.", TextWrapping = TextWrapping.Wrap });

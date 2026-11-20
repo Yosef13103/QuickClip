@@ -20,7 +20,7 @@ public sealed class ThemeTests
         var palette = ThemePalette.Get(theme);
         Assert.Equal(ThemePalette.Colors.Length, palette.Count);
         Assert.Empty(ThemePalette.ReadabilityWarnings(palette));
-        if (theme == ThemeChoice.Amoled) Assert.Equal(Colors.Black, palette[ThemeColor.Background]);
+        if (theme == ThemeChoice.Amoled) Assert.Equal("#08090B", ThemePalette.Hex(palette[ThemeColor.Background]));
     }
 
     [Fact]

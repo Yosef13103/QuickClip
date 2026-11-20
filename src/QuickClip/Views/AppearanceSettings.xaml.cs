@@ -36,7 +36,6 @@ public partial class AppearanceSettings : UserControl
             {
                 new(ThemeChoice.Dark, "QuickClip Dark"), new(ThemeChoice.Amoled, "AMOLED"),
                 new(ThemeChoice.Slate, "Slate"), new(ThemeChoice.Light, "Light"),
-                new(ThemeChoice.Broadcast, "Broadcast"),
             };
             foreach (var json in SavedThemes.Normalize(settings.SavedCustomThemes, settings.CustomThemeJson))
                 if (ThemeResources.ReadSaved(json) is { } theme)
