@@ -26,6 +26,7 @@ internal sealed class AppHost : IDisposable
     private IntPtr _icon;
     private readonly Dictionary<RecordingBadge, IntPtr> _statusIcons = [];
     private bool _iconAdded;
+    private DispatcherOperation? _trayOpen;
     private DispatcherTimer? _updateTimer;
     private DispatcherTimer? _shareCleanupTimer;
     private bool _sourceBalloonShown;
@@ -442,7 +443,9 @@ internal sealed class AppHost : IDisposable
             switch (lParam.ToInt32() & 0xFFFF)
             {
                 case 0x0202: // WM_LBUTTONUP
-                    OpenRequested?.Invoke();
+                case 0x0400: // NIN_SELECT
+                case 0x0401: // NIN_KEYSELECT
+                    QueueTrayOpen();
                     break;
                 case 0x0405: // NIN_BALLOONUSERCLICK
                     if (_sourceBalloonShown) RecordingSettingsRequested?.Invoke();
@@ -463,12 +466,24 @@ internal sealed class AppHost : IDisposable
         return IntPtr.Zero;
     }
 
+    // Let Explorer finish dispatching the notification-area callback before
+    // opening/activating our WPF window. Never manipulate Explorer's flyout.
+    private void QueueTrayOpen()
+    {
+        if (_trayOpen?.Status == DispatcherOperationStatus.Pending) return;
+        _trayOpen = _dispatcher.BeginInvoke(DispatcherPriority.Background, new Action(() =>
+        {
+            _trayOpen = null;
+            if (_window != null && !App.IsQuittingForUpdate) OpenRequested?.Invoke();
+        }));
+    }
+
     private void ShowMenu()
     {
         var recorder = Recorder.Instance;
         var s = AppSettings.Current;
         var menu = new ContextMenu { Placement = PlacementMode.MousePoint };
-        menu.Items.Add(Item("Open " + AppProfile.Name, () => OpenRequested?.Invoke(), bold: true));
+        menu.Items.Add(Item("Open " + AppProfile.Name, QueueTrayOpen, bold: true));
         if (CanRefresh?.Invoke() == true) menu.Items.Add(Item("Refresh visible page", () => RefreshRequested?.Invoke()));
         if (!recorder.IsRunning && SourceGuidance(recorder.Error) is { } guidance)
         {
@@ -593,6 +608,8 @@ internal sealed class AppHost : IDisposable
 
     public void Dispose()
     {
+        _trayOpen?.Abort();
+        _trayOpen = null;
         if (AppProfile.IsPersonal) GameCatalogRuntime.Discovery.Dispose();
         _updateTimer?.Stop();
         _shareCleanupTimer?.Stop();
