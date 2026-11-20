@@ -45,5 +45,5 @@ $env:QUICKCLIP_DEV_DIAGNOSTICS='1'
 $env:QUICKCLIP_CI='0'
 Write-Host 'Starting isolated Discord companion acceptance. Production/development remain unchanged.'
 Write-Host "Clips: $clips"
-Write-Host 'Discord recording starts disabled. Enable it explicitly under Settings > Companions.'
+Write-Host 'The isolated profile retains its recording/Discord settings. Review Settings > Companions before capturing.'
 Start-Process -FilePath $exe -WorkingDirectory $bin
