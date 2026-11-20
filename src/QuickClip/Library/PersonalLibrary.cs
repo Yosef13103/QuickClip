@@ -46,36 +46,47 @@ internal sealed class PersonalLibrary : IClipAnnotationActions, ILibraryInventor
         finally { _scanGate.Release(); }
 
         progress?.Invoke("Reading indexed clips", null);
-        var clips = await ReadIndexedClipsAsync(token, id, progress);
+        var clips = await ReadIndexedClipsAsync(token, id, progress, [root], exclusions);
         return (clips, scan);
     }
 
     internal async Task<List<ClipItem>> ReadIndexedClipsAsync(CancellationToken token, Guid? id = null,
-        Action<string, double?>? progress = null, IReadOnlyList<string>? folders = null)
+        Action<string, double?>? progress = null, IReadOnlyList<string>? folders = null, string[]? exclusions = null)
     {
         var rows = await _index.Value.ReadGalleryAsync(id, null, token);
-        return await Task.Run(() =>
-        {
-            var items = new List<ClipItem>(rows.Count);
-            int checkedRows = 0;
-            foreach (var row in rows)
-            {
-                token.ThrowIfCancellationRequested();
-                if (progress != null && (++checkedRows % 128 == 0 || checkedRows == rows.Count))
-                    progress($"Loading clips · {checkedRows:N0}/{rows.Count:N0}", (double)checkedRows / rows.Count);
-                if (ClipLibrary.IsMomentsPath(row.Path) ||
-                    (folders != null && !folders.Any(folder => LibraryFiles.Within(row.Path, folder)))) continue;
-                var file = new FileInfo(row.Path);
-                try
-                {
-                    if (file.Exists && ClipMediaStamp.Read(file) == row.Stamp)
-                        items.Add(new(file, row.Details, new(row.Duration, row.Details.CapturedAt)));
-                }
-                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
-            }
-            return items;
-        }, token);
+        return await Task.Run(() => MaterializeIndexedClips(rows, token, progress, folders, exclusions), token);
     }
+
+    internal static List<ClipItem> MaterializeIndexedClips(IReadOnlyList<LibraryIndex.GalleryRow> rows,
+        CancellationToken token, Action<string, double?>? progress, IReadOnlyList<string>? folders, string[]? exclusions)
+    {
+        var items = new List<ClipItem>(rows.Count);
+        int checkedRows = 0;
+        foreach (var row in rows)
+        {
+            token.ThrowIfCancellationRequested();
+            if (progress != null && (++checkedRows % 128 == 0 || checkedRows == rows.Count))
+                progress($"Loading clips · {checkedRows:N0}/{rows.Count:N0}", (double)checkedRows / rows.Count);
+            if (ClipLibrary.IsMomentsPath(row.Path) ||
+                (folders != null && !IsCachedPathEligible(row.Path, folders, exclusions ?? []))) continue;
+            var file = new FileInfo(row.Path);
+            try
+            {
+                if (file.Exists && ClipMediaStamp.Read(file) == row.Stamp)
+                    items.Add(new(file, row.Details, new(row.Duration, row.Details.CapturedAt)));
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
+        }
+        return items;
+    }
+
+    // Cached rows may predate the current source/exclusion settings. Never
+    // resolve a path through a directory that has since become a junction.
+    internal static bool IsCachedPathEligible(string path, IReadOnlyList<string> folders, string[] exclusions) =>
+        folders.Any(folder => LibraryFiles.Within(path, folder) &&
+            !LibraryFiles.IsExcluded(folder, path, [.. exclusions])) &&
+        LibraryFiles.EligibleFile(path) &&
+        LibraryFiles.InspectPath(path, directory: false) == ClipAvailability.Available;
 
     internal async Task<ClipDetails?> ReadAsync(string path, CancellationToken token = default)
     {

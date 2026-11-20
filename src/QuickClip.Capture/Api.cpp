@@ -229,6 +229,16 @@ extern "C"
         return 1;
     }
 
+    // Finish an explicit sample without discarding its captured PCM. The normal
+    // read endpoint remains unavailable until the source has actually stopped.
+    __declspec(dllexport) int qc_finish_mic_sample(int64_t token)
+    {
+        std::lock_guard guard(g_micTestLock);
+        if (!g_micTest || !g_micSample || g_micTestToken != token) return 0;
+        g_micTest->RequestStop();
+        return 1;
+    }
+
     __declspec(dllexport) void qc_stop_mic_test(int64_t token)
     {
         std::lock_guard guard(g_micTestLock);

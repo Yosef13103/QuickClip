@@ -311,8 +311,7 @@
                                     <Button Content="Rename…" Click="Rename_Click" Margin="0,0,6,4" />
                                     <Button Content="Clip folders..." Click="GameCollections_Click" Margin="0,0,6,4"
                                             ToolTip="Choose a folder for future clips (optional)." />
-                                    <Button Content="Edit executables…" Click="Edit_Click" Margin="0,0,6,4"
-                                            Visibility="{Binding IsManual, Converter={StaticResource ShowManualActions}}" />
+                                    <Button Content="Edit executables…" Click="Edit_Click" Margin="0,0,6,4" />
                                     <Button Content="Remove manual entry" Click="Remove_Click" Margin="0,0,6,4"
                                             Visibility="{Binding IsManual, Converter={StaticResource ShowManualActions}}" />
                                 </WrapPanel>
@@ -323,7 +322,7 @@
                                             Visibility="{Binding ShowAdvanced, Converter={StaticResource ShowManualActions}}">
                                         <TextBlock Text="Game files" FontWeight="SemiBold" />
                                         <TextBlock Text="Game files can start recording. Launcher and blocked files cannot." Style="{StaticResource Hint}" Margin="0,6,0,4" />
-                                        <ComboBox x:Name="ExecutableList" ItemsSource="{Binding Executables}" SelectedValuePath="Path"
+                                        <ComboBox x:Name="ExecutableList" ItemsSource="{Binding Executables}" SelectedValuePath="Path" SelectedValue="{Binding SelectedExecutable, Mode=TwoWay}"
                                                   AutomationProperties.Name="Game files" Background="{DynamicResource SurfaceBrush}" Foreground="{DynamicResource PrimaryTextBrush}" BorderBrush="{DynamicResource BorderBrush}">
                                             <ComboBox.ItemTemplate>
                                                 <DataTemplate>
@@ -332,7 +331,11 @@
                                             </ComboBox.ItemTemplate>
                                         </ComboBox>
                                         <WrapPanel>
-                                            <Button Content="Toggle launcher role" Click="Launcher_Click"
+                                            <Button Content="Detach executable" Click="DetachExecutable_Click"
+                                                  CommandParameter="{Binding SelectedValue, ElementName=ExecutableList}"
+                                                  IsEnabled="{Binding SelectedItem.CanDetach, ElementName=ExecutableList, FallbackValue=False}"
+                                                  Margin="0,4,6,0" />
+                                              <Button Content="Toggle launcher role" Click="Launcher_Click"
                                                 CommandParameter="{Binding SelectedValue, ElementName=ExecutableList}"
                                                 HorizontalAlignment="Left" Margin="0,4,6,0">
                                             <Button.Style>

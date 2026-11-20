@@ -41,6 +41,7 @@ public partial class SettingsView
     private long _microphoneToken;
     private long _microphoneTestStarted;
     private short[]? _microphoneSample;
+    private bool _finishingSample;
     private MicrophoneMeter? _playingMeter;
     private CancellationTokenSource? _samplePlayback;
 
@@ -116,7 +117,16 @@ public partial class SettingsView
     {
         if (row == _testingMeter)
         {
-            StopMicrophoneTest("Test stopped.");
+            if (record && _microphoneSample != null)
+            {
+                try
+                {
+                    if (!_finishingSample && FinishMicrophoneSample(_microphoneToken)) _finishingSample = true;
+                    else if (!_finishingSample) StopMicrophoneTest("No playable audio received.");
+                }
+                catch (EntryPointNotFoundException) { StopMicrophoneTest("Update the native engine to stop a sample early."); }
+            }
+            else StopMicrophoneTest("Test stopped.");
             RefreshMicrophoneMeters();
             return;
         }
@@ -163,6 +173,7 @@ public partial class SettingsView
         _microphoneToken = 0;
         if (_microphoneSample != null) Array.Clear(_microphoneSample);
         _microphoneSample = null;
+        _finishingSample = false;
         row.TestMessage = message;
     }
 
@@ -238,8 +249,9 @@ public partial class SettingsView
             bool recordingSample = testingNow && _microphoneSample != null;
             bool canTest = _testingMeter == null && _playingMeter == null && running == null && !Recorder.Instance.State.Running;
             row.Test.IsEnabled = (testingNow && !recordingSample) || canTest;
-            row.Record.IsEnabled = recordingSample || canTest;
-            row.Record.Content = recordingSample ? "Cancel recording" : "Record 5 seconds";
+            row.Record.IsEnabled = (recordingSample && !_finishingSample) || canTest;
+            row.Record.Content = recordingSample ? (_finishingSample ? "Finishing recording..." : "Stop recording") : "Record 5 seconds";
+            AutomationProperties.SetName(row.Record, recordingSample ? $"Stop recording from {row.Caption}" : $"Record five seconds from {row.Caption}");
             row.Play.IsEnabled = row.Wave != null && _testingMeter == null && _playingMeter == null && !Recorder.Instance.State.Running;
             string testCaption = testingNow && !recordingSample ? "Stop test" : "Test microphone";
             if (!Equals(row.Test.Content, testCaption))
