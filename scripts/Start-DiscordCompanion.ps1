@@ -7,9 +7,9 @@ $bin=Join-Path $branch 'src\QuickClip\bin\Release\net10.0-windows'
 $exe=Join-Path $bin 'QuickClip.exe'
 $dll=Join-Path $bin 'QuickClip.dll'
 $native=Join-Path $bin 'QuickClipCapture.dll'
-$expectedExe='2657D785D9D954DFC735730EC788A41ECFD8DCCE55534E317BBA43D3F18B12A8'
-$expectedDll='9CBD5BF76F3130E11D21CB32DB0ECBDE37F2D1ECB2FE2C0F9CF8D44E7B65537D'
-$expectedNative='7F642167B121FCC79460DAF83512095DCAE9ABAB3EDAA8AB866B84CEE10292E4'
+$expectedExe='555B02B209F1E15A5B5D28861242634F5970CBC8C1471DC9763F3C507CCC4117'
+$expectedDll='0972B73F27D407CB4BBE4F5EA809C9F4B3038BF7F6AE9039ECEA68AFCF84F3EA'
+$expectedNative='B004FF7FF908C09D1B5B310DE8B13F48C5CF8AB463B6B2D7E28D02022788659F'
 if((Get-Process -Name QuickClip -ErrorAction SilentlyContinue)) {
     throw 'Quit every other QuickClip instance normally before starting this isolated candidate.'
 }

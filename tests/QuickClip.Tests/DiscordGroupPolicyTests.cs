@@ -48,6 +48,50 @@ public sealed class DiscordGroupPolicyTests
     }
 
     [Fact]
+    public void Popup_close_unknown_probe_keeps_verified_remaining_windows_without_new_permission()
+    {
+        var policy = new DiscordGroupPolicy();
+        var main = Window(1); var closedPopup = Window(2); var survivingPopup = Window(3);
+        DiscordGroupDecision Decision(ProbeResult sample) =>
+            policy.Decide(true, DiscordCaptureMode.DuringCalls, true, false, false,
+                ActivityState.LikelyConnected, sample, true, _ => true);
+        var first = Decision(Probe(main,closedPopup,survivingPopup));
+        Assert.Equal(DiscordGroupStatus.Eligible, first.Status);
+        var transient = Decision(Probe(main,survivingPopup) with { Windows = 3 });
+        Assert.Equal(DiscordGroupStatus.Unknown, transient.Status);
+        var hold = DiscordGroupPolicy.HoldVerifiedSurvivors(first, transient.Status,
+            TimeSpan.FromSeconds(1), owner => owner != closedPopup);
+        Assert.Equal(DiscordGroupStatus.Eligible, hold?.Status);
+        Assert.Equal(new[] { main,survivingPopup }, hold?.Targets);
+        Assert.Equal(new[] { main,survivingPopup },
+            Decision(Probe(survivingPopup,main)).Targets); // stable primary across mismatch
+
+        Assert.Null(DiscordGroupPolicy.HoldVerifiedSurvivors(first, transient.Status,
+            TimeSpan.FromSeconds(4), _ => true));
+        Assert.Null(DiscordGroupPolicy.HoldVerifiedSurvivors(first, DiscordGroupStatus.Disabled,
+            TimeSpan.FromSeconds(1), _ => true));
+        Assert.Null(DiscordGroupPolicy.HoldVerifiedSurvivors(first, DiscordGroupStatus.GamePriority,
+            TimeSpan.FromSeconds(1), _ => true));
+        Assert.Null(DiscordGroupPolicy.HoldVerifiedSurvivors(first, DiscordGroupStatus.Waiting,
+            TimeSpan.FromSeconds(1), _ => true));
+        Assert.Null(DiscordGroupPolicy.HoldVerifiedSurvivors(first, transient.Status,
+            TimeSpan.FromSeconds(1), _ => false)); // every previous owner revoked
+    }
+
+    [Fact]
+    public void Multiple_incomplete_samples_do_not_extend_the_call_without_verified_evidence()
+    {
+        var activity = new ActivityClassifier();
+        ActivityState At(int second,bool complete=true) =>
+            activity.Update(new(complete, true, true, TimeSpan.FromSeconds(second)));
+        Assert.Equal(ActivityState.Joining, At(0));
+        Assert.Equal(ActivityState.LikelyConnected, At(2));
+        Assert.Equal(ActivityState.LikelyConnected, At(3,false));
+        Assert.Equal(ActivityState.LikelyConnected, At(4,false));
+        Assert.Equal(ActivityState.Unknown, At(6,false));
+    }
+
+    [Fact]
     public void Explicit_open_and_manual_modes_do_not_depend_on_call_evidence()
     {
         var policy = new DiscordGroupPolicy();
@@ -77,7 +121,7 @@ public sealed class DiscordGroupPolicyTests
         Assert.Equal(ActivityState.Idle, Step(10,false));
         Assert.Equal(ActivityState.Joining, Step(11,true));
         Assert.Equal(ActivityState.Joining, Step(15,true));
-        Assert.Equal(ActivityState.Unknown, Step(16,true,false));
+        Assert.Equal(ActivityState.Joining, Step(16,true,false)); // one incomplete probe retains prior state
         Assert.Equal(ActivityState.Idle, Step(17,false,true,false));
     }
 }

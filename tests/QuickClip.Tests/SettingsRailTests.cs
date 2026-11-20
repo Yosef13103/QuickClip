@@ -27,6 +27,8 @@ public sealed class SettingsRailTests
                 Assert.Equal("Diagnostics", sections[^1].Content);
                 view.CompanionsSection.IsChecked = true;
                 Assert.Equal(Visibility.Visible, view.CompanionsCard.Visibility);
+                if (Environment.OSVersion.Version.Build < 20348)
+                    Assert.Equal(Visibility.Visible, view.DiscordBorderNotice.Visibility);
                 Assert.Equal(Visibility.Collapsed, view.GeneralCard.Visibility);
                 Assert.Equal(AppSettings.Current.DiscordCaptureEnabled, view.DiscordEnableCheck.IsChecked == true);
                 Assert.Equal(AppSettings.Current.DiscordCaptureMode.ToString(),

@@ -9,6 +9,21 @@ internal sealed record DiscordGroupDecision(DiscordGroupStatus Status, IReadOnly
 internal sealed class DiscordGroupPolicy
 {
     internal const int MaxWindows = 4;
+
+    // For a short, incomplete window-probe transition, keep only previously
+    // authorized, currently valid HWNDs. Never grant new sources here.
+    internal static DiscordGroupDecision? HoldVerifiedSurvivors(
+        DiscordGroupDecision? previous, DiscordGroupStatus currentStatus,
+        TimeSpan sinceVerified, Func<WindowOwner, bool> stillCurrent)
+    {
+        if (previous is not { Status: DiscordGroupStatus.Eligible } ||
+            currentStatus != DiscordGroupStatus.Unknown ||
+            sinceVerified < TimeSpan.Zero || sinceVerified > TimeSpan.FromSeconds(3))
+            return null;
+        var verified = previous.Targets.Where(stillCurrent).Distinct().ToArray();
+        return verified.Length is >= 1 and <= MaxWindows
+            ? new(DiscordGroupStatus.Eligible, verified) : null;
+    }
     private readonly List<WindowOwner> _order = [];
     private bool _activeCall;
 
@@ -27,7 +42,7 @@ internal sealed class DiscordGroupPolicy
         if (gameOrManualDesktop) return Clear(DiscordGroupStatus.GamePriority);
         if (!fresh || !observation.Complete || observation.Windows == null ||
             observation.Windows != observation.Targets.Length)
-            return Clear(DiscordGroupStatus.Unknown);
+            return new(DiscordGroupStatus.Unknown, []); // retain previously verified order
         if (mode == DiscordCaptureMode.DuringCalls)
         {
             if (activity == ActivityState.Unknown) return Clear(DiscordGroupStatus.Unknown);

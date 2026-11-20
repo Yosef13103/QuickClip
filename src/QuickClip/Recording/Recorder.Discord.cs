@@ -10,6 +10,7 @@ internal sealed partial class Recorder
     private Task<ProbeResult>? _discordTask;
     private long _discordSubmittedAt;
     private long _discordObservedAt;
+    private long _discordLastEligibleAt;
     private ProbeResult? _discordObservation;
     private ActivityState _discordState = ActivityState.Unknown;
     private DiscordGroupDecision? _discordDecision;
@@ -83,6 +84,7 @@ internal sealed partial class Recorder
         _discordDecision = null;
         _discordTask = null; // a pending task may finish but has no capture authority
         _discordObservedAt = 0;
+        _discordLastEligibleAt = 0;
     }
 
     private void ReconcileDiscord(AppSettings settings, bool higherPriority)
@@ -121,13 +123,37 @@ internal sealed partial class Recorder
         if (observation == null || _discordObservedAt == 0 ||
             Stopwatch.GetElapsedTime(_discordObservedAt) > TimeSpan.FromSeconds(3))
         {
+            // Delayed probes cannot authorize new windows. Preserve only live,
+            // previously verified HWNDs for a bounded three-second grace period.
+            var held = _discordActive && _discordLastEligibleAt != 0
+                ? DiscordGroupPolicy.HoldVerifiedSurvivors(_discordDecision,
+                    DiscordGroupStatus.Unknown,
+                    Stopwatch.GetElapsedTime(_discordLastEligibleAt), GameDetector.IsCurrent)
+                : null;
+            if (held is { } safe && CaptureEngine.UpdateCompanionWindows(safe.Targets))
+            {
+                _discordDecision = safe;
+                return;
+            }
             if (_discordActive) StopGraph();
             _discordDecision = new(DiscordGroupStatus.Unknown, []);
             return;
         }
+        var previous = _discordDecision;
         var decision = _discordGroup.Decide(settings.RecordingEnabled, settings.DiscordCaptureMode,
             settings.DiscordCaptureEnabled, higherPriority, _discordManualRequested,
             _discordState, observation, true, GameDetector.IsCurrent);
+        if (decision.Status == DiscordGroupStatus.Eligible)
+            _discordLastEligibleAt = Stopwatch.GetTimestamp();
+        else if (_discordActive && _discordLastEligibleAt != 0)
+        {
+            // Transient enumeration mismatches are common when Squirrel/Electron
+            // closes a pop-out. Keep the existing native encoder/ring, but remove
+            // invalid HWNDs immediately. Never broaden captured source identity.
+            decision = DiscordGroupPolicy.HoldVerifiedSurvivors(previous, decision.Status,
+                Stopwatch.GetElapsedTime(_discordLastEligibleAt), GameDetector.IsCurrent)
+                ?? decision;
+        }
         _discordDecision = decision;
         if (decision.Status != DiscordGroupStatus.Eligible)
         {

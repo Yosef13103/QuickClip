@@ -20,7 +20,15 @@ internal sealed class ActivityClassifier
 
     public ActivityState Update(Observation sample)
     {
-        if (!sample.Complete || (sample.SameOwner && !sample.DiscordPresent))
+        // Window enumeration can race a Discord pop-out closing. One short,
+        // incomplete sample is not proof that an existing call ended.
+        if (!sample.Complete)
+        {
+            if (_last is { } prior && sample.At > prior &&
+                sample.At - prior <= MaxGap) return State;
+            return Reset();
+        }
+        if (sample.SameOwner && !sample.DiscordPresent)
             return Reset();
         if (_last is { } last && (sample.At <= last || sample.At - last > MaxGap))
             Reset();

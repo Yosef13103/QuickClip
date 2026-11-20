@@ -19,6 +19,8 @@ public partial class SettingsView
         try
         {
             var s = AppSettings.Current;
+            DiscordBorderNotice.Visibility = Environment.OSVersion.Version.Build < 20348
+                ? Visibility.Visible : Visibility.Collapsed;
             DiscordEnableCheck.IsChecked = s.DiscordCaptureEnabled;
             DiscordModeCombo.SelectedItem = DiscordModeCombo.Items.Cast<ComboBoxItem>()
                 .FirstOrDefault(item => Equals(item.Tag?.ToString(), s.DiscordCaptureMode.ToString()))

@@ -284,7 +284,7 @@ float4 PS(V v):SV_Target { return float4(img.Sample(linearSampler,v.uv).rgb,1); 
             });
             if(old!=sources.end()) next.push_back(std::move(*old));
             else {
-                auto added=std::find_if(pending.begin(),pending.end(),[&](const auto& s){return s->identity.handle==t.handle;});
+                auto added=std::find_if(pending.begin(),pending.end(),[&](const auto& s){return s && s->identity.handle==t.handle;});
                 Verify(added!=pending.end(),"Companion selection missing");
                 next.push_back(std::move(*added));
             }
