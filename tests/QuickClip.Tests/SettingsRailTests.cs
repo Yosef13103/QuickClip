@@ -56,6 +56,22 @@ public sealed class SettingsRailTests
                 view.GeneralSection.IsChecked = true;
                 Assert.Equal(Visibility.Collapsed, view.NotificationsCard.Visibility);
                 Assert.Equal(Visibility.Visible, view.GeneralCard.Visibility);
+                view.RecordingSection.IsChecked = true;
+                view.OpenUpdates();
+                Assert.True(view.GeneralSection.IsChecked == true);
+                Assert.Equal(Visibility.Visible, view.GeneralPage.Visibility);
+                Assert.Equal(Visibility.Collapsed, view.RecordingCard.Visibility);
+                Assert.Equal(QuickClip.Updates.Updater.IsEnabled ? Visibility.Visible : Visibility.Collapsed,
+                    view.UpdatesCard.Visibility);
+                view.UpdateAvailableBadge(true);
+                var updateBadge = Assert.IsType<SettingsView.SectionAttentionBadge>(view.GeneralSection.DataContext);
+                Assert.Equal(1, updateBadge.Count);
+                Assert.Equal(Visibility.Visible, updateBadge.Visibility);
+                Assert.Contains("update available", System.Windows.Automation.AutomationProperties.GetHelpText(view.GeneralSection),
+                    StringComparison.OrdinalIgnoreCase);
+                view.UpdateAvailableBadge(false);
+                Assert.Equal(Visibility.Collapsed,
+                    Assert.IsType<SettingsView.SectionAttentionBadge>(view.GeneralSection.DataContext).Visibility);
                 view.GamesSection.IsChecked = true;
                 Assert.Equal(Visibility.Visible, view.GamesPage.Visibility);
                 Assert.Equal(Visibility.Collapsed, view.CompanionsCard.Visibility);

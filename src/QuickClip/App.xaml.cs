@@ -155,7 +155,7 @@ public partial class App : Application
         Host.UpdateRequested += () =>
         {
             ShowMain();
-            _main?.ShowSettings();
+            _main?.ShowUpdateSettings();
         };
         Host.RecordingSettingsRequested += () =>
         {

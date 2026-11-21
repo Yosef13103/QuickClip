@@ -48,6 +48,7 @@ public partial class SettingsView : UserControl
             GamesPage.AttentionCountChanged += UpdateGameIssueBadge;
             GamesPage.DiscordSettingsRequested += OpenDiscordSettings;
             UpdateGameIssueBadge(GamesPage.AttentionCount);
+            UpdateAvailableBadge();
             ApplySettingsSection(RecordingSection);
             UpdateSettingsExperience();
         }
@@ -78,13 +79,31 @@ public partial class SettingsView : UserControl
         };
     }
 
-    private sealed record GameIssueBadge(int Count, Visibility Visibility);
+    internal sealed record SectionAttentionBadge(int Count, Visibility Visibility);
 
     private void UpdateGameIssueBadge(int count)
     {
-        GamesSection.DataContext = new GameIssueBadge(count, count == 0 ? Visibility.Collapsed : Visibility.Visible);
+        GamesSection.DataContext = new SectionAttentionBadge(count, count == 0 ? Visibility.Collapsed : Visibility.Visible);
         System.Windows.Automation.AutomationProperties.SetHelpText(GamesSection,
             count == 0 ? "" : $"{count} game detection {(count == 1 ? "issue needs" : "issues need")} attention");
+    }
+
+    internal void UpdateAvailableBadge(bool? availabilityOverride = null)
+    {
+        bool available = availabilityOverride ?? (Updater.IsEnabled && Updater.Available != null);
+        GeneralSection.DataContext = new SectionAttentionBadge(available ? 1 : 0,
+            available ? Visibility.Visible : Visibility.Collapsed);
+        System.Windows.Automation.AutomationProperties.SetHelpText(GeneralSection,
+            available ? "QuickClip update available. Open General to install." : "");
+    }
+
+    /// <summary>Navigate directly to General's Updates card, including from another Settings section.</summary>
+    public void OpenUpdates()
+    {
+        GeneralSection.IsChecked = true;
+        ApplySettingsSection(GeneralSection);
+        ShowUpdateState();
+        GeneralPage.ScrollToTop();
     }
 
     private void SettingsSection_Changed(object sender, RoutedEventArgs e)
@@ -147,7 +166,11 @@ public partial class SettingsView : UserControl
 
     private bool _installing;
 
-    private void OnUpdaterChanged() => Dispatcher.BeginInvoke(ShowUpdateState);
+    private void OnUpdaterChanged() => Dispatcher.BeginInvoke(() =>
+    {
+        UpdateAvailableBadge();
+        ShowUpdateState();
+    });
 
     private void ShowUpdateState()
     {

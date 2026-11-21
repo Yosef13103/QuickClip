@@ -144,6 +144,14 @@ public partial class MainWindow : Window
 
     public void ShowSettings() => _ = ShowPageAsync(SettingsPage);
 
+    public void ShowUpdateSettings() => _ = ShowUpdateSettingsAsync();
+
+    private async Task ShowUpdateSettingsAsync()
+    {
+        if (await ShowPageAsync(SettingsPage))
+            SettingsPage.OpenUpdates();
+    }
+
     private EditorView EditorPage
     {
         get
@@ -347,10 +355,10 @@ public partial class MainWindow : Window
     {
         var release = Updater.Available;
         UpdateButton.Visibility = release != null ? Visibility.Visible : Visibility.Collapsed;
-        if (release != null) UpdateButtonText.Text = $"Update to {release.Version.Display}";
+        if (release != null) UpdateButtonText.Text = $"Update {release.Version.Display}";
     });
 
-    private void UpdateButton_Click(object sender, RoutedEventArgs e) => ShowSettings();
+    private void UpdateButton_Click(object sender, RoutedEventArgs e) => ShowUpdateSettings();
 
     private void ShowFirstRunReplayChoice()
     {
