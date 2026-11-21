@@ -918,10 +918,11 @@ public partial class EditorView : UserControl
                 if (t.PreviewFile != null) _stalePreviews.Add(t.PreviewFile);
             }
             _tracks.Clear();
+            int editableAudioOrdinal = 0;
             foreach (var a in info.EditableAudio)
             {
                 var track = new AudioTrack(a, _timeline, info.Duration);
-                if (QuickClip.Recording.RecordingAudioMix.ForStream(details, a) is int mixPercent)
+                if (QuickClip.Recording.RecordingAudioMix.ForStream(details, a, editableAudioOrdinal++) is int mixPercent)
                     track.Volume = mixPercent / 100.0;
                 track.Changed += OnTrackChanged;
                 _tracks.Add(track);

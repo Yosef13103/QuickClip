@@ -32,14 +32,29 @@ internal static class RecordingAudioMix
         return result.Count == 0 ? null : result.ToArray();
     }
 
-    /// <summary>Only exact ordinal + saved title matches are safe across remuxing/editing.</summary>
-    internal static int? ForStream(ClipDetails details, AudioStreamInfo stream)
+    /// <summary>
+    /// Match QuickClip's editable-track order, not the raw MP4 audio ordinal.
+    /// Hybrid clips prepend a non-editable Full Mix audio stream, shifting the
+    /// native FFprobe ordinals by one. The saved track title still must match.
+    /// </summary>
+    internal static int? ForStream(ClipDetails details, AudioStreamInfo stream, int editableOrdinal)
     {
-        if (details.InitialAudioMix is not { Length: > 0 } preset ||
+        if (editableOrdinal is < 0 or >= EndpointAudio.MaxTracks ||
+            details.InitialAudioMix is not { Length: > 0 } preset ||
             string.IsNullOrWhiteSpace(stream.Title))
             return null;
-        return preset.FirstOrDefault(saved => saved.Ordinal == stream.Ordinal &&
+        return preset.FirstOrDefault(saved => saved.Ordinal == editableOrdinal &&
             StringComparer.OrdinalIgnoreCase.Equals(saved.StreamTitle, stream.Title)) is { } match &&
             match.Percent is >= 0 and <= 200 ? match.Percent : null;
     }
+
+    /// <summary>
+    /// Gallery's SQLite index stores annotations but not initial audio defaults.
+    /// The validated media-sidecar snapshot is authoritative for this optional field.
+    /// Never replace newer indexed tags, title, or bookmarks with sidecar data.
+    /// </summary>
+    internal static ClipDetails WithSavedDefaults(ClipDetails indexed, ClipDetails mediaSidecar) =>
+        mediaSidecar.InitialAudioMix is { Length: > 0 } saved
+            ? indexed with { InitialAudioMix = saved }
+            : indexed;
 }

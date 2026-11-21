@@ -40,6 +40,24 @@ internal static class EndpointAudio
     internal static IReadOnlyList<AudioEndpoint> ForFlow(IEnumerable<AudioEndpoint> endpoints, EndpointFlow flow) =>
         endpoints.Where(endpoint => endpoint.Flow == flow).ToArray();
 
+    // The compact UI groups playback and microphones visually. Keep actual
+    // native track order except for swapping the two requested same-flow entries.
+    internal static List<EndpointTrack> ReorderWithinFlow(
+        IReadOnlyList<EndpointTrack> source, EndpointTrack selected, int direction)
+    {
+        var tracks = source.ToList();
+        if (direction is not (-1 or 1)) return tracks;
+        int from = tracks.FindIndex(t => SameDevice(t.Flow, t.DeviceId, selected.Flow, selected.DeviceId));
+        if (from < 0) return tracks;
+        int[] siblings = Enumerable.Range(0, tracks.Count)
+            .Where(i => tracks[i].Flow == selected.Flow).ToArray();
+        int position = Array.IndexOf(siblings, from) + direction;
+        if (position < 0 || position >= siblings.Length) return tracks;
+        int to = siblings[position];
+        (tracks[from], tracks[to]) = (tracks[to], tracks[from]);
+        return tracks;
+    }
+
     public static List<EndpointTrack> Normalize(IEnumerable<EndpointTrack?>? tracks)
     {
         var result = new List<EndpointTrack>();

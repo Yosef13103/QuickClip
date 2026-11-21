@@ -35,7 +35,7 @@ public sealed class RecordingAudioMixTests
         preferences[0] = preferences[0] with { DefaultMixPercent = 170 };
         var details = new ClipDetails(Captured, "Portal 2") { InitialAudioMix = captured };
         Assert.Equal(45, RecordingAudioMix.ForStream(details,
-            new AudioStreamInfo { Ordinal = 2, Title = "Chat" }));
+            new AudioStreamInfo { Ordinal = 2, Title = "Chat" }, 2));
     }
 
     [Fact]
@@ -44,7 +44,7 @@ public sealed class RecordingAudioMixTests
         var previous = new ClipDetails(Captured, "Terraria");
         Assert.Null(previous.InitialAudioMix);
         Assert.Null(RecordingAudioMix.ForStream(previous,
-            new AudioStreamInfo { Ordinal = 0, Title = "Chat" }));
+            new AudioStreamInfo { Ordinal = 0, Title = "Chat" }, 0));
         Assert.Null(RecordingAudioMix.Capture([], [new(EndpointFlow.Playback, "chat", "Chat", true, 40)]));
     }
 
@@ -55,10 +55,56 @@ public sealed class RecordingAudioMixTests
         {
             InitialAudioMix = [new(1, "Chat", 35)]
         };
-        Assert.Equal(35, RecordingAudioMix.ForStream(d, new AudioStreamInfo { Ordinal = 1, Title = "chat" }));
-        Assert.Null(RecordingAudioMix.ForStream(d, new AudioStreamInfo { Ordinal = 0, Title = "Chat" }));
-        Assert.Null(RecordingAudioMix.ForStream(d, new AudioStreamInfo { Ordinal = 1, Title = "Gaming" }));
-        Assert.Null(RecordingAudioMix.ForStream(d, new AudioStreamInfo { Ordinal = 1 }));
+        Assert.Equal(35, RecordingAudioMix.ForStream(d, new AudioStreamInfo { Ordinal = 1, Title = "chat" }, 1));
+        Assert.Null(RecordingAudioMix.ForStream(d, new AudioStreamInfo { Ordinal = 0, Title = "Chat" }, 0));
+        Assert.Null(RecordingAudioMix.ForStream(d, new AudioStreamInfo { Ordinal = 1, Title = "Gaming" }, 1));
+        Assert.Null(RecordingAudioMix.ForStream(d, new AudioStreamInfo { Ordinal = 1 }, 1));
+    }
+
+    [Fact]
+    public void Hybrid_playback_mix_does_not_shift_the_saved_source_levels()
+    {
+        // Reproduces actual Personal v1.3.2 output: the virtual Full Mix is
+        // audio ordinal 0 and editable sources are numbered 1..4 by ffprobe.
+        var media = new MediaInfo { Path = "fixture.mp4", Duration = 12, Size = 1000 };
+        media.Audio.Add(new AudioStreamInfo { Ordinal = 0, Title = ExportBuilder.FullMixTitle, IsDefault = true });
+        media.Audio.Add(new AudioStreamInfo { Ordinal = 1, Title = "Sonar - Microphone" });
+        media.Audio.Add(new AudioStreamInfo { Ordinal = 2, Title = "Sonar - Gaming" });
+        media.Audio.Add(new AudioStreamInfo { Ordinal = 3, Title = "Sonar - Media" });
+        media.Audio.Add(new AudioStreamInfo { Ordinal = 4, Title = "Chat" });
+        Assert.Equal(4, media.EditableAudio.Count);
+        var details = new ClipDetails(Captured, "Desktop")
+        {
+            InitialAudioMix = [new(0, "Sonar - Microphone", 160), new(1, "Sonar - Gaming", 100),
+                               new(2, "Sonar - Media", 100), new(3, "Chat", 20)]
+        };
+        var levels = media.EditableAudio.Select((stream, i) =>
+            RecordingAudioMix.ForStream(details, stream, i)).ToArray();
+        Assert.Equal(new int?[] { 160, 100, 100, 20 }, levels);
+        // Wrong editable identity still fails closed despite shared names.
+        Assert.Null(RecordingAudioMix.ForStream(details, media.EditableAudio[3], 2));
+    }
+
+    [Fact]
+    public void Indexed_library_annotations_keep_the_recorded_audio_sidecar_snapshot()
+    {
+        var indexed = new ClipDetails(Captured, "Portal 2", "Saved title")
+        {
+            Tags = ["favorite"],
+            Bookmarks = [new ClipBookmark(1.25, "Marker")],
+            IndexRevision = 5
+        };
+        var sidecar = new ClipDetails(Captured, "Portal 2")
+        {
+            InitialAudioMix = [new(0, "Mic", 90), new(1, "Chat", 40)]
+        };
+        var merged = RecordingAudioMix.WithSavedDefaults(indexed, sidecar);
+        Assert.Equal("Saved title", merged.Title);
+        Assert.Equal(["favorite"], merged.Tags);
+        Assert.Equal(indexed.Bookmarks, merged.Bookmarks);
+        Assert.Equal(indexed.IndexRevision, merged.IndexRevision);
+        Assert.Equal(sidecar.InitialAudioMix, merged.InitialAudioMix);
+        Assert.Null(RecordingAudioMix.WithSavedDefaults(indexed, new ClipDetails(Captured, "Desktop")).InitialAudioMix);
     }
 
     [Fact]
@@ -102,6 +148,6 @@ public sealed class RecordingAudioMixTests
         var reloaded = System.Text.Json.JsonSerializer.Deserialize<ClipDetails>(json)!;
         Assert.Equal(normal.InitialAudioMix!, reloaded.InitialAudioMix!);
         Assert.Equal(45, RecordingAudioMix.ForStream(reloaded,
-            new AudioStreamInfo { Ordinal = 1, Title = "Chat" }));
+            new AudioStreamInfo { Ordinal = 1, Title = "Chat" }, 1));
     }
 }
