@@ -1,5 +1,6 @@
 // C API used by the QuickClip app (see QuickClip/Recording/CaptureEngine.cs).
 #include "Engine.h"
+#include "DetachedEpochArchive.h"
 #include <algorithm>
 #include <cmath>
 
@@ -656,4 +657,243 @@ extern "C"
         }
         return 1;
     }
+}
+
+
+extern "C"
+{
+    // Native epoch-archive fixture: verifies that packet refs/codec parameters survive
+    // destruction of each graph-owned ring. Never opens capture or alters global Engine.
+    __declspec(dllexport) int qc_test_detached_epoch_archive(
+        int scenario, int* retainedEpochs, int64_t* retainedBytes,
+        int64_t* firstUs, int64_t* lastUs, int* retainedStreams)
+    {
+        if (scenario < 0 || scenario > 5 || !retainedEpochs || !retainedBytes ||
+            !firstUs || !lastUs || !retainedStreams) return 0;
+
+        struct Codecs
+        {
+            AVCodecParameters* video = avcodec_parameters_alloc();
+            AVCodecParameters* audio = avcodec_parameters_alloc();
+            ~Codecs()
+            {
+                avcodec_parameters_free(&video);
+                avcodec_parameters_free(&audio);
+            }
+        } codecs;
+        if (!codecs.video || !codecs.audio) return 0;
+        codecs.video->codec_type = AVMEDIA_TYPE_VIDEO;
+        codecs.video->codec_id = AV_CODEC_ID_H264;
+        codecs.video->width = 640;
+        codecs.video->height = 360;
+        codecs.audio->codec_type = AVMEDIA_TYPE_AUDIO;
+        codecs.audio->codec_id = AV_CODEC_ID_AAC;
+        codecs.audio->sample_rate = 48000;
+        std::vector<AVCodecParameters*> parameters{ codecs.video, codecs.audio };
+        std::vector<AVRational> bases{ { 1, 30 }, { 1, 48000 } };
+
+        const int64_t budget = scenario == 2 ? 450 : 2'048;
+        qc::DetachedEpochArchive archive(budget, 15'000'000);
+        auto add = [&](int epochNumber, int frames, int64_t graphStart, std::string scope, uint64_t session)
+        {
+            qc::PacketRing oldGraph(10'000'000);
+            for (int frame = 0; frame < frames; ++frame)
+                for (int stream = 0; stream < 2; ++stream)
+                {
+                    auto* packet = av_packet_alloc();
+                    if (!packet) return false;
+                    if (av_new_packet(packet, 64) < 0)
+                    {
+                        av_packet_free(&packet);
+                        return false;
+                    }
+                    memset(packet->data, epochNumber * 16 + frame + stream, 64);
+                    oldGraph.Push(packet, stream, static_cast<int64_t>(frame) * 1'000'000,
+                        stream == 0 && frame == 0, epochNumber);
+                }
+            int64_t firstKey = -1;
+            auto snapshots = oldGraph.Snapshot(0, static_cast<int64_t>(frames - 1) * 1'000'000, firstKey);
+            qc::DetachedEpochArchive::Header header{ session, static_cast<uint64_t>(epochNumber),
+                std::move(scope), static_cast<uint64_t>(scenario == 5 && epochNumber == 2 ? 12 : 11), graphStart };
+            bool added = archive.Append(header, snapshots, parameters, bases);
+            for (auto& entry : snapshots) av_packet_free(&entry.packet);
+            // oldGraph is destroyed when this closure returns; the archive must own clones.
+            return added;
+        };
+
+        if (!add(1, 3, 1'000'000, "verified-game:synthetic", 42)) return 0;
+        bool expectedSecond = scenario == 0 || scenario == 2;
+        bool second = add(2, 2, scenario == 3 ? 2'000'000 : 5'000'000,
+            scenario == 1 ? "different-game" : "verified-game:synthetic",
+            scenario == 4 ? 43 : 42);
+        if (second != expectedSecond) return 0;
+
+        const auto* earliest = archive.At(0);
+        const auto* latest = archive.At(archive.Count() - 1);
+        if (!earliest || !latest || earliest->packets.empty() ||
+            earliest->packets.front().packet == nullptr ||
+            earliest->packets.front().packet->data == nullptr ||
+            earliest->codecs.size() != 2 || latest->codecs.size() != 2 ||
+            earliest->timeBases.size() != 2 ||
+            earliest->codecs[0]->codec_id != AV_CODEC_ID_H264 ||
+            earliest->codecs[1]->codec_id != AV_CODEC_ID_AAC) return 0;
+        if (earliest->packets.front().packet->data[0] !=
+            static_cast<uint8_t>((scenario == 2 ? 2 : 1) * 16)) return 0;
+
+        *retainedEpochs = static_cast<int>(archive.Count());
+        *retainedBytes = archive.Bytes();
+        *firstUs = earliest->startUs;
+        *lastUs = latest->endUs;
+        *retainedStreams = static_cast<int>(latest->codecs.size());
+        return 1;
+    }
+}
+
+// Test-only native data path: demux separately encoded two-stem fixtures,
+// hand packet references to two ephemeral graph-owned rings, detach each one,
+// destroy both graphs/decoders, then remux independent MKV epoch files.
+// No QuickClip app engine, display, microphone or game is started.
+extern "C" __declspec(dllexport) int qc_test_detached_epoch_media_roundtrip(
+    const wchar_t* sourceA, const wchar_t* sourceB,
+    const wchar_t* outputA, const wchar_t* outputB, wchar_t* error, int errorLength)
+{
+    if (!sourceA || !sourceB || !outputA || !outputB || !error || errorLength < 2)
+        return 0;
+    qc::DetachedEpochArchive archive(64ll * 1024 * 1024, 10'000'000);
+    std::string failure;
+    auto detach = [&](const wchar_t* source, uint64_t epochId, int64_t globalStartUs) -> bool
+    {
+        AVFormatContext* input = nullptr;
+        int result = avformat_open_input(&input, qc::Narrow(source).c_str(), nullptr, nullptr);
+        if (result < 0)
+        {
+            failure = "Could not open encoded epoch input: " + qc::AvError(result);
+            return false;
+        }
+        // Stream codec parameters and packets are valid only until the input closes.
+        struct InputLifetime
+        {
+            AVFormatContext** input;
+            ~InputLifetime() { avformat_close_input(input); }
+        } guard{ &input };
+        result = avformat_find_stream_info(input, nullptr);
+        if (result < 0 || input->nb_streams < 1 || input->nb_streams > 17 ||
+            input->streams[0]->codecpar->codec_type != AVMEDIA_TYPE_VIDEO)
+        {
+            failure = "Input epoch stream layout is invalid.";
+            return false;
+        }
+        std::vector<AVCodecParameters*> parameters;
+        std::vector<AVRational> bases;
+        std::vector<std::string> titles;
+        for (unsigned i = 0; i < input->nb_streams; ++i)
+        {
+            const auto* stream = input->streams[i];
+            if (stream->codecpar->codec_type != (i == 0 ? AVMEDIA_TYPE_VIDEO : AVMEDIA_TYPE_AUDIO))
+            {
+                failure = "Input must contain video followed by audio stems.";
+                return false;
+            }
+            parameters.push_back(stream->codecpar);
+            bases.push_back(stream->time_base);
+            auto* title = av_dict_get(stream->metadata, "title", nullptr, 0);
+            titles.push_back(title && title->value ? title->value :
+                (i == 0 ? "Video" : "Audio " + std::to_string(i)));
+        }
+
+        std::vector<qc::PacketRing::Entry> pending;
+        struct PacketLifetime
+        {
+            std::vector<qc::PacketRing::Entry>& entries;
+            ~PacketLifetime() { for (auto& entry : entries) av_packet_free(&entry.packet); }
+        } packetGuard{pending};
+        AVPacket* inputPacket = av_packet_alloc();
+        if (!inputPacket) { failure = "Out of memory for archive packet."; return false; }
+        int64_t sequence = 0;
+        int64_t totalBytes = 0;
+        while (av_read_frame(input, inputPacket) >= 0)
+        {
+            const int stream = inputPacket->stream_index;
+            const int64_t pts = inputPacket->pts != AV_NOPTS_VALUE ?
+                inputPacket->pts : inputPacket->dts;
+            if (stream < 0 || static_cast<size_t>(stream) >= parameters.size() ||
+                pts == AV_NOPTS_VALUE || ++sequence > 1024)
+            {
+                av_packet_free(&inputPacket);
+                failure = "Encoded fixture exceeds packet budget or contains invalid timestamps.";
+                return false;
+            }
+            auto* clone = av_packet_clone(inputPacket);
+            if (!clone)
+            {
+                av_packet_free(&inputPacket);
+                failure = "Could not copy encoded packet.";
+                return false;
+            }
+            totalBytes += clone->size;
+            if (totalBytes > 32ll * 1024 * 1024)
+            {
+                av_packet_free(&clone);
+                av_packet_free(&inputPacket);
+                failure = "Encoded fixture exceeds memory quota.";
+                return false;
+            }
+            pending.push_back({clone, stream,
+                av_rescale_q(pts, bases[stream], AVRational{1, 1000000}),
+                stream == 0 && (inputPacket->flags & AV_PKT_FLAG_KEY) != 0,
+                sequence, static_cast<int64_t>(epochId)});
+            av_packet_unref(inputPacket);
+        }
+        av_packet_free(&inputPacket);
+        if (pending.empty()) { failure = "Encoded fixture has no packets."; return false; }
+        const int64_t originUs = std::min_element(pending.begin(), pending.end(),
+            [](const auto& a, const auto& b) { return a.timeUs < b.timeUs; })->timeUs;
+        for (auto& entry : pending)
+        {
+            entry.timeUs -= originUs;
+            const int64_t start = av_rescale_q(originUs, AVRational{1, 1000000}, bases[entry.stream]);
+            if (entry.packet->pts != AV_NOPTS_VALUE) entry.packet->pts -= start;
+            if (entry.packet->dts != AV_NOPTS_VALUE) entry.packet->dts -= start;
+        }
+        std::stable_sort(pending.begin(), pending.end(), [](const auto& a, const auto& b) {
+            return a.timeUs < b.timeUs;
+        });
+        const int64_t latestUs = pending.back().timeUs;
+        if (latestUs >= 5'000'000) { failure = "Fixture duration exceeds 5 seconds."; return false; }
+        std::vector<qc::PacketRing::Entry> snapshot;
+        {
+            qc::PacketRing graph(10'000'000);
+            for (auto& entry : pending)
+            {
+                graph.Push(entry.packet, entry.stream, entry.timeUs, entry.key, entry.source);
+                entry.packet = nullptr; // Transferred ownership to the short-lived graph.
+            }
+            int64_t firstKeyUs = -1;
+            snapshot = graph.Snapshot(0, latestUs + 1000, firstKeyUs);
+            if (snapshot.empty())
+            {
+                failure = "No decodable initial keyframe in encoded input.";
+                return false;
+            }
+            qc::DetachedEpochArchive::Header header{42, epochId,
+                "verified-game:synthetic", 1, globalStartUs};
+            bool accepted = archive.Append(header, snapshot, parameters, bases, titles);
+            for (auto& entry : snapshot) av_packet_free(&entry.packet);
+            if (!accepted)
+            {
+                failure = "Failed to detach encoded epoch from its graph.";
+                return false;
+            }
+        } // Original graph's PacketRing and its AVPackets are now destroyed.
+        return true;
+    };
+
+    if (!detach(sourceA, 1, 0) || !detach(sourceB, 2, 3'000'000) ||
+        !archive.WriteSegment(0, outputA, failure) ||
+        !archive.WriteSegment(1, outputB, failure))
+    {
+        CopyError(failure.empty() ? "Detached epoch media fixture failed." : failure, error, errorLength);
+        return 0;
+    }
+    return 1;
 }

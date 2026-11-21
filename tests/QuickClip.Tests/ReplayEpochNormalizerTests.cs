@@ -1,10 +1,16 @@
 using System.Diagnostics;
+using System.Runtime.InteropServices;
 using QuickClip.Recording;
 
 namespace QuickClip.Tests;
 
 public sealed class ReplayEpochNormalizerTests
 {
+    [DllImport("QuickClipCapture.dll", CharSet = CharSet.Unicode, CallingConvention = CallingConvention.Cdecl)]
+    private static extern int qc_test_detached_epoch_media_roundtrip(
+        string sourceA, string sourceB, string outputA, string outputB,
+        [Out] char[] error, int errorLength);
+
     private static readonly Guid Session = Guid.Parse("00000000-0000-4000-8000-000000000201");
 
     [Theory]
@@ -47,6 +53,54 @@ public sealed class ReplayEpochNormalizerTests
             // Actually decode both video and audio tracks; metadata-only validation isn't enough.
             await Run(ffmpeg, ["-v", "error", "-nostdin", "-i", resultPath,
                 "-map", "0", "-f", "null", "-"]);
+        }
+        finally
+        {
+            Directory.Delete(temp, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Native_detached_encoded_packets_roundtrip_into_decodable_mkv_and_joined_mp4()
+    {
+        string ffmpeg = Path.Combine(AppContext.BaseDirectory, "ffmpeg", "ffmpeg.exe");
+        string ffprobe = Path.Combine(AppContext.BaseDirectory, "ffmpeg", "ffprobe.exe");
+        Assert.True(CaptureEngine.IsAvailable);
+        CaptureEngine.Initialize();
+        string temp = Path.Combine(Path.GetTempPath(), "QuickClip-DetachedMedia-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(temp);
+        try
+        {
+            string inputA = Path.Combine(temp, "inputA.mp4"), inputB = Path.Combine(temp, "inputB.mp4");
+            string detachedA = Path.Combine(temp, "detachedA.mkv"), detachedB = Path.Combine(temp, "detachedB.mkv");
+            string output = Path.Combine(temp, "joined.mp4");
+            await MakeFixture(ffmpeg, inputA, 640, 360, 440);
+            await MakeFixture(ffmpeg, inputB, 960, 400, 550);
+
+            var error = new char[2048];
+            int ok = qc_test_detached_epoch_media_roundtrip(
+                inputA, inputB, detachedA, detachedB, error, error.Length);
+            Assert.True(ok == 1, "Native detached media failure: " + new string(error).TrimEnd('\0'));
+            Assert.True(File.Exists(detachedA) && File.Exists(detachedB));
+            await Run(ffmpeg, ["-hide_banner", "-v", "error", "-nostdin", "-i", detachedA, "-map", "0", "-f", "null", "-"]);
+            await Run(ffmpeg, ["-hide_banner", "-v", "error", "-nostdin", "-i", detachedB, "-map", "0", "-f", "null", "-"]);
+
+            var first = new ReplayEncodedEpoch(Session, "verified-game:synthetic", Guid.NewGuid(),
+                0, 2_000_000, 640, 360, "h264-aac");
+            var second = new ReplayEncodedEpoch(Session, "verified-game:synthetic", Guid.NewGuid(),
+                3_000_000, 5_000_000, 960, 400, "h264-aac");
+            var plan = ReplayEpochPlanner.Select([first, second], Session,
+                "verified-game:synthetic", 0, 5_000_000, 8_000_000);
+            Assert.Single(plan.Gaps);
+            var result = await ReplayEpochNormalizer.ExportAsync(plan,
+                [new(first.EpochId, detachedA), new(second.EpochId, detachedB)],
+                output, ffmpeg, ffprobe, gapPolicy: ReplayEpochGapPolicy.OmitMissingFootage);
+            Assert.Equal((960, 400, 2), (result.Width, result.Height, result.AudioTracks));
+            Assert.Equal(TimeSpan.FromSeconds(1), result.OmittedMissingFootage);
+            Assert.InRange(result.Duration.TotalSeconds, 3.9, 4.15);
+            await Run(ffmpeg, ["-hide_banner", "-v", "error", "-nostdin", "-i", output, "-map", "0", "-f", "null", "-"]);
+            Assert.True(File.Exists(inputA) && File.Exists(inputB));
+            Assert.Empty(Directory.EnumerateFiles(temp, "*.partial.mp4"));
         }
         finally
         {
