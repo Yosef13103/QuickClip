@@ -5,7 +5,8 @@ internal enum EndpointFlow { Playback, Microphone }
 
 internal sealed record AudioEndpoint(EndpointFlow Flow, string Id, string Name, bool IsDefault);
 
-internal sealed record EndpointTrack(EndpointFlow Flow, string DeviceId, string Label, bool Enabled = true);
+internal sealed record EndpointTrack(EndpointFlow Flow, string DeviceId, string Label, bool Enabled = true,
+    int DefaultMixPercent = 100);
 internal enum EndpointStage { Pending, Com, EndpointLookup, EndpointFlow, Activate, Initialize, Event, Start, Streaming, Read, Complete }
 
 internal sealed record EndpointStatus(int TrackIndex, EndpointFlow Flow, EndpointStage Stage, int HResult,
@@ -49,7 +50,7 @@ internal static class EndpointAudio
             if (track is null || !Enum.IsDefined(track.Flow) || string.IsNullOrWhiteSpace(track.DeviceId) ||
                 track.DeviceId.Contains('\0') || !ids.Add(track.DeviceId))
                 continue;
-            result.Add(track);
+            result.Add(track with { DefaultMixPercent = Math.Clamp(track.DefaultMixPercent, 0, 200) });
             if (result.Count == MaxTracks) break;
         }
         return result;

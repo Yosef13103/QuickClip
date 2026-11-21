@@ -142,7 +142,7 @@ public partial class SettingsView
         bool basic = IsBasicExperience;
         AudioHint.Visibility = Visibility.Collapsed;
         EndpointDetailHint.Visibility = EndpointOrderLabel.Visibility = Visibility.Collapsed;
-        EndpointModeCheck.Content = "Choose specific audio devices";
+        EndpointModeCheck.Content = "Choose individual audio sources";
         foreach (var meter in _endpointMeters.Concat(_legacyMeters))
             meter.Save.Visibility = basic ? Visibility.Collapsed : Visibility.Visible;
         var settings = AppSettings.Current;

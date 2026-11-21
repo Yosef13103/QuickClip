@@ -559,49 +559,58 @@
             <!-- Audio -->
             <Border x:Name="AudioCard" Style="{StaticResource Card}">
                 <StackPanel>
-                    <TextBlock Text="Audio" Style="{StaticResource CardTitle}" />
+                    <TextBlock Text="Audio recording" Style="{StaticResource CardTitle}" />
+                    <TextBlock Text="Record Game, Chat, Media, and microphone sources separately, then set how loud each should be in your future clips." Style="{StaticResource Hint}" TextWrapping="Wrap" Margin="0,2,0,4" />
                     <TextBlock x:Name="BasicAudioHint" Style="{StaticResource Hint}" TextWrapping="Wrap" Visibility="Collapsed" />
-                    <CheckBox Style="{StaticResource SwitchCheckBox}" x:Name="EndpointModeCheck" Content="Choose specific audio devices"
+                    <CheckBox Style="{StaticResource SwitchCheckBox}" x:Name="EndpointModeCheck" Content="Choose individual audio sources"
                               Margin="0,8,0,0" Checked="EndpointMode_Changed" Unchecked="EndpointMode_Changed" />
-                    <StackPanel x:Name="EndpointPanel" Visibility="Collapsed" Margin="0,8,0,0">
-                        <TextBlock x:Name="EndpointDetailHint" Style="{StaticResource Hint}" TextWrapping="Wrap"
-                                   Text="Add your Windows default devices, or choose others. Each device adds one separate track; changes restart the replay buffer." />
-                        <TextBlock Text="Playback (what you hear)" Style="{StaticResource SectionHeader}" />
-                        <DockPanel>
-                            <Button x:Name="AddPlaybackButton" DockPanel.Dock="Right" Content="Add playback" Margin="8,0,0,0"
-                                    Click="AddEndpoint_Click" ToolTip="Add the selected device as a separate recording track" />
-                            <Grid>
-                                <ComboBox x:Name="PlaybackPicker" SelectionChanged="EndpointPicker_Changed"
-                                          AutomationProperties.Name="Playback device" />
-                                <TextBlock x:Name="PlaybackPlaceholder" Style="{StaticResource EndpointPlaceholder}"
-                                           Tag="{Binding SelectedIndex, ElementName=PlaybackPicker}" Text="Choose a playback device" />
-                            </Grid>
-                        </DockPanel>
-                        <TextBlock Text="Microphones (input)" Style="{StaticResource SectionHeader}" />
-                        <DockPanel>
-                            <Button x:Name="AddMicrophoneButton" DockPanel.Dock="Right" Content="Add microphone" Margin="8,0,0,0"
-                                    Click="AddEndpoint_Click" ToolTip="Add the selected device as a separate recording track" />
-                            <Grid>
-                                <ComboBox x:Name="MicrophonePicker" SelectionChanged="EndpointPicker_Changed"
-                                          AutomationProperties.Name="Microphone input device" />
-                                <TextBlock x:Name="MicrophonePlaceholder" Style="{StaticResource EndpointPlaceholder}"
-                                           Tag="{Binding SelectedIndex, ElementName=MicrophonePicker}" Text="Choose a microphone" />
-                            </Grid>
-                        </DockPanel>
-                        <TextBlock x:Name="EndpointOrderLabel" Text="Saved track order" Style="{StaticResource SectionHeader}" />
+                    <StackPanel x:Name="EndpointPanel" Visibility="Collapsed" Margin="0,12,0,0">
+                        <TextBlock Text="Recording sources" Style="{StaticResource SectionHeader}" />
+                        <TextBlock Text="Enabled sources are saved as separate editable tracks. Each level below becomes the starting mix for newly saved clips, not your old recordings."
+                                   Style="{StaticResource Hint}" TextWrapping="Wrap" Margin="0,0,0,4" />
                         <StackPanel x:Name="EndpointRows" />
-                        <Button x:Name="RefreshDevicesButton" Content="Refresh devices" HorizontalAlignment="Left" Margin="0,10,0,0"
-                                Click="RefreshEndpoints_Click" />
+                        <TextBlock x:Name="EndpointOrderLabel" Text="Open Manage on a track to rename, reorder, remove, or test it."
+                                   Style="{StaticResource Hint}" Margin="0,10,0,0" />
+                        <Expander Header="Add another audio source" Margin="0,14,0,0">
+                            <StackPanel Margin="0,8,0,0">
+                                <TextBlock x:Name="EndpointDetailHint" Style="{StaticResource Hint}" TextWrapping="Wrap"
+                                           Text="Choose a Windows audio output or microphone. Adding or removing an audio source restarts the replay buffer." />
+                                <TextBlock Text="Playback — game, chat, music or other output" Style="{StaticResource SectionHeader}" />
+                                <DockPanel>
+                                    <Button x:Name="AddPlaybackButton" DockPanel.Dock="Right" Content="Add playback" Margin="8,0,0,0"
+                                            Click="AddEndpoint_Click" ToolTip="Add the selected device as a separate recording track" />
+                                    <Grid>
+                                        <ComboBox x:Name="PlaybackPicker" SelectionChanged="EndpointPicker_Changed"
+                                                  AutomationProperties.Name="Playback device" />
+                                        <TextBlock x:Name="PlaybackPlaceholder" Style="{StaticResource EndpointPlaceholder}"
+                                                   Tag="{Binding SelectedIndex, ElementName=PlaybackPicker}" Text="Choose a playback device" />
+                                    </Grid>
+                                </DockPanel>
+                                <TextBlock Text="Microphones — voice input" Style="{StaticResource SectionHeader}" />
+                                <DockPanel>
+                                    <Button x:Name="AddMicrophoneButton" DockPanel.Dock="Right" Content="Add microphone" Margin="8,0,0,0"
+                                            Click="AddEndpoint_Click" ToolTip="Add the selected device as a separate recording track" />
+                                    <Grid>
+                                        <ComboBox x:Name="MicrophonePicker" SelectionChanged="EndpointPicker_Changed"
+                                                  AutomationProperties.Name="Microphone input device" />
+                                        <TextBlock x:Name="MicrophonePlaceholder" Style="{StaticResource EndpointPlaceholder}"
+                                                   Tag="{Binding SelectedIndex, ElementName=MicrophonePicker}" Text="Choose a microphone" />
+                                    </Grid>
+                                </DockPanel>
+                                <Button x:Name="RefreshDevicesButton" Content="Refresh devices" HorizontalAlignment="Left" Margin="0,12,0,0"
+                                        Click="RefreshEndpoints_Click" />
+                            </StackPanel>
+                        </Expander>
                         <TextBlock x:Name="EndpointNotice" Style="{StaticResource Hint}" Margin="0,8,0,0"
                                    AutomationProperties.LiveSetting="Polite" />
-                        <Expander x:Name="AudioLanesAdvanced" Header="Running audio lanes" Margin="0,10,0,0" Collapsed="EndpointStatus_Collapsed">
+                        <Expander x:Name="AudioLanesAdvanced" Header="Advanced: running audio diagnostics" Margin="0,12,0,0" Collapsed="EndpointStatus_Collapsed">
                             <StackPanel Margin="0,6,0,0">
-                                <TextBlock Text="Reads stream formats, packet counts, and signal levels from the current session without opening a device."
-                                           Style="{StaticResource Hint}" Margin="0,0,0,6" />
+                                <TextBlock Text="Reads audio stream formats, packets and levels from the current recorder without opening another device."
+                                           Style="{StaticResource Hint}" Margin="0,0,0,6" TextWrapping="Wrap" />
                                 <Button x:Name="ReadEndpointStatusButton" Content="Read current status" HorizontalAlignment="Left"
                                         Click="ReadEndpointStatus_Click" />
                                 <TextBlock x:Name="EndpointStatusText" Style="{StaticResource Hint}" Margin="0,4,0,0"
-                                           AutomationProperties.LiveSetting="Polite" />
+                                           AutomationProperties.LiveSetting="Polite" TextWrapping="Wrap" />
                             </StackPanel>
                         </Expander>
                     </StackPanel>

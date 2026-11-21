@@ -726,6 +726,8 @@ internal sealed partial class Recorder
             string? gameContext;
             string? gameId;
             Guid? collectionId;
+            EndpointTrack[] savedEndpointPlan;
+            EndpointTrack[] savedEndpointPreferences;
             lock (_gate)
             {
                 if (!IsRunning || generation != _replayGeneration ||
@@ -744,7 +746,11 @@ internal sealed partial class Recorder
                 gameId = _sessionGameId;
                 collectionId = AppProfile.IsPersonal && _lifecycle.Mode == RecordingMode.GameTriggered
                     ? Library.RecordingCollections.Resolve(s, gameId, _sessionGameExecutable) : null;
+                savedEndpointPlan = _runningEndpointPlan.ToArray();
+                savedEndpointPreferences = s.EndpointTracks.ToArray();
             }
+            var initialAudioMix = AppProfile.IsPersonal
+                ? RecordingAudioMix.Capture(savedEndpointPlan, savedEndpointPreferences) : null;
             long positionAtTick = requestedAtTick.HasValue ? Stopwatch.GetTimestamp() : 0;
             var anchors = candidates.Select(item => new CaptureEngine.ReplayAnchor { Sequence = item.Sequence, OffsetUs = -1 }).ToArray();
             string folder = gameContext ?? "Desktop";
@@ -821,6 +827,7 @@ internal sealed partial class Recorder
                     GameId = gameId,
                     RecordedCollectionId = collectionId,
                     RecordingSessionId = sessionId == Guid.Empty ? null : sessionId,
+                    InitialAudioMix = initialAudioMix,
                     Bookmarks = receipt.Markers.Select(mark => new ClipBookmark(mark.Offset.TotalSeconds, mark.Marker.Label ?? "Marker")
                     { SessionId = mark.Marker.SessionId }).ToArray(),
                 });

@@ -42,14 +42,16 @@ public sealed class RecordingSettingsViewTests
                 Assert.Empty(view.PlaybackPicker.Items);
                 Assert.False(view.AddPlaybackButton.IsEnabled);
 
-                EndpointTrack saved = new(EndpointFlow.Microphone, mic.Id, "Saved mic");
+                EndpointTrack saved = new(EndpointFlow.Microphone, mic.Id, "Saved mic", true, 65);
                 view.RenderEndpointRows([saved], [render], true);
                 Assert.Single(view.PlaybackPicker.Items);
                 Assert.Empty(view.MicrophonePicker.Items);
-                var track = Assert.IsType<DockPanel>(Assert.Single(view.EndpointRows.Children));
-                var reorder = Assert.IsType<StackPanel>(track.Children[0]);
-                Assert.All(reorder.Children.OfType<Button>(), button => Assert.Same(view.FindResource("IconButton"), button.Style));
-                var fields = Assert.IsType<StackPanel>(track.Children[2]);
+                var tile = Assert.IsType<Border>(Assert.Single(view.EndpointRows.Children));
+                var body = Assert.IsType<StackPanel>(tile.Child);
+                var heading = Assert.IsType<DockPanel>(body.Children[0]);
+                var toggle = Assert.IsType<CheckBox>(heading.Children[0]);
+                Assert.Equal("Record Microphone track Saved mic", AutomationProperties.GetName(toggle));
+                var fields = Assert.IsType<StackPanel>(heading.Children[2]);
                 var rename = Assert.IsType<Button>(fields.Children[0]);
                 Assert.Equal(saved.Label, rename.Content);
                 var nameEditor = Assert.IsType<TextBox>(fields.Children[1]);
@@ -57,10 +59,20 @@ public sealed class RecordingSettingsViewTests
                 rename.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
                 Assert.Equal(saved.Label, nameEditor.Text);
                 Assert.Equal(Visibility.Visible, nameEditor.Visibility);
-                Assert.Contains("Missing device (selection kept)", Assert.IsType<TextBlock>(fields.Children[2]).Text);
+                Assert.Contains("Device unavailable", Assert.IsType<TextBlock>(body.Children[1]).Text);
+                var volume = Assert.IsType<Slider>(body.Children[3]);
+                Assert.Equal(65, volume.Value);
+                Assert.Contains("Saved mic", AutomationProperties.GetName(volume));
+                var manage = Assert.IsType<Expander>(body.Children[4]);
+                Assert.False(manage.IsExpanded);
+                var options = Assert.IsType<StackPanel>(manage.Content);
+                var reorder = Assert.IsType<WrapPanel>(options.Children[0]);
+                Assert.Equal(3, reorder.Children.Count);
+                Assert.All(reorder.Children.Cast<Button>(), button =>
+                    Assert.NotEmpty(AutomationProperties.GetName(button)));
                 if (AppProfile.IsPersonal)
                 {
-                    var meter = Assert.IsType<StackPanel>(fields.Children[3]);
+                    var meter = Assert.IsType<StackPanel>(options.Children[1]);
                     Assert.Equal("microphone Saved mic activity", AutomationProperties.GetName(meter.Children[0]));
                     var actions = Assert.IsType<WrapPanel>(meter.Children[2]);
                     Assert.All(actions.Children.OfType<Button>(), button => Assert.Same(view.FindResource("TextButton"), button.Style));
