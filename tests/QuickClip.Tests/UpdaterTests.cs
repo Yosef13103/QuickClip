@@ -173,4 +173,23 @@ public sealed class UpdaterTests
         Assert.Equal("https://github.com/Yosef13103/QuickClip/releases/tag/personal-v1.2.0", update.PageUrl);
         Assert.Null(Updater.PickPersonalUpdate(json, V("1.2.0")));
     }
+
+    [Fact]
+    public void Personal_update_skips_intermediate_stable_versions()
+    {
+        var digest = new string('b', 64);
+        string json = $$"""
+        [
+          {"tag_name":"personal-v1.3.0","draft":false,"prerelease":false,"assets":[
+            {"name":"QuickClip-Personal-1.3.0-setup.exe","browser_download_url":"https://github.com/Yosef13103/QuickClip/releases/download/personal-v1.3.0/QuickClip-Personal-1.3.0-setup.exe","size":100,"digest":"sha256:{{digest}}"}
+          ]},
+          {"tag_name":"personal-v1.3.1","draft":false,"prerelease":false,"assets":[
+            {"name":"QuickClip-Personal-1.3.1-setup.exe","browser_download_url":"https://github.com/Yosef13103/QuickClip/releases/download/personal-v1.3.1/QuickClip-Personal-1.3.1-setup.exe","size":101,"digest":"sha256:{{digest}}"}
+          ]}
+        ]
+        """;
+        Assert.Equal(V("1.3.1"), Updater.PickPersonalUpdate(json, V("1.2.2"))!.Version);
+        Assert.Equal(V("1.3.1"), Updater.PickPersonalUpdate(json, V("1.3.0"))!.Version);
+        Assert.Null(Updater.PickPersonalUpdate(json, V("1.3.1")));
+    }
 }
