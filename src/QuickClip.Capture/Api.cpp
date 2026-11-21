@@ -75,14 +75,15 @@ namespace
     }
 
     int StartEngine(const QcConfig& config, bool endpointMode, const QcEndpointTrack* endpoints, int count, wchar_t* error, int length,
-        QcVideoOptions video = {}, const wchar_t* displayIdentity = nullptr, const QcGameWindow* game = nullptr)
+        QcVideoOptions video = {}, const wchar_t* displayIdentity = nullptr, const QcGameWindow* game = nullptr,
+        const QcGameWindow* companion = nullptr, int companionCount = 0)
     {
         std::unique_lock guard(g_engineLock);
         DrainMicrophoneTest();
         g_engine.reset();
         try
         {
-            auto engine = std::make_unique<qc::Engine>(config, endpointMode, endpoints, count, video, displayIdentity, game);
+            auto engine = std::make_unique<qc::Engine>(config, endpointMode, endpoints, count, video, displayIdentity, game, companion, companionCount);
             std::string message;
             if (engine->Start(message))
             {
@@ -360,6 +361,64 @@ extern "C"
             return 0;
         }
         return StartEngine(*config, count >= 0, endpoints, std::max(0, count), error, errorLength, *video, displayIdentity, game);
+    }
+
+
+    // Companion acquisition is isolated from all monitor capture backends.
+    __declspec(dllexport) int qc_start_companion(const QcConfig* config, const QcEndpointTrack* endpoints,
+        int count, const QcVideoOptions* video, const QcGameWindow* windows, int windowCount,
+        wchar_t* error, int errorLength)
+    {
+        if (!config || !video || !windows || windowCount < 1 || windowCount > 4 ||
+            count < -1 || count > 16 || (count > 0 && !endpoints) ||
+            video->nvencPreset < 0 || video->nvencPreset > 2 ||
+            config->outWidth < 64 || config->outWidth > 4096 ||
+            config->outHeight < 64 || config->outHeight > 4096 ||
+            (config->outWidth & 7) || (config->outHeight & 1))
+        {
+            CopyError("Invalid companion capture configuration.", error, errorLength);
+            return 0;
+        }
+        for (int i = 0; i < count; ++i)
+        {
+            if ((endpoints[i].flow != 0 && endpoints[i].flow != 1) ||
+                !endpoints[i].deviceId || !*endpoints[i].deviceId ||
+                !endpoints[i].title || !*endpoints[i].title)
+            {
+                CopyError("Invalid companion audio endpoint.", error, errorLength);
+                return 0;
+            }
+            for (int j = 0; j < i; ++j)
+                if (_wcsicmp(endpoints[i].deviceId, endpoints[j].deviceId) == 0)
+                {
+                    CopyError("Duplicate companion audio endpoint.", error, errorLength);
+                    return 0;
+                }
+        }
+        for (int i = 0; i < windowCount; ++i)
+        {
+            const auto& w = windows[i];
+            if (!w.handle || !w.thread || !w.process || w.started <= 0)
+            {
+                CopyError("Companion window identity is missing.", error, errorLength);
+                return 0;
+            }
+            for (int j = 0; j < i; ++j)
+                if (windows[j].handle == w.handle)
+                {
+                    CopyError("Duplicate companion window.", error, errorLength);
+                    return 0;
+                }
+        }
+        return StartEngine(*config, count >= 0, endpoints, std::max(0, count),
+            error, errorLength, *video, nullptr, nullptr, windows, windowCount);
+    }
+
+    __declspec(dllexport) int qc_update_companion(const QcGameWindow* windows, int count)
+    {
+        if (!windows || count < 1 || count > 4) return 0;
+        std::shared_lock guard(g_engineLock);
+        return g_engine && g_engine->UpdateCompanionWindows(windows, count) ? 1 : 0;
     }
 
     __declspec(dllexport) int qc_start_with_display(const QcConfig* config, const QcEndpointTrack* endpoints, int count,

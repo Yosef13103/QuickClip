@@ -19,7 +19,7 @@
                     <TextBlock x:Name="SubtitleText" Style="{StaticResource Hint}" Margin="0,4,0,0" TextWrapping="Wrap" />
                 </StackPanel>
                 <DockPanel DockPanel.Dock="Bottom" Margin="0,18,0,0" LastChildFill="False">
-                    <Button DockPanel.Dock="Right" Style="{DynamicResource AccentButtonStyle}" Content="Got it" Padding="22,6" Click="Close_Click" />
+                    <Button VerticalContentAlignment="Center" HorizontalContentAlignment="Center" MinHeight="{DynamicResource QuickClipVisual36}" MinWidth="{DynamicResource QuickClipVisual36}" DockPanel.Dock="Right" Style="{DynamicResource AccentButtonStyle}" Content="Got it" Padding="22,6" Click="Close_Click" />
                     <Button x:Name="PageButton" DockPanel.Dock="Left" Style="{StaticResource TextButton}" Click="Page_Click">
                         <StackPanel Orientation="Horizontal">
                             <TextBlock FontFamily="{StaticResource IconFont}" Text="&#xE8A7;" VerticalAlignment="Center" Margin="0,0,7,0" />

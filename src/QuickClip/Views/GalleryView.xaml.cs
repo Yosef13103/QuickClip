@@ -24,7 +24,19 @@ public partial class GalleryView : UserControl
     private readonly LinkedList<ClipItem> _decodedThumbnails = new();
     private readonly Dictionary<ClipItem, LinkedListNode<ClipItem>> _thumbnailNodes = [];
 
-    private sealed record Folder(string Name, int Count, DateTime Latest);
+    private sealed record Folder(GalleryFolderSelection Selection, string Name, int Count, DateTime Latest,
+        bool Expandable = false, bool Expanded = false, int Depth = 0,
+        string? Hint = null, string? DisplayPath = null)
+    {
+        public Visibility ExpandVisibility => Expandable ? Visibility.Visible : Visibility.Collapsed;
+        public string ExpandGlyph => Expanded ? "\uE70D" : "\uE76C";
+        public Thickness Indent => new(Depth * 16, 0, 0, 0);
+    }
+    private GalleryFolderSelection _folderSelection = new(GalleryFolderKey.All);
+    private readonly HashSet<GalleryFolderKey> _expandedGames = [];
+    private readonly Dictionary<string, GalleryFolderKey> _displayFolderKeys = new(StringComparer.OrdinalIgnoreCase);
+    private LibraryCollection[] _collectionDefinitions = [];
+    private LibraryTagDefinition[] _tagDefinitions = [];
 
     private const double CardGap = 14; // must match the card's right margin
     private const double PreferredCardWidth = 440;
@@ -62,7 +74,9 @@ public partial class GalleryView : UserControl
     private string[] _loadedSources = [];
     private string[] _availableSources = [];
     private int _columns = 3;
-    private bool _loading, _reloadQueued, _released, _settingLists;
+    private bool _loading, _reloadQueued, _rereadQueued, _released, _settingLists;
+    private long _loadedOrganizationRevision = -1;
+    private QuickClip.Discovery.GameCatalogSettings? _loadedFolderCatalog;
     private bool _updatingSelection, _editingAnnotations;
     private Task? _annotationJob;
     private GalleryClipFilter _filter = new("", "", false, false);
@@ -100,7 +114,10 @@ public partial class GalleryView : UserControl
     public GalleryView()
     {
         InitializeComponent();
+        GallerySidebarColumn.Width = new GridLength(Math.Clamp(
+            AppSettings.Current.GallerySidebarWidth, 190, 520));
         GalleryDetailsEditor.KnownTags = () => KnownTags;
+        GalleryDetailsEditor.AvailableTagsForGame = AvailableTagsForGame;
         GalleryDetailsEditor.AutoSaveEnabled = AppProfile.IsPersonal;
         GalleryDetailsEditor.AutoSaved += ApplyClipDetails;
         AnnotationActions = PersonalLibrary.Current;
@@ -148,6 +165,8 @@ public partial class GalleryView : UserControl
                 _hoverPreview.Stop();
                 return;
             }
+            if (PersonalLibrary.Enabled && (_loadedOrganizationRevision != PersonalLibrary.Current.OrganizationRevision || !ReferenceEquals(_loadedFolderCatalog, AppSettings.Current.Games)))
+                _ = ReloadAsync(rereadIndex: true);
             var settings = AppSettings.Current;
             if (_renderedZone != null && !Equals(_renderedZone, TimeZoneInfo.Local)) ShowFolder(preserveScroll: true);
             var sources = SavedRecordingFolders.Additional(settings);
@@ -158,6 +177,19 @@ public partial class GalleryView : UserControl
                 !_loadedExclusions.SequenceEqual(settings.LibraryExclusions ?? [])) _ = ReloadAsync();
         };
         Loaded += (_, _) => _ = ReloadAsync();
+    }
+
+    private void GallerySidebarSplitter_DragCompleted(object sender, DragCompletedEventArgs e)
+    {
+        var settings = AppSettings.Current;
+        int width = Math.Clamp((int)Math.Round(GallerySidebarColumn.ActualWidth), 190, 520);
+        if (settings.GallerySidebarWidth == width) return;
+        int previous = settings.GallerySidebarWidth;
+        settings.GallerySidebarWidth = width;
+        if (settings.TrySave()) return;
+        settings.GallerySidebarWidth = previous;
+        GallerySidebarColumn.Width = new GridLength(Math.Clamp(previous, 190, 520));
+        ShowStatus("Could not save the Gallery sidebar width.");
     }
 
     /// <summary>Stops watching the folder, closes the project preview and drops the thumbnails (the window is closing).</summary>
@@ -185,7 +217,14 @@ public partial class GalleryView : UserControl
         await ProjectPane.CloseAsync();
     }
 
-    private void OnClipSaved(SavedClip clip) => Dispatcher.BeginInvoke(() => QueueScopedReload(clip.Path));
+    private void OnClipSaved(SavedClip clip) => Dispatcher.BeginInvoke(async () =>
+    {
+        if (_released) return;
+        try { await PersonalLibrary.Current.RepairRecordedCollectionAsync(clip.Path, _lifetime.Token); }
+        catch (OperationCanceledException) when (_lifetime.IsCancellationRequested) { }
+        catch (Exception ex) { Log.Failure(DiagnosticCategory.Library, "Could not recover saved collection metadata", ex); }
+        if (!_released) QueueScopedReload(clip.Path);
+    });
 
     private void QueueScopedReload(string path)
     {
@@ -224,9 +263,12 @@ public partial class GalleryView : UserControl
         if (_loading)
         {
             _reloadQueued = true;
+            _rereadQueued |= rereadIndex;
             return;
         }
         _loading = true;
+        long organizationRevision = PersonalLibrary.Current.OrganizationRevision;
+        rereadIndex |= organizationRevision != _loadedOrganizationRevision;
         using var activity = QuickClip.Shell.BackgroundActivity.Begin("Refreshing Gallery");
         try
         {
@@ -265,6 +307,11 @@ public partial class GalleryView : UserControl
                     {
                         _clips = cached;
                         await LoadDraftRangesAsync();
+                        if (_released) return;
+                        var catalog = AppSettings.Current.Games;
+                        _collectionDefinitions = await PersonalLibrary.Current.ReadCollectionsAsync(_lifetime.Token);
+                        _loadedFolderCatalog = catalog;
+                        _tagDefinitions = await PersonalLibrary.Current.ReadTagDefinitionsAsync(_lifetime.Token);
                         if (_released) return;
                         PublishClips(previous);
                         previous = _clips.ToDictionary(c => c.Path, StringComparer.OrdinalIgnoreCase);
@@ -339,6 +386,22 @@ public partial class GalleryView : UserControl
             if (AppProfile.IsPersonal) await LoadDraftRangesAsync();
             if (_released) return;
             activity.Report("Updating Gallery view");
+            if (PersonalLibrary.Enabled)
+            {
+                var catalog = AppSettings.Current.Games;
+                _collectionDefinitions = await PersonalLibrary.Current.ReadCollectionsAsync(_lifetime.Token);
+                _loadedFolderCatalog = catalog;
+            }
+            else _collectionDefinitions = [];
+            _tagDefinitions = await PersonalLibrary.Current.ReadTagDefinitionsAsync(_lifetime.Token);
+            if (_released) return;
+            _loadedOrganizationRevision = organizationRevision;
+            if (organizationRevision != PersonalLibrary.Current.OrganizationRevision)
+            {
+                _reloadQueued = true;
+                _rereadQueued = true;
+            }
+            _searchCancellation?.Cancel();
             PublishClips(previous);
         }
         catch (Exception ex)
@@ -357,8 +420,10 @@ public partial class GalleryView : UserControl
             if (_reloadQueued && !_released)
             {
                 _reloadQueued = false;
+                bool reread = _rereadQueued;
+                _rereadQueued = false;
                 // Schedule after this lease exits, including early-return paths.
-                _ = Dispatcher.BeginInvoke(new Action(() => _ = ReloadAsync()));
+                _ = Dispatcher.BeginInvoke(new Action(() => _ = ReloadAsync(rereadIndex: reread)));
             }
         }
     }
@@ -460,18 +525,163 @@ public partial class GalleryView : UserControl
 
     // ---- folders ------------------------------------------------------------------------------
 
+    private bool _sortFoldersByName;
+    private bool _sortFoldersDescending = true;
+
+    private void FolderNameSort_Click(object sender, RoutedEventArgs e)
+    {
+        _sortFoldersDescending = _sortFoldersByName && !_sortFoldersDescending;
+        _sortFoldersByName = true;
+        RebuildFolders(preserveScroll: true);
+    }
+
+    private void FolderDateSort_Click(object sender, RoutedEventArgs e)
+    {
+        _sortFoldersDescending = _sortFoldersByName || !_sortFoldersDescending;
+        _sortFoldersByName = false;
+        RebuildFolders(preserveScroll: true);
+    }
+
+    private IEnumerable<T> SortFolders<T>(IEnumerable<T> source, Func<T,string> name, Func<T,DateTime> date) =>
+        GalleryFolderSort.Apply(source, name, date, _sortFoldersByName, _sortFoldersDescending);
+
+    private static void UpdateSortButton(Button button, bool alphabetical, bool descending, bool active, string nextAction)
+    {
+        var glyph = new System.Windows.Controls.Canvas { Width = 24, Height = 24, IsHitTestVisible = false };
+        System.Windows.Shapes.Path Stroke(string data)
+        {
+            var path = new System.Windows.Shapes.Path
+            {
+                Data = System.Windows.Media.Geometry.Parse(data), StrokeThickness = 1.7,
+                StrokeStartLineCap = System.Windows.Media.PenLineCap.Round,
+                StrokeEndLineCap = System.Windows.Media.PenLineCap.Round,
+                StrokeLineJoin = System.Windows.Media.PenLineJoin.Round
+            };
+            path.SetResourceReference(System.Windows.Shapes.Shape.StrokeProperty, "PrimaryTextBrush");
+            return path;
+        }
+        glyph.Children.Add(Stroke(alphabetical
+            ? (descending ? "M3,3 H11 L3,10 H11 M3,21 L7,14 L11,21 M4.5,19 H9.5"
+                : "M3,10 L7,3 L11,10 M4.5,8 H9.5 M3,14 H11 L3,21 H11")
+            : "M13,11 A6,6 0 1 1 1,11 A6,6 0 1 1 13,11 M7,7 V11 L10,13"));
+        glyph.Children.Add(Stroke(descending ? "M18,4 V20 M14,16 L18,20 L22,16" : "M18,20 V4 M14,8 L18,4 L22,8"));
+        button.Content = new Viewbox { Child = glyph, Width = 22, Height = 22 };
+        button.SetResourceReference(Control.BorderBrushProperty, active ? "AccentFillColorDefaultBrush" : "BorderBrush");
+        string current = active ? (alphabetical ? (descending ? "Z to A" : "A to Z") : (descending ? "Newest clip first" : "Oldest clip first")) + ". " : "";
+        button.ToolTip = current + nextAction;
+        System.Windows.Automation.AutomationProperties.SetName(button, current + nextAction);
+    }
+
     private void RebuildFolders(bool preserveScroll = false)
     {
-        var folders = new List<Folder> { new(ClipLibrary.AllClips, _clips.Count, _clips.FirstOrDefault()?.Created ?? DateTime.MinValue) };
-        folders.AddRange(_clips.GroupBy(c => c.Folder, StringComparer.OrdinalIgnoreCase)
-            .Select(g => new Folder(g.First().Folder, g.Count(), g.Max(c => c.Created)))
-            .OrderByDescending(f => f.Latest));
-        if (folders.All(f => !string.Equals(f.Name, _folder, StringComparison.OrdinalIgnoreCase))) _folder = ClipLibrary.AllClips;
+        bool nameDescending = _sortFoldersByName && _sortFoldersDescending;
+        bool dateDescending = _sortFoldersByName || _sortFoldersDescending;
+        string nameSort = _sortFoldersByName && !_sortFoldersDescending ? "Sort folders Z to A" : "Sort folders A to Z";
+        string dateSort = !_sortFoldersByName && _sortFoldersDescending ? "Sort folders by oldest clip" : "Sort folders by newest clip";
+        UpdateSortButton(FolderNameSort, true, nameDescending, _sortFoldersByName, nameSort);
+        UpdateSortButton(FolderDateSort, false, dateDescending, !_sortFoldersByName, dateSort);
+        var visible = _clips.ToArray();
+        var folders = new List<Folder> { new(new(GalleryFolderKey.All), ClipLibrary.AllClips, visible.Length,
+            visible.FirstOrDefault()?.Created ?? DateTime.MinValue) };
+        // Filesystem hierarchy is presentation-only: do not rewrite legacy game metadata
+        // or assign a catalog ID merely because folder names look alike.
+        var mapped = visible.Select(clip =>
+        {
+            var disk = GalleryDiskFolders.Locate(clip.Path, _availableSources);
+            return (Clip: clip, Disk: disk, Name: GalleryDiskFolders.PresentedGame(clip.Details, disk));
+        }).ToArray();
+        var unambiguousIds = mapped.Where(item => item.Clip.Details.GameId != null)
+            .GroupBy(item => item.Name, StringComparer.OrdinalIgnoreCase)
+            .Select(group => (Name: group.Key, Ids: group.Select(item => item.Clip.Details.GameId!)
+                .Distinct(StringComparer.Ordinal).Take(2).ToArray()))
+            .Where(group => group.Ids.Length == 1)
+            .ToDictionary(group => group.Name, group => group.Ids[0], StringComparer.OrdinalIgnoreCase);
+        _displayFolderKeys.Clear();
+        foreach (var item in mapped)
+            _displayFolderKeys[item.Clip.Path] = GalleryDiskFolders.PresentedKey(item.Clip.Details,
+                item.Name, unambiguousIds.GetValueOrDefault(item.Name));
+
+        var associatedNames = mapped.Where(item => item.Clip.Details.GameId != null)
+            .Select(item => item.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var scopedDefinitions = _collectionDefinitions.Where(d => d.GameId != null).ToLookup(d => d.GameId);
+        foreach (var group in SortFolders(mapped.GroupBy(item => _displayFolderKeys[item.Clip.Path]),
+                     g => g.First().Name, g => g.Max(item => item.Clip.Created)))
+        {
+            var entries = group.ToArray();
+            var clips = entries.Select(item => item.Clip).ToArray();
+            var key = group.Key;
+            string name = entries[0].Name;
+            if (key.GameId == null && associatedNames.Contains(name)) name += " (unassociated)";
+            var definitions = scopedDefinitions[key.GameId]
+                .Concat(clips.Select(c => c.Details.Collection).OfType<LibraryCollection>())
+                .DistinctBy(d => d.Id).OrderBy(d => d.Name, StringComparer.OrdinalIgnoreCase).ToArray();
+
+            // Use full physical paths as child identities. Same-named children under
+            // different games or Gallery roots never share an item or selection.
+            var physical = new Dictionary<string,
+                (string? Parent, string Name, int Depth, int Count, DateTime Latest, string DisplayPath)>(
+                StringComparer.OrdinalIgnoreCase);
+            foreach (var item in entries)
+            {
+                if (item.Disk is not { } disk) continue;
+                foreach (var child in disk.ChildAncestors())
+                {
+                    string relative = Path.GetRelativePath(Path.Combine(disk.Root, disk.Game), child.Path)
+                        .Replace(Path.DirectorySeparatorChar, '/');
+                    string display = entries[0].Name + " / " + relative;
+                    if (physical.TryGetValue(child.Path, out var prior))
+                        physical[child.Path] = (child.Parent, child.Name, child.Depth,
+                            prior.Count + 1, item.Clip.Created > prior.Latest ? item.Clip.Created : prior.Latest, display);
+                    else
+                        physical.Add(child.Path, (child.Parent, child.Name, child.Depth, 1, item.Clip.Created, display));
+                }
+            }
+            bool hasChildren = definitions.Length > 0 || physical.Count > 0;
+            bool expanded = hasChildren && _expandedGames.Contains(key);
+            folders.Add(new(new(key), name, clips.Length, clips.Max(c => c.Created), hasChildren, expanded));
+            if (!expanded) continue;
+
+            void AddDiskChildren(string? parent)
+            {
+                var direct = physical.Where(item => StringComparer.OrdinalIgnoreCase.Equals(item.Value.Parent, parent));
+                foreach (var child in SortFolders(direct, item => item.Value.Name, item => item.Value.Latest))
+                {
+                    var entry = child.Value;
+                    folders.Add(new(new(key, true, null, child.Key), entry.Name, entry.Count,
+                        entry.Latest, Depth: entry.Depth, Hint: child.Key, DisplayPath: entry.DisplayPath));
+                    AddDiskChildren(child.Key);
+                }
+            }
+            AddDiskChildren(null);
+
+            if (definitions.Length == 0) continue;
+            folders.Add(new(new(key, true), "Uncategorized", clips.Count(c => c.Details.Collection == null),
+                DateTime.MinValue, Depth: 1));
+            foreach (var definition in SortFolders(definitions, d => d.Name,
+                         d => clips.Where(c => c.Details.Collection?.Id == d.Id)
+                            .Select(c => c.Created).DefaultIfEmpty(DateTime.MinValue).Max()))
+                folders.Add(new(new(key, true, definition.Id), definition.Name,
+                    clips.Count(c => c.Details.Collection?.Id == definition.Id), DateTime.MinValue, Depth: 1));
+        }
+        var chosen = folders.FirstOrDefault(f => f.Selection == _folderSelection)
+            ?? folders.FirstOrDefault(f => f.Selection == new GalleryFolderSelection(_folderSelection.Game))
+            ?? folders[0];
+        _folderSelection = chosen.Selection;
+        _folder = chosen.Name;
         _settingLists = true;
         FolderList.ItemsSource = folders;
-        FolderList.SelectedItem = _openProject != null ? null : folders.First(f => string.Equals(f.Name, _folder, StringComparison.OrdinalIgnoreCase));
+        FolderList.SelectedItem = _openProject != null ? null : chosen;
         _settingLists = false;
         ShowFolder(preserveScroll);
+    }
+
+    private void ExpandFolder_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not Button { DataContext: Folder { Expandable: true } f }) return;
+        e.Handled = true;
+        if (!_expandedGames.Add(f.Selection.Game)) _expandedGames.Remove(f.Selection.Game);
+        _searchCancellation?.Cancel();
+        RebuildFolders(preserveScroll: true);
     }
 
     private void FolderList_SelectionChanged(object sender, SelectionChangedEventArgs e)
@@ -479,7 +689,9 @@ public partial class GalleryView : UserControl
         if (_settingLists || FolderList.SelectedItem is not Folder f) return;
         CloseStorage();
         if (_openProject != null) CloseProject();
-        if (f.Name == _folder) return;
+        if (f.Selection == _folderSelection) return;
+        _searchCancellation?.Cancel();
+        _folderSelection = f.Selection;
         _folder = f.Name;
         ShowFolder();
     }
@@ -497,16 +709,17 @@ public partial class GalleryView : UserControl
 
     private async Task SearchAsync()
     {
-        var filter = new GalleryClipFilter(ClipSearchBox.Text.Trim(), TagSearchBox.Text.Trim(),
-            FavoritesFilter.IsChecked == true, FavoritesSort.IsChecked == true);
-        string folder = _folder;
+        var filter = new GalleryClipFilter(ClipSearchBox.Text.Trim(), "",
+            FavoritesFilter.IsChecked == true, false)
+        { DefinitionFilters = _exactTags.Select(t => new GalleryTagFilter(t.Id, t.Name)).ToArray(), MatchAllTags = _matchAllTags };
+        var folder = _folderSelection;
         var clips = _clips;
         _searchCancellation?.Cancel();
         using var cancellation = new CancellationTokenSource();
         _searchCancellation = cancellation;
         try
         {
-            var matches = await Task.Run(() => filter.Apply(clips, folder, cancellation.Token), cancellation.Token);
+            var matches = await Task.Run(() => filter.Apply(clips.Where(c => folder.Matches(c.Details)), ClipLibrary.AllClips, cancellation.Token), cancellation.Token);
             if (cancellation.IsCancellationRequested || _released) return;
             _filter = filter;
             ApplyRows(matches, preserveScroll: true);
@@ -520,24 +733,33 @@ public partial class GalleryView : UserControl
 
     private void RefreshKnownTags()
     {
-        KnownTags = ClipTagChoices.Match(_clips.SelectMany(clip => clip.Details.Tags), "", []).ToArray();
-        ExistingTagsCombo.ItemsSource = new[] { "Tags…" }.Concat(KnownTags);
-        ExistingTagsCombo.SelectedIndex = 0;
-        ExistingTagsCombo.IsEnabled = KnownTags.Count > 0;
+        if (PersonalLibrary.Enabled)
+        {
+            _tagDefinitions = _tagDefinitions.Concat(_clips.SelectMany(c => c.Details.TagDefinitions))
+                .DistinctBy(t => t.Id).ToArray();
+            KnownTags = ClipTagChoices.Match(_tagDefinitions.Where(t => t.GameId == null).Select(t => t.Name), "", []).ToArray();
+            _exactTags = _exactTags.Select(t => t.Id is long id
+                ? _tagDefinitions.FirstOrDefault(d => d.Id == id) is { } definition ? TagChoiceFor(definition) : null
+                : t).OfType<TagFilterChoice>().ToArray();
+        }
+        else KnownTags = ClipTagChoices.Match(_clips.SelectMany(clip => clip.Details.Tags), "", []).ToArray();
+        _filter = _filter with { DefinitionFilters = _exactTags.Select(t => new GalleryTagFilter(t.Id, t.Name)).ToArray() };
+        RefreshTagFilterButton();
     }
 
-    private void ExistingTags_Changed(object sender, SelectionChangedEventArgs e)
-    {
-        if (ExistingTagsCombo.SelectedIndex <= 0 || ExistingTagsCombo.SelectedItem is not string tag) return;
-        TagSearchBox.Text = tag;
-        ExistingTagsCombo.SelectedIndex = 0;
-    }
+    internal IReadOnlyList<string> AvailableTagsForGame(string? gameId) => PersonalLibrary.Enabled
+        ? ClipTagChoices.Match(_tagDefinitions.Where(t => t.AppliesTo(gameId)).Select(t => t.Name), "", []).ToArray()
+        : KnownTags;
 
     private void ClearFilters_Click(object sender, RoutedEventArgs e)
     {
         ClipSearchBox.Clear();
-        TagSearchBox.Clear();
-        FavoritesFilter.IsChecked = FavoritesSort.IsChecked = false;
+        _exactTags = [];
+        _matchAllTags = true;
+        _filter = _filter with { DefinitionFilters = _exactTags.Select(t => new GalleryTagFilter(t.Id, t.Name)).ToArray() };
+        RefreshTagFilterButton();
+        OrganizationFilter_Changed(this, new RoutedEventArgs());
+        FavoritesFilter.IsChecked = false;
     }
 
     internal event Action<string, ClipDetails>? DetailsCommitted;
@@ -554,7 +776,7 @@ public partial class GalleryView : UserControl
         {
             if (!saved.TryGetValue(clip.Path, out var details)) continue;
             if (clip.Details.IndexId == details.IndexId && clip.Details.IndexRevision > details.IndexRevision) continue;
-            regroup |= clip.Folder != details.Game;
+            regroup |= clip.Folder != details.Game || clip.Details.GameId != details.GameId || clip.Details.Collection != details.Collection || clip.Details.RecordingSessionId != details.RecordingSessionId;
             clip.ApplyDetails(details);
         }
         if (saved.Count == 0) return;
@@ -566,15 +788,21 @@ public partial class GalleryView : UserControl
         }
         RefreshKnownTags();
         if (regroup || _filter.FavoritesFirst) _renderedColumns = 0;
-        if (regroup) RebuildFolders(preserveScroll: true);
+        if (regroup) { RebuildFolders(preserveScroll: true); PlaybackLibraryChanged?.Invoke(); }
         else ShowFolder(preserveScroll: true);
     }
+
+    private GalleryFolderKey FolderKeyFor(ClipItem clip) =>
+        _displayFolderKeys.TryGetValue(clip.Path, out var key) ? key : GalleryFolderKey.For(clip.Details);
+
+    private bool MatchesFolder(ClipItem clip) =>
+        _folderSelection.Matches(clip.Details, clip.Path, FolderKeyFor(clip));
 
     private void ShowFolder(bool preserveScroll = false)
     {
         if (_searchCancellation is { IsCancellationRequested: false })
             OrganizationFilter_Changed(this, new RoutedEventArgs());
-        ApplyRows(_filter.Apply(_clips, _folder), preserveScroll);
+        ApplyRows(_filter.Apply(_clips.Where(MatchesFolder), ClipLibrary.AllClips), preserveScroll);
     }
 
     private IReadOnlyList<ClipItem> _filteredClips = [];
@@ -583,9 +811,13 @@ public partial class GalleryView : UserControl
 
     private void ApplyRows(IReadOnlyList<ClipItem> clips, bool preserveScroll)
     {
-        FolderTitle.Text = _folder;
+        FolderTitle.Text = _folderSelection.IsChild && FolderList.ItemsSource is List<Folder> folders
+            ? folders.FirstOrDefault(f => f.Selection == _folderSelection)?.DisplayPath ??
+              (folders.FirstOrDefault(f => f.Selection == new GalleryFolderSelection(_folderSelection.Game))?.Name ?? "") + " / " + _folder
+            : _folder;
         FolderInfo.Text = clips.Count == 0 ? "" : $"{clips.Count} clip{(clips.Count == 1 ? "" : "s")}  ·  {Fmt.Size(clips.Sum(c => c.Size))}";
         var zone = TimeZoneInfo.Local;
+        UpdateGameHub(clips);
         if (_renderedColumns != _columns || _renderedFavoritesFirst != _filter.FavoritesFirst ||
             !Equals(_renderedZone, zone) || !_filteredClips.SequenceEqual(clips))
         {
@@ -792,6 +1024,7 @@ public partial class GalleryView : UserControl
             if (entry.Tag is "share-profiles")
                 SharingDialogs.Populate(entry.Items, Window.GetWindow(this), profile => _ = ClipSharing.ShareAsync(item.Path, profile));
             if (entry.Tag is "details" or "favorite") entry.Visibility = PersonalAnnotations ? Visibility.Visible : Visibility.Collapsed;
+            if (entry.Tag is "collection") entry.Visibility = PersonalLibrary.Enabled ? Visibility.Visible : Visibility.Collapsed;
             if (entry.Tag is "favorite") entry.Header = item.IsFavorite ? "Remove from favorites" : "Add to favorites";
             if (entry.Tag as string == "copy") entry.Header = count == 1 ? "Copy to folder…" : $"Copy{clips} to folder…";
             if (entry.Tag as string != "projects") continue;
@@ -826,13 +1059,29 @@ public partial class GalleryView : UserControl
     private async void FavoriteCard_Click(object sender, RoutedEventArgs e)
     {
         if (ItemOf(sender) is not { } item) return;
+        if (_editingAnnotations || sender is not Button button) return;
         bool next = !item.IsFavorite;
-        await UpdateAnnotationsAsync([item], favorite: next);
+        button.SetCurrentValue(UIElement.IsEnabledProperty, false);
+        var animation = new System.Windows.Media.Animation.DoubleAnimation(0.55, 1,
+            TimeSpan.FromMilliseconds(280)) { AutoReverse = true, RepeatBehavior = System.Windows.Media.Animation.RepeatBehavior.Forever };
+        button.BeginAnimation(UIElement.OpacityProperty, animation);
+        try { await UpdateAnnotationsAsync([item], favorite: next); }
+        finally
+        {
+            button.BeginAnimation(UIElement.OpacityProperty, null);
+            button.SetCurrentValue(UIElement.IsEnabledProperty, true);
+        }
     }
 
     private async void FavoriteMenu_Click(object sender, RoutedEventArgs e)
     {
         if (ItemOf(sender) is { } item) await UpdateAnnotationsAsync([item], favorite: !item.IsFavorite);
+    }
+
+    private async void EditTagsMenu_Click(object sender, RoutedEventArgs e)
+    {
+        if (ItemOf(sender) is { } item)
+            await ManageSelectedTagsAsync(explicitClips: item.IsSelected ? CurrentClips.Where(c => c.IsSelected).ToArray() : [item]);
     }
 
     private void OrganizeSelected_Click(object sender, RoutedEventArgs e)
@@ -850,7 +1099,19 @@ public partial class GalleryView : UserControl
         favorite.Click += async (_, _) => await UpdateAnnotationsAsync(CurrentClips.Where(clip => clip.IsSelected).ToArray(), favorite: true);
         var unfavorite = new MenuItem { Header = "Remove from favorites" };
         unfavorite.Click += async (_, _) => await UpdateAnnotationsAsync(CurrentClips.Where(clip => clip.IsSelected).ToArray(), favorite: false);
-        menu.Items.Add(tag);
+        if (PersonalLibrary.Enabled)
+        {
+            var manage = new MenuItem { Header = "Manage tags…" };
+            manage.Click += async (_, _) => await ManageSelectedTagsAsync();
+            menu.Items.Add(manage);
+            var collection = new MenuItem { Header = "Move to folder..." };
+            collection.Click += async (_, _) => await AssignCollectionToAsync(CurrentClips.Where(c => c.IsSelected).ToArray());
+            menu.Items.Add(collection);
+            var replace = new MenuItem { Header = "Replace tag…" };
+            replace.Click += async (_, _) => await ManageSelectedTagsAsync(replace: true);
+            menu.Items.Add(replace);
+        }
+        else menu.Items.Add(tag);
         menu.Items.Add(favorite);
         menu.Items.Add(unfavorite);
         menu.IsOpen = true;
@@ -873,7 +1134,9 @@ public partial class GalleryView : UserControl
         try
         {
             var targets = clips.Select(ClipAnnotationTarget.For).ToArray();
-            var job = WithProgressAsync("Updating annotations", targets.Length,
+            var job = targets.Length == 1 && favorite.HasValue && addTag == null
+                ? AnnotationActions.ApplyAsync(targets, addTag, favorite, CancellationToken.None)
+                : WithProgressAsync("Updating annotations", targets.Length,
                 _ => AnnotationActions.ApplyAsync(targets, addTag, favorite, CancellationToken.None));
             _annotationJob = job;
             var results = await job;
@@ -1294,7 +1557,7 @@ public partial class GalleryView : UserControl
         ClipsPane.Visibility = Visibility.Visible;
         _settingLists = true;
         ProjectList.SelectedItem = null;
-        FolderList.SelectedItem = (FolderList.ItemsSource as List<Folder>)?.FirstOrDefault(f => f.Name == _folder);
+        FolderList.SelectedItem = (FolderList.ItemsSource as List<Folder>)?.FirstOrDefault(f => f.Selection == _folderSelection);
         _settingLists = false;
     }
 

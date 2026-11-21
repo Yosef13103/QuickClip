@@ -3,7 +3,7 @@ using System.Windows;
 
 namespace QuickClip;
 
-internal sealed record InterfaceScale(int Text = 100, int Controls = 100)
+internal sealed record InterfaceScale(int Text = 110, int Controls = 100)
 {
     public const int Minimum = 90;
     public const int Maximum = 125;

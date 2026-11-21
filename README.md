@@ -4,20 +4,19 @@
 
 QuickClip Personal is a free, open-source instant-replay recorder, clip library and video editor for Windows. I built this fork to make everyday gameplay clipping easier: capture the last few moments with a hotkey, keep game, chat and microphone audio independently editable, and share clips without juggling several applications.
 
-[Download the latest release](https://github.com/Yosef13103/QuickClip/releases/latest) · [What's new in v1.2.2](docs/releases/personal-v1.2.2.md) · [Report an issue](https://github.com/Yosef13103/QuickClip/issues) · [License](LICENSE)
+[Download the latest release](https://github.com/Yosef13103/QuickClip/releases/latest) · [What's new in v1.3.0](docs/releases/personal-v1.3.0.md) · [Report an issue](https://github.com/Yosef13103/QuickClip/issues) · [License](LICENSE)
 
-## What's new in v1.2.2
+## What's new in v1.3.0
 
-- Resolve shared executable ownership directly in Games settings.
-- Keep other eligible game executables available when a shared file needs attention.
-- Improve shared-file labels and exclude a known dedicated-server executable from automatic targeting.
-
-See [v1.2.2 release notes](docs/releases/personal-v1.2.2.md) for details.
+- Opt-in Discord capture when no higher-priority game or manual desktop session is recording, with multi-window layout and call/open/manual triggers.
+- Expanded Gallery organization: game-scoped tags, collections, nested physical folders, adjustable sidebar, and improved labels.
+- Per-game recording preferences, updated Sources navigation, and simpler Basic/Advanced controls.
+- Continued instant replay, individually editable audio stems, size-aware sharing, and local media jobs.
 
 ## How it works
 
 1. **Set up:** Choose a clip folder, audio devices, recording quality, permitted displays and game libraries. Guided setup helps new users get started.
-2. **Play:** Enable Instant Replay. QuickClip detects eligible games and records their authorized display into a rolling encoded buffer. Manual desktop capture is also available.
+2. **Play:** Enable Instant Replay. QuickClip detects eligible games and records their authorized display into a rolling encoded buffer. Opt-in Discord window capture can run when no higher-priority game or manual desktop recording is active.
 3. **Clip:** Press **Alt+F10** (configurable) or select Save Clip to save the previous moments.
 4. **Find and edit:** Browse the Gallery, rename clips, add tags and bookmarks, trim, crop and mix individual audio tracks.
 5. **Share:** Export a standalone video or select a sharing profile to create a size-limited MP4 ready to attach or paste into a supported app.
@@ -27,9 +26,9 @@ See [v1.2.2 release notes](docs/releases/personal-v1.2.2.md) for details.
 | Area | Features |
 | --- | --- |
 | Game discovery | Steam, Epic, GOG, Xbox, EA, Riot, Battle.net, Ubisoft, Rockstar, Heroic, Origin, Amazon Games and itch.io; local collections and exact executable selection |
-| Recording | Game-aware replay, manual desktop capture, configurable duration, resolution, FPS, bitrate and encoding; GPU-dependent hardware acceleration |
+| Recording | Game-aware replay, manual desktop capture, opt-in Discord companion capture, per-game recording profiles, configurable duration, resolution, FPS, bitrate and encoding; GPU-dependent hardware acceleration |
 | Audio | Independent game, chat and microphone sources; playable default mix plus editable stems; endpoint selection and microphone testing |
-| Gallery | Search, date/game grouping, SQLite-backed indexing, tags, favorites, bookmarks, projects, multi-select, Recycle Bin and Undo |
+| Gallery | Search, date/game grouping, nested folder navigation, game-scoped tags and collections, adjustable sidebar, favorites, bookmarks, projects, Recycle Bin and Undo |
 | Playback and editing | Gallery hover previews, Player, persistent edit drafts, fullscreen playback, trim, crop, audio levels and additional sounds |
 | Sharing and export | Named sharing profiles, custom decimal MB limits, Original or capped exports, clipboard attachments, queued jobs, cancellation and retry where safe |
 | Settings and feedback | Basic/Advanced modes, guided setup, themes, custom palettes, recording HUD, configurable sounds and visual notifications |
@@ -55,13 +54,13 @@ Open the [latest GitHub release](https://github.com/Yosef13103/QuickClip/release
 
 | Asset | Purpose |
 | --- | --- |
-| `QuickClip-Personal-1.2.2-setup.exe` | Recommended per-user installer; supports a writable local installation folder |
-| `QuickClip-Personal-1.2.2-win-x64.zip` | Portable build; extract the entire archive before running |
+| `QuickClip-Personal-1.3.0-setup.exe` | Recommended per-user installer; supports a writable local installation folder |
+| `QuickClip-Personal-1.3.0-win-x64.zip` | Portable build; extract the entire archive before running |
 | `SHA256SUMS.txt` | SHA-256 checksums for both packages |
 
 The .NET runtime and required media components are bundled. No SDK is required to run the app.
 
-Upgrading from v1.1.0? Download and run the setup EXE for an installed copy, or update a portable copy manually. Supported installed copies with the new installer inventory can use the explicitly initiated in-app update handoff for future releases; unsupported layouts and portable copies retain manual installation. Updates do not silently install in the background.
+Upgrading from v1.2.2 or an older version? Download and run the setup EXE for an installed copy, or update a portable copy manually. Supported installed copies with the new installer inventory can use the explicitly initiated in-app update handoff for future releases; unsupported layouts and portable copies retain manual installation. Updates do not silently install in the background.
 
 ### Local files and privacy
 
@@ -71,7 +70,7 @@ Upgrading from v1.1.0? Download and run the setup EXE for an installed copy, or 
 - Default clips: the Windows Videos folder under `QuickClip Personal` (configurable).
 - Optional isolated data root: set `QUICKCLIP_PERSONAL_DATA_DIR` to an absolute directory before launching.
 
-Recording is opt-in for new Personal profiles. Display permissions apply to automatic and manual capture. QuickClip captures the authorized **display**, not an isolated game-rendering hook: other windows covering the game may appear in footage. Only one live display is captured at a time. Existing external media archives are not automatically migrated or deleted. Sharing creates local files; QuickClip does not upload clips on your behalf.
+Recording is opt-in for new Personal profiles. Display permissions apply to automatic and manual capture. Game recording captures the authorized **display**, not an isolated game-rendering hook: other windows covering the game may appear in footage. Optional Discord mode captures verified Discord windows, including pop-outs when present; it can include private content visible in those windows. Games take priority over Discord. Only one recording graph is active at a time. Existing external media archives are not automatically migrated or deleted. Sharing creates local files; QuickClip does not upload clips on your behalf.
 
 Production verbose diagnostic logging is off by default. See [diagnostics](docs/diagnostics.md) for troubleshooting.
 
@@ -81,9 +80,9 @@ Production verbose diagnostic logging is off by default. See [diagnostics](docs/
 - Some games or launcher installations require an exact executable or manual folder selection. Explicit exclusions remain respected.
 - On-screen recording HUD and saved-clip overlays can appear in recordings. Capture exclusion is not supported for these overlays; use the independent feedback controls to disable them during recording.
 - Size caps are ceilings, not a promise of exact file size or acceptance by every receiving app.
-- Independent companion capture, simultaneous multi-display recording and isolated game-hook capture are not included.
+- Discord window capture is opt-in and does not run alongside an eligible game capture. Other companion applications, simultaneous multi-display capture and isolated game-hook capture are not included. On Windows 10, the WGC system capture border may remain visible.
 
-See the [v1.2.0 release notes](docs/releases/personal-v1.2.0.md) for details.
+See the [v1.3.0 release notes](docs/releases/personal-v1.3.0.md) for details.
 
 ## Build from source
 

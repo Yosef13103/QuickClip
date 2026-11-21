@@ -2,6 +2,7 @@
 #pragma once
 
 #include "Audio.h"
+#include "QcGameWindow.h"
 #include <deque>
 #include <map>
 #include <memory>
@@ -48,14 +49,7 @@ extern "C"
         int diagnostics;
     };
 
-    struct QcGameWindow
-    {
-        HWND handle;
-        DWORD thread, process;
-        int64_t started;
-    };
-
-    struct QcReplayPosition
+struct QcReplayPosition
     {
         int64_t session, eventUs, frameUs, sequence, firstSequence, source;
     };
@@ -162,7 +156,8 @@ namespace qc
     {
     public:
         Engine(const QcConfig& config, bool endpointMode, const QcEndpointTrack* endpoints, int endpointCount,
-            QcVideoOptions video, const wchar_t* displayIdentity, const QcGameWindow* game);
+            QcVideoOptions video, const wchar_t* displayIdentity, const QcGameWindow* game,
+            const QcGameWindow* companion = nullptr, int companionCount = 0);
         ~Engine();
         bool Start(std::string& error);
         /// Desktop records everything but `desktopExclude`'s process tree (nothing when that is 0) plus the trees of
@@ -185,6 +180,7 @@ namespace qc
         static bool TestAuthorizedVideoInvalidation(bool stall);
         /// Records `window` (a game's) instead of the monitor, at this size and bitrate; null goes back to the monitor.
         void SetCaptureWindow(HWND window, int width, int height, int videoKbps);
+        bool UpdateCompanionWindows(const QcGameWindow* windows, int count);
         /// Tests: makes the capture thread hang for this long, as a stuck capture call would.
         void TestFreezeVideo(int ms);
         /// Tests: counts keyframes smaller than this as a flat picture (0 = the normal limit).

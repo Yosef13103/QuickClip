@@ -9,14 +9,46 @@ public sealed class GameCatalogTests : IDisposable
     private readonly DirectoryInfo _fixture = Directory.CreateTempSubdirectory("quickclip-catalog-");
 
     [Fact]
-    public async Task Verified_Steam_installations_consolidate_identical_eligible_paths_at_one_root()
+    public async Task Arbitrary_provider_titles_share_install_and_renderer_without_special_cases()
+    {
+        string path = FileAt("Steam", "steamapps", "common", "Sample Adventure", "play.exe");
+        string separate = FileAt("Steam", "steamapps", "common", "Separate", "play.exe");
+        foreach (var item in new[] {
+            (Id: "871001", Install: "Sample Adventure", Name: "Sample Adventure"),
+            (Id: "871002", Install: "Sample Adventure", Name: "Sample Adventure: Expansion"),
+            (Id: "871003", Install: "Sample Adventure", Name: "Sample Adventure - Bonus"),
+            (Id: "871004", Install: "Separate", Name: "Sample Adventure: Standalone"),
+        })
+            File.WriteAllText(At("Steam", "steamapps", $"appmanifest_{item.Id}.acf"),
+                Manifest(item.Id, item.Install, item.Name));
+        var request = new CatalogRequest { SteamLibraryRoots = [At("Steam")] };
+        async Task<GameCatalogIndex> Scan()
+        {
+            var scan = await GameCatalogService.ScanAsync(request);
+            var state = CatalogClaims.Apply(new GameCatalogSettings { Request = request, DiscoverSteam = false, AutoScan = false },
+                new CatalogScope(CatalogSource.Steam, At("Steam")), scan, preview: false);
+            return new GameCatalogIndex(scan with { Entries = CatalogClaims.Rows(state) });
+        }
+        var index = await Scan();
+        var match = index.Match(path, true);
+        Assert.Equal(CatalogMatchKind.Game, match.Kind);
+        Assert.Equal("steam:871001", match.Entry!.Id);
+        Assert.Equal(new[] { "Expansion", "Bonus" }, match.Entry.RelatedTitles.Select(title => title.Name));
+        Assert.Empty(index.Match(separate, true).Entry!.RelatedTitles);
+        File.WriteAllText(At("Steam", "steamapps", "appmanifest_871005.acf"),
+            Manifest("871005", "Sample Adventure", "Sample Adventure2"));
+        Assert.Equal(CatalogMatchKind.Ambiguous, (await Scan()).Match(path, true).Kind);
+    }
+
+    [Fact]
+    public async Task Verified_related_titles_consolidate_without_merging_unrelated_claims()
     {
         string hl2 = FileAt("Steam", "steamapps", "common", "Half-Life 2", "hl2.exe");
         FileAt("Steam", "steamapps", "common", "Half-Life 2", "hl2", "gameinfo.txt");
         string portal = FileAt("Steam", "steamapps", "common", "Portal", "hl2.exe");
         FileAt("Steam", "steamapps", "common", "Portal", "portal", "gameinfo.txt");
-        File.WriteAllText(At("Steam", "steamapps", "appmanifest_220.acf"), Manifest("220", "Half-Life 2"));
-        File.WriteAllText(At("Steam", "steamapps", "appmanifest_400.acf"), Manifest("400", "Portal"));
+        File.WriteAllText(At("Steam", "steamapps", "appmanifest_220.acf"), Manifest("220", "Half-Life 2", "Half-Life 2"));
+        File.WriteAllText(At("Steam", "steamapps", "appmanifest_400.acf"), Manifest("400", "Portal", "Portal"));
         var request = new CatalogRequest { SteamLibraryRoots = [At("Steam")] };
         async Task<GameCatalogIndex> Scan(CatalogOverride[]? overrides = null)
         {
@@ -33,27 +65,19 @@ public sealed class GameCatalogTests : IDisposable
         Assert.Equal(CatalogMatchKind.Unknown, index.Match(At("Unrelated", "hl2.exe"), true).Kind);
         string hammer = FileAt("Steam", "steamapps", "common", "Half-Life 2", "bin", "hammer.exe");
         foreach (var id in new[] { "380", "420", "340" })
-            File.WriteAllText(At("Steam", "steamapps", $"appmanifest_{id}.acf"), Manifest(id, "Half-Life 2"));
+            File.WriteAllText(At("Steam", "steamapps", $"appmanifest_{id}.acf"), Manifest(id, "Half-Life 2", "Half-Life 2: " + (id switch { "340" => "Lost Coast", "380" => "Episode One", _ => "Episode Two" })));
         var unified = await Scan();
         var match = unified.Match(hl2, true);
         Assert.Equal(CatalogMatchKind.Game, match.Kind);
         Assert.Equal("steam:220", match.Entry?.Id);
         Assert.Equal(new[] { "steam:340", "steam:380", "steam:420" }, match.Entry!.AliasIds.Order());
+        Assert.Equal(new[] { "Lost Coast", "Episode One", "Episode Two" }, match.Entry.RelatedTitles.Select(t => t.Name));
+        Assert.Empty(unified.Match(portal, true).Entry!.RelatedTitles);
         Assert.Equal(CatalogMatchKind.Application, unified.Match(hammer, true).Kind);
         Assert.Equal(CatalogMatchKind.Unknown, unified.Match(At("Unrelated", "bin", "hammer.exe"), true).Kind);
         Assert.Equal(CatalogMatchKind.Ignored, (await Scan([new("steam:380", new(Inclusion: CatalogInclusion.Exclude))])).Match(hl2, true).Kind);
-        File.WriteAllText(At("Steam", "steamapps", "appmanifest_999.acf"), Manifest("999", "Half-Life 2"));
-        Assert.Equal("steam:220", (await Scan()).Match(hl2, true).Entry?.Id);
-        string shared = FileAt("Steam", "steamapps", "common", "Custom Game", "play.exe");
-        string separate = FileAt("Steam", "steamapps", "common", "Another Game", "play.exe");
-        foreach (var id in new[] { "10001", "10002" })
-            File.WriteAllText(At("Steam", "steamapps", $"appmanifest_{id}.acf"), Manifest(id, "Custom Game"));
-        File.WriteAllText(At("Steam", "steamapps", "appmanifest_10003.acf"), Manifest("10003", "Another Game"));
-        var generic = await Scan();
-        Assert.Equal(CatalogMatchKind.Game, generic.Match(shared, true).Kind);
-        Assert.Equal("steam:10001", generic.Match(shared, true).Entry?.Id);
-        Assert.Contains("steam:10002", generic.Match(shared, true).Entry!.AliasIds);
-        Assert.Equal("steam:10003", generic.Match(separate, true).Entry?.Id);
+        File.WriteAllText(At("Steam", "steamapps", "appmanifest_999.acf"), Manifest("999", "Half-Life 2", "Unrelated Game"));
+        Assert.Equal(CatalogMatchKind.Ambiguous, (await Scan()).Match(hl2, true).Kind);
     }
     [Fact]
     public async Task Steamworks_prerequisites_are_not_catalog_games_or_eligible_paths()
@@ -451,8 +475,8 @@ public sealed class GameCatalogTests : IDisposable
         finally { Directory.Delete(link); }
     }
 
-    private static string Manifest(string id, string install) =>
-        $$""" "AppState" { "appid" "{{id}}" "name" "Steam title" "installdir" "{{install}}" } """;
+    private static string Manifest(string id, string install, string name = "Steam title") =>
+        $$""" "AppState" { "appid" "{{id}}" "name" "{{name}}" "installdir" "{{install}}" } """;
 
     private string At(params string[] parts) => Path.Combine([_fixture.FullName, .. parts]);
 

@@ -8,6 +8,15 @@ internal sealed class PersonalLibrary : IClipAnnotationActions, ILibraryInventor
 {
     public static PersonalLibrary Current { get; } = new();
     public static bool Enabled => AppProfile.IsPersonal && AppSettings.Current.EnableLibraryIndex;
+    private long _organizationRevision;
+    internal long OrganizationRevision => Interlocked.Read(ref _organizationRevision);
+    private async Task<T> OrganizationChangedAsync<T>(Task<T> operation)
+    {
+        var result = await operation;
+        Interlocked.Increment(ref _organizationRevision);
+        return result;
+    }
+
     private readonly SemaphoreSlim _scanGate = new(1);
     private readonly Lazy<LibraryIndex> _index = new(LibraryIndex.ForCurrentProfile);
 
@@ -174,6 +183,117 @@ internal sealed class PersonalLibrary : IClipAnnotationActions, ILibraryInventor
             results.Add(await SaveDraftAsync(target, details with { IsFavorite = favorite ?? details.IsFavorite }, token));
         }
         return results;
+    }
+
+    // Explicit available-index snapshot across configured folders, independent
+    // of Gallery search/folder filters. Unavailable and excluded media are not edited.
+    internal async Task<ClipAnnotationTarget[]> ReadTagTargetsAsync(string tag, CancellationToken token)
+    {
+        if (!Enabled || !ClipDetails.IsValidTag(tag))
+            throw new ArgumentException("Choose a valid indexed tag.");
+        var rows = await _index.Value.ReadGalleryAsync(null, null, token, exactTag: tag);
+        var targets = rows.Where(row => WithinConfiguredRoot(row.Path)).Take(257).ToArray();
+        if (targets.Length > 256)
+            throw new LibraryConflictException("More than 256 indexed clips use this tag. Use smaller selections.");
+        return targets.Select(row => new ClipAnnotationTarget(row.Path, row.Stamp, row.Details)
+        {
+            Source = new FileStamp(row.Stamp.Created.Ticks, row.Stamp.Modified.Ticks, row.Stamp.Length, row.Identity),
+        }).ToArray();
+    }
+
+    internal Task<int> SetTagColorAsync(string tag, string? color, CancellationToken token)
+    {
+        if (!Enabled) throw new LibraryConflictException("Tag colors require the library index.");
+        return OrganizationChangedAsync(_index.Value.SetTagColorAsync(tag, color, token));
+    }
+
+    internal async Task RepairRecordedCollectionAsync(string path, CancellationToken token)
+    {
+        if (!Enabled || !WithinConfiguredRoot(path)) return;
+        await _scanGate.WaitAsync(token);
+        try { await _index.Value.RepairRecordedCollectionAsync(path, token); }
+        finally { _scanGate.Release(); }
+    }
+
+    internal Task<LibraryTagDefinition[]> ReadTagDefinitionsAsync(CancellationToken token) =>
+        Enabled ? _index.Value.ReadTagDefinitionsAsync(token) : Task.FromResult(Array.Empty<LibraryTagDefinition>());
+    internal Task<LibraryTagDefinition> CreateTagDefinitionAsync(LibraryTagDefinition definition, CancellationToken token)
+    {
+        if (!Enabled) throw new LibraryConflictException("Tags require the library index.");
+        return OrganizationChangedAsync(_index.Value.CreateTagDefinitionAsync(definition, token));
+    }
+    internal Task<int> UpdateTagDefinitionAsync(LibraryTagDefinition expected, LibraryTagDefinition replacement, CancellationToken token)
+    {
+        if (!Enabled) throw new LibraryConflictException("Tags require the library index.");
+        return OrganizationChangedAsync(_index.Value.UpdateTagDefinitionAsync(expected, replacement, token));
+    }
+    internal Task<int> ConvertTagToCollectionAsync(LibraryTagDefinition expected, CancellationToken token)
+    {
+        if (!Enabled) throw new LibraryConflictException("Labels require the library index.");
+        return OrganizationChangedAsync(_index.Value.ConvertTagToCollectionAsync(expected, token));
+    }
+
+    internal Task<int> DeleteTagDefinitionAsync(LibraryTagDefinition expected, CancellationToken token)
+    {
+        if (!Enabled) throw new LibraryConflictException("Tags require the library index.");
+        return OrganizationChangedAsync(_index.Value.DeleteTagDefinitionAsync(expected, token));
+    }
+
+    internal async Task<LibraryCollection[]> ReadCollectionsAsync(CancellationToken token)
+    {
+        if (!Enabled) throw new LibraryConflictException("Collections require the library index.");
+        var state = AppSettings.Current.Games;
+        if (state != null)
+        {
+            var rows = QuickClip.Discovery.GameCatalogRuntime.Rows(state);
+            if (await _index.Value.EnsureDiscoveredTitleFoldersAsync(rows, token) > 0)
+                Interlocked.Increment(ref _organizationRevision);
+        }
+        return await _index.Value.ReadCollectionsAsync(token);
+    }
+
+    internal Task<LibraryCollection> CreateCollectionAsync(LibraryCollection definition, CancellationToken token)
+    {
+        if (!Enabled) throw new LibraryConflictException("Collections require the library index.");
+        return OrganizationChangedAsync(_index.Value.CreateCollectionAsync(definition, token));
+    }
+
+    internal Task<int> UpdateCollectionAsync(LibraryCollection expected, LibraryCollection replacement, CancellationToken token)
+    {
+        if (!Enabled) throw new LibraryConflictException("Collections require the library index.");
+        return OrganizationChangedAsync(_index.Value.UpdateCollectionAsync(expected, replacement, token));
+    }
+
+    internal Task<int> DeleteCollectionAsync(LibraryCollection expected, CancellationToken token)
+    {
+        if (!Enabled) throw new LibraryConflictException("Collections require the library index.");
+        return OrganizationChangedAsync(_index.Value.DeleteCollectionAsync(expected, token));
+    }
+
+    internal Task<int> AssignCollectionsAsync(IReadOnlyCollection<ClipAnnotationTarget> targets,
+        Guid? collectionId, string? associateGameId, CancellationToken token)
+    {
+        if (!Enabled || targets.Any(t => !WithinConfiguredRoot(t.Path)))
+            throw new LibraryConflictException("Select recordings within the configured library.");
+        return _index.Value.AssignCollectionsAsync(targets, collectionId, associateGameId, token);
+    }
+
+    internal Task<long> AssignCollectionAsync(ClipAnnotationTarget target, Guid? collectionId, CancellationToken token)
+    {
+        if (!Enabled || !WithinConfiguredRoot(target.Path))
+            throw new LibraryConflictException("The recording is outside the configured library.");
+        return _index.Value.AssignCollectionAsync(target, collectionId, token);
+    }
+
+    internal Task<int> ApplyTagDeltaAsync(IReadOnlyCollection<ClipAnnotationTarget> targets,
+        IReadOnlyCollection<string> add, IReadOnlyCollection<string> remove, CancellationToken token,
+        bool replaceOnlyPresent = false, bool? hidden = null,
+        IReadOnlyCollection<LibraryTagDefinition>? addDefinitions = null,
+        IReadOnlyCollection<LibraryTagDefinition>? removeDefinitions = null, bool globalOnly = false)
+    {
+        if (!Enabled || targets.Any(target => !WithinConfiguredRoot(target.Path)))
+            throw new LibraryConflictException("Tag management requires clips in configured indexed folders.");
+        return OrganizationChangedAsync(_index.Value.ApplyTagDeltaAsync(targets, add, remove, token, replaceOnlyPresent, hidden, addDefinitions, removeDefinitions, globalOnly));
     }
 
     // This is a catalog estimate, not allocated disk usage. Only configured roots

@@ -50,7 +50,7 @@ internal sealed class ThemeResources
     }
 
     internal static ThemeChoice ThemeChoiceFrom(string? name) =>
-        Enum.TryParse(name, out ThemeChoice choice) && Enum.IsDefined(choice) ? choice : ThemeChoice.Dark;
+        Enum.TryParse(name, out ThemeChoice choice) && Enum.IsDefined(choice) ? (choice == ThemeChoice.Broadcast ? ThemeChoice.Amoled : choice) : ThemeChoice.Dark;
 
     internal static ThemeDocument? ReadSaved(string? json)
     {

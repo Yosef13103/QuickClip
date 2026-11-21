@@ -14,6 +14,8 @@ internal sealed class AppSettings
         EnabledLaunchers = AppProfile.IsPersonal ? [.. Enum.GetValues<CatalogSource>().Where(LocalLaunchers.IsSupported)] : [],
     };
     public string[] IgnoredGameIssues { get; set; } = [];
+    public System.Collections.Immutable.ImmutableDictionary<string, Library.GameCollectionPreference> RecordingCollections { get; set; } =
+        System.Collections.Immutable.ImmutableDictionary<string, Library.GameCollectionPreference>.Empty;
 
     // The editor's encoder, quality, size and frame rate start at "same as original" for every clip.
     public InterfaceScale InterfaceScale { get; set; } = new();
@@ -43,6 +45,7 @@ internal sealed class AppSettings
 
     internal int RecordingDisableRevision => Volatile.Read(ref _recordingDisableRevision);
     internal bool AllowsManualDesktop(int revision) => RecordingEnabled && revision == RecordingDisableRevision;
+    public int GallerySidebarWidth { get; set; } = 230;        // Folder navigation width, 190–520 WPF pixels
     public string RecordMonitor { get; set; } = "";             // GDI device name; empty = main monitor
     public string RecordAspect { get; set; } = "";              // "16:9" records the monitor's 16:9 center; empty = all of it
     public int RecordFps { get; set; } = 60;
@@ -56,6 +59,14 @@ internal sealed class AppSettings
     public int BufferSeconds { get; set; } = 60;
     public bool CaptureCursor { get; set; } = true;
     public bool PreferGameWindow { get; set; } = AppProfile.IsPersonal;
+    // Discord companion capture is always opt-in, separately from display/game permission.
+    public bool DiscordCaptureEnabled { get; set; }
+    // Explicit opt-in for the Windows 10 experimental cloaked DWM mirror.
+    // Does not alter standard WGC or Windows 11 capture.
+    public bool DiscordCloakedMirror { get; set; }
+    public Recording.Companion.DiscordCaptureMode DiscordCaptureMode { get; set; } =
+        Recording.Companion.DiscordCaptureMode.DuringCalls;
+
     // Preserve the original physical-display grant without broadening it on upgrade.
     // Fresh Personal profiles permit identifiable displays until the user blocks one.
     // Legacy whitelist profiles retain their grants until a deliberate migration.

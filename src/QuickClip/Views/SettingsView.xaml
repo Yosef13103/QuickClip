@@ -187,10 +187,11 @@
                     </StackPanel.Resources>
                     <RadioButton x:Name="RecordingSection" Content="Recording" Tag="&#xE714;" IsChecked="True" />
                     <RadioButton x:Name="AudioSection" Content="Audio" Tag="&#xE767;" />
-                    <RadioButton x:Name="GamesSection" Content="Games" Tag="&#xE7FC;" />
+                    <RadioButton x:Name="GamesSection" Content="Sources" Tag="&#xE7FC;" ToolTip="Game discovery and Discord recording" />
                     <RadioButton x:Name="HotkeysSection" Content="Hotkeys" Tag="&#xE765;" />
                     <RadioButton x:Name="SharingSection" Content="Sharing" Tag="&#xE72D;" />
                     <RadioButton x:Name="LibrarySection" Content="Library" Tag="&#xE8B7;" />
+                    <RadioButton x:Name="NotificationsSection" Content="Notifications" Tag="&#xE7E7;" />
                     <RadioButton x:Name="GeneralSection" Content="General" Tag="&#xE713;" />
                     <RadioButton x:Name="DiagnosticsSection" Content="Diagnostics" Tag="&#xE9CE;" />
                 </StackPanel>
@@ -198,7 +199,8 @@
         </Border>
         <Grid Grid.Column="1" x:Name="SettingsExperienceLayout">
             <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="*" /></Grid.RowDefinitions>
-            <ScrollViewer Grid.Row="0" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled"
+            <StackPanel Grid.Row="0">
+            <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled"
                           MaxHeight="{Binding ActualHeight, ElementName=SettingsExperienceLayout}">
             <StackPanel x:Name="ExperienceHeader" Margin="20,10,20,0" Visibility="Collapsed">
                 <DockPanel>
@@ -232,9 +234,9 @@
                             <StackPanel HorizontalAlignment="Right">
                                 <WrapPanel HorizontalAlignment="Right" FlowDirection="LeftToRight">
                                     <Button x:Name="GuideSkip" Content="Skip remaining setup" Click="GuideSkip_Click" Margin="0,0,8,4" />
-                                    <Button x:Name="GuideNext" Content="Continue" Click="GuideNext_Click" Margin="0,0,0,4" Style="{DynamicResource AccentButtonStyle}" Background="#187644" Foreground="White" />
+                                    <Button VerticalContentAlignment="Center" HorizontalContentAlignment="Center" MinHeight="{DynamicResource QuickClipVisual36}" MinWidth="{DynamicResource QuickClipVisual36}" x:Name="GuideNext" Content="Continue" Click="GuideNext_Click" Margin="0,0,0,4" Style="{DynamicResource AccentButtonStyle}" Background="#187644" Foreground="White" />
                                 </WrapPanel>
-                                <Button x:Name="GuideEnable" Content="Enable recording and finish" Style="{DynamicResource AccentButtonStyle}" Background="#187644" Foreground="White" Click="GuideEnable_Click" Margin="0,0,0,4" HorizontalAlignment="Right" Visibility="Collapsed" />
+                                <Button VerticalContentAlignment="Center" HorizontalContentAlignment="Center" MinHeight="{DynamicResource QuickClipVisual36}" MinWidth="{DynamicResource QuickClipVisual36}" x:Name="GuideEnable" Content="Enable recording and finish" Style="{DynamicResource AccentButtonStyle}" Background="#187644" Foreground="White" Click="GuideEnable_Click" Margin="0,0,0,4" HorizontalAlignment="Right" Visibility="Collapsed" />
                             </StackPanel>
                         </DockPanel>
                         <TextBlock x:Name="GuideError" TextWrapping="Wrap" Foreground="{DynamicResource DangerBrush}" AutomationProperties.LiveSetting="Assertive" />
@@ -242,6 +244,7 @@
                 </Border>
             </StackPanel>
             </ScrollViewer>
+            </StackPanel>
             <Grid Grid.Row="1">
         <views:GamesSettingsView x:Name="GamesPage" Visibility="Collapsed" />
         <ScrollViewer x:Name="GeneralPage" VerticalScrollBarVisibility="Visible" HorizontalScrollBarVisibility="Disabled">
@@ -277,7 +280,7 @@
                     </DockPanel>
                     <TextBlock x:Name="UpdateStatusText" Margin="0,12,0,0" TextWrapping="Wrap" />
                     <StackPanel x:Name="UpdateActions" Orientation="Horizontal" Margin="0,10,0,0" Visibility="Collapsed">
-                        <Button x:Name="InstallUpdateButton" Style="{DynamicResource AccentButtonStyle}" Padding="12,5" Focusable="False" Click="InstallUpdate_Click">
+                        <Button VerticalContentAlignment="Center" HorizontalContentAlignment="Center" MinHeight="{DynamicResource QuickClipVisual36}" MinWidth="{DynamicResource QuickClipVisual36}" x:Name="InstallUpdateButton" Style="{DynamicResource AccentButtonStyle}" Padding="12,5" Focusable="False" Click="InstallUpdate_Click">
                             <StackPanel Orientation="Horizontal">
                                 <TextBlock FontFamily="{StaticResource IconFont}" Text="&#xE896;" VerticalAlignment="Center" Margin="0,0,7,0"  TextWrapping="Wrap" />
                                 <TextBlock x:Name="InstallUpdateLabel" Text="Install and restart" />
@@ -345,20 +348,44 @@
                             <TextBlock Text="Recording presets" FontWeight="SemiBold" />
                             <TextBlock x:Name="SetupPresetRecommendation" Style="{StaticResource Hint}" TextWrapping="Wrap" Margin="0,4,0,6" />
                             <WrapPanel>
-                                <Button Content="Performance" Tag="Performance" Click="SetupPreset_Click" Margin="0,0,6,4" ToolTip="720p, 30 FPS, Medium, fast NVENC preset" />
-                                <Button Content="Balanced" Tag="Balanced" Click="SetupPreset_Click" Margin="0,0,6,4" ToolTip="1080p, 60 FPS, High, fast NVENC preset" />
-                                <Button Content="Quality" Tag="Quality" Click="SetupPreset_Click" Margin="0,0,6,4" ToolTip="Native size, 60 FPS, Ultra, fast NVENC preset" />
+                                <Button Content="Performance · 720p / 30" Tag="Performance" Click="SetupPreset_Click" Margin="0,0,6,4" ToolTip="720p, 30 FPS, Medium, fast NVENC preset" />
+                                <Button Content="Balanced · 1080p / 60" Tag="Balanced" Click="SetupPreset_Click" Margin="0,0,6,4" ToolTip="1080p, 60 FPS, High, fast NVENC preset" />
+                                <Button Content="Quality · Native / 60" Tag="Quality" Click="SetupPreset_Click" Margin="0,0,6,4" ToolTip="Native size, 60 FPS, Ultra, fast NVENC preset" />
                             </WrapPanel>
                             <TextBlock x:Name="SetupPresetStatus" Style="{StaticResource Hint}" TextWrapping="Wrap" />
-                            <TextBlock Text="Customize resolution, clip length, quality and FPS below. Presets adjust video resolution, frame rate, quality and NVENC speed (P2 for all three). AMD, Intel and other encoders retain their existing tuning. Audio, clip length, permissions and encoder selection are unchanged." Style="{StaticResource Hint}" TextWrapping="Wrap" Margin="0,4,0,0" />
+                            <TextBlock Text="Adjust any video setting below. Audio and clip length stay unchanged." Style="{StaticResource Hint}" TextWrapping="Wrap" Margin="0,4,0,0" />
                         </StackPanel>
                     </Border>
 
+                    <StackPanel x:Name="GameProfilePanel" Visibility="Collapsed" Margin="0,12,0,0">
+                        <TextBlock Text="Recording profile" FontWeight="SemiBold" Margin="0,0,0,4" />
+                        <ComboBox x:Name="GameProfileCombo" SelectionChanged="GameProfile_Changed"
+                                  AutomationProperties.Name="Recording profile" MaxDropDownHeight="320">
+                            <ComboBox.ItemContainerStyle><Style TargetType="ComboBoxItem">
+                                <Setter Property="IsEnabled" Value="{Binding Enabled}" />
+                            </Style></ComboBox.ItemContainerStyle>
+                            <ComboBox.ItemTemplate><DataTemplate>
+                                <StackPanel Orientation="Horizontal">
+                                    <TextBlock Text="{Binding Label}" />
+                                    <TextBlock Text="  ·  Override" FontWeight="SemiBold" Margin="6,0,0,0">
+                                        <TextBlock.Style><Style TargetType="TextBlock"><Setter Property="Visibility" Value="Collapsed" />
+                                            <Style.Triggers><DataTrigger Binding="{Binding HasOverrides}" Value="True"><Setter Property="Visibility" Value="Visible" /></DataTrigger></Style.Triggers>
+                                        </Style></TextBlock.Style>
+                                    </TextBlock>
+                                </StackPanel>
+                            </DataTemplate></ComboBox.ItemTemplate>
+                        </ComboBox>
+                        <TextBlock x:Name="GameProfileStatus" Style="{StaticResource Hint}" TextWrapping="Wrap" Margin="0,4,0,0" />
+                        <StackPanel x:Name="GameOverridePanel" Visibility="Collapsed" Margin="0,6,0,0">
+                            <Button x:Name="ResetProfileButton" Content="Reset entire game profile…" HorizontalAlignment="Left" Click="ResetGameProfile_Click" />
+                        </StackPanel>
+
+                    </StackPanel>
                     <Grid Margin="0,12,0,0">
                         <Grid.ColumnDefinitions><ColumnDefinition x:Name="CaptureAreaColumn" Width="*" /><ColumnDefinition x:Name="CaptureAreaGap" Width="12" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
                         <StackPanel x:Name="CaptureAreaAdvanced" Grid.Column="0">
                     <StackPanel Margin="0,0,0,4">
-                            <TextBlock Text="Capture area" TextWrapping="Wrap" Margin="0,0,0,4" />
+                            <DockPanel VerticalAlignment="Center" Margin="0,0,4,4"><Button DockPanel.Dock="Left" x:Name="ResetAspectOverride" Content="&#xE72C;" Tag="Aspect" Click="ResetGameField_Click" Style="{StaticResource IconButton}" Margin="0,0,4,0" Visibility="Collapsed" ToolTip="{Binding RelativeSource={RelativeSource Self}, Path=(AutomationProperties.Name)}" AutomationProperties.Name="Reset Capture area override" /><TextBlock x:Name="AreaLabel" Text="Capture area" TextWrapping="Wrap" VerticalAlignment="Center" /></DockPanel>
                             <ComboBox x:Name="AreaCombo" MinWidth="0" SelectionChanged="Changed" AutomationProperties.Name="Capture area" />
                         </StackPanel>
                     <Expander Header="Custom aspect ratio" Margin="0,4,0,0">
@@ -375,7 +402,7 @@
                         </StackPanel>
                         <StackPanel Grid.Column="2">
                     <StackPanel Margin="0,0,0,4">
-                            <TextBlock Text="Output resolution" TextWrapping="Wrap" Margin="0,0,0,4" />
+                            <DockPanel VerticalAlignment="Center" Margin="0,0,4,4"><Button DockPanel.Dock="Left" x:Name="ResetResolutionOverride" Content="&#xE72C;" Tag="Resolution" Click="ResetGameField_Click" Style="{StaticResource IconButton}" Margin="0,0,4,0" Visibility="Collapsed" ToolTip="{Binding RelativeSource={RelativeSource Self}, Path=(AutomationProperties.Name)}" AutomationProperties.Name="Reset Output resolution override" /><TextBlock x:Name="ResolutionLabel" Text="Output resolution" TextWrapping="Wrap" VerticalAlignment="Center" /></DockPanel>
                             <ComboBox x:Name="ResolutionCombo" MinWidth="0" SelectionChanged="Changed" AutomationProperties.Name="Output resolution" />
                         </StackPanel>
                     <Expander x:Name="CustomSizeAdvanced" Header="Custom output size" Margin="0,4,0,0">
@@ -423,7 +450,7 @@
                             <ColumnDefinition Width="*" />
                             <ColumnDefinition Width="150" />
                         </Grid.ColumnDefinitions>
-                        <TextBlock Text="Clip length" VerticalAlignment="Center"  TextWrapping="Wrap" />
+                        <DockPanel VerticalAlignment="Center" Margin="0,0,4,4"><Button DockPanel.Dock="Left" x:Name="ResetBufferOverride" Content="&#xE72C;" Tag="Buffer" Click="ResetGameField_Click" Style="{StaticResource IconButton}" Margin="0,0,4,0" Visibility="Collapsed" ToolTip="{Binding RelativeSource={RelativeSource Self}, Path=(AutomationProperties.Name)}" AutomationProperties.Name="Reset Clip length override" /><TextBlock x:Name="BufferLabel" Text="Clip length" TextWrapping="Wrap" VerticalAlignment="Center" /></DockPanel>
                         <Slider x:Name="BufferSlider" Grid.Column="1" Minimum="0" Maximum="10" TickFrequency="1" IsSnapToTickEnabled="True"
                                 TickPlacement="BottomRight" VerticalAlignment="Center" ValueChanged="Changed" Focusable="False" />
                         <TextBlock x:Name="BufferText" Grid.Column="2" VerticalAlignment="Center" Margin="14,0,0,0" FontWeight="SemiBold" />
@@ -452,7 +479,7 @@
                             <ColumnDefinition Width="*" />
                             <ColumnDefinition Width="150" />
                         </Grid.ColumnDefinitions>
-                        <TextBlock Text="Quality" VerticalAlignment="Center"  TextWrapping="Wrap" />
+                        <DockPanel VerticalAlignment="Center" Margin="0,0,4,4"><Button DockPanel.Dock="Left" x:Name="ResetQualityOverride" Content="&#xE72C;" Tag="Quality" Click="ResetGameField_Click" Style="{StaticResource IconButton}" Margin="0,0,4,0" Visibility="Collapsed" ToolTip="{Binding RelativeSource={RelativeSource Self}, Path=(AutomationProperties.Name)}" AutomationProperties.Name="Reset Quality override" /><TextBlock x:Name="QualityLabel" Text="Quality" TextWrapping="Wrap" VerticalAlignment="Center" /></DockPanel>
                         <ComboBox x:Name="QualityCombo" Grid.Column="1" SelectionChanged="Changed" />
                         <TextBlock x:Name="BitrateText" Grid.Column="2" VerticalAlignment="Center" Margin="14,0,0,0" Style="{StaticResource Hint}" />
                     </Grid>
@@ -462,7 +489,7 @@
                             <ColumnDefinition Width="160" />
                             <ColumnDefinition Width="*" />
                         </Grid.ColumnDefinitions>
-                        <TextBlock Text="Frame rate" VerticalAlignment="Center"  TextWrapping="Wrap" />
+                        <DockPanel VerticalAlignment="Center" Margin="0,0,4,4"><Button DockPanel.Dock="Left" x:Name="ResetFpsOverride" Content="&#xE72C;" Tag="Fps" Click="ResetGameField_Click" Style="{StaticResource IconButton}" Margin="0,0,4,0" Visibility="Collapsed" ToolTip="{Binding RelativeSource={RelativeSource Self}, Path=(AutomationProperties.Name)}" AutomationProperties.Name="Reset Frame rate override" /><TextBlock x:Name="FpsLabel" Text="Frame rate" TextWrapping="Wrap" VerticalAlignment="Center" /></DockPanel>
                         <ComboBox x:Name="FpsCombo" Grid.Column="1" SelectionChanged="Changed" />
                     </Grid>
 
@@ -471,7 +498,7 @@
                             <ColumnDefinition Width="160" />
                             <ColumnDefinition Width="*" />
                         </Grid.ColumnDefinitions>
-                        <TextBlock Text="Encoder" VerticalAlignment="Center"  TextWrapping="Wrap" />
+                        <DockPanel VerticalAlignment="Center" Margin="0,0,4,4"><Button DockPanel.Dock="Left" x:Name="ResetEncoderOverride" Content="&#xE72C;" Tag="Encoder" Click="ResetGameField_Click" Style="{StaticResource IconButton}" Margin="0,0,4,0" Visibility="Collapsed" ToolTip="{Binding RelativeSource={RelativeSource Self}, Path=(AutomationProperties.Name)}" AutomationProperties.Name="Reset Encoder override" /><TextBlock x:Name="EncoderLabel" Text="Encoder" TextWrapping="Wrap" VerticalAlignment="Center" /></DockPanel>
                         <ComboBox x:Name="EncoderCombo" Grid.Column="1" SelectionChanged="Changed" AutomationProperties.Name="Recording encoder">
                             <ComboBox.ItemContainerStyle>
                                 <Style TargetType="ComboBoxItem">
@@ -488,11 +515,20 @@
                         </ComboBox>
                     </Grid>
 
+                    <StackPanel x:Name="GameBitratePanel" Visibility="Collapsed" Margin="0,10,0,0">
+                        <DockPanel><Button DockPanel.Dock="Left" x:Name="ResetBitrateOverride" Content="&#xE72C;" Tag="Bitrate" Click="ResetGameField_Click" Style="{StaticResource IconButton}" Margin="0,0,4,0" Visibility="Collapsed" ToolTip="Reset bitrate to All Games" AutomationProperties.Name="Reset bitrate override" /><TextBlock Text="Target video bitrate (kbps; blank = Auto)" TextWrapping="Wrap" VerticalAlignment="Center" /></DockPanel>
+                        <DockPanel Margin="0,4,0,0">
+                            <Button DockPanel.Dock="Right" Content="Apply" Margin="8,0,0,0" Click="SaveGameBitrate_Click" />
+                            <TextBox x:Name="GameBitrateBox" MaxLength="6" AutomationProperties.Name="Game target video bitrate" />
+                        </DockPanel>
+                        <TextBlock x:Name="GameBitrateHint" Style="{StaticResource Hint}" TextWrapping="Wrap" />
+
+                    </StackPanel>
                     <CheckBox Style="{StaticResource SwitchCheckBox}" x:Name="CursorCheck" Content="Show the mouse pointer" Margin="160,12,0,0" Checked="Changed" Unchecked="Changed" />
                     <TextBlock x:Name="RecorderStatus" Margin="0,12,0,0" Style="{StaticResource Hint}" />
                     <TextBlock x:Name="BasicQualityHint" Style="{StaticResource Hint}" TextWrapping="Wrap" Visibility="Collapsed" />
                     <StackPanel x:Name="EncoderTuningAdvanced">
-                    <TextBlock Text="NVENC performance preset" Margin="0,12,0,4" />
+                    <DockPanel VerticalAlignment="Center" Margin="0,0,4,4"><Button DockPanel.Dock="Left" x:Name="ResetNvencOverride" Content="&#xE72C;" Tag="Nvenc" Click="ResetGameField_Click" Style="{StaticResource IconButton}" Margin="0,0,4,0" Visibility="Collapsed" ToolTip="{Binding RelativeSource={RelativeSource Self}, Path=(AutomationProperties.Name)}" AutomationProperties.Name="Reset NVENC performance preset override" /><TextBlock x:Name="NvencLabel" Text="NVENC performance preset" TextWrapping="Wrap" VerticalAlignment="Center" /></DockPanel>
                     <ComboBox x:Name="NvencPresetCombo" SelectionChanged="Changed" AutomationProperties.Name="NVENC performance preset" />
                     <TextBlock Style="{StaticResource Hint}" TextWrapping="Wrap"
                                Text="P2 reduces encoder work. P3 and P4 can improve compression efficiency at the same bitrate. Game FPS and visual quality depend on the workload." />
@@ -529,11 +565,11 @@
                               Margin="0,8,0,0" Checked="EndpointMode_Changed" Unchecked="EndpointMode_Changed" />
                     <StackPanel x:Name="EndpointPanel" Visibility="Collapsed" Margin="0,8,0,0">
                         <TextBlock x:Name="EndpointDetailHint" Style="{StaticResource Hint}" TextWrapping="Wrap"
-                                   Text="Each enabled device gets its own track. With no devices enabled, the clip is video only. Changing these settings restarts the replay buffer." />
+                                   Text="Add your Windows default devices, or choose others. Each device adds one separate track; changes restart the replay buffer." />
                         <TextBlock Text="Playback (what you hear)" Style="{StaticResource SectionHeader}" />
                         <DockPanel>
                             <Button x:Name="AddPlaybackButton" DockPanel.Dock="Right" Content="Add playback" Margin="8,0,0,0"
-                                    Click="AddEndpoint_Click" />
+                                    Click="AddEndpoint_Click" ToolTip="Add the selected device as a separate recording track" />
                             <Grid>
                                 <ComboBox x:Name="PlaybackPicker" SelectionChanged="EndpointPicker_Changed"
                                           AutomationProperties.Name="Playback device" />
@@ -544,7 +580,7 @@
                         <TextBlock Text="Microphones (input)" Style="{StaticResource SectionHeader}" />
                         <DockPanel>
                             <Button x:Name="AddMicrophoneButton" DockPanel.Dock="Right" Content="Add microphone" Margin="8,0,0,0"
-                                    Click="AddEndpoint_Click" />
+                                    Click="AddEndpoint_Click" ToolTip="Add the selected device as a separate recording track" />
                             <Grid>
                                 <ComboBox x:Name="MicrophonePicker" SelectionChanged="EndpointPicker_Changed"
                                           AutomationProperties.Name="Microphone input device" />
@@ -573,11 +609,11 @@
                         <TextBlock x:Name="AudioHint" Style="{StaticResource Hint}" TextWrapping="Wrap"
                                    Text="Clips get a separate track for each source, named in the editor, so you can set their volumes or merge them when exporting." />
                         <CheckBox Style="{StaticResource SwitchCheckBox}" x:Name="SplitChatCheck" Margin="0,12,0,0" Checked="Changed" Unchecked="Changed">
-                            <TextBlock Text="Put voice chat on its own track (Discord, TeamSpeak, Mumble, Teams, Zoom and more)" TextWrapping="Wrap" />
+                            <TextBlock Text="Separate voice chat" TextWrapping="Wrap" />
                         </CheckBox>
                         <TextBlock x:Name="ChatText" Margin="28,4,0,0" Style="{StaticResource Hint}" />
                         <CheckBox Style="{StaticResource SwitchCheckBox}" x:Name="SplitMusicCheck" Margin="0,10,0,0" Checked="Changed" Unchecked="Changed">
-                            <TextBlock Text="Put music on its own track (Spotify, TIDAL, Apple Music, Deezer, Amazon Music and more)" TextWrapping="Wrap" />
+                            <TextBlock Text="Separate music" TextWrapping="Wrap" />
                         </CheckBox>
                         <TextBlock x:Name="MusicText" Margin="28,4,0,0" Style="{StaticResource Hint}" />
 
@@ -683,7 +719,62 @@
                     </CheckBox>
                     <CheckBox Style="{StaticResource SwitchCheckBox}" x:Name="ConfirmDeleteCheck" Content="Confirm before sending clips to the Recycle Bin" Margin="0,8,0,0" Checked="Changed" Unchecked="Changed" />
                     <CheckBox Style="{StaticResource SwitchCheckBox}" x:Name="ConfirmSaveOverCheck" Content="Confirm before replacing the original clip" Margin="0,8,0,0" Checked="Changed" Unchecked="Changed" />
+                    <CheckBox Style="{StaticResource SwitchCheckBox}" x:Name="ShellCheck" Margin="0,8,0,0" Checked="ShellCheck_Changed" Unchecked="ShellCheck_Changed">
+                        <TextBlock Text="Add &quot;Edit with QuickClip&quot; to the right-click menu of video and audio files" TextWrapping="Wrap" />
+                    </CheckBox>
                     </StackPanel>
+                </StackPanel>
+            </Border>
+            <!-- Explicitly scoped companion capture; never bundled with display permissions. -->
+            <Border x:Name="CompanionsCard" Style="{StaticResource Card}" Visibility="Collapsed">
+                <StackPanel>
+                    <TextBlock Text="Discord" Style="{StaticResource CardTitle}" />
+                    <CheckBox x:Name="DiscordEnableCheck" Content="Capture Discord"
+                              Style="{StaticResource SwitchCheckBox}" Margin="0,10,0,6"
+                              Click="DiscordOption_Click"
+                              ToolTip="Allow QuickClip to record Discord's windows without recording the desktop" />
+                    <TextBlock Text="When to capture" Margin="0,8,0,5" FontWeight="SemiBold" />
+                    <ComboBox x:Name="DiscordModeCombo" SelectionChanged="DiscordMode_Changed"
+                              AutomationProperties.Name="When to capture Discord" ToolTip="Discord recording starts only when QuickClip recording is enabled">
+                        <ComboBoxItem Content="During voice and video calls" Tag="DuringCalls"/>
+                        <ComboBoxItem Content="While Discord is open" Tag="WhileOpen"/>
+                        <ComboBoxItem Content="Only when I start it" Tag="Manual"/>
+                    </ComboBox>
+                    <TextBlock x:Name="DiscordWindowScopeHint"
+                               Text="All visible Discord windows, including popped-out streams and cameras, share one recording. Games take priority."
+                               Style="{StaticResource Hint}" TextWrapping="Wrap" Margin="0,9,0,4" />
+                    <CheckBox x:Name="DiscordMirrorCheck"
+                              Content="Experimental borderless Discord mirror (Windows 10)"
+                              Style="{StaticResource SwitchCheckBox}" Margin="0,8,0,3"
+                              Visibility="Collapsed" Click="DiscordOption_Click"
+                              ToolTip="Uses an application-cloaked DWM host; output may have padding after resizing" />
+                    <TextBlock x:Name="DiscordMirrorHint" Visibility="Collapsed" Style="{StaticResource Hint}"
+                               Foreground="{DynamicResource WarningBrush}" TextWrapping="Wrap" Margin="0,5,0,5"
+                               Text="Experimental on Windows 10: mirrors each authorized Discord window through a cloaked host, then uses the normal Discord multi-window layout. No visible capture outline was observed on the tested system; driver compatibility and GPU cost remain unverified. Aspect ratios are preserved when resizing." />
+                    <TextBlock x:Name="DiscordBorderNotice" Visibility="Collapsed" Style="{StaticResource Hint}"
+                               Foreground="{DynamicResource WarningBrush}" TextWrapping="Wrap" Margin="0,7,0,5"
+                               Text="Windows 10 adds a yellow capture outline around each Discord window. Windows 10 does not provide an approved way for QuickClip to hide it with this capture method." />
+                    <Border Background="{DynamicResource ElevatedSurfaceBrush}" CornerRadius="7" Padding="10,8" Margin="0,7,0,7">
+                        <StackPanel>
+                            <TextBlock Text="Privacy" FontWeight="SemiBold"/>
+                            <TextBlock Text="Discord messages and profiles may appear in your clip. No other applications or desktops are captured."
+                                       Style="{StaticResource Hint}" TextWrapping="Wrap" Margin="0,3,0,0" />
+                        </StackPanel>
+                    </Border>
+                    <WrapPanel Margin="0,8,0,0" VerticalAlignment="Center">
+                        <Button x:Name="DiscordManualButton" Visibility="Collapsed" Content="Start Discord capture"
+                                Margin="0,0,9,5" Click="DiscordManual_Click"
+                                ToolTip="Manually start or stop Discord replay capture" />
+                        <TextBlock x:Name="DiscordStatusText" Text="Off" VerticalAlignment="Center"
+                                   Foreground="{DynamicResource SecondaryTextBrush}" TextWrapping="Wrap"
+                                   AutomationProperties.LiveSetting="Polite" />
+                    </WrapPanel>
+                    <TextBlock Text="Your selected playback and microphone tracks are used once, regardless of how many windows Discord opens."
+                               Style="{StaticResource Hint}" TextWrapping="Wrap" Margin="0,8,0,0" />
+                </StackPanel>
+            </Border>
+            <Border x:Name="NotificationsCard" Style="{StaticResource Card}">
+                <StackPanel>
                     <TextBlock Text="Notifications" Style="{StaticResource CardTitle}" />
                     <WrapPanel Margin="0,8,0,0">
                         <CheckBox Style="{StaticResource SwitchCheckBox}" x:Name="SoundCheck" Focusable="True" Content="Play a sound when a clip is saved" VerticalAlignment="Center" Checked="Changed" Unchecked="Changed" />
@@ -862,9 +953,7 @@
                         <Button Content="Preview clip saved" Click="TestClipOverlay_Click" Margin="0,0,8,4" />
                         <Button Content="Preview status banner" Click="TestCompactBanner_Click" Margin="0,0,8,4" />
                     </WrapPanel>
-                    <CheckBox Style="{StaticResource SwitchCheckBox}" x:Name="ShellCheck" Margin="0,8,0,0" Checked="ShellCheck_Changed" Unchecked="ShellCheck_Changed">
-                        <TextBlock Text="Add &quot;Edit with QuickClip&quot; to the right-click menu of video and audio files" TextWrapping="Wrap" />
-                    </CheckBox>
+
 
                 </StackPanel>
             </Border>
@@ -897,7 +986,7 @@
                         </WrapPanel>
                         <CheckBox Style="{StaticResource SwitchCheckBox}" x:Name="IndexLibraryCheck" Content="Smart library catalog"
                                   Click="IndexLibrary_Click" Margin="0,0,0,4" />
-                        <TextBlock Style="{StaticResource Hint}" Text="Keeps a local catalog of your clips, favorites, tags and bookmarks, and powers storage statistics. The first scan may take a while; later scans reuse saved metadata. Existing clips stay in their original folders." Margin="0,0,0,12" />
+                        <TextBlock Style="{StaticResource Hint}" Text="Required for labels and library organization. Files stay unchanged." Margin="0,0,0,12" />
                         <TextBlock Text="Clip filename template" />
                         <TextBox x:Name="FilenameTemplate" Margin="0,5,0,0" TextChanged="FilenameTemplate_Changed"
                                  LostKeyboardFocus="FilenameTemplate_Commit" />

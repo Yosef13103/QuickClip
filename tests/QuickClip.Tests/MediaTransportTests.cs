@@ -13,6 +13,109 @@ namespace QuickClip.Tests;
 public sealed class MediaTransportTests
 {
     [Fact]
+    public Task Track_and_navigation_layouts_reserve_separate_control_space_at_all_scales() => OnSta(() =>
+    {
+        var editor = new EditorView();
+        var track = new AudioTrack(new QuickClip.Media.AudioStreamInfo { Title = "Sonar - Microphone", Channels = 2 }, new TimelineState(), 30);
+        var row = Assert.IsType<Grid>(editor.TrackList.ItemTemplate.LoadContent());
+        row.DataContext = track;
+        var header = Assert.IsType<Border>(row.Children[0]);
+        var fields = Assert.IsType<Grid>(header.Child);
+        var check = Assert.IsType<CheckBox>(fields.Children[0]);
+        var name = Assert.IsType<TextBox>(fields.Children[1]);
+        var actions = Assert.IsType<StackPanel>(fields.Children[2]);
+        var volume = Assert.IsType<Grid>(fields.Children[3]);
+        var host = new StackPanel();
+        host.Resources.MergedDictionaries.Add(new ResourceDictionary
+        {
+            Source = new Uri("/QuickClip;component/Themes/Styles.xaml", UriKind.Relative)
+        });
+        new ThemeResources().Apply(host.Resources, ThemeChoice.Amoled);
+        host.Children.Add(row);
+        var nav = new ListBoxItem
+        {
+            Style = (Style)host.FindResource("ThemedNavigationItem"),
+            Content = new TextBlock { Text = "All clips" }
+        };
+        host.Children.Add(nav);
+        foreach (int scale in new[] { 90, 100, 125 })
+        {
+            new InterfaceScale(110, scale).Apply(host.Resources);
+            host.Measure(new Size(600, 600));
+            host.Arrange(new Rect(0, 0, 600, 600));
+            host.UpdateLayout();
+            Point checkAt = check.TranslatePoint(new Point(), fields);
+            Point nameAt = name.TranslatePoint(new Point(), fields);
+            Point actionsAt = actions.TranslatePoint(new Point(), fields);
+            Point volumeAt = volume.TranslatePoint(new Point(), fields);
+            Assert.True(checkAt.X + check.ActualWidth <= nameAt.X, "Checkbox and name intersect");
+            Assert.True(nameAt.X + name.ActualWidth <= actionsAt.X + .1, "Name and actions intersect");
+            Assert.True(actionsAt.Y + actions.ActualHeight <= volumeAt.Y + .1, "Actions and slider intersect");
+            Assert.True(volumeAt.Y + volume.ActualHeight <= fields.ActualHeight + .1, "Volume clips outside track");
+            Assert.InRange(nav.ActualHeight, 30 * scale / 100d, 44 * scale / 100d);
+            var navText = Assert.IsType<TextBlock>(nav.Content);
+            Assert.InRange(navText.TranslatePoint(new Point(), nav).X, 0, 12);
+        }
+    });
+
+    [Fact]
+    public Task Shared_action_buttons_are_square_centered_and_scale_with_controls() => OnSta(() =>
+    {
+        var host = new StackPanel();
+        host.Resources.MergedDictionaries.Add(new ResourceDictionary
+        {
+            Source = new Uri("/QuickClip;component/Themes/Styles.xaml", UriKind.Relative)
+        });
+        host.Resources.MergedDictionaries.Add(new ResourceDictionary());
+        var theme = host.Resources.MergedDictionaries[1];
+        new ThemeResources().Apply(theme, ThemeChoice.Amoled);
+        var dot = new Ellipse { Width = 19, Height = 19, Fill = System.Windows.Media.Brushes.Orange };
+        var glyph = new System.Windows.Shapes.Path
+        {
+            Width = 16, Height = 16, Stretch = System.Windows.Media.Stretch.Uniform,
+            Fill = System.Windows.Media.Brushes.White,
+            Data = System.Windows.Media.Geometry.Parse("M0,0 L16,8 L0,16 Z")
+        };
+        var icon = new Button { Style = (Style)host.FindResource("IconButton"), Content = glyph, ToolTip = "Play" };
+        var swatch = new Button { Style = (Style)host.FindResource("ColorSwatchButton"), Content = dot, ToolTip = "Change color" };
+        var text = new Button { Style = (Style)host.FindResource("TextButton"), Content = "Set in" };
+        var plain = new Button { Content = "OK" };
+        var toggle = new ToggleButton { Style = (Style)host.FindResource("EditorOptionToggle"), Content = "Solo" };
+        foreach (var control in new Control[] { icon, swatch, text, plain, toggle })
+        {
+            control.HorizontalAlignment = HorizontalAlignment.Left;
+            host.Children.Add(control);
+        }
+        foreach (int scale in new[] { 90, 100, 125 })
+        {
+            new InterfaceScale(110, scale).Apply(host.Resources);
+            host.Measure(new Size(500, 500));
+            host.Arrange(new Rect(0, 0, 500, 500));
+            host.UpdateLayout();
+            double minimum = 36 * scale / 100d;
+            foreach (var control in new Control[] { icon, swatch, text, plain, toggle })
+            {
+                Assert.True(control.ActualWidth >= minimum - .1, $"{control.GetType().Name} width {control.ActualWidth}");
+                Assert.True(control.ActualHeight >= minimum - .1, $"Height {control.ActualHeight}");
+            }
+            foreach (var (button, content) in new[] { (icon, (FrameworkElement)glyph), (swatch, (FrameworkElement)dot) })
+            {
+                Assert.Equal(minimum, button.ActualWidth, 1);
+                Assert.Equal(minimum, button.ActualHeight, 1);
+                var center = content.TranslatePoint(new Point(content.ActualWidth / 2, content.ActualHeight / 2), button);
+                Assert.InRange(center.X, minimum / 2 - .6, minimum / 2 + .6);
+                Assert.InRange(center.Y, minimum / 2 - .6, minimum / 2 + .6);
+            }
+            swatch.ApplyTemplate();
+            var surface = Assert.IsType<Border>(swatch.Template.FindName("Surface", swatch));
+            Assert.Equal(System.Windows.Media.Colors.Transparent, Assert.IsType<System.Windows.Media.SolidColorBrush>(surface.Background).Color);
+            Assert.Equal(System.Windows.Media.Colors.Transparent, Assert.IsType<System.Windows.Media.SolidColorBrush>(surface.BorderBrush).Color);
+            Assert.NotNull(icon.ToolTip);
+            Assert.NotNull(swatch.ToolTip);
+        }
+    });
+
+    [Fact]
     public Task Slider_thumb_stays_centered_and_within_track_at_both_endpoints() => OnSta(() =>
     {
         var host = new Grid();

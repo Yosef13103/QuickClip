@@ -1,3 +1,4 @@
+#include "GroupCapture.h"
 #include "Engine.h"
 #include "GpuScale.h"
 
@@ -375,6 +376,10 @@ namespace qc
         std::wstring monitorDevice;
         std::wstring displayIdentity;
         QcGameWindow game{};
+        bool companionMode = false;
+        std::mutex companionLock;
+        std::vector<QcGameWindow> companionWindows;
+        std::atomic<int> companionRevision{0};
         HANDLE gameProcess = nullptr;
         std::atomic<bool> videoSourceLost{ false };
         bool AuthorizedDuplication() const { return !displayIdentity.empty() && videoOptions.backend == 3; }
@@ -585,15 +590,16 @@ namespace qc
                 return TryBuild("gfxcapture", wgc, device, NeedsSystemFrames(s), error);
             }
 
-            bool OpenEncoder(const Engine::Shared& s, int videoKbps, std::string& error)
+            bool OpenEncoder(const Engine::Shared& s, int videoKbps, std::string& error,
+                AVBufferRef* groupFrames = nullptr)
             {
                 const AVCodec* codec = avcodec_find_encoder_by_name(s.encoder.c_str());
                 if (!codec) { error = "Encoder " + s.encoder + " is not available"; return false; }
                 encoder = avcodec_alloc_context3(codec);
-                encoder->width = av_buffersink_get_w(sink);
-                encoder->height = av_buffersink_get_h(sink);
-                encoder->pix_fmt = static_cast<AVPixelFormat>(av_buffersink_get_format(sink));
-                if (AVBufferRef* frames = scaler.Frames() ? scaler.Frames() : av_buffersink_get_hw_frames_ctx(sink))
+                encoder->width = groupFrames ? s.outWidth : av_buffersink_get_w(sink);
+                encoder->height = groupFrames ? s.outHeight : av_buffersink_get_h(sink);
+                encoder->pix_fmt = groupFrames ? AV_PIX_FMT_D3D11 : static_cast<AVPixelFormat>(av_buffersink_get_format(sink));
+                if (AVBufferRef* frames = groupFrames ? groupFrames : scaler.Frames() ? scaler.Frames() : av_buffersink_get_hw_frames_ctx(sink))
                 {
                     encoder->hw_frames_ctx = av_buffer_ref(frames);
                     auto* context = reinterpret_cast<AVHWFramesContext*>(frames->data);
@@ -654,9 +660,176 @@ namespace qc
         /// One capture thread: captures, encodes and fills the ring until stopped or replaced by a newer generation.
         /// Every (re)start looks the monitor up again and opens a new graphics device, since a display change can
         /// move, resize or invalidate the old ones.
+
+        // Separate acquisition mode: no ddagrab, monitor gfxcapture, or fallback.
+        // WGC HWND sources share exactly one GPU compositor, encoder and packet ring.
+        void GroupVideoLoop(std::shared_ptr<Engine::Shared> s, int generation)
+        {
+            s->runningVideoThreads++;
+            CoInitializeEx(nullptr, COINIT_MULTITHREADED);
+            timeBeginPeriod(1);
+            AVBufferRef* device = nullptr;
+            AVFrame* frame = av_frame_alloc();
+            AVPacket* packet = av_packet_alloc();
+            VideoPipe pipe;
+            GroupCapture group;
+            const bool mirrorMode = s->videoOptions.backend == 5;
+            int revision = -1;
+            int64_t lastKey = -1;
+            const auto current = [&] {
+                return !s->stop && !s->videoSourceLost && s->generation == generation;
+            };
+            auto fail = [&](const std::string& message) {
+                if (s->startError.empty()) s->startError=message;
+                if (current()) s->InvalidateVideo();
+                SetEvent(s->videoStarted);
+                Log(LogCategory::Capture, "Companion capture stopped safely", LogSeverity::Warning);
+            };
+            try
+            {
+                MonitorTarget monitor{};
+                if (!FindMonitor(s->monitorDevice, monitor)) throw std::runtime_error("Companion GPU disappeared");
+                int result=av_hwdevice_ctx_create(&device,AV_HWDEVICE_TYPE_D3D11VA,
+                    std::to_string(monitor.adapter).c_str(),nullptr,0);
+                if(result<0) throw std::runtime_error("Companion GPU allocation failed: "+AvError(result));
+                std::string error;
+                if(!group.Open(device,s->outWidth,s->outHeight,error,mirrorMode))
+                    throw std::runtime_error(error);
+                {
+                    std::lock_guard lock(s->companionLock);
+                    if(!group.Update(s->companionWindows,error))
+                        throw std::runtime_error(error);
+                    revision=s->companionRevision;
+                }
+                if(!pipe.OpenEncoder(*s,s->videoKbps,error,group.Frames()))
+                    throw std::runtime_error(error);
+                auto info=std::make_shared<StreamInfo>();
+                info->params=avcodec_parameters_alloc();
+                if(!info->params || avcodec_parameters_from_context(info->params,pipe.encoder)<0)
+                    throw std::runtime_error("Companion encoder format unavailable");
+                info->timeBase=pipe.encoder->time_base;
+                int64_t source;
+                {
+                    std::scoped_lock lock(s->videoLock,s->infoLock);
+                    if(!current()) throw std::runtime_error("Companion capture was revoked");
+                    s->video=info;
+                    source=++s->nextSource;
+                }
+                s->width=s->outWidth;
+                s->height=s->outHeight;
+                s->usingDuplication=false;
+                s->usingFallback=false;
+                s->windowMode=true;
+                {
+                    std::lock_guard lock(s->statsLock);
+                    s->videoDescription={ false,true,true,s->outWidth,s->outHeight,s->outWidth,s->outHeight,s->videoKbps };
+                    s->videoSample.clear();
+                    s->frameTimes.clear();
+                }
+                s->lastFrameUs=NowUs();
+                SetEvent(s->videoStarted);
+                int64_t previous=-1;
+                while(current())
+                {
+                    // DWM mirror hosts are HWNDs owned by this capture thread.
+                    // Even application-cloaked windows need a message pump; without
+                    // it Windows may mark the otherwise healthy app "Not Responding".
+                    if (mirrorMode)
+                    {
+                        MSG message{};
+                        for (int drained=0; drained<32 &&
+                             PeekMessageW(&message,nullptr,0,0,PM_REMOVE); ++drained)
+                        {
+                            if (message.message==WM_QUIT)
+                                throw std::runtime_error("Discord mirror thread was asked to quit");
+                            TranslateMessage(&message);
+                            DispatchMessageW(&message);
+                        }
+                    }
+                    int64_t index=std::max<int64_t>(0,
+                        (NowUs()-s->t0)*s->fps/1000000);
+                    if(index<=previous)
+                    {
+                        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+                        continue;
+                    }
+                    previous=index;
+                    {
+                        std::lock_guard lock(s->companionLock);
+                        if(revision!=s->companionRevision)
+                        {
+                            error.clear();
+                            if(!group.Update(s->companionWindows,error))
+                                throw std::runtime_error(error);
+                            revision=s->companionRevision;
+                        }
+                    }
+                    av_frame_unref(frame);
+                    error.clear();
+                    if(!group.Render(frame,error)) throw std::runtime_error(error);
+                    frame->pts=index;
+                    if(lastKey<0 || index-lastKey>=s->fps)
+                    {
+                        frame->pict_type=AV_PICTURE_TYPE_I;
+                        lastKey=index;
+                    }
+                    else frame->pict_type=AV_PICTURE_TYPE_NONE;
+                    if(avcodec_send_frame(pipe.encoder,frame)<0)
+                        throw std::runtime_error("Companion GPU encoding failed");
+                    av_frame_unref(frame);
+                    int rc;
+                    while((rc=avcodec_receive_packet(pipe.encoder,packet))==0)
+                    {
+                        bool key=(packet->flags&AV_PKT_FLAG_KEY)!=0;
+                        int64_t timeUs=packet->pts*1000000/s->fps;
+                        {
+                            // Serialize publication with revocation and source generation.
+                            std::lock_guard lock(s->videoLock);
+                            if(current() && revision==s->companionRevision)
+                                if(auto copy=av_packet_clone(packet)) {
+                                    s->PushVideoLocked(copy,timeUs,key,source,NowUs());
+                                    s->hasVideoOutput = true;
+                                }
+                        }
+                        av_packet_unref(packet);
+                    }
+                    if(rc!=AVERROR(EAGAIN) && rc!=AVERROR_EOF)
+                        throw std::runtime_error("Companion packet encoding failed");
+                    s->lastFrameUs=NowUs();
+                    {
+                        std::lock_guard lock(s->statsLock);
+                        s->frameTimes.push_back(s->lastFrameUs);
+                        while(!s->frameTimes.empty() && s->frameTimes.front()<s->lastFrameUs-1000000)
+                            s->frameTimes.pop_front();
+                    }
+                    int64_t untilUs=s->t0+(index+1)*1000000/s->fps-NowUs();
+                    if(untilUs>2000)
+                        std::this_thread::sleep_for(std::chrono::microseconds(untilUs-1000));
+                    else if(untilUs>0)
+                        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+                }
+            }
+            catch(const std::exception& e)
+            {
+                fail(e.what());
+            }
+            av_frame_free(&frame);
+            av_packet_free(&packet);
+            pipe.Close();
+            group.Close(); // Release WGC objects before clearing cached WinRT factories.
+            // C++/WinRT caches activation factories across sessions. COM may unload
+            // their implementation at CoUninitialize; keep no stale vtable pointers.
+            ClearWinrtFactoryCache();
+            av_buffer_unref(&device);
+            timeEndPeriod(1);
+            CoUninitialize();
+            s->runningVideoThreads--;
+        }
+
         void VideoLoop(std::shared_ptr<Engine::Shared> s, int generation)
         {
             PhysicalDpi dpi;
+            if (s->companionMode) { GroupVideoLoop(s,generation); return; }
             s->runningVideoThreads++;
             CoInitializeEx(nullptr, COINIT_MULTITHREADED);
             // The capture source paces frames with short sleeps; at the default 15.6 ms timer granularity
@@ -1031,6 +1204,8 @@ namespace qc
             closeCapture();
             av_packet_free(&packet);
             av_frame_free(&frame);
+            // Same COM/WinRT factory-cache lifetime rule as companion capture.
+            ClearWinrtFactoryCache();
             timeEndPeriod(1);
             CoUninitialize();
             s->runningVideoThreads--;
@@ -1042,13 +1217,16 @@ namespace qc
     // ---------------------------------------------------------------------------------------------
 
     Engine::Engine(const QcConfig& c, bool endpointMode, const QcEndpointTrack* endpoints, int endpointCount,
-        QcVideoOptions video, const wchar_t* displayIdentity, const QcGameWindow* game)
+        QcVideoOptions video, const wchar_t* displayIdentity, const QcGameWindow* game,
+        const QcGameWindow* companion, int companionCount)
         : shared_(std::make_shared<Shared>(static_cast<int64_t>(c.bufferSeconds) * 1000000)),
           monitor_(c.monitorDevice ? c.monitorDevice : L""),
           splitChat_(c.splitChat != 0), splitMusic_(c.splitMusic != 0), micSeparate_(c.micSeparate != 0),
           endpointMode_(endpointMode), audioKbps_(c.audioKbps)
     {
         shared_->videoOptions = video;
+        shared_->companionMode = companionCount > 0;
+        if (shared_->companionMode) shared_->companionWindows.assign(companion, companion + companionCount);
         if (displayIdentity) shared_->displayIdentity = displayIdentity;
         if (game) shared_->game = *game;
         for (int i = 0; !endpointMode_ && i < c.micCount; i++)
@@ -1072,8 +1250,27 @@ namespace qc
 
     bool Engine::Start(std::string& error)
     {
+        // DWM mirrors only authenticated companion sources, never games or desktops.
+        if (shared_->videoOptions.backend == 5 &&
+            (!shared_->companionMode || shared_->companionWindows.empty() ||
+             shared_->companionWindows.size() > 4))
+        {
+            error = "Discord DWM mirroring requires authorized companion windows.";
+            return false;
+        }
         MonitorTarget monitor;
-        if (!FindMonitor(monitor_, monitor) || !MatchesDisplayIdentity(monitor_, shared_->displayIdentity))
+        if (shared_->companionMode)
+        {
+            MONITORINFOEXW mi{}; mi.cbSize=sizeof mi;
+            if (!GetMonitorInfoW(MonitorFromWindow(shared_->companionWindows.front().handle,
+                MONITOR_DEFAULTTONEAREST), &mi) || !FindMonitor(mi.szDevice, monitor))
+            {
+                error="Companion GPU adapter unavailable.";
+                return false;
+            }
+            monitor_ = mi.szDevice; // device selection only; no display capture
+        }
+        else if (!FindMonitor(monitor_, monitor) || !MatchesDisplayIdentity(monitor_, shared_->displayIdentity))
         {
             error = "The selected monitor is missing or could not be verified.";
             return false;
@@ -1202,6 +1399,41 @@ namespace qc
         else shared_->rebuildRequested = true;
     }
 
+    bool Engine::UpdateCompanionWindows(const QcGameWindow* windows, int count)
+    {
+        if (!shared_->companionMode || !windows || count < 1 || count > 4 ||
+            shared_->stop || shared_->videoSourceLost) return false;
+        std::vector<QcGameWindow> next(windows,windows+count);
+        for (const auto& owner : next)
+        {
+            if (!owner.handle || !owner.thread || !owner.process || owner.started <= 0 ||
+                std::count_if(next.begin(),next.end(),[&](const QcGameWindow& other) {
+                    return owner.handle==other.handle; })!=1)
+                return false;
+            DWORD pid=0;
+            if (GetWindowThreadProcessId(owner.handle,&pid)!=owner.thread || pid!=owner.process)
+                return false;
+            HANDLE process=OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION|SYNCHRONIZE,FALSE,owner.process);
+            if (!process) return false;
+            FILETIME created{},exited{},kernel{},user{};
+            bool ok=WaitForSingleObject(process,0)==WAIT_TIMEOUT &&
+                GetProcessTimes(process,&created,&exited,&kernel,&user) &&
+                ((static_cast<uint64_t>(created.dwHighDateTime)<<32)|created.dwLowDateTime)==
+                    static_cast<uint64_t>(owner.started);
+            CloseHandle(process);
+            if (!ok) return false;
+        }
+        std::scoped_lock lock(shared_->videoLock,shared_->companionLock);
+        if (shared_->stop || shared_->videoSourceLost) return false;
+        if (next.size()==shared_->companionWindows.size() &&
+            std::equal(next.begin(),next.end(),shared_->companionWindows.begin(),[](auto& a,auto& b) {
+                return a.handle==b.handle && a.thread==b.thread &&
+                    a.process==b.process && a.started==b.started; }))
+            return true;
+        shared_->companionWindows=std::move(next);
+        ++shared_->companionRevision;
+        return true;
+    }
     void Engine::SetCaptureWindow(HWND window, int width, int height, int videoKbps)
     {
         if (shared_->videoOptions.backend >= 3) return; // explicit monitor authorization never includes a window

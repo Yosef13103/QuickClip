@@ -63,7 +63,7 @@ internal static class ModalDialog
 
     internal static bool Run(Window owner, string title, FrameworkElement content, string accept, string? cancel,
         bool safeDefault = false, bool destructive = false, IInputElement? initialFocus = null, Button? dismissOnClick = null,
-        bool accent = false, bool wide = false, Func<bool>? validate = null)
+        bool accent = false, bool wide = false, Func<bool>? validate = null, bool handleTextKeys = false, Func<bool>? canClose = null)
     {
         var host = (Panel)owner.Content;
         var overlay = new Grid { Background = new SolidColorBrush(Color.FromArgb(140, 0, 0, 0)) };
@@ -105,6 +105,12 @@ internal static class ModalDialog
         var buttons = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right };
         var primary = new Button { Content = accept, MinWidth = 84, Padding = new Thickness(12, 6, 12, 6) };
         var secondary = new Button { Content = cancel ?? "", MinWidth = 84, Padding = new Thickness(12, 6, 12, 6), Margin = new Thickness(0, 0, 8, 0) };
+        foreach (var button in new[] { primary, secondary })
+        {
+            button.SetResourceReference(FrameworkElement.MinHeightProperty, "QuickClipVisual36");
+            button.HorizontalContentAlignment = HorizontalAlignment.Center;
+            button.VerticalContentAlignment = VerticalAlignment.Center;
+        }
         if (accent) primary.SetResourceReference(FrameworkElement.StyleProperty, "AccentButtonStyle");
         if (destructive && owner.TryFindResource("DangerButtonStyle") is Style danger)
             primary.Style = danger;
@@ -116,13 +122,14 @@ internal static class ModalDialog
 
         var frame = new DispatcherFrame();
         bool accepted = false;
-        primary.Click += (_, _) => { if (validate?.Invoke() == false) return; accepted = true; frame.Continue = false; };
-        secondary.Click += (_, _) => frame.Continue = false;
-        RoutedEventHandler dismiss = (_, _) => frame.Continue = false;
+        primary.Click += (_, _) => { if (canClose?.Invoke() == false || validate?.Invoke() == false) return; accepted = true; frame.Continue = false; };
+        secondary.Click += (_, _) => { if (canClose?.Invoke() != false) frame.Continue = false; };
+        RoutedEventHandler dismiss = (_, _) => { if (canClose?.Invoke() != false) frame.Continue = false; };
         if (dismissOnClick != null) dismissOnClick.Click += dismiss;
         void Keys(object sender, KeyEventArgs args)
         {
-            if (!overlay.IsKeyboardFocusWithin) return;
+            if (!overlay.IsKeyboardFocusWithin || (handleTextKeys && Keyboard.FocusedElement is TextBox && args.Key is Key.Enter or Key.Escape)) return;
+            if (canClose?.Invoke() == false && args.Key is Key.Escape or Key.Enter) { args.Handled = true; return; }
             if (args.Key == Key.Escape)
             {
                 frame.Continue = false;

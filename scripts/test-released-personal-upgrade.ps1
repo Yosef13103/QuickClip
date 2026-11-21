@@ -16,7 +16,7 @@ if ((Test-Path $installKey) -or (Test-Path $uninstallKey) -or (Test-Path $profil
     (Test-Path $local) -or (Test-Path $default) -or (Get-Process QuickClip -ErrorAction SilentlyContinue) -or $env:QUICKCLIP_PERSONAL_DATA_DIR) { throw 'Unused installed Personal profile required.' }
 $CandidateSetup = (Resolve-Path -LiteralPath $CandidateSetup).Path
 $CandidatePayload = (Resolve-Path -LiteralPath $CandidatePayload).Path
-$version = '1.2.2'
+$version = '1.3.0'
 if ([IO.Path]::GetFileName($CandidateSetup) -cne "QuickClip-Personal-$version-setup.exe") { throw 'Wrong fixture candidate package.' }
 $info = [Diagnostics.FileVersionInfo]::GetVersionInfo($CandidateSetup)
 if ($info.FileVersion.Trim() -ne "$version.0" -or $info.FileDescription.TrimEnd() -ne 'QuickClip Personal setup (in-place update v1)') { throw 'Candidate setup identity/protocol differs.' }
@@ -26,7 +26,7 @@ $destination = $default
 $drive = $null
 $parent = $worker = $restarted = $null
 $stage = $null
-$oldSetup = Join-Path $scratch 'QuickClip-Personal-1.2.1-setup.exe'
+$oldSetup = Join-Path $scratch 'QuickClip-Personal-1.2.2-setup.exe'
 function Wait-Until([scriptblock]$Condition, [int]$Seconds, [string]$Failure) {
     $until = [DateTime]::UtcNow.AddSeconds($Seconds)
     do { if (& $Condition) { return }; Start-Sleep -Milliseconds 200 } while ([DateTime]::UtcNow -lt $until)
@@ -74,12 +74,12 @@ try {
         $destination = "$drive\Games With Spaces\QuickClip Personal"
     }
     $exe = Join-Path $destination 'QuickClip.exe'
-    Invoke-WebRequest -Uri 'https://github.com/Yosef13103/QuickClip/releases/download/personal-v1.2.1/QuickClip-Personal-1.2.1-setup.exe' -OutFile $oldSetup -TimeoutSec 180
-    if ((Get-Item -LiteralPath $oldSetup).Length -ne 134867044 -or (Get-FileHash -LiteralPath $oldSetup -Algorithm SHA256).Hash -ine '8ef300dfe49b45b43c7b2d4a2bc7234dbd52d13186a5f793bdf25dbb9f9ba89e') { throw 'Released installer digest/length mismatch.' }
+    Invoke-WebRequest -Uri 'https://github.com/Yosef13103/QuickClip/releases/download/personal-v1.2.2/QuickClip-Personal-1.2.2-setup.exe' -OutFile $oldSetup -TimeoutSec 180
+    if ((Get-Item -LiteralPath $oldSetup).Length -ne 134857168 -or (Get-FileHash -LiteralPath $oldSetup -Algorithm SHA256).Hash -ine '14f90c04db9c57b63793be8ec6147ad3281451a148a21417164cff29d76c793e') { throw 'Released installer digest/length mismatch.' }
     $installArgs = '/SP- /VERYSILENT /SUPPRESSMSGBOXES /NORESTART'
     if ($Layout -eq 'Alternate') { $installArgs += ' /DIR="'+$destination+'"' }
     Invoke-Setup $oldSetup $installArgs
-    Assert-Installed '1.2.1'
+    Assert-Installed '1.2.2'
     $acl = (Get-Acl -LiteralPath $destination).Sddl
     # Read released resource without loading/executing its managed assembly.
     $helper = Join-Path $scratch 'ExtractWorker.cs'
@@ -137,7 +137,7 @@ throw new InvalidDataException("Released worker resource missing.");
     } 30 'Released application did not acquire its primary instance.'
     Start-Sleep -Seconds 2
     $plan = @{Executable=$exe; Package=[IO.Path]::GetFileName($package); Size=$size; Sha256=$hash
-        CurrentVersion='1.2.1'; Version=$version; ParentId=$parent.Id; ParentStart=$parent.StartTime.ToFileTimeUtc().ToString()}
+        CurrentVersion='1.2.2'; Version=$version; ParentId=$parent.Id; ParentStart=$parent.StartTime.ToFileTimeUtc().ToString()}
     [IO.File]::WriteAllText((Join-Path $stage 'plan.json'),($plan | ConvertTo-Json))
     $psi = [Diagnostics.ProcessStartInfo]::new((Join-Path $env:WINDIR 'System32\WindowsPowerShell\v1.0\powershell.exe'))
     $psi.UseShellExecute=$false
@@ -152,7 +152,7 @@ throw new InvalidDataException("Released worker resource missing.");
     [IO.File]::WriteAllText((Join-Path $stage 'commit'),'')
     Start-Sleep -Milliseconds 500
     if ($parent.HasExited -or (Test-Path -LiteralPath (Join-Path $stage 'setup.log'))) { throw 'Setup started before old app shutdown.' }
-    Assert-Installed '1.2.1'
+    Assert-Installed '1.2.2'
     Quit-Fixture $parent
     Wait-Until {
         if (Test-Path -LiteralPath (Join-Path $stage 'error.txt')) { throw 'Released worker reported a failure.' }
