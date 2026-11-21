@@ -616,4 +616,44 @@ extern "C"
         }
         return !packets.empty();
     }
+
+    // Synthetic-only capacity fixture. No desktop, encoder, audio endpoint or media file.
+    // Exercises the actual packet-ring pruning path with nonzero encoded packet sizes.
+    __declspec(dllexport) int qc_test_replay_ring_budget(int frames, int intervalUs, int keyInterval,
+        int packetBytes, int64_t byteBudget, int64_t* retainedBytes, int64_t* firstKeyUs,
+        int* retainedVideoPackets, int* retainedAudioPackets)
+    {
+        if (frames < 1 || frames > 1024 || intervalUs < 1 || keyInterval < 1 ||
+            packetBytes < 1 || packetBytes > 65536 || byteBudget < 0 ||
+            !retainedBytes || !firstKeyUs || !retainedVideoPackets || !retainedAudioPackets)
+            return 0;
+        qc::PacketRing ring(static_cast<int64_t>(frames) * intervalUs + intervalUs, byteBudget);
+        for (int frame = 0; frame < frames; frame++)
+        {
+            for (int stream = 0; stream < 2; stream++)
+            {
+                auto* packet = av_packet_alloc();
+                if (!packet) return 0;
+                if (av_new_packet(packet, packetBytes) < 0)
+                {
+                    av_packet_free(&packet);
+                    return 0;
+                }
+                ring.Push(packet, stream, static_cast<int64_t>(frame) * intervalUs,
+                    stream == 0 && frame % keyInterval == 0, 1);
+            }
+        }
+        double seconds;
+        ring.Stats(*retainedBytes, seconds);
+        *retainedVideoPackets = *retainedAudioPackets = 0;
+        *firstKeyUs = -1;
+        auto selected = ring.Snapshot(0, static_cast<int64_t>(frames - 1) * intervalUs, *firstKeyUs);
+        for (auto& entry : selected)
+        {
+            if (entry.stream == 0) ++*retainedVideoPackets;
+            if (entry.stream == 1) ++*retainedAudioPackets;
+            av_packet_free(&entry.packet);
+        }
+        return 1;
+    }
 }

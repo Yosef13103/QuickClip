@@ -42,7 +42,8 @@ namespace qc
         if (stream == 0) newestVideoUs_ = std::max(newestVideoUs_, timeUs);
         // Keep a little more than the window so a keyframe at or before its start is always there.
         int64_t cutoff = newestVideoUs_ - windowUs_ - 2000000;
-        while (!entries_.empty() && entries_.front().timeUs < cutoff)
+        while (!entries_.empty() && (entries_.front().timeUs < cutoff ||
+            (maxBytes_ > 0 && bytes_ > maxBytes_)))
         {
             bytes_ -= entries_.front().packet->size;
             av_packet_free(&entries_.front().packet);
@@ -371,7 +372,7 @@ namespace qc
     /// (e.g. a static screen with window capture) can't touch freed memory after Stop gives up on it.
     struct Engine::Shared
     {
-        explicit Shared(int64_t windowUs) : ring(windowUs) {}
+        explicit Shared(int64_t windowUs, int64_t maxBytes = 0) : ring(windowUs, maxBytes) {}
 
         std::wstring monitorDevice;
         std::wstring displayIdentity;
@@ -1216,10 +1217,28 @@ namespace qc
     // Engine
     // ---------------------------------------------------------------------------------------------
 
+    namespace
+    {
+        // Bounded RAM policy: a replay uses encoded packets, but a requested time span
+        // alone cannot limit memory when a user selects a very high video bitrate.
+        // Reserve substantial headroom for video encoders, games and save snapshots.
+        int64_t ReplayMemoryBudgetBytes()
+        {
+            constexpr uint64_t MiB = 1024ull * 1024;
+            MEMORYSTATUSEX memory{};
+            memory.dwLength = sizeof memory;
+            if (!GlobalMemoryStatusEx(&memory)) return 512ll * MiB;
+            uint64_t ceiling = std::min({ memory.ullTotalPhys / 8,
+                memory.ullAvailPhys / 3, 2048ull * MiB });
+            return static_cast<int64_t>(std::max(ceiling, 64ull * MiB));
+        }
+    }
+
     Engine::Engine(const QcConfig& c, bool endpointMode, const QcEndpointTrack* endpoints, int endpointCount,
         QcVideoOptions video, const wchar_t* displayIdentity, const QcGameWindow* game,
         const QcGameWindow* companion, int companionCount)
-        : shared_(std::make_shared<Shared>(static_cast<int64_t>(c.bufferSeconds) * 1000000)),
+        : shared_(std::make_shared<Shared>(static_cast<int64_t>(c.bufferSeconds) * 1000000,
+            ReplayMemoryBudgetBytes())),
           monitor_(c.monitorDevice ? c.monitorDevice : L""),
           splitChat_(c.splitChat != 0), splitMusic_(c.splitMusic != 0), micSeparate_(c.micSeparate != 0),
           endpointMode_(endpointMode), audioKbps_(c.audioKbps)

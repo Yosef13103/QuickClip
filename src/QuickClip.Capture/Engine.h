@@ -123,7 +123,7 @@ namespace qc
             int64_t source;
         };
 
-        explicit PacketRing(int64_t windowUs) : windowUs_(windowUs) {}
+        explicit PacketRing(int64_t windowUs, int64_t maxBytes = 0) : windowUs_(windowUs), maxBytes_(maxBytes) {}
         ~PacketRing() { Clear(); }
 
         void Push(AVPacket* packet, int stream, int64_t timeUs, bool key, int64_t source = 0);
@@ -139,6 +139,7 @@ namespace qc
         std::deque<Entry> entries_;
         int64_t bytes_ = 0;
         int64_t windowUs_;
+        int64_t maxBytes_ = 0;  // 0 means unbounded (legacy fixtures); live capture supplies a RAM budget.
         int64_t newestVideoUs_ = -1;
         int64_t sequence_ = 0; // keep increasing even when incompatible video clears the ring
     };
