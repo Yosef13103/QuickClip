@@ -31,6 +31,13 @@ internal sealed class AppSettings
     // Recording (instant replay)
     private volatile bool _recordingEnabled = !AppProfile.IsPersonal;
     private int _recordingDisableRevision;
+    private int _capturePermissionRevision;
+
+    // Runtime-only, monotonic until process restart. Every capture grant mutation
+    // invalidates any detached epochs made under a previous grant generation.
+    // This is never a substitute for rechecking HWND/PID and current display consent.
+    internal int CapturePermissionRevision => Volatile.Read(ref _capturePermissionRevision);
+    private void CapturePermissionsChanged() => Interlocked.Increment(ref _capturePermissionRevision);
 
     public bool RecordingEnabled
     {
@@ -39,7 +46,11 @@ internal sealed class AppSettings
         {
             if (_recordingEnabled == value) return;
             _recordingEnabled = value;
-            if (!value) Interlocked.Increment(ref _recordingDisableRevision);
+            if (!value)
+            {
+                Interlocked.Increment(ref _recordingDisableRevision);
+                CapturePermissionsChanged();
+            }
         }
     }
 
@@ -59,20 +70,83 @@ internal sealed class AppSettings
     public int BufferSeconds { get; set; } = 60;
     public bool CaptureCursor { get; set; } = true;
     public bool PreferGameWindow { get; set; } = AppProfile.IsPersonal;
-    // Discord companion capture is always opt-in, separately from display/game permission.
-    public bool DiscordCaptureEnabled { get; set; }
-    // Explicit opt-in for the Windows 10 experimental cloaked DWM mirror.
-    // Does not alter standard WGC or Windows 11 capture.
-    public bool DiscordCloakedMirror { get; set; }
-    public Recording.Companion.DiscordCaptureMode DiscordCaptureMode { get; set; } =
-        Recording.Companion.DiscordCaptureMode.DuringCalls;
+    // Sources and authorization. Mutations invalidate detached encoded replay epochs
+    // even when the user restores an earlier-looking configuration moments later.
+    private bool _discordCaptureEnabled;
+    public bool DiscordCaptureEnabled
+    {
+        get => _discordCaptureEnabled;
+        set
+        {
+            if (_discordCaptureEnabled == value) return;
+            _discordCaptureEnabled = value;
+            CapturePermissionsChanged();
+        }
+    }
 
-    // Preserve the original physical-display grant without broadening it on upgrade.
-    // Fresh Personal profiles permit identifiable displays until the user blocks one.
-    // Legacy whitelist profiles retain their grants until a deliberate migration.
-    public bool AllowRecordingDisplaysByDefault { get; set; } = AppProfile.IsPersonal;
-    public string[] AllowedRecordingDisplays { get; set; } = [];
-    public string[] ExcludedGameDisplays { get; set; } = [];
+    private bool _discordCloakedMirror;
+    public bool DiscordCloakedMirror
+    {
+        get => _discordCloakedMirror;
+        set
+        {
+            if (_discordCloakedMirror == value) return;
+            _discordCloakedMirror = value;
+            CapturePermissionsChanged();
+        }
+    }
+
+    private Recording.Companion.DiscordCaptureMode _discordCaptureMode =
+        Recording.Companion.DiscordCaptureMode.DuringCalls;
+    public Recording.Companion.DiscordCaptureMode DiscordCaptureMode
+    {
+        get => _discordCaptureMode;
+        set
+        {
+            if (_discordCaptureMode == value) return;
+            _discordCaptureMode = value;
+            CapturePermissionsChanged();
+        }
+    }
+
+    private bool _allowRecordingDisplaysByDefault = AppProfile.IsPersonal;
+    public bool AllowRecordingDisplaysByDefault
+    {
+        get => _allowRecordingDisplaysByDefault;
+        set
+        {
+            if (_allowRecordingDisplaysByDefault == value) return;
+            _allowRecordingDisplaysByDefault = value;
+            CapturePermissionsChanged();
+        }
+    }
+
+    private string[] _allowedRecordingDisplays = [];
+    public string[] AllowedRecordingDisplays
+    {
+        get => _allowedRecordingDisplays;
+        set
+        {
+            string[] next = value ?? [];
+            if (!_allowedRecordingDisplays.SequenceEqual(next, StringComparer.OrdinalIgnoreCase))
+                CapturePermissionsChanged();
+            _allowedRecordingDisplays = next;
+        }
+    }
+
+    private string[] _excludedGameDisplays = [];
+    public string[] ExcludedGameDisplays
+    {
+        get => _excludedGameDisplays;
+        set
+        {
+            string[] next = value ?? [];
+            if (!_excludedGameDisplays.SequenceEqual(next, StringComparer.OrdinalIgnoreCase))
+                CapturePermissionsChanged();
+            _excludedGameDisplays = next;
+        }
+    }
+
     public bool SplitChatAudio { get; set; } = true;
     public bool SplitMusicAudio { get; set; } = true;
     public bool RecordMic { get; set; } = !AppProfile.IsPersonal;
