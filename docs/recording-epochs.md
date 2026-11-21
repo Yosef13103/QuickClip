@@ -89,3 +89,16 @@ Experimental AppSettings now maintains `CapturePermissionRevision`, a runtime-on
 This new proof builder remains **dormant** and does not yet connect to Recorder, Native Engine, or automatic Discord capture. Production callbacks must use authoritative `GameDetector.IsCurrent`, `GameCatalogRuntime.Match`, `Monitors.ForWindow`, `Monitors.List` under the recorder's serialized authorization gate; injecting test callbacks or static labels does not grant consent. Permission generation alone never proves a capture is currently authorized.
 
 Next safe milestone: instrument per-graph codec/audio/packet fingerprints and synchronized stop/start timeline events; attach a native archive only after source grant validation and stop/save concurrency tests. Do not let detached buffers survive manual stop, master-off or source revocation; a transient display interruption preserves bytes only while their grant and retention quota remain valid.
+
+## Live graph implementation review — key lifecycle hazard
+
+The native recorder currently **destroys history before managed StopGraph in some cases**:
+
+- `Engine::Shared::InvalidateVideoLocked` clears `ring` immediately when video source loss is detected (e.g. display disconnect). This can happen before `RecordingLifecycle.Reconcile` sees and stops the graph.
+- `VideoLoop` also calls `ring.Clear()` under `videoLock + infoLock` when a new video encoder's parameters differ from the previous stream. Thus resizing or changing encoder formats can erase earlier valid footage within the same Engine before any managed epoch handoff.
+- Ordinary `Recorder.StopGraph` destroys the Engine; and `Engine::Save` snapshots packets/codec state for only one configuration. Merely detaching on `qc_stop` cannot recover already-cleared packets.
+- `Engine::AudioLoop` uses independently owned encoder contexts and optionally an extra hybrid-composite track; any retained epoch must capture its actual stream count, timebases, codec extradata, titles, and packet origins along with its video generation.
+
+**Next architecture gate:** pair each encoded `PacketRing` with immutable stream metadata, and rotate the pair *at native format/source discontinuity* rather than clearing the ring. Prefer an ownership transfer/swap of a bounded compressed packet-ring object into a short-lived, uncommitted epoch quarantine so capture thread stays nonblocking. Managed source authorization and stable permission revision must validate the proposed continuation; if revoked or unverifiable, immediately discard quarantined history. Rotation, ownership release, grants, and save-in-flight need race/leak/deadlock tests before this is wired to QuickClip's real capture engine. Special handling is required for a genuine display disconnect, where the source may vanish without advance notification; never fabricate missing frames or capture a replacement display without permission.
+
+**Do not** implement naive `StopGraph → Snapshot` as the full solution: it misses native ring clear, can stall graph teardown and might preserve media from a revoked source. A file container switch alone cannot solve this either. This is the active next design problem; native AVPacket epoch media roundtrip and managed grant-proof tests already exist.
