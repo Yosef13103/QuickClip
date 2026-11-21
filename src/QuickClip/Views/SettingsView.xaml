@@ -739,8 +739,17 @@
                         <ComboBoxItem Content="While Discord is open" Tag="WhileOpen"/>
                         <ComboBoxItem Content="Only when I start it" Tag="Manual"/>
                     </ComboBox>
-                    <TextBlock Text="All visible Discord windows, including popped-out streams and cameras, share one recording. Games take priority."
+                    <TextBlock x:Name="DiscordWindowScopeHint"
+                               Text="All visible Discord windows, including popped-out streams and cameras, share one recording. Games take priority."
                                Style="{StaticResource Hint}" TextWrapping="Wrap" Margin="0,9,0,4" />
+                    <CheckBox x:Name="DiscordMirrorCheck"
+                              Content="Experimental borderless Discord mirror (Windows 10, main window only)"
+                              Style="{StaticResource SwitchCheckBox}" Margin="0,8,0,3"
+                              Visibility="Collapsed" Click="DiscordOption_Click"
+                              ToolTip="Uses an application-cloaked DWM host; output may have padding after resizing" />
+                    <TextBlock x:Name="DiscordMirrorHint" Visibility="Collapsed" Style="{StaticResource Hint}"
+                               TextWrapping="Wrap" Margin="0,5,0,5"
+                               Text="Experimental on Windows 10: avoids a visible capture outline on tested systems, but not guaranteed on every driver. The recording canvas is sized when capture starts; resizing preserves proportions, using padding or uniform downscaling. Pop-outs are excluded." />
                     <TextBlock x:Name="DiscordBorderNotice" Visibility="Collapsed" Style="{StaticResource Hint}"
                                TextWrapping="Wrap" Margin="0,7,0,5"
                                Text="Windows 10 adds a yellow capture outline around each Discord window. Windows 10 does not provide an approved way for QuickClip to hide it with this capture method." />

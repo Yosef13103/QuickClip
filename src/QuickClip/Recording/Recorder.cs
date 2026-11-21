@@ -2,6 +2,7 @@ using System.Collections.Immutable;
 using System.Diagnostics;
 using Microsoft.Win32;
 using QuickClip.Discovery;
+using QuickClip.Recording.Companion;
 using QuickClip.Gallery;
 using QuickClip.Media;
 using QuickClip.Shell;
@@ -444,8 +445,15 @@ internal sealed partial class Recorder
 
             // The aspect ratio is for the monitor: a game recorded by its window is taken as it is.
             string aspect = videoOptions.Aspect;
+            bool cloakedMirror = companion is { Count: 1 } && s.DiscordCloakedMirror &&
+                Environment.OSVersion.Version.Build < 20348;
             int sourceWidth = companion == null ? monitor!.Width : 1920;
             int sourceHeight = companion == null ? monitor!.Height : 1080;
+            if (cloakedMirror && !DiscordMainWindow.TrySize(companion![0], out sourceWidth, out sourceHeight))
+            {
+                Error = "Main Discord window dimensions are unavailable.";
+                return;
+            }
             if (companion != null) aspect = "";
             var area = RecordingPresets.Area(sourceWidth, sourceHeight, aspect);
             bool cropped = aspect != "" && (area.Width != sourceWidth || area.Height != sourceHeight);
@@ -464,7 +472,8 @@ internal sealed partial class Recorder
             Error = CaptureEngine.Start(monitor?.DeviceName ?? "", aspect, captureFps,
                 companion != null || scaled ? w : 0, companion != null || scaled ? h : 0, encoder, VideoKbps,
                 RecordingPresets.AudioKbps, videoOptions.ReplaySeconds, s.CaptureCursor, splitChat, splitMusic, mics, separateMics, endpoints,
-                new() { Backend = backend, Preset = videoOptions.NvencPreset, Diagnostics = s.RecordingDiagnostics ? 1 : 0 },
+                new() { Backend = cloakedMirror ? CaptureEngine.MonitorBackend.DiscordDwmMirror : backend,
+                    Preset = videoOptions.NvencPreset, Diagnostics = s.RecordingDiagnostics ? 1 : 0 },
                 displayIdentity, gameOwner, companion);
             if (Error != null)
             {
@@ -493,7 +502,8 @@ internal sealed partial class Recorder
             _captureMicrophones = QuickClip.Shell.MicrophoneIndicatorSignal.SelectedMicrophones(s);
             _actualMonitorName = companion != null ? "Discord" :
                 string.IsNullOrWhiteSpace(monitor!.FriendlyName) ? monitor.DeviceName : monitor.FriendlyName;
-            _monitorTarget = companion != null ? "Discord - authorized windows" : _desktopSource?.Backend switch
+            _monitorTarget = cloakedMirror ? "Discord - main window (experimental DWM mirror)" :
+                companion != null ? "Discord - authorized windows" : _desktopSource?.Backend switch
             {
                 ReplayCaptureBackend.DesktopDuplication => $"Desktop · {monitor!.Label} · Desktop Duplication",
                 ReplayCaptureBackend.WindowsGraphicsCapture => $"Desktop · {monitor!.Label} · Windows Graphics Capture (capture border may appear)",

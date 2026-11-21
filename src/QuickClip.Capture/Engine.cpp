@@ -1,4 +1,5 @@
 #include "GroupCapture.h"
+#include "DiscordDwmHost.h"
 #include "Engine.h"
 #include "GpuScale.h"
 
@@ -673,6 +674,8 @@ namespace qc
             AVPacket* packet = av_packet_alloc();
             VideoPipe pipe;
             GroupCapture group;
+            DiscordDwmHost mirror;
+            const bool mirrorMode = s->videoOptions.backend == 5;
             int revision = -1;
             int64_t lastKey = -1;
             const auto current = [&] {
@@ -696,7 +699,15 @@ namespace qc
                     throw std::runtime_error(error);
                 {
                     std::lock_guard lock(s->companionLock);
-                    if(!group.Update(s->companionWindows,error)) throw std::runtime_error(error);
+                    if(mirrorMode) {
+                        if(s->companionWindows.size()!=1)
+                            throw std::runtime_error("The Discord mirror supports one explicitly authorized window");
+                        if(!mirror.Open(s->companionWindows.front(),s->outWidth,s->outHeight,error))
+                            throw std::runtime_error(error);
+                        if(!group.Update({ mirror.CaptureTarget() },error))
+                            throw std::runtime_error(error);
+                    } else if(!group.Update(s->companionWindows,error))
+                        throw std::runtime_error(error);
                     revision=s->companionRevision;
                 }
                 if(!pipe.OpenEncoder(*s,s->videoKbps,error,group.Frames()))
@@ -742,13 +753,19 @@ namespace qc
                         if(revision!=s->companionRevision)
                         {
                             error.clear();
-                            if(!group.Update(s->companionWindows,error))
+                            if(mirrorMode) {
+                                if(s->companionWindows.size()!=1 ||
+                                   !mirror.SameSource(s->companionWindows.front()))
+                                    throw std::runtime_error("Authorized Discord mirror source changed");
+                            } else if(!group.Update(s->companionWindows,error))
                                 throw std::runtime_error(error);
                             revision=s->companionRevision;
                         }
                     }
                     av_frame_unref(frame);
                     error.clear();
+                    if(mirrorMode && !mirror.Refresh(error))
+                        throw std::runtime_error(error);
                     if(!group.Render(frame,error)) throw std::runtime_error(error);
                     frame->pts=index;
                     if(lastKey<0 || index-lastKey>=s->fps)
@@ -800,6 +817,7 @@ namespace qc
             av_packet_free(&packet);
             pipe.Close();
             group.Close(); // Close WGC/COM objects before uninitializing this apartment.
+            mirror.Close(); // Unregister DWM source before destroying cloaked host.
             av_buffer_unref(&device);
             timeEndPeriod(1);
             CoUninitialize();
@@ -1228,6 +1246,14 @@ namespace qc
 
     bool Engine::Start(std::string& error)
     {
+        // The experimental DWM mirror can only wrap one explicitly authorized
+        // Discord HWND; never treat it as a monitor or generic game backend.
+        if (shared_->videoOptions.backend == 5 &&
+            (!shared_->companionMode || shared_->companionWindows.size() != 1))
+        {
+            error = "Discord DWM mirroring requires exactly one authorized companion window.";
+            return false;
+        }
         MonitorTarget monitor;
         if (shared_->companionMode)
         {

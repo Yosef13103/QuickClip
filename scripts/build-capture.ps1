@@ -20,7 +20,7 @@ if (-not $vs) { throw 'Visual Studio C++ build tools were not found (needed to b
 $vcvars = Join-Path $vs 'VC\Auxiliary\Build\vcvars64.bat'
 
 $sources = (Get-ChildItem $src -Filter *.cpp | Where-Object Name -ne 'GroupCapture.cpp' | ForEach-Object { "`"$($_.FullName)`"" }) -join ' '
-$libs = 'avcodec.lib avformat.lib avfilter.lib avutil.lib swresample.lib dxgi.lib d3d11.lib d3dcompiler.lib runtimeobject.lib windowsapp.lib ole32.lib avrt.lib mmdevapi.lib winmm.lib user32.lib'
+$libs = 'avcodec.lib avformat.lib avfilter.lib avutil.lib swresample.lib dxgi.lib d3d11.lib d3dcompiler.lib runtimeobject.lib windowsapp.lib ole32.lib avrt.lib mmdevapi.lib winmm.lib user32.lib dwmapi.lib gdi32.lib'
 $commands = @(
     "call `"$vcvars`" >nul 2>nul",
     "cl /nologo /O2 /EHsc /await /std:c++17 /MT /W4 /DUNICODE /D_UNICODE /external:I `"$ffdev\include`" /external:W0 /c /Fo`"$out\GroupCapture.obj`" `"$src\GroupCapture.cpp`"",

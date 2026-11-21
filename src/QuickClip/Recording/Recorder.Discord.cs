@@ -15,6 +15,7 @@ internal sealed partial class Recorder
     private ActivityState _discordState = ActivityState.Unknown;
     private DiscordGroupDecision? _discordDecision;
     private bool _discordActive;
+    private WindowOwner? _discordMirrorMain;
     private bool _discordManualRequested;
     private long _discordRetryAfter;
     private int _discordRetryDelaySeconds;
@@ -45,7 +46,10 @@ internal sealed partial class Recorder
                 if (!AppSettings.Current.DiscordCaptureEnabled) return "Off";
                 if (!AppSettings.Current.RecordingEnabled) return "Recording master switch is off";
                 if (_observedGame != null || ManualDesktopRequested) return "Waiting for game or desktop recording";
-                if (_discordActive) return $"Recording {(_discordDecision?.Targets.Count ?? 0)} Discord windows";
+                if (_discordActive) return AppSettings.Current.DiscordCloakedMirror &&
+                    Environment.OSVersion.Version.Build < 20348
+                    ? "Recording main Discord window (experimental cloaked mirror)"
+                    : $"Recording {(_discordDecision?.Targets.Count ?? 0)} Discord windows";
                 return _discordDecision?.Status switch
                 {
                     DiscordGroupStatus.Unknown => "Checking Discord...",
@@ -85,6 +89,7 @@ internal sealed partial class Recorder
         _discordTask = null; // a pending task may finish but has no capture authority
         _discordObservedAt = 0;
         _discordLastEligibleAt = 0;
+        _discordMirrorMain = null;
     }
 
     private void ReconcileDiscord(AppSettings settings, bool higherPriority)
@@ -154,6 +159,23 @@ internal sealed partial class Recorder
                 Stopwatch.GetElapsedTime(_discordLastEligibleAt), GameDetector.IsCurrent)
                 ?? decision;
         }
+        if (settings.DiscordCloakedMirror && Environment.OSVersion.Version.Build < 20348)
+        {
+            if (decision.Status == DiscordGroupStatus.Eligible)
+            {
+                // Selection is restricted to the already-verified Discord HWNDs.
+                // A closed main window must not silently become a pop-out.
+                var main = DiscordMainWindow.Select(decision.Targets, _discordMirrorMain,
+                    DiscordMainWindow.HasMainTitle, DiscordMainWindow.Area);
+                if (main is { } selected)
+                {
+                    _discordMirrorMain = selected;
+                    decision = new(DiscordGroupStatus.Eligible, [selected]);
+                }
+                else decision = new(DiscordGroupStatus.Waiting, []);
+            }
+        }
+        else _discordMirrorMain = null;
         _discordDecision = decision;
         if (decision.Status != DiscordGroupStatus.Eligible)
         {

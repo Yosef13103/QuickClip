@@ -5,7 +5,7 @@ namespace QuickClip.Recording;
 /// <summary>P/Invoke surface of QuickClipCapture.dll (src/QuickClip.Capture). Struct layouts mirror Engine.h.</summary>
 internal static partial class CaptureEngine
 {
-    internal enum MonitorBackend { Automatic, DesktopDuplication, GraphicsCapture, MonitorOnlyDuplication, MonitorOnlyGraphics }
+    internal enum MonitorBackend { Automatic, DesktopDuplication, GraphicsCapture, MonitorOnlyDuplication, MonitorOnlyGraphics, DiscordDwmMirror }
     internal enum NvencSpeed { BalancedP4, FasterP3, FastestP2 }
     [StructLayout(LayoutKind.Sequential)]
     internal struct VideoOptions
@@ -196,6 +196,8 @@ internal static partial class CaptureEngine
                     Title = Uni(t.Label),
                 }).ToArray();
             int count = endpointTracks == null ? -1 : tracks.Length;
+            if (video.Backend == MonitorBackend.DiscordDwmMirror && companion is not { Count: 1 })
+                return "Experimental Discord mirroring requires exactly one authorized window.";
             if (companion != null &&
                 (companion.Count is < 1 or > 4 || game != null || displayIdentity != null ||
                  companion.Any(owner => !GameDetector.IsCurrent(owner)) ||

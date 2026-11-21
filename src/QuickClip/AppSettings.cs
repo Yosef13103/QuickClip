@@ -60,6 +60,9 @@ internal sealed class AppSettings
     public bool PreferGameWindow { get; set; } = AppProfile.IsPersonal;
     // Discord companion capture is always opt-in, separately from display/game permission.
     public bool DiscordCaptureEnabled { get; set; }
+    // Explicit opt-in for the Windows 10 experimental cloaked DWM mirror.
+    // Does not alter standard WGC or Windows 11 capture.
+    public bool DiscordCloakedMirror { get; set; }
     public Recording.Companion.DiscordCaptureMode DiscordCaptureMode { get; set; } =
         Recording.Companion.DiscordCaptureMode.DuringCalls;
 

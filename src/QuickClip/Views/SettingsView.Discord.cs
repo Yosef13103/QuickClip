@@ -19,8 +19,17 @@ public partial class SettingsView
         try
         {
             var s = AppSettings.Current;
-            DiscordBorderNotice.Visibility = Environment.OSVersion.Version.Build < 20348
+            DiscordMirrorCheck.Visibility = Environment.OSVersion.Version.Build < 20348
                 ? Visibility.Visible : Visibility.Collapsed;
+            DiscordMirrorCheck.IsChecked = s.DiscordCloakedMirror;
+            DiscordBorderNotice.Visibility = Environment.OSVersion.Version.Build < 20348 &&
+                !s.DiscordCloakedMirror ? Visibility.Visible : Visibility.Collapsed;
+            DiscordMirrorHint.Visibility = Environment.OSVersion.Version.Build < 20348 &&
+                s.DiscordCloakedMirror ? Visibility.Visible : Visibility.Collapsed;
+            DiscordWindowScopeHint.Text = s.DiscordCloakedMirror &&
+                Environment.OSVersion.Version.Build < 20348
+                ? "Only the main Discord window is recorded; pop-outs are excluded. Games take priority."
+                : "All visible Discord windows, including popped-out streams and cameras, share one recording. Games take priority.";
             DiscordEnableCheck.IsChecked = s.DiscordCaptureEnabled;
             DiscordModeCombo.SelectedItem = DiscordModeCombo.Items.Cast<ComboBoxItem>()
                 .FirstOrDefault(item => Equals(item.Tag?.ToString(), s.DiscordCaptureMode.ToString()))
@@ -46,6 +55,15 @@ public partial class SettingsView
         _discordUiTimer.Start();
         var s = AppSettings.Current;
         DiscordStatusText.Text = Recorder.Instance.DiscordStatus;
+        bool windows10 = Environment.OSVersion.Version.Build < 20348;
+        DiscordBorderNotice.Visibility = windows10 && !s.DiscordCloakedMirror
+            ? Visibility.Visible : Visibility.Collapsed;
+        DiscordMirrorHint.Visibility = windows10 && s.DiscordCloakedMirror
+            ? Visibility.Visible : Visibility.Collapsed;
+        DiscordWindowScopeHint.Text = windows10 && s.DiscordCloakedMirror
+            ? "Only the main Discord window is recorded; pop-outs are excluded. Games take priority."
+            : "All visible Discord windows, including popped-out streams and cameras, share one recording. Games take priority.";
+        DiscordMirrorCheck.IsEnabled = s.DiscordCaptureEnabled && s.RecordingEnabled;
         bool manual = s.DiscordCaptureMode == DiscordCaptureMode.Manual;
         DiscordManualButton.Visibility = manual && s.DiscordCaptureEnabled ? Visibility.Visible : Visibility.Collapsed;
         DiscordManualButton.Content = Recorder.Instance.ManualDiscordRequested ? "Stop Discord capture" : "Start Discord capture";
@@ -70,18 +88,24 @@ public partial class SettingsView
         var s = AppSettings.Current;
         bool previousEnabled = s.DiscordCaptureEnabled;
         var previousMode = s.DiscordCaptureMode;
+        bool previousMirror = s.DiscordCloakedMirror;
         bool nextEnabled = DiscordEnableCheck.IsChecked == true;
-        if (nextEnabled == previousEnabled && mode == previousMode) return;
+        bool nextMirror = DiscordMirrorCheck.IsChecked == true;
+        if (nextEnabled == previousEnabled && mode == previousMode &&
+            nextMirror == previousMirror) return;
         s.DiscordCaptureEnabled = nextEnabled;
         s.DiscordCaptureMode = mode;
+        s.DiscordCloakedMirror = nextMirror;
         if (!s.TrySave())
         {
             s.DiscordCaptureEnabled = previousEnabled;
             s.DiscordCaptureMode = previousMode;
+            s.DiscordCloakedMirror = previousMirror;
             _discordLoading = true;
             try
             {
                 DiscordEnableCheck.IsChecked = previousEnabled;
+                DiscordMirrorCheck.IsChecked = previousMirror;
                 DiscordModeCombo.SelectedItem = DiscordModeCombo.Items.Cast<ComboBoxItem>()
                     .First(item => Equals(item.Tag?.ToString(), previousMode.ToString()));
             }
