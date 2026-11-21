@@ -8,6 +8,7 @@ on:
       - scripts/test-personal-upgrade.ps1
       - scripts/package.ps1
       - src/QuickClip/Updates/**
+      - src/QuickClip/QuickClip.csproj
       - .github/workflows/personal-installer-validation.yml
 permissions:
   contents: read
