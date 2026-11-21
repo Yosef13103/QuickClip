@@ -7,18 +7,20 @@ using QuickClip.Recording;
 
 namespace QuickClip.Shell;
 
-internal enum RecordingBadge { Off, Standby, Game, Desktop }
+internal enum RecordingBadge { Off, Standby, Game, Desktop, Companion }
 
 internal static class RecordingStatusIcon
 {
     internal static RecordingBadge From(bool enabled, RecorderState state) =>
         !enabled ? RecordingBadge.Off : !state.Running ? RecordingBadge.Standby :
         state.Mode == RecordingMode.ManualDesktop ? RecordingBadge.Desktop :
+        state.Mode == RecordingMode.Companion ? RecordingBadge.Companion :
         state.Mode == RecordingMode.GameTriggered ? RecordingBadge.Game : RecordingBadge.Standby;
 
     internal static string BrushKey(RecordingBadge badge) => badge switch
     {
         RecordingBadge.Game => "RecordingRed",
+        RecordingBadge.Companion => "AccentBrush",
         RecordingBadge.Desktop => "AccentBrush",
         RecordingBadge.Standby => "WarningBrush",
         _ => "SecondaryTextBrush"
@@ -28,6 +30,7 @@ internal static class RecordingStatusIcon
     {
         RecordingBadge.Game => Color.FromRgb(239, 72, 85),
         RecordingBadge.Desktop => Color.FromRgb(67, 169, 255),
+        RecordingBadge.Companion => Color.FromRgb(135, 115, 255),
         _ => Color.FromRgb(250, 194, 70)
     };
 

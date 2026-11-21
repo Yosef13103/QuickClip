@@ -4,15 +4,17 @@
 
 QuickClip Personal is a free, open-source instant-replay recorder, clip library and video editor for Windows. I built this fork to make everyday gameplay clipping easier: capture the last few moments with a hotkey, keep game, chat and microphone audio independently editable, and share clips without juggling several applications.
 
-[Download the latest release](https://github.com/Yosef13103/QuickClip/releases/latest) · [What's new in v1.2.2](docs/releases/personal-v1.2.2.md) · [Report an issue](https://github.com/Yosef13103/QuickClip/issues) · [License](LICENSE)
+[Download the latest release](https://github.com/Yosef13103/QuickClip/releases/latest) · [What's new in v1.3.0](docs/releases/personal-v1.3.0.md) · [Report an issue](https://github.com/Yosef13103/QuickClip/issues) · [License](LICENSE)
 
-## What's new in v1.2.2
+## What's new in v1.3.0
 
-- Resolve shared executable ownership directly in Games settings.
-- Keep other eligible game executables available when a shared file needs attention.
-- Improve shared-file labels and exclude a known dedicated-server executable from automatic targeting.
+- Opt-in Discord companion capture for calls and authorized windows, with game recording taking priority.
+- Cleaner Apps and Games source management, responsive game search and flexible game recording profiles.
+- Better Gallery organization with physical nested folders, legacy Discord grouping and adjustable folder navigation.
+- Player, editor, audio, notifications, and guided-setup improvements from the accepted Development build.
+- Includes the v1.2.1 and v1.2.2 maintenance and shared-executable ownership fixes.
 
-See [v1.2.2 release notes](docs/releases/personal-v1.2.2.md) for details.
+See [v1.3.0 release notes](docs/releases/personal-v1.3.0.md) for details.
 
 ## How it works
 
@@ -55,8 +57,8 @@ Open the [latest GitHub release](https://github.com/Yosef13103/QuickClip/release
 
 | Asset | Purpose |
 | --- | --- |
-| `QuickClip-Personal-1.2.2-setup.exe` | Recommended per-user installer; supports a writable local installation folder |
-| `QuickClip-Personal-1.2.2-win-x64.zip` | Portable build; extract the entire archive before running |
+| `QuickClip-Personal-1.3.0-setup.exe` | Recommended per-user installer; supports a writable local installation folder |
+| `QuickClip-Personal-1.3.0-win-x64.zip` | Portable build; extract the entire archive before running |
 | `SHA256SUMS.txt` | SHA-256 checksums for both packages |
 
 The .NET runtime and required media components are bundled. No SDK is required to run the app.
@@ -81,9 +83,9 @@ Production verbose diagnostic logging is off by default. See [diagnostics](docs/
 - Some games or launcher installations require an exact executable or manual folder selection. Explicit exclusions remain respected.
 - On-screen recording HUD and saved-clip overlays can appear in recordings. Capture exclusion is not supported for these overlays; use the independent feedback controls to disable them during recording.
 - Size caps are ceilings, not a promise of exact file size or acceptance by every receiving app.
-- Independent companion capture, simultaneous multi-display recording and isolated game-hook capture are not included.
+- Discord companion capture is available as a separate opt-in application source, subordinate to eligible games; simultaneous independent multi-display recording and isolated game-hook capture are not included. Dynamic per-clip resolution stitching and cross-monitor replay continuity are experimental and not part of v1.3.0.
 
-See the [v1.2.0 release notes](docs/releases/personal-v1.2.0.md) for details.
+See the [v1.3.0 release notes](docs/releases/personal-v1.3.0.md) for details.
 
 ## Build from source
 

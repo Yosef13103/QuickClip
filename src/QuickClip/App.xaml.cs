@@ -69,7 +69,7 @@ public partial class App : Application
         }
 #endif
         _renderOffscreen = renderTest;
-        (AppProfile.IsPersonal ? AppSettings.Current.InterfaceScale ?? new() : new InterfaceScale()).Apply(Resources);
+        (AppProfile.IsPersonal ? AppSettings.Current.InterfaceScale ?? new() : new InterfaceScale(100, 100)).Apply(Resources);
         Themes.Attach(this);
         Themes.Apply(this, AppSettings.Current);
 

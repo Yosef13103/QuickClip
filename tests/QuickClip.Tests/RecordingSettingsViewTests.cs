@@ -26,8 +26,21 @@ public sealed class RecordingSettingsViewTests
                 Assert.Single(view.MicrophonePicker.Items);
                 Assert.Equal("Playback device", AutomationProperties.GetName(view.PlaybackPicker));
                 Assert.Equal("Microphone input device", AutomationProperties.GetName(view.MicrophonePicker));
-                Assert.Null(view.PlaybackPicker.SelectedItem);
-                Assert.Null(view.MicrophonePicker.SelectedItem);
+                Assert.NotNull(view.PlaybackPicker.SelectedItem);
+                Assert.NotNull(view.MicrophonePicker.SelectedItem);
+                Assert.True(view.AddPlaybackButton.IsEnabled);
+                Assert.True(view.AddMicrophoneButton.IsEnabled);
+                var alternate = new AudioEndpoint(EndpointFlow.Playback, "another-output", "AAA", false);
+                view.RenderEndpointRows([], [alternate, render, mic], true);
+                Assert.Equal(0, view.PlaybackPicker.SelectedIndex);
+                view.PlaybackPicker.SelectedIndex = 1;
+                view.RenderEndpointRows([], [alternate, render, mic], true);
+                Assert.Equal(1, view.PlaybackPicker.SelectedIndex);
+                view.RenderEndpointRows([new(EndpointFlow.Playback, render.Id.ToUpperInvariant(), "Default output", false)], [render, alternate, mic], true);
+                Assert.Single(view.PlaybackPicker.Items);
+                view.RenderEndpointRows([new(EndpointFlow.Playback, render.Id, "Default output")], [render, mic], true);
+                Assert.Empty(view.PlaybackPicker.Items);
+                Assert.False(view.AddPlaybackButton.IsEnabled);
 
                 EndpointTrack saved = new(EndpointFlow.Microphone, mic.Id, "Saved mic");
                 view.RenderEndpointRows([saved], [render], true);

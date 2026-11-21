@@ -213,36 +213,33 @@ internal static class CatalogClaims
             .SelectMany(item => item.Entry.InstallDirectories.Select(path => (path, item)))
             .ToLookup(pair => pair.path, pair => pair.item, Paths);
         var sharedIds = new Dictionary<string, string>(StringComparer.Ordinal);
+        var related = new Dictionary<string, RelatedGameTitle>(StringComparer.Ordinal);
         foreach (var group in providers)
         {
             var linked = group.OrderByDescending(item => item.Verified).DistinctBy(item => item.Entry.Id).ToArray();
-            // Multiple verified titles can describe the same installed game/edition.
-            // Identical eligible executable sets at one exact install root are
-            // enough to share recording ownership, even within a single store.
-            // A partial overlap, offline claim, or different install stays distinct.
-            HashSet<string> Eligible(Contribution part) =>
-                (part.Entry.Source == CatalogSource.Steam ? part.Entry.Executables :
-                    part.Entry.RendererExecutables ?? (part.Entry.Source == CatalogSource.Epic ? part.Entry.Executables : []))
-                .Where(path => CatalogPaths.DefaultRole(path) == CatalogMatchKind.Unknown &&
-                    !CatalogPaths.IsProtectedExecutable(path) &&
-                    !part.Entry.DetectedLaunchers.Contains(path, Paths))
-                .ToHashSet(Paths);
-            foreach (var store in linked.Where(item => item.Verified && item.Entry.InstallDirectories.Length == 1)
-                .GroupBy(item => item.Entry.Source))
+            // Verified distinct titles may share one install and renderer. Only
+            // consolidate a uniquely named base title and qualified child titles
+            // from the same provider with identical nonempty renderer sets.
+            // No title names, product IDs or executable basenames are special-cased.
+            foreach (var family in linked.Where(item => item.Verified &&
+                         item.Entry.InstallDirectories.Length == 1).GroupBy(item => item.Entry.Source))
             {
-                var remaining = store.OrderByDescending(item => Paths.Equals(item.Entry.Name, Path.GetFileName(group.Key)))
-                    .ThenBy(item => item.Entry.Id, StringComparer.Ordinal).ToList();
-                while (remaining.Count > 0)
+                var titles = family.ToArray();
+                foreach (var child in titles)
                 {
-                    var canonical = remaining[0];
-                    remaining.RemoveAt(0);
-                    var eligible = Eligible(canonical);
-                    if (eligible.Count == 0) continue;
-                    foreach (var alias in remaining.Where(item => eligible.SetEquals(Eligible(item))).ToArray())
-                    {
-                        sharedIds[alias.Entry.Id] = canonical.Entry.Id;
-                        remaining.Remove(alias);
-                    }
+                    var parents = titles.Where(parent => parent != child &&
+                        RelatedTitleName(parent.Entry.Name, child.Entry.Name) != null &&
+                        SharedRendererSet(parent.Entry, child.Entry)).ToArray();
+                    if (parents.Length != 1) continue;
+                    var parent = parents[0];
+                    // Do not create a nested/ambiguous chain or choose between
+                    // duplicate base claims. Matching names alone prove nothing.
+                    if (titles.Any(ancestor => ancestor != parent &&
+                        RelatedTitleName(ancestor.Entry.Name, parent.Entry.Name) != null &&
+                        SharedRendererSet(ancestor.Entry, parent.Entry))) continue;
+                    string name = RelatedTitleName(parent.Entry.Name, child.Entry.Name)!;
+                    sharedIds[child.Entry.Id] = parent.Entry.Id;
+                    related[child.Entry.Id] = new(child.Entry.Id, name);
                 }
             }
             // Multiple product IDs from one launcher at that root may identify different editions.
@@ -284,15 +281,16 @@ internal static class CatalogClaims
 
         bool hasFolderOverrides = rules.Keys.Any(id => id.StartsWith("folder:", StringComparison.Ordinal));
         var rows = contributions.GroupBy(Identity, StringComparer.Ordinal)
-            .Select(group => Project(group.Key, group.ToArray(), rules, hasFolderOverrides))
-            .Select(row =>
+            .Select(group =>
             {
+                var row = Project(group.Key, group.ToArray(), rules, hasFolderOverrides);
                 var attached = AllowedPaths(row.Rules.AttachedExecutables).Where(path => !CatalogPaths.IsProtectedExecutable(path)).ToArray();
                 return row with
                 {
                     Executables = [.. row.Executables.Concat(attached).Distinct(Paths)],
                     UnverifiedExecutables = [.. row.UnverifiedExecutables.Except(attached, Paths)],
-                };
+                    RelatedTitles = [.. row.AliasIds.Where(related.ContainsKey)
+                    .Select(alias => related[alias]).OrderBy(title => title.Id, StringComparer.Ordinal)] };
             });
         var manual = settings.Request.ManualEntries.Select(entry =>
         {
@@ -301,6 +299,32 @@ internal static class CatalogClaims
                 [.. AllowedPaths(entry.Executables)], rules.GetValueOrDefault(id) ?? new());
         });
         return [.. rows.Concat(manual).OrderBy(row => row.DisplayName, Paths).ThenBy(row => row.Id, StringComparer.Ordinal)];
+    }
+
+    private static string? RelatedTitleName(string baseName, string childName)
+    {
+        baseName = baseName.Trim();
+        childName = childName.Trim();
+        if (baseName.Length == 0 || !childName.StartsWith(baseName, StringComparison.OrdinalIgnoreCase))
+            return null;
+        string suffix = childName[baseName.Length..];
+        // Require a title boundary, not a coincidental prefix like Game/Game2.
+        if (!(suffix.StartsWith(":", StringComparison.Ordinal) ||
+              suffix.StartsWith(" - ", StringComparison.Ordinal) ||
+              suffix.StartsWith(" \u2013 ", StringComparison.Ordinal) ||
+              suffix.StartsWith(" \u2014 ", StringComparison.Ordinal))) return null;
+        string title = suffix.TrimStart(' ', ':', '-', '\u2013', '\u2014').Trim();
+        return title.Length > 0 ? title : null;
+    }
+
+    private static bool SharedRendererSet(CatalogEntry left, CatalogEntry right)
+    {
+        static IEnumerable<string> Renderers(CatalogEntry entry) =>
+            (entry.Source == CatalogSource.Steam ? entry.Executables : entry.RendererExecutables ?? (entry.Source == CatalogSource.Epic ? entry.Executables : []))
+                .Where(path => CatalogPaths.DefaultRole(path) == CatalogMatchKind.Unknown && !CatalogPaths.IsProtectedExecutable(path) &&
+                    !entry.DetectedLaunchers.Contains(path, Paths));
+        var paths = Renderers(left).ToHashSet(Paths);
+        return paths.Count > 0 && paths.SetEquals(Renderers(right));
     }
 
     internal static IEnumerable<string> BlockedExecutables(GameCatalogSettings settings)

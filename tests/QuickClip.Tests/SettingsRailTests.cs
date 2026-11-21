@@ -21,9 +21,46 @@ public sealed class SettingsRailTests
                 view.UpdateLayout();
 
                 var sections = view.SettingsSections.Children.OfType<RadioButton>().ToArray();
-                Assert.Equal(8, sections.Length);
+                Assert.Equal(9, sections.Length);
+                Assert.Single(sections, section => Equals(section.Content, "Notifications"));
                 Assert.Equal("Recording", sections[0].Content);
                 Assert.Equal("Diagnostics", sections[^1].Content);
+                view.GamesSection.IsChecked = true;
+                Assert.Equal("Sources", view.GamesSection.Content);
+                Assert.Equal(Visibility.Visible, view.GamesPage.Visibility);
+                Assert.Equal(Visibility.Collapsed, view.GeneralPage.Visibility);
+                Assert.Equal(Visibility.Collapsed, view.CompanionsCard.Visibility);
+                Assert.Single(view.GamesPage.Applications.Items);
+                Assert.Equal(AppSettings.Current.DiscordCaptureEnabled,
+                    (bool)view.GamesPage.Applications.Items[0]!.GetType().GetProperty("Enabled")!.GetValue(view.GamesPage.Applications.Items[0])!);
+                if (Environment.OSVersion.Version.Build < 20348)
+                {
+                    Assert.Equal(Visibility.Visible, view.DiscordBorderNotice.Visibility);
+                    Assert.NotNull(view.DiscordBorderNotice.GetValue(System.Windows.Controls.TextBlock.ForegroundProperty));
+                }
+                else
+                {
+                    Assert.Equal(Visibility.Collapsed, view.DiscordBorderNotice.Visibility);
+                    Assert.Equal(Visibility.Collapsed, view.DiscordMirrorHint.Visibility);
+                    Assert.Equal(Visibility.Collapsed, view.DiscordMirrorCheck.Visibility);
+                }
+                Assert.Equal(Visibility.Collapsed, view.GeneralCard.Visibility);
+                Assert.Equal(AppSettings.Current.DiscordCaptureEnabled, view.DiscordEnableCheck.IsChecked == true);
+                Assert.Equal(AppSettings.Current.DiscordCaptureMode.ToString(),
+                    ((ComboBoxItem)view.DiscordModeCombo.SelectedItem).Tag?.ToString());
+                view.NotificationsSection.IsChecked = true;
+                Assert.Equal(Visibility.Collapsed, view.CompanionsCard.Visibility);
+                view.NotificationsSection.IsChecked = true;
+                Assert.Equal(Visibility.Visible, view.NotificationsCard.Visibility);
+                Assert.Equal(Visibility.Collapsed, view.GeneralCard.Visibility);
+                view.GeneralSection.IsChecked = true;
+                Assert.Equal(Visibility.Collapsed, view.NotificationsCard.Visibility);
+                Assert.Equal(Visibility.Visible, view.GeneralCard.Visibility);
+                view.GamesSection.IsChecked = true;
+                Assert.Equal(Visibility.Visible, view.GamesPage.Visibility);
+                Assert.Equal(Visibility.Collapsed, view.CompanionsCard.Visibility);
+                view.RecordingSection.IsChecked = true;
+                Assert.Equal(Visibility.Collapsed, view.GamesPage.Visibility);
 
                 foreach (var section in sections)
                 {
@@ -38,6 +75,15 @@ public sealed class SettingsRailTests
                 toggle.ApplyTemplate();
                 var track = Assert.IsType<QuickClip.Controls.SwitchVisual>(toggle.Template.FindName("SwitchTrack", toggle));
                 Assert.True(toggle.Focusable);
+                // Icon-only buttons must not turn context-menu text into boxes.
+                var menuStyle = Assert.IsType<Style>(view.FindResource(typeof(ContextMenu)));
+                Assert.Contains(menuStyle.Setters.OfType<Setter>(),
+                    setter => setter.Property == Control.FontFamilyProperty &&
+                        Equals(setter.Value, new System.Windows.Media.FontFamily("Segoe UI")));
+                var tooltipStyle = Assert.IsType<Style>(view.FindResource(typeof(ToolTip)));
+                Assert.Contains(tooltipStyle.Setters.OfType<Setter>(),
+                    setter => setter.Property == Control.FontFamilyProperty &&
+                        Equals(setter.Value, new System.Windows.Media.FontFamily("Segoe UI")));
                 Assert.Equal(false, track.IsOn);
                 toggle.IsChecked = true;
                 Assert.Equal(true, track.IsOn);

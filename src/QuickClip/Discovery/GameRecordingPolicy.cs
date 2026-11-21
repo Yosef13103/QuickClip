@@ -24,6 +24,8 @@ internal sealed record GameRecordingPolicy
     public int? Fps { get; init; }
     public string? Aspect { get; init; }
     public GameRecordingCodec? Codec { get; init; }
+    // Null inherits; empty selects automatic; otherwise exact hardware encoder id.
+    public string? EncoderId { get; init; }
     public RecordingQuality? Quality { get; init; }
     public CaptureEngine.NvencSpeed? NvencPreset { get; init; }
     public GameBitrate? Bitrate { get; init; }
@@ -49,7 +51,8 @@ internal sealed record GameRecordingPolicy
             ResolutionShortSide = ResolutionShortSide ?? defaults.ResolutionShortSide,
             Fps = Fps ?? defaults.Fps,
             Aspect = Aspect ?? defaults.Aspect,
-            Codec = Codec ?? defaults.Codec,
+            Codec = Codec ?? (EncoderId == null ? defaults.Codec : null),
+            EncoderId = EncoderId ?? (Codec == null ? defaults.EncoderId : null),
             Quality = Quality ?? defaults.Quality,
             NvencPreset = NvencPreset ?? defaults.NvencPreset,
             Bitrate = Bitrate ?? defaults.Bitrate,
@@ -73,10 +76,11 @@ internal sealed record GameRecordingPolicy
         Require(Defined(Fallback), nameof(Fallback));
         Require(ReplaySeconds is null or (>= 10 and <= 300), nameof(ReplaySeconds));
         Require(SaveSeconds is null or (>= 1 and <= 300) && !(SaveSeconds > ReplaySeconds), nameof(SaveSeconds));
-        Require(ResolutionShortSide == null || RecordingPresets.Resolutions.Contains(ResolutionShortSide.Value), nameof(ResolutionShortSide));
+        Require(ResolutionShortSide is null or 0 or (>= 256 and <= 32768), nameof(ResolutionShortSide));
         Require(Fps == null || RecordingPresets.FrameRates.Contains(Fps.Value), nameof(Fps));
-        Require(Aspect == null || RecordingPresets.Aspects.Contains(Aspect), nameof(Aspect));
+        Require(Aspect == null || Aspect == "" || ValidAspect(Aspect), nameof(Aspect));
         Require(Defined(Codec), nameof(Codec));
+        Require(EncoderId == null || (Codec == null && (EncoderId == "" || RecordingPresets.RecordingEncoderOrder.Contains(EncoderId))), nameof(EncoderId));
         Require(Defined(Quality), nameof(Quality));
         Require(Defined(NvencPreset), nameof(NvencPreset));
         Require(Bitrate == null || IsValidBitrate(Bitrate), nameof(Bitrate));
@@ -90,10 +94,18 @@ internal sealed record GameRecordingPolicy
             : SaveShortcut.Modifiers == 0 && SaveShortcut.VirtualKey == 0), nameof(SaveShortcut));
     }
 
+    private static bool ValidAspect(string aspect)
+    {
+        var (w, h) = RecordingPresets.ParseAspect(aspect);
+        return aspect.Length <= 24 && w is > 0 and <= 32768 && h is > 0 and <= 32768 &&
+            aspect == FormattableString.Invariant($"{w}:{h}");
+    }
+
     private static bool IsValidBitrate(GameBitrate value) => value.Mode switch
     {
         GameRateControl.Automatic => value.Kbps == null && value.Quantizer == null,
-        GameRateControl.CustomBitrate or GameRateControl.Cbr or GameRateControl.Vbr =>
+        GameRateControl.CustomBitrate => value.Kbps is >= RecordingPresets.MinTargetVideoKbps and <= RecordingPresets.MaxTargetVideoKbps && value.Quantizer == null,
+        GameRateControl.Cbr or GameRateControl.Vbr =>
             value.Kbps is >= 1500 and <= 250_000 && value.Quantizer == null,
         GameRateControl.Cqp => value.Kbps == null && value.Quantizer is >= 0 and <= 63,
         _ => false

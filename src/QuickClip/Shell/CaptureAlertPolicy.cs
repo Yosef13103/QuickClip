@@ -25,7 +25,7 @@ internal sealed class CaptureAlertPolicy(TimeProvider? clock = null)
             return CaptureAlertKind.None;
         }
 
-        if (mode is RecordingMode.GameTriggered or RecordingMode.ManualDesktop)
+        if (mode is RecordingMode.GameTriggered or RecordingMode.ManualDesktop or RecordingMode.Companion)
         {
             bool restored = _warned;
             Reset();

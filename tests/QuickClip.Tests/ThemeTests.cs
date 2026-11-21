@@ -13,13 +13,14 @@ public sealed class ThemeTests
     [InlineData("Amoled")]
     [InlineData("Slate")]
     [InlineData("Light")]
+    [InlineData("Broadcast")]
     public void Built_in_palettes_cover_all_tokens_and_pass_readability(string name)
     {
         var theme = ThemeResources.ThemeChoiceFrom(name);
         var palette = ThemePalette.Get(theme);
         Assert.Equal(ThemePalette.Colors.Length, palette.Count);
         Assert.Empty(ThemePalette.ReadabilityWarnings(palette));
-        if (theme == ThemeChoice.Amoled) Assert.Equal(Colors.Black, palette[ThemeColor.Background]);
+        if (theme == ThemeChoice.Amoled) Assert.Equal("#08090B", ThemePalette.Hex(palette[ThemeColor.Background]));
     }
 
     [Fact]
@@ -113,6 +114,7 @@ public sealed class ThemeTests
     [InlineData("Amoled")]
     [InlineData("Slate")]
     [InlineData("Light")]
+    [InlineData("Broadcast")]
     public void All_themes_expose_readable_save_clip_action_colors(string name)
     {
         var resources = new ResourceDictionary();
@@ -133,6 +135,7 @@ public sealed class ThemeTests
     [InlineData("Amoled")]
     [InlineData("Slate")]
     [InlineData("Light")]
+    [InlineData("Broadcast")]
     public void Semantic_controls_share_accessible_colors_without_per_theme_hardcoding(string name)
     {
         var resources = new ResourceDictionary();
@@ -158,6 +161,7 @@ public sealed class ThemeTests
     [InlineData("Amoled")]
     [InlineData("Slate")]
     [InlineData("Light")]
+    [InlineData("Broadcast")]
     public void Native_mpv_letterbox_uses_the_active_surface_palette(string name)
     {
         if (!AppProfile.IsPersonal || SystemParameters.HighContrast) return;
@@ -179,6 +183,7 @@ public sealed class ThemeTests
     [InlineData("Amoled")]
     [InlineData("Slate")]
     [InlineData("Light")]
+    [InlineData("Broadcast")]
     [InlineData("Custom")]
     public void Switches_and_internal_navigation_have_consistent_semantic_colors(string name)
     {

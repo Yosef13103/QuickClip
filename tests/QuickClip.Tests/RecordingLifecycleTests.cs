@@ -6,6 +6,26 @@ namespace QuickClip.Tests;
 public sealed class RecordingLifecycleTests
 {
     [Fact]
+    public void Companion_has_separate_consent_and_cannot_use_a_display_grant()
+    {
+        var settings = new AppSettings();
+        Assert.False(settings.DiscordCaptureEnabled);
+        Assert.Equal(QuickClip.Recording.Companion.DiscordCaptureMode.DuringCalls,
+            settings.DiscordCaptureMode);
+        settings.RecordingEnabled = true;
+        settings.AllowRecordingDisplaysByDefault = true;
+        Assert.False(Recorder.MaySaveFromDisplay(settings, RecordingMode.Companion,
+            @"\\.\DISPLAY1", true));
+        Assert.Equal("Discord: authorized windows only",
+            Recorder.CaptureStatusLabel(RecordingMode.Companion, null, null, "Desktop"));
+        Assert.Equal(QuickClip.Shell.RecordingBadge.Companion,
+            QuickClip.Shell.RecordingStatusIcon.From(true,
+                new RecorderState(true, null, "Discord", [], [])
+                { Mode = RecordingMode.Companion }));
+        Assert.Equal("Discord", QuickClip.Gallery.ClipNaming.SafeComponent("Discord", 64));
+    }
+
+    [Fact]
     public void Status_describes_verified_game_and_entire_display_scope_without_claiming_window_isolation()
     {
         string display = @"\\.\DISPLAY2";

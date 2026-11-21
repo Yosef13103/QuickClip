@@ -89,6 +89,7 @@ public partial class AppVolumeControl : UserControl
         double level = LevelSlider.Value;
         MuteButton.Content = _muted || level == 0 ? "\uE74F" : level < 34 ? "\uE993" : level < 67 ? "\uE994" : "\uE995";
         MuteButton.ToolTip = _muted ? "Unmute (M)" : "Mute (M)";
+        System.Windows.Automation.AutomationProperties.SetName(MuteButton, _muted ? "Unmute" : "Mute");
         LevelSlider.ToolTip = $"Volume {level:0}%, QuickClip's level in the Windows volume mixer";
     }
 }

@@ -19,7 +19,8 @@
                         MouseLeftButtonUp="Card_MouseLeftButtonUp" Loaded="Card_Loaded" DataContextChanged="Card_DataContextChanged"
                         PreviewMouseLeftButtonDown="Card_PreviewMouseLeftButtonDown" MouseMove="Card_MouseMove">
                     <Border.ContextMenu>
-                        <ContextMenu Opened="ClipMenu_Opened" DataContext="{Binding PlacementTarget.DataContext, RelativeSource={RelativeSource Self}}">
+                        <ContextMenu Opened="ClipMenu_Opened" FontFamily="Segoe UI"
+                                     DataContext="{Binding PlacementTarget.DataContext, RelativeSource={RelativeSource Self}}">
                             <MenuItem Header="Open in Editor" Click="OpenClip_Click" FontWeight="SemiBold" />
                             <MenuItem Header="Watch in Player" Click="PlayClip_Click" />
                             <MenuItem Header="Open with Windows default" Click="OpenWith_Click" Tag="external-player" />
@@ -31,6 +32,8 @@
                             <MenuItem Header="Organize" Tag="organize">
                                 <MenuItem Header="Edit title, game or tags…" Click="EditClipDetails_Click" Tag="details" />
                                 <MenuItem Header="Add to favorites" Click="FavoriteMenu_Click" Tag="favorite" />
+                                <MenuItem Header="Edit tags..." Click="EditTagsMenu_Click" Tag="collection" />
+                                <MenuItem Header="Move to folder..." Click="AssignCollection_Click" Tag="collection" />
                                 <MenuItem Header="Copy to folder…" Tag="copy" Click="CopyClipsToFolder_Click" />
                             </MenuItem>
                             <MenuItem Header="Add to project" Tag="projects">
@@ -79,36 +82,54 @@
                                          LostKeyboardFocus="RenameTitle_LostKeyboardFocus" DataContextChanged="RenameTitle_DataContextChanged" />
                             </Grid>
                             <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
-                                <Button x:Name="RenameTitleButton" Content="&#xE8AC;" Click="RenameTitle_Click"
-                                        Style="{StaticResource IconButton}" Tag="{Binding ElementName=RenameTitleBox}"
+                                <Button x:Name="RenameTitleButton" Content="&#xE70F;" Click="RenameTitle_Click"
+                                        Style="{StaticResource ActionIconButton}" Tag="{Binding ElementName=RenameTitleBox}"
                                         VerticalAlignment="Center" Visibility="Collapsed" ToolTip="Rename clip (F2)" AutomationProperties.Name="Rename clip" />
-                                <Button x:Name="CancelRenameButton" Content="&#xE711;" Style="{StaticResource IconButton}" Visibility="Collapsed"
+                                <Button x:Name="CancelRenameButton" Content="&#xE711;" Style="{StaticResource ActionIconButton}" Visibility="Collapsed"
                                         VerticalAlignment="Center" Focusable="False" Tag="{Binding ElementName=RenameTitleBox}"
                                         Click="CancelRename_Click" ToolTip="Cancel rename (Esc)" AutomationProperties.Name="Cancel rename" />
                                 <Button Tag="{Binding IsFavorite}" Style="{StaticResource FavoriteButtonStyle}"
                                         Click="FavoriteCard_Click" VerticalAlignment="Center"
                                         Visibility="{Binding PersonalAnnotations, RelativeSource={RelativeSource AncestorType=views:GalleryView}, Converter={StaticResource ShowIf}}" />
-                                <Button Content="&#xE72D;" Style="{StaticResource IconButton}" Click="ShareClip_Click"
+                                <Button Content="&#xE72D;" Style="{StaticResource ActionIconButton}" Click="ShareClip_Click"
                                         Focusable="True" VerticalAlignment="Center" AutomationProperties.Name="Share clip"
                                         ToolTip="Share clip · copy to clipboard" />
-                                <Button Content="⋯" Style="{StaticResource TextButton}" Padding="5,2" Width="30" FontSize="{DynamicResource QuickClipText15}"
+                                <Button Content="&#xE712;" Style="{StaticResource ActionIconButton}"
                                         VerticalAlignment="Center" Tag="{Binding ElementName=Card}" Click="ClipOverflow_Click"
                                         AutomationProperties.Name="Clip actions" ToolTip="Clip actions" />
                             </StackPanel>
                             <StackPanel Grid.Row="1" Grid.ColumnSpan="2" Margin="0,4,0,0">
                                 <TextBlock Text="{Binding Folder}" FontSize="{DynamicResource QuickClipText12}" Foreground="{DynamicResource SubtleText}" TextTrimming="CharacterEllipsis" />
-                                <TextBlock Text="{Binding TagText}" ToolTip="{Binding TagText}" FontSize="{DynamicResource QuickClipText12}"
-                                           Foreground="{DynamicResource SubtleText}" TextTrimming="CharacterEllipsis">
-                                    <TextBlock.Style>
-                                        <Style TargetType="TextBlock">
-                                            <Style.Triggers>
-                                                <DataTrigger Binding="{Binding TagText}" Value="">
-                                                    <Setter Property="Visibility" Value="Collapsed" />
-                                                </DataTrigger>
-                                            </Style.Triggers>
-                                        </Style>
-                                    </TextBlock.Style>
-                                </TextBlock>
+                                <ItemsControl ItemsSource="{Binding TagBadges}" ToolTip="{Binding TagText}" ClipToBounds="True" Margin="0,2,0,3">
+                                    <ItemsControl.ItemsPanel><ItemsPanelTemplate><StackPanel Orientation="Horizontal" /></ItemsPanelTemplate></ItemsControl.ItemsPanel>
+                                    <ItemsControl.ItemTemplate><DataTemplate>
+                                        <Button Background="{Binding Fill}" Foreground="{Binding Ink}" BorderBrush="{Binding Fill}"
+                                            BorderThickness="1" Padding="5,1" Margin="0,0,4,0" Click="TagChip_Click"
+                                            ToolTip="{Binding Tooltip}" AutomationProperties.Name="{Binding Tooltip}"
+                                            FontSize="{DynamicResource QuickClipText12}" MaxWidth="120" Cursor="Hand">
+                                            <Button.Template><ControlTemplate TargetType="Button">
+                                                <Border x:Name="Chip" CornerRadius="5" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}" Padding="{TemplateBinding Padding}">
+                                                    <ContentPresenter VerticalAlignment="Center" HorizontalAlignment="Center" />
+                                                </Border>
+                                                <ControlTemplate.Triggers>
+                                                    <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="Chip" Property="Opacity" Value="0.84" /></Trigger>
+                                                    <Trigger Property="IsKeyboardFocused" Value="True"><Setter TargetName="Chip" Property="BorderBrush" Value="{DynamicResource AccentFillColorDefaultBrush}" /></Trigger>
+                                                </ControlTemplate.Triggers>
+                                            </ControlTemplate></Button.Template>
+                                            <StackPanel Orientation="Horizontal">
+                                                <TextBlock FontFamily="{StaticResource IconFont}" Text="&#xE838;" Margin="0,0,4,0" VerticalAlignment="Center">
+                                                    <TextBlock.Style><Style TargetType="TextBlock"><Setter Property="Visibility" Value="Visible"/>
+                                                        <Style.Triggers><DataTrigger Binding="{Binding CollectionId}" Value="{x:Null}"><Setter Property="Visibility" Value="Collapsed"/></DataTrigger></Style.Triggers>
+                                                    </Style></TextBlock.Style>
+                                                </TextBlock>
+                                                <TextBlock Text="{Binding Name}" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" MaxWidth="90" />
+                                            </StackPanel>
+                                        </Button>
+                                    </DataTemplate></ItemsControl.ItemTemplate>
+                                    <ItemsControl.Style><Style TargetType="ItemsControl"><Style.Triggers>
+                                        <DataTrigger Binding="{Binding TagText}" Value=""><Setter Property="Visibility" Value="Collapsed" /></DataTrigger>
+                                    </Style.Triggers></Style></ItemsControl.Style>
+                                </ItemsControl>
                                 <TextBlock Margin="0,2,0,0" FontSize="{DynamicResource QuickClipText12}" Foreground="{DynamicResource SubtleText}"
                                            TextTrimming="CharacterEllipsis" ToolTip="{Binding DateTooltip}">
                                     <Run Text="{Binding Created, Mode=OneWay, StringFormat=t}" /><Run Text="  ·  " />
@@ -175,29 +196,55 @@
 
     <Grid Background="{DynamicResource BackgroundBrush}">
         <Grid.ColumnDefinitions>
-            <ColumnDefinition Width="230" />
-            <ColumnDefinition Width="*" />
+            <ColumnDefinition x:Name="GallerySidebarColumn" Width="230" MinWidth="190" MaxWidth="520" />
+            <ColumnDefinition Width="6" />
+            <ColumnDefinition Width="*" MinWidth="320" />
         </Grid.ColumnDefinitions>
-
+        <GridSplitter Grid.Column="1" ResizeDirection="Columns" ResizeBehavior="PreviousAndNext"
+                      HorizontalAlignment="Stretch" VerticalAlignment="Stretch"
+                      ShowsPreview="True" Cursor="SizeWE" Focusable="True"
+                      AutomationProperties.Name="Resize Gallery folders sidebar"
+                      ToolTip="Drag to resize folders (190–520 px)"
+                      DragCompleted="GallerySidebarSplitter_DragCompleted">
+            <GridSplitter.Style>
+                <Style TargetType="GridSplitter">
+                    <Setter Property="Background" Value="Transparent" />
+                    <Setter Property="BorderBrush" Value="{DynamicResource DividerBrush}" />
+                    <Setter Property="BorderThickness" Value="1,0,0,0" />
+                    <Style.Triggers>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter Property="Background" Value="{DynamicResource SelectionBrush}" />
+                        </Trigger>
+                    </Style.Triggers>
+                </Style>
+            </GridSplitter.Style>
+        </GridSplitter>
         <!-- Folders ("All clips" first, then a folder per game), then projects -->
         <Border x:Name="GallerySidebar" Background="{DynamicResource InternalSidebarBrush}">
             <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
                 <StackPanel Margin="10,6,10,10">
-                    <TextBlock Text="FOLDERS" Style="{StaticResource SectionHeader}" Margin="8,14,0,8" />
+                    <DockPanel Margin="8,14,0,8">
+                        <Button x:Name="FolderDateSort" DockPanel.Dock="Right" Style="{StaticResource ActionIconButton}" Content="&#xE823;" Click="FolderDateSort_Click" ToolTip="Newest clips first" AutomationProperties.Name="Newest clips first" Focusable="True"/>
+                        <Button x:Name="FolderNameSort" DockPanel.Dock="Right" Style="{StaticResource ActionIconButton}" Content="&#xE8CB;" Click="FolderNameSort_Click" ToolTip="Sort folders A to Z" AutomationProperties.Name="Sort folders A to Z" Focusable="True"/>
+                        <TextBlock Text="FOLDERS" Style="{StaticResource SectionHeader}" VerticalAlignment="Center"/>
+                    </DockPanel>
                     <ListBox x:Name="FolderList" Template="{StaticResource PlainList}" ItemContainerStyle="{StaticResource ThemedNavigationItem}" SelectionChanged="FolderList_SelectionChanged">
                         <ListBox.ItemTemplate>
                             <DataTemplate>
                                 <DockPanel>
-                                    <TextBlock DockPanel.Dock="Right" Text="{Binding Count}" Foreground="{DynamicResource SubtleText}" Margin="8,0,0,0" />
-                                    <TextBlock Text="{Binding Name}" TextTrimming="CharacterEllipsis" />
+                                    <TextBlock DockPanel.Dock="Right" Text="{Binding Count}" Foreground="{DynamicResource SubtleText}" Margin="8,0,0,0" VerticalAlignment="Center" />
+                                    <Button DockPanel.Dock="Right" Style="{StaticResource FolderDisclosureButton}" Visibility="{Binding ExpandVisibility}" Content="{Binding ExpandGlyph}"
+                                            Click="ExpandFolder_Click" AutomationProperties.Name="Show or hide folders" ToolTip="Show or hide folders" Margin="3,0,0,0" />
+                                    <TextBlock Text="{Binding Name}" Margin="{Binding Indent}" ToolTip="{Binding Hint}"
+                                               TextTrimming="CharacterEllipsis" VerticalAlignment="Center" />
                                 </DockPanel>
                             </DataTemplate>
                         </ListBox.ItemTemplate>
                     </ListBox>
 
                     <DockPanel Margin="8,22,0,6">
-                        <Button DockPanel.Dock="Right" Style="{StaticResource IconButton}" Content="&#xE710;" FontSize="{DynamicResource QuickClipVisual12}" Padding="7,4" Margin="0"
-                                Click="NewProject_Click" ToolTip="New project (or drop clips here to start one with them)"
+                        <Button DockPanel.Dock="Right" Style="{StaticResource ActionIconButton}" Content="&#xE710;" Margin="0"
+                                Click="NewProject_Click" AutomationProperties.Name="New project" ToolTip="New project (or drop clips here to start one with them)"
                                 AllowDrop="True" DragEnter="NewProject_DragOver" DragOver="NewProject_DragOver" Drop="NewProject_Drop" />
                         <TextBlock Text="PROJECTS" Style="{StaticResource SectionHeader}" Margin="0" VerticalAlignment="Center" />
                     </DockPanel>
@@ -215,8 +262,8 @@
                                             <MenuItem Header="Delete project" Foreground="{DynamicResource DangerBrush}" Click="DeleteProject_Click" />
                                         </ContextMenu>
                                     </DockPanel.ContextMenu>
-                                    <TextBlock DockPanel.Dock="Right" Text="{Binding ClipCount}" Foreground="{DynamicResource SubtleText}" Margin="8,0,0,0" />
-                                    <TextBlock Text="{Binding Name}" TextTrimming="CharacterEllipsis" />
+                                    <TextBlock DockPanel.Dock="Right" Text="{Binding ClipCount}" Foreground="{DynamicResource SubtleText}" Margin="8,0,0,0" VerticalAlignment="Center" />
+                                    <TextBlock Text="{Binding Name}" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" />
                                 </DockPanel>
                             </DataTemplate>
                         </ListBox.ItemTemplate>
@@ -227,7 +274,7 @@
             </ScrollViewer>
         </Border>
 
-        <Grid Grid.Column="1">
+        <Grid Grid.Column="2">
             <!-- Clips -->
             <DockPanel x:Name="ClipsPane" Margin="24,18,10,0">
                 <DockPanel DockPanel.Dock="Top" Margin="0,0,14,12">
@@ -255,6 +302,16 @@
                     </StackPanel>
                 </DockPanel>
 
+                <Border x:Name="GameHub" DockPanel.Dock="Top" Margin="0,0,14,10" Padding="10" CornerRadius="8"
+                        Background="{DynamicResource PanelBrush}" Visibility="Collapsed">
+                    <WrapPanel>
+                        <StackPanel Margin="0,0,24,4"><TextBlock Text="Clips" Style="{StaticResource Hint}"/><TextBlock x:Name="HubClips" FontWeight="SemiBold" FontSize="{DynamicResource QuickClipText18}"/></StackPanel>
+                        <StackPanel Margin="0,0,24,4"><TextBlock Text="Storage" Style="{StaticResource Hint}"/><TextBlock x:Name="HubStorage" FontWeight="SemiBold" FontSize="{DynamicResource QuickClipText18}"/></StackPanel>
+                        <StackPanel Margin="0,0,12,4"><TextBlock Text="Folders" Style="{StaticResource Hint}"/><TextBlock x:Name="HubCollections" FontWeight="SemiBold" FontSize="{DynamicResource QuickClipText18}"/></StackPanel>
+                        <Button Content="Manage labels" Style="{StaticResource TextButton}" Click="CollectionsManager_Click" VerticalAlignment="Center"/>
+                    </WrapPanel>
+                </Border>
+
                 <!-- What to do with the selected clips -->
                 <Border x:Name="SelectionBar" DockPanel.Dock="Top" Background="{DynamicResource PanelBrush}" CornerRadius="6" Padding="14,6,8,6"
                         Margin="0,0,14,14" Visibility="Collapsed">
@@ -265,7 +322,7 @@
                                     Visibility="{Binding PersonalAnnotations, RelativeSource={RelativeSource AncestorType=views:GalleryView}, Converter={StaticResource ShowIf}}" />
                             <Button x:Name="DeleteSelectedButton" Content="Delete selected…" Style="{StaticResource DangerButtonStyle}" Click="DeleteSelected_Click"
                                     ToolTip="Delete selected clips visible in this view" />
-                            <Button x:Name="AddToProjectButton" Style="{DynamicResource AccentButtonStyle}" Padding="12,5" Focusable="False"
+                            <Button VerticalContentAlignment="Center" HorizontalContentAlignment="Center" MinHeight="{DynamicResource QuickClipVisual36}" MinWidth="{DynamicResource QuickClipVisual36}" x:Name="AddToProjectButton" Style="{DynamicResource AccentButtonStyle}" Padding="12,5" Focusable="False"
                                     Click="AddToProject_Click">
                                 <StackPanel Orientation="Horizontal">
                                     <TextBlock FontFamily="{StaticResource IconFont}" Text="&#xE8F4;" VerticalAlignment="Center" Margin="0,0,7,0" />
@@ -293,21 +350,20 @@
                             <TextBox x:Name="ClipSearchBox" Width="130" MaxLength="120" TextChanged="OrganizationFilter_Changed"
                                      AutomationProperties.Name="Search clip titles, filenames and games" />
                         </StackPanel>
-                        <StackPanel Orientation="Horizontal" Margin="0,0,10,4">
-                            <TextBlock Text="Tag" VerticalAlignment="Center" Margin="0,0,6,0" />
-                            <TextBox x:Name="TagSearchBox" Width="95" MaxLength="32" TextChanged="OrganizationFilter_Changed"
-                                     AutomationProperties.Name="Filter by tag" />
-                            <ComboBox x:Name="ExistingTagsCombo" Width="115" Margin="4,0,0,0" MaxDropDownHeight="250"
-                                      AutomationProperties.Name="Browse existing tags" SelectionChanged="ExistingTags_Changed"
-                                      ScrollViewer.CanContentScroll="True" VirtualizingPanel.IsVirtualizing="True">
-                                <ComboBox.ItemsPanel>
-                                    <ItemsPanelTemplate><VirtualizingStackPanel /></ItemsPanelTemplate>
-                                </ComboBox.ItemsPanel>
-                            </ComboBox>
+                        <StackPanel Orientation="Horizontal" Margin="0,0,8,4">
+                            <Button x:Name="MultiTagFilterButton" Content="Tags ▾" Click="MultiTagFilter_Click" Style="{StaticResource TextButton}"
+                                    ToolTip="Filter by one or more tags" AutomationProperties.Name="Tag filters" />
+                            <Button Content="&#xE713;" Click="CollectionsManager_Click" Style="{StaticResource ActionIconButton}" ToolTip="Manage labels" AutomationProperties.Name="Manage labels" />
                         </StackPanel>
+                        <ItemsControl x:Name="ActiveTagFilters" Visibility="Collapsed" Margin="0,0,6,4">
+                            <ItemsControl.ItemsPanel><ItemsPanelTemplate><WrapPanel /></ItemsPanelTemplate></ItemsControl.ItemsPanel>
+                            <ItemsControl.ItemTemplate><DataTemplate>
+                                <Button Click="ActiveTag_Click" Style="{StaticResource TextButton}" Margin="0,0,4,0" ToolTip="Remove this tag filter" AutomationProperties.Name="{Binding}">
+                                    <StackPanel Orientation="Horizontal"><TextBlock Text="{Binding}" /><TextBlock Text=" ×" /></StackPanel>
+                                </Button>
+                            </DataTemplate></ItemsControl.ItemTemplate>
+                        </ItemsControl>
                         <CheckBox Style="{StaticResource SwitchCheckBox}" x:Name="FavoritesFilter" Content="Favorites only" VerticalAlignment="Center" Margin="0,0,10,4"
-                                  Checked="OrganizationFilter_Changed" Unchecked="OrganizationFilter_Changed" />
-                        <CheckBox Style="{StaticResource SwitchCheckBox}" x:Name="FavoritesSort" Content="Favorites first within each day" VerticalAlignment="Center" Margin="0,0,10,4"
                                   Checked="OrganizationFilter_Changed" Unchecked="OrganizationFilter_Changed" />
                         <Button Content="Clear filters" Click="ClearFilters_Click" Style="{StaticResource TextButton}" Margin="0,0,8,4" />
                 </WrapPanel>

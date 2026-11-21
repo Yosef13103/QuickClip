@@ -48,6 +48,8 @@ internal sealed record CatalogRequest
     public int? MaxDepth { get; init; }
 }
 
+internal sealed record RelatedGameTitle(string Id, string Name);
+
 internal sealed record CatalogEntry(
     string Id, string Name, CatalogSource Source,
     ImmutableArray<string> InstallDirectories, ImmutableArray<string> Executables, CatalogRules Rules)
@@ -61,6 +63,8 @@ internal sealed record CatalogEntry(
     public bool IsUnverified { get; init; }
     [System.Text.Json.Serialization.JsonIgnore]
     public ImmutableArray<string> AliasIds { get; init; } = [];
+    [System.Text.Json.Serialization.JsonIgnore]
+    public ImmutableArray<RelatedGameTitle> RelatedTitles { get; init; } = [];
     [System.Text.Json.Serialization.JsonIgnore]
     public ImmutableArray<CatalogSource> Provenance { get; init; } = [];
     public string DisplayName => string.IsNullOrWhiteSpace(Rules.DisplayName) ? Name : Rules.DisplayName.Trim();

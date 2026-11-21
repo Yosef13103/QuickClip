@@ -876,6 +876,37 @@
       ],
       "blocker": "The local sandbox denies the existing scratch startup registry fixture. Full verification requires hosted Windows quality CI.",
       "next_action": "Verify both hosted Windows quality jobs in the draft stacked on chatgpt/wave2-owner-polish. Then run the supervised clipboard, UI, and performance matrix against the exact draft head."
+    },
+    {
+      "id": "W2-E2",
+      "title": "Collections and scoped organization",
+      "kind": "implementation",
+      "depends_on": [],
+      "read": [
+        "docs/collections-and-tags.md",
+        "PRODUCT library identity and archive invariants",
+        "QUALITY migration and acceptance"
+      ],
+      "scope": [
+        "Stable optional collection membership, game scope and virtual organization; physical destination preferences inert until B integration."
+      ],
+      "acceptance": [
+        "Scoped definitions and exclusive memberships preserve annotations, identities and files; reject stale and incompatible migrations; integrated UI/physical routing later gates."
+      ],
+      "effort": "high",
+      "status": "in_progress",
+      "candidate": "6900b4e",
+      "gates": {
+        "local": "passed",
+        "ci": "pending",
+        "review": "pending",
+        "hardware": "pending"
+      },
+      "evidence": [
+        "Virtual collection and scoped tag preview: 937 passed, 23 opt-in skips, zero failures; strict Personal build and runtime dependency smoke pass. Private evidence: 7. Evidence/E2-virtual-collections-v6-checkpoint.md."
+      ],
+      "blocker": "Development owner live-save/profile acceptance, B schema reconciliation, CI/review and physical publication/recovery remain pending.",
+      "next_action": "Owner tests consolidated development with copied production preferences. Validate live recording metadata and profile transitions; reconcile B in isolated migration/recovery candidate before physical routing/moves. UI polish and capture research remain separate gates."
     }
   ]
 }

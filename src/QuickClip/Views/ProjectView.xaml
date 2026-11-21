@@ -63,7 +63,7 @@
                         <TextBlock Text="Open folder" />
                     </StackPanel>
                 </Button>
-                <Button x:Name="ExportButton" Style="{DynamicResource AccentButtonStyle}" Padding="12,5" Focusable="False" Click="Export_Click"
+                <Button VerticalContentAlignment="Center" HorizontalContentAlignment="Center" MinHeight="{DynamicResource QuickClipVisual36}" MinWidth="{DynamicResource QuickClipVisual36}" x:Name="ExportButton" Style="{DynamicResource AccentButtonStyle}" Padding="12,5" Focusable="False" Click="Export_Click"
                         ToolTip="Join the clips (and the music) into one video and open it in the editor">
                     <StackPanel Orientation="Horizontal">
                         <TextBlock FontFamily="{StaticResource IconFont}" Text="&#xE70F;" VerticalAlignment="Center" Margin="0,0,7,0" />
@@ -131,7 +131,7 @@
                                 ValueChanged="SeekBar_ValueChanged" />
                         <DockPanel Margin="10,2,14,8">
                             <controls:AppVolumeControl x:Name="Volume" DockPanel.Dock="Right" VerticalAlignment="Center" />
-                            <Button x:Name="PlayButton" Style="{StaticResource IconButton}" Content="&#xE768;" Padding="16,6" Click="Play_Click"
+                            <Button x:Name="PlayButton" Style="{StaticResource IconButton}" Content="&#xE768;" Click="Play_Click"
                                     ToolTip="Play / pause the montage (Space)" />
                             <TextBlock x:Name="TimeText" Margin="10,0,0,0" VerticalAlignment="Center" FontFamily="Consolas" FontSize="{DynamicResource QuickClipText14}" Text="0:00" />
                             <TextBlock x:Name="DurationText" VerticalAlignment="Center" FontFamily="Consolas" FontSize="{DynamicResource QuickClipText13}"
