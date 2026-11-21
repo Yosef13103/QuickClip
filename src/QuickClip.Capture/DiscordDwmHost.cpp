@@ -148,11 +148,20 @@ bool DiscordDwmHost::Refresh(std::string& error)
         error="Discord window source dimensions unavailable";
         return false;
     }
-    double scale=std::min({1.,static_cast<double>(width_)/current.cx,
-                              static_cast<double>(height_)/current.cy});
-    int w=std::max(1,static_cast<int>(std::floor(current.cx*scale)));
-    int h=std::max(1,static_cast<int>(std::floor(current.cy*scale)));
-    RECT rect{(width_-w)/2,(height_-h)/2,(width_-w)/2+w,(height_-h)/2+h};
+    // Keep a host at the source's true DWM pixel size: the old composite
+    // shader handles the only proportional scale into the output tile.
+    if(current.cx!=width_ || current.cy!=height_) {
+        if(!SetWindowPos(host_,HWND_BOTTOM,0,0,current.cx,current.cy,
+              SWP_NOACTIVATE|SWP_NOMOVE|SWP_NOOWNERZORDER)) {
+            error="Discord mirror host could not follow source geometry";
+            return false;
+        }
+        width_=current.cx;
+        height_=current.cy;
+        InvalidateRect(host_,nullptr,TRUE);
+        UpdateWindow(host_);
+    }
+    RECT rect{0,0,current.cx,current.cy};
     if(!layoutInitialized_ || current.cx!=sourceSize_.cx || current.cy!=sourceSize_.cy ||
         rect.left!=destination_.left || rect.top!=destination_.top ||
         rect.right!=destination_.right || rect.bottom!=destination_.bottom) {
@@ -167,6 +176,7 @@ bool DiscordDwmHost::Refresh(std::string& error)
         if(FAILED(hr)) { error="Discord mirror could not update its source geometry";return false; }
         sourceSize_=current;destination_=rect;layoutInitialized_=true;
         InvalidateRect(host_,nullptr,TRUE); // clear old thumbnail locations
+        UpdateWindow(host_);
     }
     return true;
 }

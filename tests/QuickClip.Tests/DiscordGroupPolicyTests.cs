@@ -79,6 +79,24 @@ public sealed class DiscordGroupPolicyTests
     }
 
     [Fact]
+    public void Game_priority_relinquishes_to_verified_discord_call_without_a_foreground_requirement()
+    {
+        var policy = new DiscordGroupPolicy();
+        var main = Window(17);
+        var observed = Probe(main);
+        Assert.Equal(DiscordGroupStatus.GamePriority,
+            policy.Decide(true, DiscordCaptureMode.DuringCalls, true, true, false,
+                ActivityState.LikelyConnected, observed, true, _ => true).Status);
+
+        // Returning from a game uses fresh Discord call evidence. The policy
+        // never asks whether Discord owns the foreground window.
+        var resumed = policy.Decide(true, DiscordCaptureMode.DuringCalls, true, false, false,
+            ActivityState.LikelyConnected, observed, true, _ => true);
+        Assert.Equal(DiscordGroupStatus.Eligible, resumed.Status);
+        Assert.Equal(new[] { main }, resumed.Targets);
+    }
+
+    [Fact]
     public void Multiple_incomplete_samples_do_not_extend_the_call_without_verified_evidence()
     {
         var activity = new ActivityClassifier();

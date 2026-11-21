@@ -53,7 +53,7 @@ public partial class GalleryView
         {
             if (FindCollectionClip(button) is { } clip)
             {
-                var key = GalleryFolderKey.For(clip.Details);
+                var key = FolderKeyFor(clip);
                 _expandedGames.Add(key);
                 _folderSelection = new(key, true, collectionId);
                 _searchCancellation?.Cancel();

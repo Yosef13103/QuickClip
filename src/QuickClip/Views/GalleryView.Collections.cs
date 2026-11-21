@@ -383,7 +383,8 @@ public partial class GalleryView
             if (selected.Id != null)
                 foreach (var t in targets)
                     _expandedGames.Add(t.Details.GameId == null && associate != null
-                        ? new GalleryFolderKey(associate, null) : GalleryFolderKey.For(t.Details));
+                        ? new GalleryFolderKey(associate, null)
+                        : _displayFolderKeys.TryGetValue(t.Path, out var key) ? key : GalleryFolderKey.For(t.Details));
             await ReloadAsync(rereadIndex: true);
             ShowStatus($"Updated collection for {changed:N0} recording(s).");
         }

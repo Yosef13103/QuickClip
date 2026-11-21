@@ -25,6 +25,7 @@ public partial class SettingsView : UserControl
     private readonly List<(ComboBox Combo, Button Remove)> _micRows = [];
     private IReadOnlySet<string> _encoders = new HashSet<string>();
     private bool _loading;
+    private bool _discordDialogOpen;
 
     public SettingsView()
     {
@@ -45,6 +46,7 @@ public partial class SettingsView : UserControl
             InstallUpdateLabel.Text = PersonalInstaller.CanApply ? "Download update" : "Download verified update";
             StartupHint.Visibility = ReplayAtStartupCheck.Visibility = ReplayAtStartupHint.Visibility = Visibility.Visible;
             GamesPage.AttentionCountChanged += UpdateGameIssueBadge;
+            GamesPage.DiscordSettingsRequested += OpenDiscordSettings;
             UpdateGameIssueBadge(GamesPage.AttentionCount);
             ApplySettingsSection(RecordingSection);
             UpdateSettingsExperience();
@@ -90,11 +92,37 @@ public partial class SettingsView : UserControl
         if (sender is RadioButton section && LibraryCard != null) ApplySettingsSection(section);
     }
 
+    private void OpenDiscordSettings()
+    {
+        if (_discordDialogOpen || !AppProfile.IsPersonal || !IsVisible ||
+            Window.GetWindow(this) is not { IsVisible: true, Content: Panel } owner ||
+            CompanionsCard.Parent is not Panel host) return;
+
+        int index = host.Children.IndexOf(CompanionsCard);
+        if (index < 0) return;
+        _discordDialogOpen = true;
+        host.Children.RemoveAt(index);
+        CompanionsCard.Visibility = Visibility.Visible;
+        try
+        {
+            RefreshDiscordUi();
+            ModalDialog.Run(owner, "Discord recording", CompanionsCard, "Done", null, wide: true);
+        }
+        finally
+        {
+            CompanionsCard.Visibility = Visibility.Collapsed;
+            host.Children.Insert(index, CompanionsCard);
+            _discordDialogOpen = false;
+            RefreshDiscordUi();
+            GamesPage.RefreshApplicationCards();
+        }
+    }
+
     private void ApplySettingsSection(RadioButton section)
     {
-        bool games = section == GamesSection;
-        GamesPage.Visibility = games ? Visibility.Visible : Visibility.Collapsed;
-        GeneralPage.Visibility = games ? Visibility.Collapsed : Visibility.Visible;
+        bool sources = section == GamesSection;
+        GamesPage.Visibility = sources ? Visibility.Visible : Visibility.Collapsed;
+        GeneralPage.Visibility = sources ? Visibility.Collapsed : Visibility.Visible;
         SectionTitle.Text = section.Content.ToString();
         foreach (RadioButton item in SettingsSections.Children) item.IsTabStop = item == section;
         RecordingCard.Visibility = SectionVisibility(RecordingSection);
@@ -104,7 +132,7 @@ public partial class SettingsView : UserControl
         LibraryCard.Visibility = SectionVisibility(LibrarySection);
         GeneralCard.Visibility = SectionVisibility(GeneralSection);
         NotificationsCard.Visibility = SectionVisibility(NotificationsSection);
-        CompanionsCard.Visibility = SectionVisibility(CompanionsSection);
+        CompanionsCard.Visibility = Visibility.Collapsed;
         RefreshDiscordUi();
         UpdatesCard.Visibility = Updater.IsEnabled ? SectionVisibility(GeneralSection) : Visibility.Collapsed;
         DiagnosticsCard.Visibility = SectionVisibility(DiagnosticsSection);

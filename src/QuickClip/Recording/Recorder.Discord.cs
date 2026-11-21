@@ -15,10 +15,29 @@ internal sealed partial class Recorder
     private ActivityState _discordState = ActivityState.Unknown;
     private DiscordGroupDecision? _discordDecision;
     private bool _discordActive;
-    private WindowOwner? _discordMirrorMain;
     private bool _discordManualRequested;
     private long _discordRetryAfter;
     private int _discordRetryDelaySeconds;
+    private int _discordGate = -1;
+
+    // Transition-only diagnostic codes (never window titles, PIDs or call data):
+    // 1 = game/desktop priority, 2 = awaiting fresh probe,
+    // 3 = awaiting call evidence, 4 = window/policy ineligible,
+    // 5 = retry backoff, 6 = eligible starting, 7 = capturing.
+    private void TraceDiscordGate(int gate)
+    {
+        if (_discordGate == gate) return;
+        _discordGate = gate;
+        Log.Event(DiagnosticCategory.Capture, "Discord capture eligibility changed", code: gate);
+        if (gate == 3 && _discordObservation is { Complete: true } probe)
+        {
+            // Counts only. Cross-process Discord call activity can otherwise
+            // look identical to an inactive call; never log endpoint IDs/PIDs.
+            Log.Event(DiagnosticCategory.Capture, "Discord voice input owners", code: probe.MicrophoneOwners);
+            Log.Event(DiagnosticCategory.Capture, "Discord UDP owners", code: probe.UdpOwners);
+            Log.Event(DiagnosticCategory.Capture, "Discord matched voice network owners", code: probe.MatchingOwners);
+        }
+    }
 
     private void ScheduleDiscordRetry()
     {
@@ -48,7 +67,7 @@ internal sealed partial class Recorder
                 if (_observedGame != null || ManualDesktopRequested) return "Waiting for game or desktop recording";
                 if (_discordActive) return AppSettings.Current.DiscordCloakedMirror &&
                     Environment.OSVersion.Version.Build < 20348
-                    ? "Recording main Discord window (experimental cloaked mirror)"
+                    ? $"Recording {(_discordDecision?.Targets.Count ?? 0)} Discord windows (experimental cloaked mirror)"
                     : $"Recording {(_discordDecision?.Targets.Count ?? 0)} Discord windows";
                 return _discordDecision?.Status switch
                 {
@@ -56,6 +75,8 @@ internal sealed partial class Recorder
                     DiscordGroupStatus.TooManyWindows => "Too many Discord windows (limit 4)",
                     DiscordGroupStatus.Waiting when _discordState == ActivityState.Joining => "Joining a call...",
                     DiscordGroupStatus.Waiting when _discordState == ActivityState.Leaving => "Checking disconnection...",
+                    DiscordGroupStatus.Waiting when AppSettings.Current.DiscordCaptureMode == DiscordCaptureMode.DuringCalls =>
+                        "Waiting for verified Discord call activity",
                     _ => "Waiting for Discord"
                 };
             }
@@ -89,7 +110,6 @@ internal sealed partial class Recorder
         _discordTask = null; // a pending task may finish but has no capture authority
         _discordObservedAt = 0;
         _discordLastEligibleAt = 0;
-        _discordMirrorMain = null;
     }
 
     private void ReconcileDiscord(AppSettings settings, bool higherPriority)
@@ -97,6 +117,7 @@ internal sealed partial class Recorder
         if (!settings.RecordingEnabled || !settings.DiscordCaptureEnabled ||
             settings.DiscordCaptureMode == DiscordCaptureMode.Disabled || higherPriority)
         {
+            TraceDiscordGate(higherPriority ? 1 : 4);
             ResetDiscordObservation(stop: true);
             return;
         }
@@ -142,6 +163,7 @@ internal sealed partial class Recorder
             }
             if (_discordActive) StopGraph();
             _discordDecision = new(DiscordGroupStatus.Unknown, []);
+            TraceDiscordGate(2);
             return;
         }
         var previous = _discordDecision;
@@ -159,31 +181,17 @@ internal sealed partial class Recorder
                 Stopwatch.GetElapsedTime(_discordLastEligibleAt), GameDetector.IsCurrent)
                 ?? decision;
         }
-        if (settings.DiscordCloakedMirror && Environment.OSVersion.Version.Build < 20348)
-        {
-            if (decision.Status == DiscordGroupStatus.Eligible)
-            {
-                // Selection is restricted to the already-verified Discord HWNDs.
-                // A closed main window must not silently become a pop-out.
-                var main = DiscordMainWindow.Select(decision.Targets, _discordMirrorMain,
-                    DiscordMainWindow.HasMainTitle, DiscordMainWindow.Area);
-                if (main is { } selected)
-                {
-                    _discordMirrorMain = selected;
-                    decision = new(DiscordGroupStatus.Eligible, [selected]);
-                }
-                else decision = new(DiscordGroupStatus.Waiting, []);
-            }
-        }
-        else _discordMirrorMain = null;
         _discordDecision = decision;
         if (decision.Status != DiscordGroupStatus.Eligible)
         {
+            TraceDiscordGate(decision.Status == DiscordGroupStatus.Waiting &&
+                settings.DiscordCaptureMode == DiscordCaptureMode.DuringCalls ? 3 : 4);
             if (_discordActive) StopGraph();
             return;
         }
         if (_discordActive)
         {
+            TraceDiscordGate(7);
             if (!CaptureEngine.UpdateCompanionWindows(decision.Targets))
             {
                 ScheduleDiscordRetry();
@@ -194,16 +202,31 @@ internal sealed partial class Recorder
                 ClearDiscordRetry();
             return;
         }
-        if (IsRunning || _lifecycle.Mode is not RecordingMode.Armed) return;
-        if (_discordRetryAfter != 0 && Stopwatch.GetTimestamp() < _discordRetryAfter) return;
-        if (!decision.Targets.All(GameDetector.IsCurrent)) return;
+        if (IsRunning || _lifecycle.Mode is not RecordingMode.Armed)
+        {
+            TraceDiscordGate(4);
+            return;
+        }
+        if (_discordRetryAfter != 0 && Stopwatch.GetTimestamp() < _discordRetryAfter)
+        {
+            TraceDiscordGate(5);
+            return;
+        }
+        if (!decision.Targets.All(GameDetector.IsCurrent))
+        {
+            TraceDiscordGate(4);
+            return;
+        }
+        TraceDiscordGate(6);
         StartCore(companion: decision.Targets);
         _discordActive = IsRunning;
         if (!_discordActive)
         {
             ScheduleDiscordRetry();
+            TraceDiscordGate(5);
             return;
         }
+        TraceDiscordGate(7);
         _sessionGame = "Discord";
         _sessionGameId = null;
         _sessionGameExecutable = null;

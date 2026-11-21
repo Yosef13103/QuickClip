@@ -12,6 +12,19 @@ namespace QuickClip.Tests;
 public sealed class GamesSettingsViewTests
 {
     [Fact]
+    public void Discord_app_card_describes_the_selected_capture_mode()
+    {
+        Assert.Equal("During voice and video calls", GamesSettingsView.DiscordCaptureDescription(
+            QuickClip.Recording.Companion.DiscordCaptureMode.DuringCalls));
+        Assert.Equal("While Discord is open", GamesSettingsView.DiscordCaptureDescription(
+            QuickClip.Recording.Companion.DiscordCaptureMode.WhileOpen));
+        Assert.Equal("Only when I start it", GamesSettingsView.DiscordCaptureDescription(
+            QuickClip.Recording.Companion.DiscordCaptureMode.Manual));
+        Assert.Equal("Capture turned off", GamesSettingsView.DiscordCaptureDescription(
+            QuickClip.Recording.Companion.DiscordCaptureMode.Disabled));
+    }
+
+    [Fact]
     public Task Store_logos_are_local_nonempty_vectors_for_every_supported_tile() => OnSta(() =>
     {
         var page = new GamesSettingsView();
@@ -112,8 +125,9 @@ public sealed class GamesSettingsViewTests
         Arrange(page, width, height);
         Assert.True(page.Games.ActualHeight > 0);
         Assert.True(page.Search.ActualWidth > 0);
-        Assert.DoesNotContain(page.Search, Descendants<TextBox>(page.Games));
+        Assert.DoesNotContain(page.Search, Descendants<TextBox>(page.Games)); // Search stays focused during ListBox refresh.
         Assert.True(page.AutoScan.IsChecked == true);
+        Assert.Single(page.Applications.Items);
         page.RenderRows(Fixture(200));
         Arrange(page, width, height);
         var scroll = Descendants<ScrollViewer>(page.Games).First();
@@ -123,6 +137,35 @@ public sealed class GamesSettingsViewTests
         Arrange(page, width, height);
         Assert.NotNull(page.Games.ItemContainerGenerator.ContainerFromIndex(200));
         Assert.False(page.CancelButton.IsEnabled);
+    });
+
+    [Fact]
+    public Task Game_search_keeps_keyboard_focus_during_each_filtered_keystroke() => OnSta(() =>
+    {
+        var page = new GamesSettingsView();
+        page.RenderRows(Fixture(120));
+        var window = new Window
+        {
+            Title = "QuickClip Search Focus Test",
+            Content = page, Width = 900, Height = 680, ShowInTaskbar = false,
+        };
+        window.Show();
+        try
+        {
+            Assert.True(page.Search.Focus());
+            Assert.True(page.Search.IsKeyboardFocused);
+            foreach (char letter in "Test game")
+            {
+                page.Search.AppendText(letter.ToString());
+                window.Dispatcher.Invoke(() => { }, System.Windows.Threading.DispatcherPriority.Background);
+                Assert.True(page.Search.IsKeyboardFocused);
+                Assert.Single(Descendants<TextBox>(window), input => ReferenceEquals(input, page.Search));
+            }
+            Assert.Equal("Test game", page.Search.Text);
+            // A real Loaded view may asynchronously replace synthetic catalog data
+            // with the coordinator's current snapshot; focus and text must survive.
+        }
+        finally { window.Close(); }
     });
 
     [Theory]
@@ -135,7 +178,7 @@ public sealed class GamesSettingsViewTests
         var state = Fixture(count);
         page.RenderRows(state);
         Arrange(page);
-        Assert.Equal(count + 1, page.Games.Items.Count);
+        Assert.Equal(count + 1, page.Games.Items.Count); // One Games controls header.
         var first = Assert.IsType<GamesSettingsView.GameRow>(page.Games.Items[1]);
         var second = Assert.IsType<GamesSettingsView.GameRow>(page.Games.Items[2]);
         Assert.Equal("Manual · Ready to record", first.Summary);

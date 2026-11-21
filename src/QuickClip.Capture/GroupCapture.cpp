@@ -1,4 +1,5 @@
 #include "GroupCapture.h"
+#include "DiscordDwmHost.h"
 
 #include <d3d11_4.h>
 #include <d3dcompiler.h>
@@ -80,6 +81,7 @@ AVBufferRef* Surface(void* opaque, size_t)
 struct Source {
     QcGameWindow identity{};
     HANDLE process = nullptr;
+    std::unique_ptr<DiscordDwmHost> mirror;
     wc::GraphicsCaptureItem item{nullptr};
     wc::Direct3D11CaptureFramePool pool{nullptr};
     wc::GraphicsCaptureSession session{nullptr};
@@ -95,6 +97,7 @@ struct Source {
         if (subscribed && item) item.Closed(closedToken);
         if (session) session.Close();
         if (pool) pool.Close();
+        mirror.reset(); // WGC must close before the cloaked HWND is destroyed.
         if (process) CloseHandle(process);
     }
     bool Valid() const { return OwnerValid(identity, process) && !closed->load(); }
@@ -131,6 +134,7 @@ struct GroupCapture::Impl {
     winrt::com_ptr<IGraphicsCaptureItemInterop> interop;
     AVBufferRef* frames = nullptr;
     int width = 0, height = 0;
+    bool cloakedSources = false;
     std::vector<std::unique_ptr<Source>> sources;
 
     ~Impl() { sources.clear(); av_buffer_unref(&frames); }
@@ -213,7 +217,22 @@ float4 PS(V v):SV_Target { return float4(img.Sample(linearSampler,v.uv).rgb,1); 
         source->identity=target;
         source->process=OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION|SYNCHRONIZE,FALSE,target.process);
         Verify(OwnerValid(target,source->process),"Companion source changed before capture");
-        check_hresult(interop->CreateForWindow(target.handle,winrt::guid_of<wc::GraphicsCaptureItem>(),winrt::put_abi(source->item)));
+        HWND captureWindow = target.handle;
+        if (cloakedSources) {
+            RECT sourceBounds{};
+            Verify(GetWindowRect(target.handle,&sourceBounds)!=FALSE,
+                "Companion mirror source bounds unavailable");
+            const int sourceWidth=sourceBounds.right-sourceBounds.left;
+            const int sourceHeight=sourceBounds.bottom-sourceBounds.top;
+            Verify(sourceWidth >= 64 && sourceHeight >= 64 &&
+                sourceWidth <= MaxDimension && sourceHeight <= MaxDimension,
+                "Companion mirror source dimensions outside capture budget");
+            source->mirror=std::make_unique<DiscordDwmHost>();
+            std::string error;
+            Verify(source->mirror->Open(target,sourceWidth,sourceHeight,error),error.c_str());
+            captureWindow=source->mirror->CaptureTarget().handle;
+        }
+        check_hresult(interop->CreateForWindow(captureWindow,winrt::guid_of<wc::GraphicsCaptureItem>(),winrt::put_abi(source->item)));
         source->size=source->item.Size();
         Verify(source->size.Width>0 && source->size.Height>0 && source->size.Width<=MaxDimension &&
             source->size.Height<=MaxDimension,"Companion window dimensions unavailable or excessive");
@@ -310,6 +329,12 @@ float4 PS(V v):SV_Target { return float4(img.Sample(linearSampler,v.uv).rgb,1); 
             ++live;
             bool minimized=IsIconic(s.identity.handle)!=FALSE ||
                 IsWindowVisible(s.identity.handle)==FALSE;
+            // A minimized pop-out must not revoke the rest of the group if
+            // DWM temporarily stops reporting its source thumbnail geometry.
+            if(!minimized && s.mirror) {
+                std::string error;
+                Verify(s.mirror->Refresh(error), error.c_str());
+            }
             if(minimized!=s.wasMinimized) { s.have=false; s.wasMinimized=minimized; s.freshAfter=now; }
             for(int drain=0;drain<4;drain++) {
                 auto incoming=s.pool.TryGetNextFrame();
@@ -374,12 +399,14 @@ float4 PS(V v):SV_Target { return float4(img.Sample(linearSampler,v.uv).rgb,1); 
     }
 };
 
+void ClearWinrtFactoryCache() noexcept { winrt::clear_factory_cache(); }
+
 GroupCapture::GroupCapture(): impl_(std::make_unique<Impl>()) {}
 GroupCapture::~GroupCapture() = default;
 void GroupCapture::Close() { impl_.reset(); }
-bool GroupCapture::Open(AVBufferRef* device,int w,int h,std::string& error)
+bool GroupCapture::Open(AVBufferRef* device,int w,int h,std::string& error,bool cloakedSources)
 {
-    try { impl_->Open(device,w,h);return true; }
+    try { impl_->Open(device,w,h);impl_->cloakedSources=cloakedSources;return true; }
     catch(const winrt::hresult_error&) { error="Companion GPU or Windows capture initialization failed"; }
     catch(const std::exception& ex) { error=ex.what(); }
     return false;

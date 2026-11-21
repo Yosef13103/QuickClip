@@ -187,8 +187,7 @@
                     </StackPanel.Resources>
                     <RadioButton x:Name="RecordingSection" Content="Recording" Tag="&#xE714;" IsChecked="True" />
                     <RadioButton x:Name="AudioSection" Content="Audio" Tag="&#xE767;" />
-                    <RadioButton x:Name="GamesSection" Content="Games" Tag="&#xE7FC;" />
-                    <RadioButton x:Name="CompanionsSection" Content="Companions" Tag="&#xE8F2;" ToolTip="Record Discord calls without capturing the desktop" />
+                    <RadioButton x:Name="GamesSection" Content="Sources" Tag="&#xE7FC;" ToolTip="Game discovery and Discord recording" />
                     <RadioButton x:Name="HotkeysSection" Content="Hotkeys" Tag="&#xE765;" />
                     <RadioButton x:Name="SharingSection" Content="Sharing" Tag="&#xE72D;" />
                     <RadioButton x:Name="LibrarySection" Content="Library" Tag="&#xE8B7;" />
@@ -200,7 +199,8 @@
         </Border>
         <Grid Grid.Column="1" x:Name="SettingsExperienceLayout">
             <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="*" /></Grid.RowDefinitions>
-            <ScrollViewer Grid.Row="0" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled"
+            <StackPanel Grid.Row="0">
+            <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled"
                           MaxHeight="{Binding ActualHeight, ElementName=SettingsExperienceLayout}">
             <StackPanel x:Name="ExperienceHeader" Margin="20,10,20,0" Visibility="Collapsed">
                 <DockPanel>
@@ -244,6 +244,7 @@
                 </Border>
             </StackPanel>
             </ScrollViewer>
+            </StackPanel>
             <Grid Grid.Row="1">
         <views:GamesSettingsView x:Name="GamesPage" Visibility="Collapsed" />
         <ScrollViewer x:Name="GeneralPage" VerticalScrollBarVisibility="Visible" HorizontalScrollBarVisibility="Disabled">
@@ -743,15 +744,15 @@
                                Text="All visible Discord windows, including popped-out streams and cameras, share one recording. Games take priority."
                                Style="{StaticResource Hint}" TextWrapping="Wrap" Margin="0,9,0,4" />
                     <CheckBox x:Name="DiscordMirrorCheck"
-                              Content="Experimental borderless Discord mirror (Windows 10, main window only)"
+                              Content="Experimental borderless Discord mirror (Windows 10)"
                               Style="{StaticResource SwitchCheckBox}" Margin="0,8,0,3"
                               Visibility="Collapsed" Click="DiscordOption_Click"
                               ToolTip="Uses an application-cloaked DWM host; output may have padding after resizing" />
                     <TextBlock x:Name="DiscordMirrorHint" Visibility="Collapsed" Style="{StaticResource Hint}"
-                               TextWrapping="Wrap" Margin="0,5,0,5"
-                               Text="Experimental on Windows 10: avoids a visible capture outline on tested systems, but not guaranteed on every driver. The recording canvas is sized when capture starts; resizing preserves proportions, using padding or uniform downscaling. Pop-outs are excluded." />
+                               Foreground="{DynamicResource WarningBrush}" TextWrapping="Wrap" Margin="0,5,0,5"
+                               Text="Experimental on Windows 10: mirrors each authorized Discord window through a cloaked host, then uses the normal Discord multi-window layout. No visible capture outline was observed on the tested system; driver compatibility and GPU cost remain unverified. Aspect ratios are preserved when resizing." />
                     <TextBlock x:Name="DiscordBorderNotice" Visibility="Collapsed" Style="{StaticResource Hint}"
-                               TextWrapping="Wrap" Margin="0,7,0,5"
+                               Foreground="{DynamicResource WarningBrush}" TextWrapping="Wrap" Margin="0,7,0,5"
                                Text="Windows 10 adds a yellow capture outline around each Discord window. Windows 10 does not provide an approved way for QuickClip to hide it with this capture method." />
                     <Border Background="{DynamicResource ElevatedSurfaceBrush}" CornerRadius="7" Padding="10,8" Margin="0,7,0,7">
                         <StackPanel>

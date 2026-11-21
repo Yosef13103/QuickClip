@@ -196,8 +196,8 @@ internal static partial class CaptureEngine
                     Title = Uni(t.Label),
                 }).ToArray();
             int count = endpointTracks == null ? -1 : tracks.Length;
-            if (video.Backend == MonitorBackend.DiscordDwmMirror && companion is not { Count: 1 })
-                return "Experimental Discord mirroring requires exactly one authorized window.";
+            if (video.Backend == MonitorBackend.DiscordDwmMirror && companion is not { Count: >= 1 and <= 4 })
+                return "Experimental Discord mirroring requires authorized companion windows.";
             if (companion != null &&
                 (companion.Count is < 1 or > 4 || game != null || displayIdentity != null ||
                  companion.Any(owner => !GameDetector.IsCurrent(owner)) ||

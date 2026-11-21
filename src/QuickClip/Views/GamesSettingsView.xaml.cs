@@ -3,14 +3,23 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
 using System.Windows.Data;
+using System.Windows.Media;
 using Microsoft.Win32;
 using QuickClip.Discovery;
 using QuickClip.Recording;
+using QuickClip.Recording.Companion;
 
 namespace QuickClip.Views;
 
 public partial class GamesSettingsView : UserControl
 {
+    private sealed record ApplicationTile(string Id, string Name, string Description, Geometry Icon, Brush IconBrush, bool Enabled)
+    {
+        public string Status => Enabled ? "Enabled" : "Disabled";
+        public string ActionLabel => "Open " + Name + " recording settings";
+        public string Tooltip => Name + " capture " + Status.ToLowerInvariant() + ". Open settings.";
+    }
+
     private sealed record LauncherRow(CatalogSource Source, string Name, bool Enabled, bool Supported, string Status)
     {
         public bool CanRefresh => Enabled && Supported;
@@ -50,6 +59,7 @@ public partial class GamesSettingsView : UserControl
     private readonly ListBoxItem[] _attentionHeading, _ignoredHeading, _otherHeading;
     private readonly Expander _ignoredExpander;
     internal event Action<int>? AttentionCountChanged;
+    internal event Action? DiscordSettingsRequested;
     internal int AttentionCount { get; private set; }
     private int _uniqueCount, _manualCount, _retainedCount, _offlineCount;
     private GameRow? _expanded;
@@ -68,14 +78,44 @@ public partial class GamesSettingsView : UserControl
         _ignoredHeading = [Heading(_ignoredExpander)];
         _otherHeading = [Heading(new TextBlock { Text = "Games and apps", FontWeight = FontWeights.SemiBold, Margin = new(4, 12, 0, 2) })];
         Render();
+        RefreshApplicationCards();
         IsVisibleChanged += async (_, _) =>
         {
             Discovery.Changed -= ShowDiscoveryStatus;
             if (!IsVisible) return;
+            RefreshApplicationCards();
             Discovery.Changed += ShowDiscoveryStatus;
             ShowDiscoveryStatus();
             await Discovery.RequestAsync();
         };
+    }
+
+    private static readonly Geometry DiscordIcon = Geometry.Parse(
+        "M20.317 4.3698A19.7913 19.7913 0 0 0 15.885 3.1l-.55 1.13a18.27 18.27 0 0 1 3.94 1.53 15.38 15.38 0 0 0-4.75-2.1 17.63 17.63 0 0 0-5.05 0 15.38 15.38 0 0 0-4.75 2.1 18.27 18.27 0 0 1 3.94-1.53L8.115 3.1A19.7913 19.7913 0 0 0 3.683 4.37C.877 8.55.117 12.62.497 16.63a19.9 19.9 0 0 0 6.11 3.08l1.31-2.13a12.86 12.86 0 0 1-2.07-1.03l.5-.39c3.98 1.85 8.29 1.85 12.22 0l.5.39a12.86 12.86 0 0 1-2.07 1.03l1.31 2.13a19.9 19.9 0 0 0 6.11-3.08c.45-4.65-.77-8.68-3.2-12.26ZM8.67 14.22c-1.22 0-2.21-1.11-2.21-2.47 0-1.36.97-2.47 2.21-2.47s2.23 1.11 2.21 2.47c0 1.36-.97 2.47-2.21 2.47Zm6.66 0c-1.22 0-2.21-1.11-2.21-2.47 0-1.36.97-2.47 2.21-2.47 1.24 0 2.23 1.11 2.21 2.47 0 1.36-.97 2.47-2.21 2.47Z");
+
+    internal static string DiscordCaptureDescription(DiscordCaptureMode mode) => mode switch
+    {
+        DiscordCaptureMode.DuringCalls => "During voice and video calls",
+        DiscordCaptureMode.WhileOpen => "While Discord is open",
+        DiscordCaptureMode.Manual => "Only when I start it",
+        _ => "Capture turned off",
+    };
+
+    internal void RefreshApplicationCards()
+    {
+        var settings = AppSettings.Current;
+        Applications.ItemsSource = new[]
+        {
+            new ApplicationTile("discord", "Discord", DiscordCaptureDescription(settings.DiscordCaptureMode),
+                DiscordIcon, new SolidColorBrush(Color.FromRgb(88, 101, 242)), settings.DiscordCaptureEnabled),
+        };
+    }
+
+    private void ApplicationSettings_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is Button { Tag: string id } &&
+            id.Equals("discord", StringComparison.OrdinalIgnoreCase))
+            DiscordSettingsRequested?.Invoke();
     }
 
     private static ListBoxItem Heading(object content) => new()
@@ -109,6 +149,17 @@ public partial class GamesSettingsView : UserControl
 
     private void ShowDiscoveryStatus()
     {
+        // Discovery may publish its update from a worker thread. WPF controls must
+        // only be accessed on the view's owning dispatcher, including when a
+        // scan completes while a settings page is being opened or closed.
+        if (!Dispatcher.CheckAccess())
+        {
+            if (!Dispatcher.HasShutdownStarted && !Dispatcher.HasShutdownFinished)
+                _ = Dispatcher.BeginInvoke(new Action(ShowDiscoveryStatus),
+                    System.Windows.Threading.DispatcherPriority.Background);
+            return;
+        }
+        if (!IsVisible) return;
         if (!ReferenceEquals(_renderedState, AppSettings.Current.Games)) Render();
         ScanButton.IsEnabled = !Discovery.IsRunning;
         ScanButton.Content = Discovery.IsPaused ? "Resume scan" : "Scan Now";

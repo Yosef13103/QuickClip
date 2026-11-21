@@ -3,6 +3,16 @@
     <!-- Shared by every page. Merged per view (not in App.xaml) so the Fluent theme's styles exist for BasedOn. -->
     <FontFamily x:Key="IconFont">Segoe Fluent Icons, Segoe MDL2 Assets</FontFamily>
 
+    <!-- Popups inherit FontFamily from PlacementTarget. Icon-only buttons use
+         IconFont, which turns ordinary menu labels into missing-glyph boxes. -->
+    <Style TargetType="ContextMenu" BasedOn="{StaticResource {x:Type ContextMenu}}">
+        <Setter Property="FontFamily" Value="Segoe UI" />
+    </Style>
+    <!-- Tooltips can inherit that same icon-only button font. -->
+    <Style TargetType="ToolTip" BasedOn="{StaticResource {x:Type ToolTip}}">
+        <Setter Property="FontFamily" Value="Segoe UI" />
+    </Style>
+
     <!-- All QuickClip action buttons have a shared, scaled minimum.
          Text actions may grow to fit their labels, icon actions stay square. -->
     <Style TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">

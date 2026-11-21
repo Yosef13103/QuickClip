@@ -42,8 +42,8 @@ internal sealed class RecordingIndicator : IDisposable
     internal void Refresh(ReadyCapture? state)
     {
         if (_disposed) return;
-        _previewTimer?.Stop();
-        if (_preview.IsVisible) _preview.Hide();
+        // Explicit preview owns its own four-second lifetime. Normal recorder
+        // state changes must not immediately dismiss the user's preview.
         var settings = AppSettings.Current;
         if (state == null)
         {
@@ -108,12 +108,24 @@ internal sealed class RecordingIndicator : IDisposable
         Refresh();
     }
 
+    internal static ClipNotificationOverlay.Display? SelectPreviewDisplay(
+        IReadOnlyList<ClipNotificationOverlay.Display> displays, ReadyCapture? active)
+    {
+        // A live capture may be on the secondary display. Preview follows it;
+        // otherwise preview remains usable on the primary even when no graph exists.
+        return displays.FirstOrDefault(d =>
+            active != null && string.Equals(d.Device, active.Device, StringComparison.OrdinalIgnoreCase))
+            ?? displays.FirstOrDefault(d => d.Primary);
+    }
+
     internal string Preview()
     {
         if (_disposed) return "Recording icons are unavailable.";
-        if (Recorder.Instance.State.Running) { Refresh(); return Status; }
-        var display = ClipNotificationOverlay.Displays().FirstOrDefault(d => d.Primary);
-        if (display == null) return "No connected primary display.";
+        // Preview is a deliberate user action. It must work even while the
+        // recorder is running or icons are disabled, without depending on the
+        // live indicator's readiness/visibility.
+        var display = SelectPreviewDisplay(ClipNotificationOverlay.Displays(), Recorder.Instance.Feedback);
+        if (display == null) return "No connected display is available for the preview.";
         _preview.ShowRecordingIndicator(display.Device, AppSettings.Current.GameRecordingIndicatorAnchor,
             AppSettings.Current.ShowRecordingMicrophoneIndicator ? MicrophoneIndicatorState.Active : MicrophoneIndicatorState.Hidden);
         if (!_preview.IsVisible) return _preview.IndicatorFailure ?? "Could not show preview.";
@@ -124,7 +136,7 @@ internal sealed class RecordingIndicator : IDisposable
         }
         _previewTimer.Stop();
         _previewTimer.Start();
-        return "Preview on primary display for four seconds.";
+        return $"Preview on {display.Device} for four seconds.";
     }
 
     private void Sample()

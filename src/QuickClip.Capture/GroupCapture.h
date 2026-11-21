@@ -9,6 +9,8 @@ extern "C" {
 #include <memory>
 
 namespace qc {
+// Implemented in C++/WinRT's dedicated /await compilation unit.
+void ClearWinrtFactoryCache() noexcept;
 // A single authorized application's HWND group. WGC is never replaced by a monitor capture.
 // The owner calls Update/Render only on its video thread; authorization changes revoke
 // packet publication synchronously through the owning engine's video generation.
@@ -20,7 +22,8 @@ public:
     void Close();
     GroupCapture(const GroupCapture&) = delete;
     GroupCapture& operator=(const GroupCapture&) = delete;
-    bool Open(AVBufferRef* device, int outputWidth, int outputHeight, std::string& error);
+    bool Open(AVBufferRef* device, int outputWidth, int outputHeight,
+        std::string& error, bool cloakedSources = false);
     bool Update(const std::vector<QcGameWindow>& targets, std::string& error);
     bool Render(AVFrame* frame, std::string& error);
     AVBufferRef* Frames() const;

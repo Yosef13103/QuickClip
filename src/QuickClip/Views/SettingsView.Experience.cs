@@ -157,6 +157,7 @@ public partial class SettingsView
     private void ShowGuideStep()
     {
         if (!_guideActive) return;
+        // Guided game discovery uses the Games section beneath Apps in Sources.
         RadioButton section = GuideStep switch
         {
             1 => LibrarySection, 2 => HotkeysSection, 3 => AudioSection,

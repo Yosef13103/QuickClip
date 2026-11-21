@@ -28,7 +28,7 @@ public partial class SettingsView
                 s.DiscordCloakedMirror ? Visibility.Visible : Visibility.Collapsed;
             DiscordWindowScopeHint.Text = s.DiscordCloakedMirror &&
                 Environment.OSVersion.Version.Build < 20348
-                ? "Only the main Discord window is recorded; pop-outs are excluded. Games take priority."
+                ? "Discord and pop-outs use the same multi-window layout as normal capture. Games take priority."
                 : "All visible Discord windows, including popped-out streams and cameras, share one recording. Games take priority.";
             DiscordEnableCheck.IsChecked = s.DiscordCaptureEnabled;
             DiscordModeCombo.SelectedItem = DiscordModeCombo.Items.Cast<ComboBoxItem>()
@@ -50,7 +50,7 @@ public partial class SettingsView
     private void RefreshDiscordUi()
     {
         if (!AppProfile.IsPersonal || _discordUiTimer == null) return;
-        bool show = IsVisible && CompanionsSection.IsChecked == true;
+        bool show = IsVisible && GamesSection.IsChecked == true && _discordDialogOpen;
         if (!show) { _discordUiTimer.Stop(); return; }
         _discordUiTimer.Start();
         var s = AppSettings.Current;
@@ -61,7 +61,7 @@ public partial class SettingsView
         DiscordMirrorHint.Visibility = windows10 && s.DiscordCloakedMirror
             ? Visibility.Visible : Visibility.Collapsed;
         DiscordWindowScopeHint.Text = windows10 && s.DiscordCloakedMirror
-            ? "Only the main Discord window is recorded; pop-outs are excluded. Games take priority."
+            ? "Discord and pop-outs use the same multi-window layout as normal capture. Games take priority."
             : "All visible Discord windows, including popped-out streams and cameras, share one recording. Games take priority.";
         DiscordMirrorCheck.IsEnabled = s.DiscordCaptureEnabled && s.RecordingEnabled;
         bool manual = s.DiscordCaptureMode == DiscordCaptureMode.Manual;
@@ -110,7 +110,7 @@ public partial class SettingsView
                     .First(item => Equals(item.Tag?.ToString(), previousMode.ToString()));
             }
             finally { _discordLoading = false; }
-            ModalDialog.Show(Window.GetWindow(this), "Could not save Discord recording settings.", "Companions");
+            ModalDialog.Show(Window.GetWindow(this), "Could not save Discord recording settings.", "Discord");
             return;
         }
         await Recorder.Instance.ApplySettingsAsync();

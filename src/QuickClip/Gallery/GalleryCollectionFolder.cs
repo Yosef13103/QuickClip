@@ -12,8 +12,16 @@ internal sealed record GalleryFolderKey(string? GameId, string? LegacyName, bool
     internal bool Matches(ClipDetails details) => IsAll || this == For(details);
 }
 
-internal sealed record GalleryFolderSelection(GalleryFolderKey Game, bool IsChild = false, Guid? CollectionId = null)
+internal sealed record GalleryFolderSelection(GalleryFolderKey Game, bool IsChild = false, Guid? CollectionId = null,
+    string? PhysicalDirectory = null)
 {
     internal bool Matches(ClipDetails details) => Game.Matches(details) &&
         (!IsChild || details.Collection?.Id == CollectionId);
+
+    // Full-path child selection deliberately remains independent of virtual collection IDs.
+    internal bool Matches(ClipDetails details, string mediaPath, GalleryFolderKey presentedGame) =>
+        Game.IsAll || (Game == presentedGame &&
+            (PhysicalDirectory is { } directory
+                ? LibraryFiles.Within(mediaPath, directory)
+                : !IsChild || details.Collection?.Id == CollectionId));
 }

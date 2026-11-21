@@ -1,22 +1,26 @@
-# Experimental Discord main-window mirror (Windows 10)
+# Experimental Windows 10 Discord cloaked multi-window acquisition
 
-**Status:** local dev candidate; not released, integrated, or approved for gaming. Explicit opt-in via Settings → Discord → Experimental borderless Discord mirror. Default false; Windows 11 and standard Discord WGC unchanged.
+**Status:** local feature-branch dev candidate (not merged or released). Owner approval of integrated multi-pop-out recording remains pending. Experimental toggle defaults off and is Windows 10-specific; direct WGC and Windows 11 remain unchanged.
 
-## Architecture
-- `DiscordGroupPolicy` still owns explicit capture eligibility, app identity and game priority. `DiscordMainWindow` selects a verified main-HWND candidate by title and area, pins the existing identity, and doesn't promote an unlabeled pop-out.
-- Native `DiscordDwmHost` is created on the existing companion video thread. It creates an owned 1×1 hidden host, verifies `DWMWA_CLOAK` **before** first `ShowWindow`, resizes to the recording canvas while cloaked, and registers **one authorized** Discord HWND with `DwmRegisterThumbnail`.
-- `DwmQueryThumbnailSourceSize` + `DwmUpdateThumbnailProperties` preserve proportions after window resizes. Rendering is at most 1:1 in the current canvas (no artificial upscaling), with letterboxing or uniform downscaling as needed. If the application cloak disappears, source identity changes, or DWM fails, capture stops rather than exposing an on-screen proxy or switching to another source.
-- Existing `GroupCapture` acquires the **cloaked host** via WGC and reuses the existing GPU encoder, replay ring, audio-track plan and save/export paths. Experimental backend flag 5 is permitted only with exactly one authorized companion target. No generic capture-hook replacement, external injection, monitor fallback, or process duplication.
+## Existing behavior retained
+- Reuse the existing Discord process/window verification, `ActivityProbe`, `DiscordGroupPolicy`, modes, game priority, dynamic pop-out add/remove/reorder, ordinary `GroupCapture` 70/30 GPU compositor, encoder/replay ring, audio, playback and export.
+- Experimental acquisition difference: `GroupCapture::Source` creates a `DiscordDwmHost` for **each** authorized HWND (1–4), already verified by the same policy. The host starts hidden at 1×1, gets `DWMWA_CLOAK` before being shown, and mirrors only that HWND with a DWM thumbnail. WGC captures each cloaked host, then **the existing compositor** outputs one video stream. This does not run another Discord process or encoder.
+- When source DWM dimensions change, the host resizes to those actual source dimensions, and `GroupCapture` recreates the source WGC pool as necessary. The unchanged compositor preserves aspect ratio within fixed session output dimensions. The owner can expect letterboxing or proportional downscaling rather than stretching. No oversized research canvas.
+- Source identity is pinned to the authorized HWND/thread/PID/start time. Host cloak loss, invalid identity or unrecoverable DWM source errors stop capture safely rather than permit arbitrary desktop or game fallback. Minimized windows skip refresh without authorizing replacement.
+- The capture video thread now pumps Win32 messages for its owned cloaked HWNDs, which prevents Windows reporting a healthy long-lived capture host as Not Responding in the repeated-session benchmark.
+- Factory caches are cleared after the video worker releases its WGC objects and before COM uninitialization, preventing a reproduced subsequent-session access violation caused by a cached WinRT activation factory pointing into an unloaded DLL. Implemented in the existing C++17 `GroupCapture.cpp` WinRT compilation unit, called by both video worker cleanup paths.
 
-## Important limits
-- Canvas/encoder dimensions are set when recording begins. A resize can alter framing and detail within the fixed stream but does not dynamically change MP4 dimensions or automatically restart the replay.
-- Main-window title matching is a guarded heuristic, not a guaranteed Discord API. Unrecognized titles wait rather than capture another window. Validate locales, window-size edge cases and the transition from multiple pop-outs.
-- On Windows 10 the OS border permission API is unavailable. App-cloaking the host **appeared borderless on the owner's tested system**, but do not claim Windows universally disables indicators.
-- No pop-outs in this mode; no multi-source composition. Group WGC remains the default path for normal Discord mode.
-- GPU contention while gaming remains **unmeasured for the integrated build**. Earlier separate `PrintWindow` research coincided with NVIDIA driver hangs in Marvel Rivals; don't run game-concurrent compatibility tests without separate supervised approval.
+## Evidence on Jambo (Windows 10, RTX 3070)
+- Strict native and managed build **passed**, 0 errors/0 warnings. Focused tests passed, full headless suite **980 passed, 0 failed, 24 skipped (1004 total)** on Nov 21, 2026.
+- Unsupervised capture-only ABBA CPU comparison (one existing visible main Discord source, 1920×1080, H264 NVENC P2, 60fps, no audio, four matched ~10s runs):
+  - Regular WGC: total CPU 0.792%, 0.781%.
+  - Experimental cloaked: total CPU 0.715%, 0.663%, one cloaked host and **zero detected hung hosts** per run.
+  - All four sessions completed 60fps, no recorder-reported drops or access violations. No saved private media. The small CPU difference is not evidence experimental capture is inherently faster; GPU time/load and real-game frame times remain unmeasured.
+  - Process private bytes rose across both modes in the same process. This may reflect caching or a lifecycle defect, and is not presently attributable to cloaked capture. Investigate separately.
+- Full crash analysis, benchmark logs and follow-on work: `7. Evidence/discord-multi-cloaked-benchmark-2026-11-21.md` and `6. Research/Capture/discord-dwm-probe/`.
+- Original separate research prototype was visually accepted by the owner for no persistent host/yellow outline on their system. This **does not establish full integrated multi-window visual acceptance** or guarantee system capture indicators are absent on other Windows installations.
 
-## Verification and integration gate
-- Native and .NET strict Personal build passed on isolated `feat/discord-companion` checkout.
-- Focused selection and existing Discord policy tests passed; entire headless suite 984 passed, 24 skipped, 0 failed (as of 2026-11-21).
-- **Unverified:** integrated app live capture, main-window resizing and quality, source-title handling after Discord updates, minimization, moving across monitors, sleep/reconnect, Alt+Tab visibility, WGC system indicator on other hardware, game FPS/frametimes, and audio/video sync with real endpoints.
-- Owner preview launcher on Jambo: `Desktop\QuickClip Discord Capture Tests\7 - Discord Mirror Dev Preview.cmd`. Uses development profile, not production. Don't merge to `integration/development`, publish, or install into production until hardware acceptance and separate approval.
+## Pending acceptance and boundaries
+- Owner-run local isolated dev launcher: `Desktop/QuickClip Discord Capture Tests/7 - Discord Mirror Dev Preview.cmd`. Compare normal versus experimental under equivalent settings. Check dynamic pop-outs, resize across monitors, alt-tab/taskbar, status responsiveness, saved clips and audio, source freshness and window/host teardown.
+- Start game-concurrent GPU/FPS/1% low and VRAM tests only after window behavior is accepted. Earlier *separate PrintWindow* research coincided with NVIDIA driver hangs in Marvel Rivals; don't generalize that risk to this method or dismiss it.
+- Do not push/merge into `integration/development`, release or install into production until the owner accepts integrated capture and a separate review confirms code/lifecycle quality. No undocumented WGC indicator bypass, Discord injection or game capture changes.

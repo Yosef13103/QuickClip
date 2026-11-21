@@ -56,6 +56,8 @@
 
         <controls:VideoHost x:Name="Video" Grid.Row="1" />
 
+        <!-- Match the playback row's rounded-corner backing to the bar in every theme. -->
+        <Border Grid.Row="2" Background="{DynamicResource PanelBrush}" IsHitTestVisible="False" />
         <!-- Playback controls (hide themselves in full screen while playing) -->
         <Border x:Name="ControlBar" Grid.Row="2" CornerRadius="10" Background="{DynamicResource PanelBrush}"
                 BorderBrush="{DynamicResource DividerBrush}" BorderThickness="1" Padding="10" MouseMove="ControlBar_MouseMove">

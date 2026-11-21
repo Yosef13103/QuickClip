@@ -125,23 +125,112 @@
     <Grid>
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
         </Grid.RowDefinitions>
-        <DockPanel Margin="20,12,26,0">
-            <TextBlock DockPanel.Dock="Left" Text="Search" VerticalAlignment="Center" Margin="0,0,10,0" />
-            <TextBox x:Name="Search" AutomationProperties.Name="Search catalog by name or executable"
+        <StackPanel Grid.Row="0" Margin="20,12,26,12">
+            <TextBlock Text="Apps" FontSize="{DynamicResource QuickClipText24}"
+                       FontWeight="SemiBold" Margin="0,0,0,4" />
+            <TextBlock Text="Apps capture moments based on your settings. When you're playing a game, QuickClip records the game instead."
+                       Style="{StaticResource Hint}" TextWrapping="Wrap" Margin="0,0,0,12" />
+            <ItemsControl x:Name="Applications" AutomationProperties.Name="Recording applications">
+                <ItemsControl.ItemsPanel>
+                    <ItemsPanelTemplate><WrapPanel /></ItemsPanelTemplate>
+                </ItemsControl.ItemsPanel>
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate>
+                        <Button Click="ApplicationSettings_Click" Tag="{Binding Id}" ToolTip="{Binding Tooltip}"
+                                AutomationProperties.Name="{Binding ActionLabel}"
+                                Width="370" Height="80" Padding="0" Margin="0,0,10,0" Cursor="Hand">
+                            <Button.Template>
+                                <ControlTemplate TargetType="Button">
+                                    <Border x:Name="Card" Background="{DynamicResource PanelBrush}"
+                                            BorderBrush="{DynamicResource DividerBrush}" BorderThickness="1"
+                                            CornerRadius="10" Padding="12,9">
+                                        <ContentPresenter />
+                                    </Border>
+                                    <ControlTemplate.Triggers>
+                                        <Trigger Property="IsMouseOver" Value="True">
+                                            <Setter TargetName="Card" Property="Background" Value="{DynamicResource ElevatedSurfaceBrush}" />
+                                            <Setter TargetName="Card" Property="BorderBrush" Value="{DynamicResource AccentBrush}" />
+                                        </Trigger>
+                                        <Trigger Property="IsKeyboardFocused" Value="True">
+                                            <Setter TargetName="Card" Property="BorderBrush" Value="{DynamicResource AccentBrush}" />
+                                            <Setter TargetName="Card" Property="BorderThickness" Value="2" />
+                                        </Trigger>
+                                    </ControlTemplate.Triggers>
+                                </ControlTemplate>
+                            </Button.Template>
+                            <Grid Width="342" Height="58">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="48" />
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <Border Grid.Column="0" Width="44" Height="44" CornerRadius="9"
+                                        Background="{DynamicResource ElevatedSurfaceBrush}"
+                                        HorizontalAlignment="Left" VerticalAlignment="Center">
+                                    <Path Data="{Binding Icon}" Fill="{Binding IconBrush}"
+                                          Width="32" Height="28" Stretch="Uniform"
+                                          HorizontalAlignment="Center" VerticalAlignment="Center" />
+                                </Border>
+                                <StackPanel Grid.Column="1" VerticalAlignment="Center" Margin="8,0,10,0">
+                                    <TextBlock Text="{Binding Name}" FontWeight="SemiBold"
+                                               FontSize="{DynamicResource QuickClipText15}" />
+                                    <TextBlock Text="{Binding Description}" TextWrapping="Wrap"
+                                               FontSize="{DynamicResource QuickClipText11}"
+                                               Foreground="{DynamicResource SubtleTextBrush}" Margin="0,3,0,0" />
+                                </StackPanel>
+                                <StackPanel Grid.Column="2" VerticalAlignment="Center"
+                                            HorizontalAlignment="Right">
+                                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                                        <Ellipse Width="6" Height="6" Margin="0,0,5,0" VerticalAlignment="Center">
+                                            <Ellipse.Style>
+                                                <Style TargetType="Ellipse">
+                                                    <Setter Property="Fill" Value="{DynamicResource SubtleTextBrush}" />
+                                                    <Style.Triggers>
+                                                        <DataTrigger Binding="{Binding Enabled}" Value="True">
+                                                            <Setter Property="Fill" Value="{DynamicResource AccentBrush}" />
+                                                        </DataTrigger>
+                                                    </Style.Triggers>
+                                                </Style>
+                                            </Ellipse.Style>
+                                        </Ellipse>
+                                        <TextBlock Text="{Binding Status}"
+                                                   FontSize="{DynamicResource QuickClipText11}"
+                                                   Foreground="{DynamicResource SecondaryTextBrush}" />
+                                    </StackPanel>
+                                    <TextBlock FontFamily="{StaticResource IconFont}" Text="&#xE713;"
+                                               FontSize="14" Foreground="{DynamicResource SecondaryTextBrush}"
+                                               HorizontalAlignment="Right" Margin="0,6,0,0"
+                                               ToolTip="Open recording settings" />
+                                </StackPanel>
+                            </Grid>
+                        </Button>
+                    </DataTemplate>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
+        </StackPanel>
+        <TextBlock Grid.Row="1" Text="Games" FontSize="{DynamicResource QuickClipText24}"
+                   FontWeight="SemiBold" Margin="20,4,26,7" />
+        <!-- Search is deliberately outside the virtualized ListBox. Changing its
+             collection view must never recycle the focused search TextBox. -->
+        <DockPanel Grid.Row="2" Margin="20,0,26,8" KeyboardNavigation.TabNavigation="Continue">
+            <TextBlock DockPanel.Dock="Left" Text="Search games" VerticalAlignment="Center"
+                       Margin="0,0,10,0" />
+            <TextBox x:Name="Search" AutomationProperties.Name="Search games by name or executable"
                      TextChanged="Search_Changed" />
         </DockPanel>
-    <ListBox Grid.Row="1" x:Name="Games" Margin="0" Padding="20,16,14,12" HorizontalContentAlignment="Stretch"
-             Background="Transparent" BorderThickness="0" AutomationProperties.Name="Games catalog"
-             ScrollViewer.CanContentScroll="True" ScrollViewer.HorizontalScrollBarVisibility="Disabled"
-             VirtualizingPanel.IsVirtualizing="True" VirtualizingPanel.VirtualizationMode="Recycling"
-             VirtualizingPanel.ScrollUnit="Pixel">
+        <ListBox x:Name="Games" Grid.Row="3" Margin="0" Padding="20,10,14,12" HorizontalContentAlignment="Stretch"
+                 Background="Transparent" BorderThickness="0" AutomationProperties.Name="Games catalog"
+                 ScrollViewer.CanContentScroll="True" ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                 VirtualizingPanel.IsVirtualizing="True" VirtualizingPanel.VirtualizationMode="Recycling"
+                 VirtualizingPanel.ScrollUnit="Pixel">
         <ListBox.ItemsSource>
             <CompositeCollection>
                 <ListBoxItem Focusable="False" HorizontalContentAlignment="Stretch" Padding="0" Background="Transparent">
                   <StackPanel Margin="0,6,12,0">
-        <TextBlock Text="Games" FontSize="{DynamicResource QuickClipText24}" FontWeight="SemiBold" Margin="0,0,0,16" />
         <Border Background="{DynamicResource PanelBrush}" CornerRadius="8" Padding="20,8,20,18" Margin="0,0,14,14">
         <StackPanel>
             <CheckBox Style="{StaticResource SwitchCheckBox}" x:Name="AutoScan" Content="Automatically discover installed games" Click="AutoScan_Click" Margin="0,8,0,0" />

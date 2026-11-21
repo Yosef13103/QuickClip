@@ -19,7 +19,8 @@
                         MouseLeftButtonUp="Card_MouseLeftButtonUp" Loaded="Card_Loaded" DataContextChanged="Card_DataContextChanged"
                         PreviewMouseLeftButtonDown="Card_PreviewMouseLeftButtonDown" MouseMove="Card_MouseMove">
                     <Border.ContextMenu>
-                        <ContextMenu Opened="ClipMenu_Opened" DataContext="{Binding PlacementTarget.DataContext, RelativeSource={RelativeSource Self}}">
+                        <ContextMenu Opened="ClipMenu_Opened" FontFamily="Segoe UI"
+                                     DataContext="{Binding PlacementTarget.DataContext, RelativeSource={RelativeSource Self}}">
                             <MenuItem Header="Open in Editor" Click="OpenClip_Click" FontWeight="SemiBold" />
                             <MenuItem Header="Watch in Player" Click="PlayClip_Click" />
                             <MenuItem Header="Open with Windows default" Click="OpenWith_Click" Tag="external-player" />
@@ -195,10 +196,29 @@
 
     <Grid Background="{DynamicResource BackgroundBrush}">
         <Grid.ColumnDefinitions>
-            <ColumnDefinition Width="230" />
-            <ColumnDefinition Width="*" />
+            <ColumnDefinition x:Name="GallerySidebarColumn" Width="230" MinWidth="190" MaxWidth="520" />
+            <ColumnDefinition Width="6" />
+            <ColumnDefinition Width="*" MinWidth="320" />
         </Grid.ColumnDefinitions>
-
+        <GridSplitter Grid.Column="1" ResizeDirection="Columns" ResizeBehavior="PreviousAndNext"
+                      HorizontalAlignment="Stretch" VerticalAlignment="Stretch"
+                      ShowsPreview="True" Cursor="SizeWE" Focusable="True"
+                      AutomationProperties.Name="Resize Gallery folders sidebar"
+                      ToolTip="Drag to resize folders (190–520 px)"
+                      DragCompleted="GallerySidebarSplitter_DragCompleted">
+            <GridSplitter.Style>
+                <Style TargetType="GridSplitter">
+                    <Setter Property="Background" Value="Transparent" />
+                    <Setter Property="BorderBrush" Value="{DynamicResource DividerBrush}" />
+                    <Setter Property="BorderThickness" Value="1,0,0,0" />
+                    <Style.Triggers>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter Property="Background" Value="{DynamicResource SelectionBrush}" />
+                        </Trigger>
+                    </Style.Triggers>
+                </Style>
+            </GridSplitter.Style>
+        </GridSplitter>
         <!-- Folders ("All clips" first, then a folder per game), then projects -->
         <Border x:Name="GallerySidebar" Background="{DynamicResource InternalSidebarBrush}">
             <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
@@ -215,7 +235,8 @@
                                     <TextBlock DockPanel.Dock="Right" Text="{Binding Count}" Foreground="{DynamicResource SubtleText}" Margin="8,0,0,0" VerticalAlignment="Center" />
                                     <Button DockPanel.Dock="Right" Style="{StaticResource FolderDisclosureButton}" Visibility="{Binding ExpandVisibility}" Content="{Binding ExpandGlyph}"
                                             Click="ExpandFolder_Click" AutomationProperties.Name="Show or hide folders" ToolTip="Show or hide folders" Margin="3,0,0,0" />
-                                    <TextBlock Text="{Binding Name}" Margin="{Binding Indent}" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" />
+                                    <TextBlock Text="{Binding Name}" Margin="{Binding Indent}" ToolTip="{Binding Hint}"
+                                               TextTrimming="CharacterEllipsis" VerticalAlignment="Center" />
                                 </DockPanel>
                             </DataTemplate>
                         </ListBox.ItemTemplate>
@@ -253,7 +274,7 @@
             </ScrollViewer>
         </Border>
 
-        <Grid Grid.Column="1">
+        <Grid Grid.Column="2">
             <!-- Clips -->
             <DockPanel x:Name="ClipsPane" Margin="24,18,10,0">
                 <DockPanel DockPanel.Dock="Top" Margin="0,0,14,12">

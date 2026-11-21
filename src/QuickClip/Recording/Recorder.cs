@@ -2,7 +2,6 @@ using System.Collections.Immutable;
 using System.Diagnostics;
 using Microsoft.Win32;
 using QuickClip.Discovery;
-using QuickClip.Recording.Companion;
 using QuickClip.Gallery;
 using QuickClip.Media;
 using QuickClip.Shell;
@@ -98,6 +97,18 @@ internal sealed partial class Recorder
             RecordingMode.ManualDesktop => $"Desktop recording · {DisplayLabel(display)}",
             _ => fallback,
         };
+
+    // Discord captures independent HWNDs, but the optional HUD needs a real
+    // monitor device. Resolve only from already-authorized source windows;
+    // never invent a display or treat "Discord" as a Windows monitor.
+    internal static string? ResolveFeedbackDisplay(IReadOnlyList<WindowOwner>? companion,
+        string? monitorDevice, Func<WindowOwner, string?> forWindow)
+    {
+        if (companion == null) return monitorDevice;
+        foreach (var owner in companion)
+            if (forWindow(owner) is { Length: > 0 } device) return device;
+        return null;
+    }
 
     private static string DisplayLabel(string? display)
     {
@@ -445,15 +456,10 @@ internal sealed partial class Recorder
 
             // The aspect ratio is for the monitor: a game recorded by its window is taken as it is.
             string aspect = videoOptions.Aspect;
-            bool cloakedMirror = companion is { Count: 1 } && s.DiscordCloakedMirror &&
+            bool cloakedMirror = companion is { Count: >= 1 and <= 4 } && s.DiscordCloakedMirror &&
                 Environment.OSVersion.Version.Build < 20348;
             int sourceWidth = companion == null ? monitor!.Width : 1920;
             int sourceHeight = companion == null ? monitor!.Height : 1080;
-            if (cloakedMirror && !DiscordMainWindow.TrySize(companion![0], out sourceWidth, out sourceHeight))
-            {
-                Error = "Main Discord window dimensions are unavailable.";
-                return;
-            }
             if (companion != null) aspect = "";
             var area = RecordingPresets.Area(sourceWidth, sourceHeight, aspect);
             bool cropped = aspect != "" && (area.Width != sourceWidth || area.Height != sourceHeight);
@@ -497,12 +503,16 @@ internal sealed partial class Recorder
                 CaptureEngine.MonitorBackend.MonitorOnlyGraphics => new(monitor!.DeviceName, ReplayCaptureBackend.WindowsGraphicsCapture),
                 _ => null,
             } : null;
-            _captureDevice = monitor?.DeviceName ?? "Discord";
+            // Discord captures windows rather than monitors, but the optional
+            // recording HUD is placed on a physical display. Never pass "Discord"
+            // as its device name: ClipNotificationOverlay requires a real GDI
+            // display such as \\.\DISPLAY2.
+            _captureDevice = ResolveFeedbackDisplay(companion, monitor?.DeviceName, Monitors.ForWindow);
             _captureDisplayIdentity = displayIdentity;
             _captureMicrophones = QuickClip.Shell.MicrophoneIndicatorSignal.SelectedMicrophones(s);
             _actualMonitorName = companion != null ? "Discord" :
                 string.IsNullOrWhiteSpace(monitor!.FriendlyName) ? monitor.DeviceName : monitor.FriendlyName;
-            _monitorTarget = cloakedMirror ? "Discord - main window (experimental DWM mirror)" :
+            _monitorTarget = cloakedMirror ? "Discord - authorized windows (experimental DWM mirror)" :
                 companion != null ? "Discord - authorized windows" : _desktopSource?.Backend switch
             {
                 ReplayCaptureBackend.DesktopDuplication => $"Desktop · {monitor!.Label} · Desktop Duplication",

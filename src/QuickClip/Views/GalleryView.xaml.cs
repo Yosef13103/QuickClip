@@ -25,14 +25,16 @@ public partial class GalleryView : UserControl
     private readonly Dictionary<ClipItem, LinkedListNode<ClipItem>> _thumbnailNodes = [];
 
     private sealed record Folder(GalleryFolderSelection Selection, string Name, int Count, DateTime Latest,
-        bool Expandable = false, bool Expanded = false)
+        bool Expandable = false, bool Expanded = false, int Depth = 0,
+        string? Hint = null, string? DisplayPath = null)
     {
         public Visibility ExpandVisibility => Expandable ? Visibility.Visible : Visibility.Collapsed;
         public string ExpandGlyph => Expanded ? "\uE70D" : "\uE76C";
-        public Thickness Indent => new(Selection.IsChild ? 16 : 0, 0, 0, 0);
+        public Thickness Indent => new(Depth * 16, 0, 0, 0);
     }
     private GalleryFolderSelection _folderSelection = new(GalleryFolderKey.All);
     private readonly HashSet<GalleryFolderKey> _expandedGames = [];
+    private readonly Dictionary<string, GalleryFolderKey> _displayFolderKeys = new(StringComparer.OrdinalIgnoreCase);
     private LibraryCollection[] _collectionDefinitions = [];
     private LibraryTagDefinition[] _tagDefinitions = [];
 
@@ -112,6 +114,8 @@ public partial class GalleryView : UserControl
     public GalleryView()
     {
         InitializeComponent();
+        GallerySidebarColumn.Width = new GridLength(Math.Clamp(
+            AppSettings.Current.GallerySidebarWidth, 190, 520));
         GalleryDetailsEditor.KnownTags = () => KnownTags;
         GalleryDetailsEditor.AvailableTagsForGame = AvailableTagsForGame;
         GalleryDetailsEditor.AutoSaveEnabled = AppProfile.IsPersonal;
@@ -173,6 +177,19 @@ public partial class GalleryView : UserControl
                 !_loadedExclusions.SequenceEqual(settings.LibraryExclusions ?? [])) _ = ReloadAsync();
         };
         Loaded += (_, _) => _ = ReloadAsync();
+    }
+
+    private void GallerySidebarSplitter_DragCompleted(object sender, DragCompletedEventArgs e)
+    {
+        var settings = AppSettings.Current;
+        int width = Math.Clamp((int)Math.Round(GallerySidebarColumn.ActualWidth), 190, 520);
+        if (settings.GallerySidebarWidth == width) return;
+        int previous = settings.GallerySidebarWidth;
+        settings.GallerySidebarWidth = width;
+        if (settings.TrySave()) return;
+        settings.GallerySidebarWidth = previous;
+        GallerySidebarColumn.Width = new GridLength(Math.Clamp(previous, 190, 520));
+        ShowStatus("Could not save the Gallery sidebar width.");
     }
 
     /// <summary>Stops watching the folder, closes the project preview and drops the thumbnails (the window is closing).</summary>
@@ -566,24 +583,85 @@ public partial class GalleryView : UserControl
         var visible = _clips.ToArray();
         var folders = new List<Folder> { new(new(GalleryFolderKey.All), ClipLibrary.AllClips, visible.Length,
             visible.FirstOrDefault()?.Created ?? DateTime.MinValue) };
-        var associatedNames = visible.Where(c => c.Details.GameId != null).Select(c => c.Folder).ToHashSet(StringComparer.OrdinalIgnoreCase);
-        var scopedDefinitions = _collectionDefinitions.Where(d => d.GameId != null).ToLookup(d => d.GameId);
-        foreach (var group in SortFolders(visible.GroupBy(c => GalleryFolderKey.For(c.Details)), g => g.First().Folder, g => g.Max(c => c.Created)))
+        // Filesystem hierarchy is presentation-only: do not rewrite legacy game metadata
+        // or assign a catalog ID merely because folder names look alike.
+        var mapped = visible.Select(clip =>
         {
-            var clips = group.ToArray();
+            var disk = GalleryDiskFolders.Locate(clip.Path, _availableSources);
+            return (Clip: clip, Disk: disk, Name: GalleryDiskFolders.PresentedGame(clip.Details, disk));
+        }).ToArray();
+        var unambiguousIds = mapped.Where(item => item.Clip.Details.GameId != null)
+            .GroupBy(item => item.Name, StringComparer.OrdinalIgnoreCase)
+            .Select(group => (Name: group.Key, Ids: group.Select(item => item.Clip.Details.GameId!)
+                .Distinct(StringComparer.Ordinal).Take(2).ToArray()))
+            .Where(group => group.Ids.Length == 1)
+            .ToDictionary(group => group.Name, group => group.Ids[0], StringComparer.OrdinalIgnoreCase);
+        _displayFolderKeys.Clear();
+        foreach (var item in mapped)
+            _displayFolderKeys[item.Clip.Path] = GalleryDiskFolders.PresentedKey(item.Clip.Details,
+                item.Name, unambiguousIds.GetValueOrDefault(item.Name));
+
+        var associatedNames = mapped.Where(item => item.Clip.Details.GameId != null)
+            .Select(item => item.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var scopedDefinitions = _collectionDefinitions.Where(d => d.GameId != null).ToLookup(d => d.GameId);
+        foreach (var group in SortFolders(mapped.GroupBy(item => _displayFolderKeys[item.Clip.Path]),
+                     g => g.First().Name, g => g.Max(item => item.Clip.Created)))
+        {
+            var entries = group.ToArray();
+            var clips = entries.Select(item => item.Clip).ToArray();
             var key = group.Key;
-            string name = clips[0].Folder;
+            string name = entries[0].Name;
             if (key.GameId == null && associatedNames.Contains(name)) name += " (unassociated)";
             var definitions = scopedDefinitions[key.GameId]
                 .Concat(clips.Select(c => c.Details.Collection).OfType<LibraryCollection>())
                 .DistinctBy(d => d.Id).OrderBy(d => d.Name, StringComparer.OrdinalIgnoreCase).ToArray();
-            bool expanded = definitions.Length > 0 && _expandedGames.Contains(key);
-            folders.Add(new(new(key), name, clips.Length, clips.Max(c => c.Created), definitions.Length > 0, expanded));
+
+            // Use full physical paths as child identities. Same-named children under
+            // different games or Gallery roots never share an item or selection.
+            var physical = new Dictionary<string,
+                (string? Parent, string Name, int Depth, int Count, DateTime Latest, string DisplayPath)>(
+                StringComparer.OrdinalIgnoreCase);
+            foreach (var item in entries)
+            {
+                if (item.Disk is not { } disk) continue;
+                foreach (var child in disk.ChildAncestors())
+                {
+                    string relative = Path.GetRelativePath(Path.Combine(disk.Root, disk.Game), child.Path)
+                        .Replace(Path.DirectorySeparatorChar, '/');
+                    string display = entries[0].Name + " / " + relative;
+                    if (physical.TryGetValue(child.Path, out var prior))
+                        physical[child.Path] = (child.Parent, child.Name, child.Depth,
+                            prior.Count + 1, item.Clip.Created > prior.Latest ? item.Clip.Created : prior.Latest, display);
+                    else
+                        physical.Add(child.Path, (child.Parent, child.Name, child.Depth, 1, item.Clip.Created, display));
+                }
+            }
+            bool hasChildren = definitions.Length > 0 || physical.Count > 0;
+            bool expanded = hasChildren && _expandedGames.Contains(key);
+            folders.Add(new(new(key), name, clips.Length, clips.Max(c => c.Created), hasChildren, expanded));
             if (!expanded) continue;
-            folders.Add(new(new(key, true), "Uncategorized", clips.Count(c => c.Details.Collection == null), DateTime.MinValue));
-            foreach (var definition in SortFolders(definitions, d => d.Name, d => clips.Where(c => c.Details.Collection?.Id == d.Id).Select(c => c.Created).DefaultIfEmpty(DateTime.MinValue).Max()))
+
+            void AddDiskChildren(string? parent)
+            {
+                var direct = physical.Where(item => StringComparer.OrdinalIgnoreCase.Equals(item.Value.Parent, parent));
+                foreach (var child in SortFolders(direct, item => item.Value.Name, item => item.Value.Latest))
+                {
+                    var entry = child.Value;
+                    folders.Add(new(new(key, true, null, child.Key), entry.Name, entry.Count,
+                        entry.Latest, Depth: entry.Depth, Hint: child.Key, DisplayPath: entry.DisplayPath));
+                    AddDiskChildren(child.Key);
+                }
+            }
+            AddDiskChildren(null);
+
+            if (definitions.Length == 0) continue;
+            folders.Add(new(new(key, true), "Uncategorized", clips.Count(c => c.Details.Collection == null),
+                DateTime.MinValue, Depth: 1));
+            foreach (var definition in SortFolders(definitions, d => d.Name,
+                         d => clips.Where(c => c.Details.Collection?.Id == d.Id)
+                            .Select(c => c.Created).DefaultIfEmpty(DateTime.MinValue).Max()))
                 folders.Add(new(new(key, true, definition.Id), definition.Name,
-                    clips.Count(c => c.Details.Collection?.Id == definition.Id), DateTime.MinValue));
+                    clips.Count(c => c.Details.Collection?.Id == definition.Id), DateTime.MinValue, Depth: 1));
         }
         var chosen = folders.FirstOrDefault(f => f.Selection == _folderSelection)
             ?? folders.FirstOrDefault(f => f.Selection == new GalleryFolderSelection(_folderSelection.Game))
@@ -714,11 +792,17 @@ public partial class GalleryView : UserControl
         else ShowFolder(preserveScroll: true);
     }
 
+    private GalleryFolderKey FolderKeyFor(ClipItem clip) =>
+        _displayFolderKeys.TryGetValue(clip.Path, out var key) ? key : GalleryFolderKey.For(clip.Details);
+
+    private bool MatchesFolder(ClipItem clip) =>
+        _folderSelection.Matches(clip.Details, clip.Path, FolderKeyFor(clip));
+
     private void ShowFolder(bool preserveScroll = false)
     {
         if (_searchCancellation is { IsCancellationRequested: false })
             OrganizationFilter_Changed(this, new RoutedEventArgs());
-        ApplyRows(_filter.Apply(_clips.Where(c => _folderSelection.Matches(c.Details)), ClipLibrary.AllClips), preserveScroll);
+        ApplyRows(_filter.Apply(_clips.Where(MatchesFolder), ClipLibrary.AllClips), preserveScroll);
     }
 
     private IReadOnlyList<ClipItem> _filteredClips = [];
@@ -728,7 +812,8 @@ public partial class GalleryView : UserControl
     private void ApplyRows(IReadOnlyList<ClipItem> clips, bool preserveScroll)
     {
         FolderTitle.Text = _folderSelection.IsChild && FolderList.ItemsSource is List<Folder> folders
-            ? (folders.FirstOrDefault(f => f.Selection == new GalleryFolderSelection(_folderSelection.Game))?.Name ?? "") + " / " + _folder
+            ? folders.FirstOrDefault(f => f.Selection == _folderSelection)?.DisplayPath ??
+              (folders.FirstOrDefault(f => f.Selection == new GalleryFolderSelection(_folderSelection.Game))?.Name ?? "") + " / " + _folder
             : _folder;
         FolderInfo.Text = clips.Count == 0 ? "" : $"{clips.Count} clip{(clips.Count == 1 ? "" : "s")}  ·  {Fmt.Size(clips.Sum(c => c.Size))}";
         var zone = TimeZoneInfo.Local;
