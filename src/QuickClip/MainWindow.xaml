@@ -49,6 +49,41 @@
                     </Setter.Value>
                 </Setter>
             </Style>
+            <!-- An available update is a distinct action, not another plain status-bar text button. -->
+            <Style x:Key="UpdateAvailableAction" TargetType="Button" BasedOn="{StaticResource TextButton}">
+                <Setter Property="Background" Value="{DynamicResource ElevatedSurfaceBrush}" />
+                <Setter Property="BorderBrush" Value="{DynamicResource AccentBrush}" />
+                <Setter Property="Foreground" Value="{DynamicResource PrimaryTextBrush}" />
+                <Setter Property="FontWeight" Value="SemiBold" />
+                <Setter Property="MinHeight" Value="{DynamicResource QuickClipVisual36}" />
+                <Setter Property="Padding" Value="9,5" />
+                <Setter Property="Template">
+                    <Setter.Value>
+                        <ControlTemplate TargetType="Button">
+                            <Border x:Name="Surface" Background="{TemplateBinding Background}"
+                                    BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="1"
+                                    CornerRadius="9" Padding="{TemplateBinding Padding}">
+                                <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
+                            </Border>
+                            <ControlTemplate.Triggers>
+                                <Trigger Property="IsMouseOver" Value="True">
+                                    <Setter TargetName="Surface" Property="Background" Value="{DynamicResource SelectionBrush}" />
+                                    <Setter TargetName="Surface" Property="BorderBrush" Value="{DynamicResource AccentHoverBrush}" />
+                                </Trigger>
+                                <Trigger Property="IsKeyboardFocused" Value="True">
+                                    <Setter TargetName="Surface" Property="BorderBrush" Value="{DynamicResource PrimaryTextBrush}" />
+                                </Trigger>
+                                <Trigger Property="IsPressed" Value="True">
+                                    <Setter TargetName="Surface" Property="Opacity" Value="0.75" />
+                                </Trigger>
+                                <Trigger Property="IsEnabled" Value="False">
+                                    <Setter TargetName="Surface" Property="Opacity" Value="0.5" />
+                                </Trigger>
+                            </ControlTemplate.Triggers>
+                        </ControlTemplate>
+                    </Setter.Value>
+                </Setter>
+            </Style>
         </ResourceDictionary>
     </Window.Resources>
 
@@ -129,12 +164,17 @@
                         <TextBlock x:Name="SaveClipText" Text="Save clip" />
                     </StackPanel>
                 </Button>
-                <Button x:Name="UpdateButton" DockPanel.Dock="Right" Style="{StaticResource TextButton}" Margin="0,0,8,0" Padding="10,4"
-                        Visibility="Collapsed" Click="UpdateButton_Click" ToolTip="A new version of QuickClip is available">
-                    <StackPanel Orientation="Horizontal">
-                        <TextBlock FontFamily="{StaticResource IconFont}" Text="&#xE896;" VerticalAlignment="Center" Margin="0,0,7,0"
-                                   Foreground="{DynamicResource AccentFillColorDefaultBrush}" />
-                        <TextBlock x:Name="UpdateButtonText" Text="Update available" />
+                <Button x:Name="UpdateButton" DockPanel.Dock="Right" Style="{StaticResource UpdateAvailableAction}"
+                        Margin="0,0,8,0" Visibility="Collapsed" Click="UpdateButton_Click"
+                        ToolTip="Open Settings → General → Updates" AutomationProperties.Name="View available QuickClip update">
+                    <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                        <Border Width="22" Height="22" CornerRadius="6" Background="{DynamicResource AccentBrush}" Margin="0,0,8,0">
+                            <TextBlock FontFamily="{StaticResource IconFont}" Text="&#xE896;" FontSize="12"
+                                       Foreground="{DynamicResource OnAccentBrush}" VerticalAlignment="Center" HorizontalAlignment="Center" />
+                        </Border>
+                        <TextBlock x:Name="UpdateButtonText" Text="Update ready" VerticalAlignment="Center" />
+                        <TextBlock FontFamily="{StaticResource IconFont}" Text="&#xE76C;" FontSize="10"
+                                   Foreground="{DynamicResource SecondaryTextBrush}" VerticalAlignment="Center" Margin="8,0,0,0" />
                     </StackPanel>
                 </Button>
                 <Button x:Name="MediaJobsButton" DockPanel.Dock="Right" Content="Media jobs"
