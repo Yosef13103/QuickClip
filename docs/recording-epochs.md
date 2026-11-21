@@ -1,0 +1,44 @@
+# Recording epochs — experimental branch
+
+Status: **isolated research and planning; NOT enabled at runtime**. Source branch `feat/recording-epochs` created from accepted `integration/development` at `66511a358277dab97c817c9c9532ab7b0afbe7e2`. No automatic merge to Development or Production. Owner wants this architecture for both game and Discord capture, including resolution changes, same-game monitor moves, brief display loss, game crashes, replay preservation, and future overlapping replay union.
+
+## Verified starting point
+
+- `src/QuickClip.Capture/Engine.h/Engine.cpp`: `PacketRing` is an in-memory deque of FFmpeg **encoded packet references** retained on a time window (plus ~2-second pre-roll); `Stats` counts packet bytes. Currently it has **no independent byte budget or persistence**. Its video packet sequence and source IDs survive changes *within the same Engine*; the ring object belongs to the Engine/capture graph.
+- `src/QuickClip/Recording/RecordingLifecycle.cs`: changing desired activation (physical display, game identity) calls `StopGraph()`. An unauthorized/disconnected display cannot be used as an automatic fallback. `Recorder.cs:StopGraph` increments replay generation, calls `CaptureEngine.Stop()`, clears session ID/markers. The old graph's ring is gone. Cross-graph continuity is not currently supported.
+- `Recorder.StartCore` uses a single fixed encoder/canvas per graph. Discord starts at 1920x1080 before applying global recording resolution, and `GroupCapture` fits window sources into that fixed canvas. Dynamic source dimensions do not dynamically change the encoded output dimensions.
+- `ReplaySaveReceipt` provides session, first/last frame timestamps, source IDs, markers; a separate repo contract `docs/overlapping-replay-research.md` addresses exact interval union, packet proof, multitrack joins, and transactional publishing.
+
+## Choice: RAM first, disk optional
+
+Retain compressed packet rolling replay **in RAM** as the default for instant saving and zero sustained disk writes. Add an explicit byte budget alongside time retention; preserve a complete decodable GOP and fail closed on impossible constraints. At 30 Mbps, ~225 MB per minute of video before audio/pool overhead; no hard-coded assumption that Windows system disk is an SSD.
+
+Optional crash-recoverable mode later: bounded disk-backed *encoded segments* with journal, not raw frames; choose storage location based on writable capacity, user preference, disk performance and error telemetry, not blindly the OS drive. Sequential writes are important for HDDs; SSD is preferable for frequent segment IO, but not required for standard RAM mode. Use low-disk guard, quotas, startup recovery/discard policy, crash consistency, archive exclusions, privacy and lifecycle tests. MKV or fragmented MP4 may improve **saved file** recovery; neither makes a volatile RAM replay survive a crash and neither fixes mixed codec dimensions.
+
+## Capture-graph separation
+
+Keep a logical replay **timeline** independent of encoder/capture graph lifetime. Each graph contributes a bounded encoded epoch with: session/source identity validated by current capture policy; unique graph/epoch ID; capture backend/physical display; start and end timestamps on a monotonic clock; frame dimensions and encoder/stream fingerprints; source/grant revisions; frame keyframes and audio track mapping; explicit gaps/discontinuities. Packet segments belong to this timeline; do not retain raw frames in bulk.
+
+Source lifecycle rules:
+- Same verified game moves to a different *authorized* monitor: after validating source/HWND/PID and display permissions, close one epoch/open another; retain older compressed packets until rolling window expires. No unauthorized desktop fallback or reuse of the old display's grant.
+- Brief display disconnect: stop acquiring promptly; mark discontinuity; preserve already-buffered footage **only within retention and memory budgets**, resume only after current display grant is verified. Do not fabricate frames.
+- Game crash/restart: do not silently continue capturing other windows. If reopened game is verified as same game identity and authorized source, a later epoch may join the logical session under explicit bounded recovery policy; record outage gap. Never attach a different game's frames to an old game replay. No unconditional infinite history retention.
+- Discord call/window changes: continue respecting opt-in, call modes, game priority, live PID/HWND verification and multiwindow source scope.
+- Rapid resize/drag: don't restart encoder for every pixel. Debounce and adopt a new canvas/epoch only for a stable material change; transient frames are fitted into current canvas. **This means short-lived higher source dimensions cannot be promised at native resolution until captured in a matching encoded epoch.** UI must not claim otherwise.
+
+## Saved clip semantics
+
+Select an exact replay interval based on retained encoded epochs (not session's historical maximum). Output dimensions come from the largest **encoded** epoch by pixel area (deterministic tie-break), subject to GPU/encoder budget. Other epochs uniformly scale-to-fit and center-pad (never stretch); optional crop/fill is a user-explicit export preference. If all retained epochs are 1080p, save 1080p. If a 3440x1440 epoch appears in the interval, use 3440x1440 and letterbox narrower epochs. Track explicit discontinuities; decide whether to omit gap or visibly disclose gap in export.
+
+Fast packet remux only when **all** video/audio codec parameters, timebases, extradata, timestamps and decode dependencies permit it; do not infer correctness from successful muxing. Mixed-size/codec epochs require a bounded normalization pass and generally video re-encoding. Audio stem continuity, priming/padding, seeking, cancellation, low space and partial publication must be tested. For future overlapping clips, derive chronological **union** of verified session intervals, then normalize once per combined output. Preserve originals until staged output verified and journaled; never auto-delete uncertain legacy/edited/project-linked media.
+
+## Phased acceptance
+
+1. **Plan + unit tests (current initial milestone):** immutable epoch and interval model; select only retained intervals; reject mixed owners/overlaps; mark gaps; choose max encoded resolution; hard resource cap. No live capture changes.
+2. **Provenance instrumentation:** bounded native graph/epoch events and packet metadata; synthetic feeds, no new per-frame logs; validate save receipt/markers across boundary.
+3. **Ring lifetime isolation:** preserve compressed old-epoch packets across authorized graph recreation without capture mutex contention; limit bytes/time, preserve keyframes and all tracks.
+4. **Mixed-resolution normalization:** staged output with hardware-aware sizing, FFprobe, decoded video/audio continuity and 1080/ultrawide change cases. Compare FPS, 1% lows, GPU, RAM and disk IO against current Development.
+5. **Same-game monitor move/disconnect/crash recovery:** supervised real tests; zero leaks of wrong physical display or unauthorized source, truthful gap behavior. Manual desktop capture must not broaden automatically.
+6. **Overlap union + opt-in disk persistence** as separate gated work, reusing the existing overlap provenance contract.
+
+Do not alter released or Development recorder until all relevant gates pass. Preserve existing QuickClip UI/Discord behavior. No synthetic GPU stress required to prove the first phase.
