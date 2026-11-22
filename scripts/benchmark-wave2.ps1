@@ -1,6 +1,8 @@
 # PowerShell 7. See docs/wave2-performance-protocol.md.
 param(
- [Parameter(Mandatory)][ValidateSet('Prepare','Run','Report')][string]$Mode,
+ [Parameter(Mandatory)][ValidateSet('Preflight','Prepare','Run','Report')][string]$Mode,
+ [ValidateSet('Wave2','EpochsThreeWay')][string]$StudyKind='Wave2',
+ [ValidatePattern('^[0-9a-f]{40}$')][string]$Development,
  [Parameter(Mandatory)][ValidatePattern('^[\w-]{1,32}$')][string]$Study,
  [ValidatePattern('^[0-9a-f]{40}$')][string]$Candidate,
  [ValidatePattern('^S-1-5-21-(\d+-){3}\d+$')][string]$DisposableSid,
@@ -9,13 +11,47 @@ param(
  [ValidateRange(1,20)][int]$Repetitions=3,
  [ValidateRange(10,1800)][int]$Seconds=60,
  [ValidateRange(0,300)][int]$WarmupSeconds=15,
- [switch]$Nvidia
+ [switch]$Nvidia,
+ [switch]$PresentMon
 )
 $ErrorActionPreference='Stop'
 $repo=Split-Path -Parent $PSScriptRoot
 $root=Join-Path $repo ".quickclip-local/benchmarks/$Study"
 $manifest=Join-Path $root 'study.json'
 $sid=[Security.Principal.WindowsIdentity]::GetCurrent().User.Value
+$rootRepo=Split-Path -Parent (Split-Path -Parent $repo)
+$sharedSdk=Join-Path $rootRepo '4. Shared/SDK/dotnet.exe'
+if ($Mode -eq 'Preflight') {
+    if ($StudyKind -ne 'EpochsThreeWay' -or !$Candidate -or !$Development) {
+        throw 'Three-way preflight requires -StudyKind EpochsThreeWay, -Development and -Candidate exact 40-character SHAs.'
+    }
+    $actualDev=git -C (Join-Path $rootRepo '2. Development') rev-parse HEAD
+    $actualEpoch=git -C $repo rev-parse HEAD
+    if ($actualDev -ne $Development -or $actualEpoch -ne $Candidate) {
+        throw "Revision mismatch. Development=$actualDev, Epochs=$actualEpoch; use exact current pins."
+    }
+    foreach ($path in @($sharedSdk,(Join-Path $repo 'scripts/measure-process-baseline.ps1'),
+        (Join-Path $repo 'scripts/benchmark-video.ps1'))) {
+        if (!(Test-Path -LiteralPath $path -PathType Leaf)) { throw "Missing prerequisite: $path" }
+    }
+    $devWorktree=Join-Path $rootRepo '2. Development'
+    if (git -C $devWorktree status --porcelain -uno) { throw 'Development source worktree is dirty.' }
+    if (git -C $repo status --porcelain -uno | Where-Object { $_ -notmatch '^ M scripts/benchmark-wave2.ps1$' }) {
+        Write-Warning 'Epoch checkout contains changes beyond the benchmark script; prepare after checkpointing code.'
+    }
+    [pscustomobject]@{
+        ReadyForPrepare=$true
+        Original='swiiftex/QuickClip v0.7.1; pinned release/hash in this script'
+        Development=$Development
+        Epochs=$Candidate
+        Sdk=(& $sharedSdk --version)
+        PresentMon=@((Get-Item -LiteralPath 'C:\Program Files\NVIDIA Corporation\FrameViewSDK\bin\PresentMon_x64.exe' -ErrorAction SilentlyContinue).FullName)
+        RequiresDisposableInteractiveWindowsAccount=$true
+        RequiresMatchedCaptureSettingsAndManualAuthorization=$true
+        FurMarkInstalled=[bool](Get-Command FurMark,FurMark2 -ErrorAction SilentlyContinue)
+    } | Format-List
+    return
+}
 function Read-Json($path) { Get-Content -LiteralPath $path -Raw | ConvertFrom-Json }
 function Write-Json($path,$data) {
     $temp="$path.$([guid]::NewGuid().ToString('N')).tmp"
@@ -32,7 +68,8 @@ function Assert-Clear {
     }
 }
 if ($Mode -eq 'Prepare') {
-    if (!$Candidate -or !$DisposableSid -or $DisposableSid -eq $sid -or (Test-Path -LiteralPath $manifest)) {
+    if (!$Candidate -or (!$Development -and $StudyKind -eq 'EpochsThreeWay') -or
+        !$DisposableSid -or $DisposableSid -eq $sid -or (Test-Path -LiteralPath $manifest)) {
         throw 'Use a new study, exact candidate SHA and a separate disposable user SID. Prepare from the owner account.'
     }
     Confirm 'Verify the SID belongs to a clean disposable Windows account.'
@@ -41,13 +78,15 @@ if ($Mode -eq 'Prepare') {
     if ($drive.Free -lt 8GB) { throw 'Preparation requires 8 GiB free.' }
     $resolved=git -C $repo rev-parse "$Candidate^{commit}"
     if ($LASTEXITCODE -or $resolved -ne $Candidate) { throw 'Fetch the exact candidate first.' }
-    $sdk=@((Join-Path $repo '.quickclip-local/dotnet/dotnet.exe'),(Join-Path (Split-Path -Parent $repo) 'dotnet/dotnet.exe'),(Get-Command dotnet.exe -ErrorAction SilentlyContinue).Source) |
+    $sdk=@($sharedSdk,(Join-Path $repo '.quickclip-local/dotnet/dotnet.exe'),(Join-Path (Split-Path -Parent $repo) 'dotnet/dotnet.exe'),$env:DOTNET_ROOT + '\dotnet.exe',(Get-Command dotnet.exe -ErrorAction SilentlyContinue).Source) |
         Where-Object { $_ -and (Test-Path -LiteralPath $_ -PathType Leaf) } | Select-Object -First 1
     if (!$sdk -or !(& $sdk --list-sdks | Where-Object { $_ -match '^10\.' })) { throw 'Install or provision the x64 .NET 10 SDK.' }
     $packages=@(
-        @{Name='Original'; Sha='e9bccdc6ee38f1b7c29b7ee7ea8b260babcc2a3f'; Hash='ab9e8ed8d0a055490b22c8ba2883989c616900362b940e6c8b5303ef6e58e701'; Url='https://github.com/swiiftex/QuickClip/releases/download/v0.7.1/QuickClip-0.7.1-win-x64.zip'},
-        @{Name='Personal'; Sha='6de4ad684f4268b685c630d639977c439bf557ed'; Hash='af5b3dad346fee74e02490756536e016aaf9b27f20f072da3acb628993b08cf5'; Url='https://github.com/Yosef13103/QuickClip/releases/download/personal-v1.1.0/QuickClip-Personal-1.1.0-win-x64.zip'}
+        @{Name='Original'; Sha='e9bccdc6ee38f1b7c29b7ee7ea8b260babcc2a3f'; Hash='ab9e8ed8d0a055490b22c8ba2883989c616900362b940e6c8b5303ef6e58e701'; Url='https://github.com/swiiftex/QuickClip/releases/download/v0.7.1/QuickClip-0.7.1-win-x64.zip'}
     )
+    if ($StudyKind -eq 'Wave2') {
+        $packages+=@{Name='Personal'; Sha='6de4ad684f4268b685c630d639977c439bf557ed'; Hash='af5b3dad346fee74e02490756536e016aaf9b27f20f072da3acb628993b08cf5'; Url='https://github.com/Yosef13103/QuickClip/releases/download/personal-v1.1.0/QuickClip-Personal-1.1.0-win-x64.zip'}
+    }
     foreach ($package in $packages) {
         $zip=Join-Path $root "$($package.Name).zip"
         if (!(Test-Path -LiteralPath $zip)) {
@@ -57,20 +96,36 @@ if ($Mode -eq 'Prepare') {
         }
         if ((Hash $zip) -ne $package.Hash) { throw "Invalid cached hash for $($package.Name)." }
     }
-    $source=Join-Path $root "source-$Candidate"
-    if (!(Test-Path -LiteralPath (Join-Path $source '.git'))) {
-        git -C $repo worktree add --detach $source $Candidate
-        if ($LASTEXITCODE) { throw 'Cannot create benchmark worktree.' }
+    $targets=if ($StudyKind -eq 'EpochsThreeWay') {
+        @(@{Name='Development'; Sha=$Development}, @{Name='Epochs'; Sha=$Candidate})
+    } else { @(@{Name='Candidate'; Sha=$Candidate}) }
+    foreach ($target in $targets) {
+        $sha=$target.Sha
+        $resolved=git -C $repo rev-parse "$sha^{commit}"
+        if ($LASTEXITCODE -ne 0 -or $resolved -ne $sha) {
+            throw "Missing exact $($target.Name) source revision $sha."
+        }
+        $source=Join-Path $root "source-$sha"
+        if (!(Test-Path -LiteralPath (Join-Path $source '.git'))) {
+            git -C $repo worktree add --detach $source $sha
+            if ($LASTEXITCODE) { throw 'Cannot create isolated benchmark worktree.' }
+        }
+        if ((git -C $source rev-parse HEAD) -ne $sha -or (git -C $source status --porcelain)) {
+            throw "Benchmark source for $($target.Name) is not the pinned clean commit."
+        }
+        $output=Join-Path $root "publish-$($target.Name)-$([guid]::NewGuid().ToString('N'))"
+        & (Join-Path $source 'scripts/get-deps.ps1')
+        if ($LASTEXITCODE -ne 0) { throw "Could not resolve dependencies for $($target.Name)." }
+        & $sdk publish (Join-Path $source 'src/QuickClip/QuickClip.csproj') -c Release -r win-x64 --self-contained true -o $output -p:QuickClipProfile=Personal -p:RequireCaptureEngine=true
+        if ($LASTEXITCODE -ne 0 -or !(Test-Path -LiteralPath (Join-Path $output 'QuickClipCapture.dll'))) {
+            throw "Strict packaging failed for $($target.Name)."
+        }
+        $zip=Join-Path $root "$($target.Name).zip"
+        Compress-Archive -Path (Join-Path $output '*') -DestinationPath $zip -Force
+        $packages+=@{Name=$target.Name;Sha=$sha;Hash=(Hash $zip);SourceWorktree=$source}
     }
-    if ((git -C $source rev-parse HEAD) -ne $Candidate -or (git -C $source status --porcelain)) { throw 'Benchmark checkout is not at the clean pin.' }
-    $output=Join-Path $root "publish-$([guid]::NewGuid().ToString('N'))"
-    & (Join-Path $source 'scripts/get-deps.ps1')
-    & $sdk publish (Join-Path $source 'src/QuickClip/QuickClip.csproj') -c Release -r win-x64 --self-contained true -o $output -p:QuickClipProfile=Personal -p:RequireCaptureEngine=true
-    if ($LASTEXITCODE -or !(Test-Path -LiteralPath (Join-Path $output 'QuickClipCapture.dll'))) { throw 'Strict candidate packaging failed.' }
-    $zip=Join-Path $root 'Candidate.zip'
-    Compress-Archive -Path (Join-Path $output '*') -DestinationPath $zip -Force
-    $packages+=@{Name='Candidate';Sha=$Candidate;Hash=(Hash $zip)}
-    Write-Json $manifest @{Schema=1; Owner=$sid; Disposable=$DisposableSid; Builds=$packages; Sdk=(& $sdk --version)}
+    Write-Json $manifest @{Schema=2; StudyKind=$StudyKind; Owner=$sid; Disposable=$DisposableSid;
+        Builds=$packages; Sdk=(& $sdk --version)}
     return
 }
 $studyData=Read-Json $manifest
@@ -92,12 +147,16 @@ if ($Mode -eq 'Run') {
         if (!$workload.Trim()) { throw 'Supply a workload identifier.' }
         $planPath=Join-Path $group 'plan.json'
         if (!(Test-Path -LiteralPath $planPath)) {
-            Write-Json $planPath @{Workload=$workload;Seconds=$Seconds;Warmup=$WarmupSeconds;Nvidia=[bool]$Nvidia;
+            Write-Json $planPath @{Workload=$workload;Seconds=$Seconds;Warmup=$WarmupSeconds;Nvidia=[bool]$Nvidia;PresentMon=[bool]$PresentMon;
                 OS=[Environment]::OSVersion.VersionString;CPU=@(Get-CimInstance Win32_Processor | Select-Object Name);
                 GPU=@(Get-CimInstance Win32_VideoController | Select-Object Name,DriverVersion,CurrentHorizontalResolution,CurrentVerticalResolution,CurrentRefreshRate)}
         }
         $plan=Read-Json $planPath
-        if ($plan.Workload -ne $workload -or $plan.Seconds -ne $Seconds -or $plan.Warmup -ne $WarmupSeconds -or $plan.Nvidia -ne [bool]$Nvidia) { throw 'Resume with matching options and workload.' }
+        if ($plan.Workload -ne $workload -or $plan.Seconds -ne $Seconds -or
+            $plan.Warmup -ne $WarmupSeconds -or $plan.Nvidia -ne [bool]$Nvidia -or
+            [bool]$plan.PresentMon -ne [bool]$PresentMon) {
+            throw 'Resume with matching options and workload.'
+        }
         for ($round=1; $round -le $Repetitions; $round++) {
             $sequence=@($studyData.Builds)
             if ($Scenario -eq 'Game') { $sequence=@(@{Name='Control';Sha=('0'*40)})+$sequence }
@@ -166,7 +225,22 @@ if ($Mode -eq 'Run') {
                         Scenario=$(if ($build.Name -eq 'Control') {'GameNoRecorder'} else {$Scenario});
                         Seconds=$Seconds;WarmupSeconds=$WarmupSeconds;RunLabel=$label;Nvidia=$Nvidia;OutputDirectory=(Join-Path $attempt 'process')}
                     $job=$null
+                    $presentJob=$null
+                    $presentFile=Join-Path $attempt 'presentmon-v1.csv'
                     try {
+                        if ($PresentMon -and $Scenario -eq 'Game') {
+                            $presentExe='C:\Program Files\NVIDIA Corporation\FrameViewSDK\bin\PresentMon_x64.exe'
+                            if (!(Test-Path -LiteralPath $presentExe -PathType Leaf)) {
+                                throw 'PresentMon was requested but the pinned installed executable is missing.'
+                            }
+                            $presentPid=if ($build.Name -eq 'Control') {$target} else {$gameId}
+                            $presentJob=Start-Job -ScriptBlock {
+                                param($exe,$targetProcessId,$delay,$duration,$output)
+                                Start-Sleep -Seconds $delay
+                                & $exe --process_id $targetProcessId --session_name "QCEpochsBench-$targetProcessId" --no_track_input --no_console_stats --v1_metrics --timed $duration --terminate_after_timed --output_file $output 2>&1 | Out-Null
+                                if ($LASTEXITCODE -ne 0) {throw "PresentMon returned $LASTEXITCODE."}
+                            } -ArgumentList $presentExe,$presentPid,$WarmupSeconds,$Seconds,$presentFile
+                        }
                         if ($gameId) {
                             $gameSample=$sample.Clone()
                             $gameSample.TargetProcessId=$gameId
@@ -176,15 +250,31 @@ if ($Mode -eq 'Run') {
                         }
                         & (Join-Path $PSScriptRoot 'measure-process-baseline.ps1') @sample
                         if ($job) { Receive-Job $job -Wait -ErrorAction Stop }
+                        if ($presentJob) {
+                            try { Receive-Job $presentJob -Wait -ErrorAction Stop | Out-Null }
+                            catch { Write-Warning "PresentMon evidence unavailable: $($_.Exception.Message)" }
+                        }
                     } finally {
                         if ($job) { Remove-Job $job -Force }
+                        if ($presentJob) { Remove-Job $presentJob -Force }
                     }
                     $extra=@{}
                     if ($Scenario -eq 'Game') {
-                        $csv=Read-Host 'Independent numeric frametime CSV with FrameMs column, or blank'
+                        $csv=if ($PresentMon -and (Test-Path -LiteralPath $presentFile)) {
+                            $presentFile
+                        } else { Read-Host 'Independent numeric frametime CSV with FrameMs column, or blank' }
                         if ($csv) {
-                            $frames=@(Import-Csv -LiteralPath $csv | ForEach-Object { [double]$_.FrameMs })
-                            if (!$frames.Count -or @($frames | Where-Object { $_ -le 0 -or ![double]::IsFinite($_) }).Count) { throw 'Invalid frame times.' }
+                            $rows=@(Import-Csv -LiteralPath $csv)
+                            $frames=@($rows | ForEach-Object {
+                                $cell=if ($_.PSObject.Properties['FrameMs']) {$_.FrameMs}
+                                    elseif ($_.PSObject.Properties['MsBetweenPresents']) {$_.MsBetweenPresents}
+                                    else {$null}
+                                $number=0.0
+                                if ($cell -and [double]::TryParse($cell,[Globalization.NumberStyles]::Float,
+                                    [Globalization.CultureInfo]::InvariantCulture,[ref]$number) -and
+                                    $number -gt 0 -and [double]::IsFinite($number)) {$number}
+                            })
+                            if ($frames.Count -lt 30) {throw 'No usable frame-time column or insufficient frames in independent CSV.' }
                             $frames | ForEach-Object { [pscustomobject]@{FrameMs=$_} } | Export-Csv -LiteralPath (Join-Path $attempt 'frames.csv') -NoTypeInformation
                             $orderedFrames=@($frames | Sort-Object)
                             $extra.Fps=1000/($frames | Measure-Object -Average).Average
@@ -260,9 +350,15 @@ foreach ($group in (Get-ChildItem -LiteralPath $runs -Directory)) {
     $report+="## $($group.Name)"
     $report+='| Metric | Variant | n | Median | p95 | Delta | Delta % |','| --- | --- | ---: | ---: | ---: | ---: | ---: |'
     foreach ($metric in $names) {
-        $baseline=if ($group.Name -like '*-Game' -and ($metric -like 'Game.*' -or $metric -like 'DeviceGPU*' -or $metric -in 'Fps','OnePercentLowFps','FrameP95Ms')) {'Control'} else {'Personal'}
+        $baseline=if ($group.Name -like '*-Game' -and ($metric -like 'Game.*' -or
+            $metric -like 'DeviceGPU*' -or $metric -in 'Fps','OnePercentLowFps','FrameP95Ms')) {
+            'Control'
+        } elseif ($studyData.StudyKind -eq 'EpochsThreeWay') { 'Development' } else { 'Personal' }
         $reference=$null
-        foreach ($variant in (@($baseline)+@('Control','Original','Personal','Candidate' | Where-Object {$_ -ne $baseline}))) {
+        $variants=@($baseline) + @($studyData.Builds | ForEach-Object {$_.Name} |
+            Where-Object { $_ -ne $baseline })
+        if ($group.Name -like '*-Game' -and $baseline -ne 'Control') { $variants+=@('Control') }
+        foreach ($variant in ($variants | Select-Object -Unique)) {
             if ($variant -eq 'Control' -and $group.Name -notlike '*-Game') { continue }
             $values=@($items | Where-Object { $_.Variant -eq $variant -and $_.Status -eq 'Complete' } |
                 ForEach-Object {$_.Metrics.$metric} | Where-Object {$null -ne $_} | Sort-Object)

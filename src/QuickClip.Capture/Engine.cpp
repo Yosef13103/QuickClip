@@ -1651,6 +1651,11 @@ namespace qc
             created.dwLowDateTime) == static_cast<uint64_t>(shared_->game.started);
     }
 
+    bool Engine::AllVideoWorkersQuiesced() const
+    {
+        return quiesced_ && shared_->runningVideoThreads.load(std::memory_order_acquire) == 0;
+    }
+
     QcGameWindow Engine::VerifiedGameIdentity() const
     {
         return AuthorizedGameEpoch() ? shared_->game : QcGameWindow{};
@@ -1669,7 +1674,10 @@ namespace qc
         uint64_t epochId, uint64_t grantRevision, const std::string& scope,
         std::string& error)
     {
-        if (!quiesced_ || logicalSession == 0 || epochId == 0 ||
+        // The existing emergency timeout may detach a stuck capture worker.
+        // Such a worker still owns Shared and could publish late packets;
+        // never transfer this ring to the archive until *all* workers are gone.
+        if (!AllVideoWorkersQuiesced() || logicalSession == 0 || epochId == 0 ||
             scope.empty() || scope.size() > 512 || !AuthorizedGameEpoch())
         {
             error = "Only a quiesced, independently authorized game graph may seal an epoch.";

@@ -183,6 +183,7 @@ namespace qc
         // frame, audio or save worker; the API takes the engine lifecycle lock.
         void Quiesce();
         bool AuthorizedGameEpoch() const;
+        bool AllVideoWorkersQuiesced() const;
         QcGameWindow VerifiedGameIdentity() const;
         int64_t ReplayMemoryBudget() const;
         int64_t ReplayWindowUs() const;
