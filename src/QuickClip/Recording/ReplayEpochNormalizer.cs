@@ -9,21 +9,31 @@ namespace QuickClip.Recording;
 /// Never called from the live capture, dispatcher, hotkey or native packet worker.</summary>
 internal enum ReplayEpochGapPolicy { Reject, OmitMissingFootage }
 
+// Hardware encoder IDs must have been capability-probed before calling ExportAsync.
+// Unspecified uses the source codec's software encoder, never silently converts AV1
+// or HEVC to H.264. Live saving must independently gate heavy transcoding.
+internal sealed record ReplayEpochEncodingOptions(string? EncoderId = null);
+
 internal static class ReplayEpochNormalizer
 {
     internal sealed record Media(Guid EpochId, string Path);
     internal sealed record Result(string Path, int Width, int Height, int AudioTracks, TimeSpan Duration,
-        TimeSpan OmittedMissingFootage, bool StreamCopied = false);
+        TimeSpan OmittedMissingFootage, bool StreamCopied = false)
+    {
+        internal string VideoCodec { get; init; } = "";
+    }
 
     private sealed record Probe(int Width, int Height, double DurationSeconds, string[] AudioTitles,
-        double FramesPerSecond);
+        double FramesPerSecond, string VideoCodec, string PixelFormat, string ColorTransfer,
+        string ColorPrimaries, string ColorSpace);
 
     internal static async Task<Result> ExportAsync(
         ReplayEpochExportPlan plan, IReadOnlyList<Media> media, string destination,
         string ffmpegPath, string ffprobePath, int fps = 30,
         ReplayEpochGapPolicy gapPolicy = ReplayEpochGapPolicy.Reject,
         CancellationToken cancellationToken = default,
-        ReplayEpochOutputOptions? outputOptions = null)
+        ReplayEpochOutputOptions? outputOptions = null,
+        ReplayEpochEncodingOptions? encodingOptions = null)
     {
         ArgumentNullException.ThrowIfNull(plan);
         ArgumentNullException.ThrowIfNull(media);
@@ -74,6 +84,31 @@ internal static class ReplayEpochNormalizer
 
         int tracks = firstTitles?.Length ?? 0;
         if (tracks > 16) throw new InvalidOperationException("Too many audio tracks.");
+        // Do not collapse HDR into 8-bit SDR without an explicit, tested tonemap.
+        bool hdr = probes.Any(p => p.ColorTransfer is "smpte2084" or "arib-std-b67");
+        if (hdr && probes.Any(p => p.ColorTransfer != probes[0].ColorTransfer ||
+            p.ColorPrimaries != probes[0].ColorPrimaries || p.ColorSpace != probes[0].ColorSpace))
+            throw new InvalidOperationException("Mixed HDR/SDR or incompatible color metadata requires an explicit color conversion policy.");
+
+        string outputCodec = probes[^1].VideoCodec; // Most recent epoch for a mixed-codec interval.
+        string encoderId = encodingOptions?.EncoderId ?? outputCodec switch
+        {
+            "av1" => "libsvtav1",
+            "hevc" => "libx265",
+            "h264" => "libx264",
+            _ => throw new InvalidOperationException("No safe default encoder for this video codec.")
+        };
+        string requestedCodec = encoderId switch
+        {
+            "av1_nvenc" or "av1_amf" or "av1_qsv" or "libsvtav1" => "av1",
+            "hevc_nvenc" or "hevc_amf" or "hevc_qsv" or "libx265" => "hevc",
+            "h264_nvenc" or "h264_amf" or "h264_qsv" or "libx264" => "h264",
+            _ => throw new ArgumentException("Unsupported epoch normalization encoder.", nameof(encodingOptions))
+        };
+        if (hdr && requestedCodec == "h264")
+            throw new InvalidOperationException("HDR epoch normalization requires a 10-bit capable HEVC or AV1 encoder.");
+
+        string pixelFormat = hdr ? "yuv420p10le" : "yuv420p";
         var filters = new StringBuilder();
         static string T(double value) => value.ToString("0.######", CultureInfo.InvariantCulture);
         for (int i = 0; i < plan.Slices.Count; i++)
@@ -86,7 +121,8 @@ internal static class ReplayEpochNormalizer
                 .Append(fps).Append(",scale=").Append(outputWidth).Append(':').Append(outputHeight)
                 .Append(":force_original_aspect_ratio=decrease:force_divisible_by=2:flags=bicubic")
                 .Append(",pad=").Append(outputWidth).Append(':').Append(outputHeight)
-                .Append(":(ow-iw)/2:(oh-ih)/2,setsar=1,format=yuv420p[v").Append(i).Append("];");
+                .Append(":(ow-iw)/2:(oh-ih)/2,setsar=1,format=").Append(pixelFormat)
+                .Append("[v").Append(i).Append("];");
             for (int track = 0; track < tracks; track++)
             {
                 filters.Append('[').Append(i).Append(":a:").Append(track)
@@ -132,9 +168,21 @@ internal static class ReplayEpochNormalizer
         {
             args.AddRange(["-filter_complex", graph, "-map", "[v]"]);
             for (int track = 0; track < tracks; track++) args.AddRange(["-map", "[a" + track + "]"]);
-            args.AddRange(["-c:v", "libx264", "-preset", "veryfast", "-threads", "2", "-crf", "19",
-                "-pix_fmt", "yuv420p", "-r", fps.ToString(CultureInfo.InvariantCulture),
-                "-c:a", "aac", "-b:a", "160k"]);
+            args.AddRange(["-c:v", encoderId, "-threads", "2", "-pix_fmt", pixelFormat,
+                "-r", fps.ToString(CultureInfo.InvariantCulture), "-c:a", "aac", "-b:a", "160k"]);
+            if (encoderId.EndsWith("_nvenc", StringComparison.Ordinal))
+                args.AddRange(["-preset", "p2", "-tune", "hq", "-cq", "22", "-b:v", "0"]);
+            else if (encoderId.EndsWith("_amf", StringComparison.Ordinal))
+                args.AddRange(["-quality", "speed"]);
+            else if (encoderId == "libx264")
+                args.AddRange(["-preset", "veryfast", "-crf", "19"]);
+            else if (encoderId == "libx265")
+                args.AddRange(["-preset", "fast", "-crf", "22"]);
+            else if (encoderId == "libsvtav1")
+                args.AddRange(["-preset", "10", "-crf", "28"]);
+            if (hdr)
+                args.AddRange(["-color_trc", probes[0].ColorTransfer,
+                    "-color_primaries", probes[0].ColorPrimaries, "-colorspace", probes[0].ColorSpace]);
         }
         if (extension == ".mp4") args.AddRange(["-movflags", "+faststart"]);
         // A .partial extension alone is ambiguous; explicitly choose the muxer.
@@ -148,18 +196,23 @@ internal static class ReplayEpochNormalizer
         args.Add(staging);
         try
         {
-            await RunAsync(ffmpegPath, args, cancellationToken).ConfigureAwait(false);
+            await RunAsync(ffmpegPath, args, cancellationToken,
+                reducedPriority: !canStreamCopy).ConfigureAwait(false);
             var result = await ProbeAsync(ffprobePath, staging, cancellationToken).ConfigureAwait(false);
             if (result.Width != outputWidth || result.Height != outputHeight ||
                 !result.AudioTitles.SequenceEqual(firstTitles!, StringComparer.OrdinalIgnoreCase) ||
-                Math.Abs(result.DurationSeconds - duration) > Math.Max(0.15, plan.Slices.Count / (double)fps))
-                throw new IOException("The normalized output did not pass video/audio/duration validation.");
+                Math.Abs(result.DurationSeconds - duration) > Math.Max(0.15, plan.Slices.Count / (double)fps) ||
+                result.VideoCodec != (canStreamCopy ? probes[0].VideoCodec : requestedCodec) ||
+                hdr && (result.ColorTransfer != probes[0].ColorTransfer ||
+                    result.ColorPrimaries != probes[0].ColorPrimaries ||
+                    result.ColorSpace != probes[0].ColorSpace))
+                throw new IOException("The normalized output did not pass codec/color/video/audio/duration validation.");
             cancellationToken.ThrowIfCancellationRequested();
             if (File.Exists(target)) throw new IOException("The destination was created concurrently.");
             File.Move(staging, target);
             return new Result(target, outputWidth, outputHeight, tracks,
                 TimeSpan.FromSeconds(result.DurationSeconds), TimeSpan.FromSeconds(omittedSeconds),
-                StreamCopied: canStreamCopy);
+                StreamCopied: canStreamCopy) { VideoCodec = result.VideoCodec };
         }
         finally
         {
@@ -204,6 +257,9 @@ internal static class ReplayEpochNormalizer
             await RunAsync(ffmpegPath, args, cancellationToken).ConfigureAwait(false);
             var after = await ProbeAsync(ffprobePath, staging, cancellationToken).ConfigureAwait(false);
             if (before.Width != after.Width || before.Height != after.Height ||
+                before.VideoCodec != after.VideoCodec || before.PixelFormat != after.PixelFormat ||
+                before.ColorTransfer != after.ColorTransfer ||
+                before.ColorPrimaries != after.ColorPrimaries || before.ColorSpace != after.ColorSpace ||
                 !before.AudioTitles.SequenceEqual(after.AudioTitles, StringComparer.OrdinalIgnoreCase) ||
                 Math.Abs(before.DurationSeconds - after.DurationSeconds) > 0.15)
                 throw new IOException("The stream-copy remux changed dimensions, audio tracks or duration.");
@@ -211,7 +267,8 @@ internal static class ReplayEpochNormalizer
             if (File.Exists(target)) throw new IOException("The destination was created concurrently.");
             File.Move(staging, target);
             return new Result(target, after.Width, after.Height, after.AudioTitles.Length,
-                TimeSpan.FromSeconds(after.DurationSeconds), TimeSpan.Zero, StreamCopied: true);
+                TimeSpan.FromSeconds(after.DurationSeconds), TimeSpan.Zero, StreamCopied: true)
+                { VideoCodec = after.VideoCodec };
         }
         finally
         {
@@ -222,7 +279,7 @@ internal static class ReplayEpochNormalizer
     private static async Task<Probe> ProbeAsync(string ffprobe, string path, CancellationToken cancel)
     {
         string output = await RunAsync(ffprobe,
-            ["-v", "error", "-show_entries", "stream=codec_type,width,height,avg_frame_rate:stream_tags=title,handler_name:format=duration",
+            ["-v", "error", "-show_entries", "stream=codec_type,codec_name,pix_fmt,color_transfer,color_primaries,color_space,width,height,avg_frame_rate:stream_tags=title,handler_name:format=duration",
                 "-of", "json", path], cancel).ConfigureAwait(false);
         using var document = JsonDocument.Parse(output);
         var videos = document.RootElement.GetProperty("streams").EnumerateArray()
@@ -253,14 +310,20 @@ internal static class ReplayEpochNormalizer
             double.TryParse(rate[0], NumberStyles.Float, CultureInfo.InvariantCulture, out double n) &&
             double.TryParse(rate[1], NumberStyles.Float, CultureInfo.InvariantCulture, out double den) &&
             den > 0 ? n / den : 0;
+        static string Read(JsonElement element, string property) =>
+            element.TryGetProperty(property, out var value) ? value.GetString() ?? "" : "";
         return new Probe(videos[0].GetProperty("width").GetInt32(),
-            videos[0].GetProperty("height").GetInt32(), seconds, names, fps);
+            videos[0].GetProperty("height").GetInt32(), seconds, names, fps,
+            Read(videos[0], "codec_name"), Read(videos[0], "pix_fmt"),
+            Read(videos[0], "color_transfer"), Read(videos[0], "color_primaries"),
+            Read(videos[0], "color_space"));
     }
 
-    private static async Task<string> RunAsync(string executable, IEnumerable<string> args, CancellationToken cancellationToken)
+    private static async Task<string> RunAsync(string executable, IEnumerable<string> args,
+        CancellationToken cancellationToken, bool reducedPriority = false)
     {
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        timeout.CancelAfter(TimeSpan.FromMinutes(2));
+        timeout.CancelAfter(reducedPriority ? TimeSpan.FromMinutes(15) : TimeSpan.FromMinutes(2));
         var start = new ProcessStartInfo(executable)
         {
             RedirectStandardOutput = true, RedirectStandardError = true,
@@ -268,6 +331,14 @@ internal static class ReplayEpochNormalizer
         };
         foreach (string argument in args) start.ArgumentList.Add(argument);
         using var process = Process.Start(start) ?? throw new IOException("Couldn't start bundled FFmpeg.");
+        if (reducedPriority)
+        {
+            // Heavy normalization must not contend at normal priority with active games.
+            // Priority changes can fail under restricted tokens; the export still runs.
+            try { process.PriorityClass = ProcessPriorityClass.BelowNormal; }
+            catch (System.ComponentModel.Win32Exception) { }
+            catch (InvalidOperationException) { }
+        }
         try
         {
             Task<string> output = process.StandardOutput.ReadToEndAsync(timeout.Token);

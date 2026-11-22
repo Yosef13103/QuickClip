@@ -279,6 +279,73 @@ public sealed class ReplayEpochNormalizerTests
         finally { Directory.Delete(temp, recursive: true); }
     }
 
+
+    [Fact]
+    public async Task Mixed_av1_epochs_keep_av1_and_original_named_audio_tracks()
+    {
+        string ffmpeg = Path.Combine(AppContext.BaseDirectory, "ffmpeg", "ffmpeg.exe");
+        string ffprobe = Path.Combine(AppContext.BaseDirectory, "ffmpeg", "ffprobe.exe");
+        string temp = Path.Combine(Path.GetTempPath(), "QuickClip-Epoch-AV1-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(temp);
+        try
+        {
+            var first = new ReplayEncodedEpoch(Session, "verified-game:synthetic", Guid.NewGuid(),
+                0, 2_000_000, 320, 180, "av1+aac");
+            var second = new ReplayEncodedEpoch(Session, "verified-game:synthetic", Guid.NewGuid(),
+                2_000_000, 4_000_000, 480, 200, "av1+aac");
+            string a = Path.Combine(temp, "av1-a.mkv"), b = Path.Combine(temp, "av1-b.mkv");
+            await MakeAv1Fixture(ffmpeg, a, first.Width, first.Height);
+            await MakeAv1Fixture(ffmpeg, b, second.Width, second.Height);
+            var plan = ReplayEpochPlanner.Select([first, second], Session,
+                "verified-game:synthetic", 0, 4_000_000, 8_000_000);
+            string target = Path.Combine(temp, "joined-av1.mp4");
+            var result = await ReplayEpochNormalizer.ExportAsync(plan,
+                [new(first.EpochId, a), new(second.EpochId, b)], target, ffmpeg, ffprobe);
+            Assert.False(result.StreamCopied);
+            Assert.Equal("av1", result.VideoCodec);
+            Assert.Equal(2, result.AudioTracks);
+            await Run(ffmpeg, ["-hide_banner", "-v", "error", "-nostdin", "-i", target,
+                "-map", "0", "-f", "null", "-"]);
+            Assert.True(File.Exists(a) && File.Exists(b));
+        }
+        finally { Directory.Delete(temp, recursive: true); }
+    }
+
+    [Fact]
+    public async Task Invalid_epoch_encoder_does_not_create_an_output()
+    {
+        string ffmpeg = Path.Combine(AppContext.BaseDirectory, "ffmpeg", "ffmpeg.exe");
+        string ffprobe = Path.Combine(AppContext.BaseDirectory, "ffmpeg", "ffprobe.exe");
+        string temp = Path.Combine(Path.GetTempPath(), "QuickClip-Epoch-Codec-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(temp);
+        try
+        {
+            var epoch = new ReplayEncodedEpoch(Session, "verified-game:synthetic",
+                Guid.NewGuid(), 0, 2_000_000, 320, 180, "h264");
+            string src = Path.Combine(temp, "source.mkv"), output = Path.Combine(temp, "invalid.mp4");
+            await MakeFixture(ffmpeg, src, 320, 180, 440);
+            var plan = ReplayEpochPlanner.Select([epoch], Session,
+                "verified-game:synthetic", 0, 2_000_000, 8_000_000);
+            await Assert.ThrowsAsync<ArgumentException>(() => ReplayEpochNormalizer.ExportAsync(
+                plan, [new(epoch.EpochId, src)], output, ffmpeg, ffprobe, fps: 60,
+                encodingOptions: new("some_fake_unsafe_encoder")));
+            Assert.False(File.Exists(output));
+            Assert.True(File.Exists(src));
+        }
+        finally { Directory.Delete(temp, recursive: true); }
+    }
+
+    private static Task MakeAv1Fixture(string ffmpeg, string file, int width, int height) =>
+        Run(ffmpeg,
+            ["-hide_banner", "-v", "error", "-nostdin", "-y",
+            "-f", "lavfi", "-i", $"testsrc2=size={width}x{height}:rate=30:duration=2",
+            "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=48000:duration=2",
+            "-f", "lavfi", "-i", "sine=frequency=550:sample_rate=48000:duration=2",
+            "-map", "0:v:0", "-map", "1:a:0", "-map", "2:a:0",
+            "-c:v", "libsvtav1", "-preset", "12", "-threads", "2", "-crf", "35",
+            "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "64k", "-shortest",
+            "-metadata:s:a:0", "title=Game", "-metadata:s:a:1", "title=Microphone", file]);
+
     private static Task MakeFixture(string ffmpeg, string file, int width, int height, int hz, string firstAudioTitle = "Game") =>
         Run(ffmpeg,
             ["-hide_banner", "-v", "error", "-nostdin", "-y",
