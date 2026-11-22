@@ -17,6 +17,9 @@ internal sealed record ClipBookmark(double Seconds, string Label)
         : $"{Label} · {TimeText}";
 }
 
+/// <summary>Frozen per-stream editor/export mix at the moment a new replay was saved.</summary>
+internal sealed record ClipAudioMixLevel(int Ordinal, string StreamTitle, int Percent);
+
 internal sealed record ClipDetails(DateTimeOffset CapturedAt, string Game, string? Title = null)
 {
     internal const int MaxTags = 16;
@@ -42,6 +45,9 @@ internal sealed record ClipDetails(DateTimeOffset CapturedAt, string Game, strin
     public string[] Tags { get; init; } = [];
     public bool IsFavorite { get; init; }
     public ClipBookmark[] Bookmarks { get; init; } = [];
+    // Null for existing/imported clips: never apply the current recording preferences retroactively.
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public ClipAudioMixLevel[]? InitialAudioMix { get; init; }
 
     internal static bool IsValidTag(string tag) =>
         tag.Length is > 0 and <= MaxTagLength && !tag.Any(char.IsControl);
@@ -54,6 +60,11 @@ internal sealed record ClipDetails(DateTimeOffset CapturedAt, string Game, strin
     {
         Tags = (Tags ?? []).OfType<string>().Select(tag => tag.Trim()).Where(IsValidTag)
             .Distinct(StringComparer.OrdinalIgnoreCase).Take(MaxTags).ToArray(),
+        InitialAudioMix = InitialAudioMix?.OfType<ClipAudioMixLevel>()
+            .Where(m => m.Ordinal is >= 0 and < 16 && m.Percent is >= 0 and <= 200 &&
+                !string.IsNullOrWhiteSpace(m.StreamTitle) && m.StreamTitle.Length <= 128 &&
+                !m.StreamTitle.Any(char.IsControl))
+            .DistinctBy(m => m.Ordinal).Take(16).ToArray(),
         Bookmarks = (Bookmarks ?? []).OfType<ClipBookmark>()
             .Where(mark => double.IsFinite(mark.Seconds) && mark.Seconds >= 0 &&
                 mark.Seconds <= TimeSpan.MaxValue.TotalSeconds - 1 &&

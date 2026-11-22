@@ -24,6 +24,7 @@ public partial class PlayerView : UserControl
     private readonly DispatcherTimer _childWindowTimer;
     private readonly DispatcherTimer _hideTimer;
     private MpvPlayer? _player;
+    private readonly VideoPreviewZoomController _previewViewport;
     private Popup? _fullscreenPopup;
     private PreviewAudio? _audio;
     private List<ClipItem> _clips = [];
@@ -58,6 +59,8 @@ public partial class PlayerView : UserControl
             { IsEnabled = false };
 
         Video.VideoMouseDown += OnVideoMouseDown;
+        _previewViewport = new VideoPreviewZoomController(Video, () => _player, () => Current != null);
+        Root.PreviewMouseWheel += (_, e) => _previewViewport.HandleWpfWheel(e);
         Video.VideoMouseMove += OnVideoMouseMove;
         Video.CursorQuery = (_, _) => _controlsHidden ? -1 : 0;
         SeekBar.AddHandler(Thumb.DragStartedEvent, new DragStartedEventHandler((_, _) => _dragging = true));
@@ -223,6 +226,7 @@ public partial class PlayerView : UserControl
         NextButton.IsEnabled = FloatingNext.IsEnabled = index < _clips.Count - 1;
         TitleChanged?.Invoke();
         _player.Command("stop");
+        ResetVideoZoom();
         _duration = clip.Duration ?? 0;
         _mpvTimePos = 0;
         SeekMarkers.Show([], 0); // switching clips must never show the previous clip's markers
@@ -538,8 +542,16 @@ public partial class PlayerView : UserControl
         Video.RefreshCursor();
     }
 
+    private void ResetVideoZoom() => _previewViewport.Reset();
+
     private void OnPreviewKeyDown(object sender, KeyEventArgs e)
     {
+        if (Keyboard.Modifiers.HasFlag(ModifierKeys.Control) && e.Key is Key.D0 or Key.NumPad0)
+        {
+            ResetVideoZoom();
+            e.Handled = true;
+            return;
+        }
         bool shift = Keyboard.Modifiers.HasFlag(ModifierKeys.Shift);
         bool handled = true;
         switch (e.Key)

@@ -48,6 +48,11 @@ internal static class CatalogPaths
 
     internal const string MinecraftRuntimeRelative = @"runtime\java-runtime-epsilon\windows-x64\java-runtime-epsilon\bin\javaw.exe";
     internal const string MinecraftLauncherFolder = "Minecraft Launcher";
+    internal const string TModLoaderRuntimeRelative = @"dotnet\dotnet.exe";
+    internal static bool IsTModLoaderRuntime(string path, string install) =>
+        Path.GetFileName(install).Equals("tModLoader", StringComparison.OrdinalIgnoreCase) &&
+        StringComparer.OrdinalIgnoreCase.Equals(CatalogPaths.LocalPath(path),
+            CatalogPaths.LocalPath(Path.Combine(install, TModLoaderRuntimeRelative)));
 
     internal static bool IsMinecraftBundledRuntime(string path) =>
         path.EndsWith("\\" + MinecraftLauncherFolder + "\\" + MinecraftRuntimeRelative, StringComparison.OrdinalIgnoreCase);

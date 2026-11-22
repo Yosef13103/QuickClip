@@ -42,7 +42,21 @@ public partial class GamesSettingsView
                 var panel = new StackPanel();
                 panel.Children.Add(new TextBlock { Text = "Save new clips to", Margin = new Thickness(0,0,0,4) });
                 panel.Children.Add(active);
-                panel.Children.Add(new TextBlock { Text = "Optional. Existing clips stay unchanged.", TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0,6,0,8) });
+                panel.Children.Add(new TextBlock { Text = "Gallery organization; existing clips stay unchanged.", TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0,6,0,12) });
+                panel.Children.Add(new TextBlock { Text = "Physical save subfolder (optional)", Margin = new Thickness(0,0,0,4) });
+                var physical = new TextBox
+                {
+                    Text = preference.SaveSubfolder ?? "",
+                    MaxLength = 240,
+                    ToolTip = "Relative to your Clips folder. Example: Terraria\\Modded\\Calamity. Leave empty to use this game's folder.",
+                };
+                AutomationProperties.SetName(physical, "Physical save subfolder inside Clips");
+                panel.Children.Add(physical);
+                panel.Children.Add(new TextBlock
+                {
+                    Text = $"Default: {game.DisplayName}. Example: Terraria\\Modded\\Calamity. Up to 12 folder levels; existing clips are not moved.",
+                    TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0,5,0,10)
+                });
                 var list = new ComboBox { ItemsSource = definitions, DisplayMemberPath = nameof(LibraryCollection.Name), SelectedIndex = -1 };
                 AutomationProperties.SetName(list, "Folder to link");
                 var extra = new StackPanel();
@@ -59,12 +73,22 @@ public partial class GamesSettingsView
                 remove.Click += (_, _) => { action = "remove"; dismiss.RaiseEvent(new RoutedEventArgs(Button.ClickEvent)); };
                 panel.Children.Add(new Expander { Header = "Automatic folder selection", Content = extra, Margin = new Thickness(0,6,0,0) });
                 bool saved = ModalDialog.Run(owner, game.DisplayName + " — Clip folder", panel, "Save", "Cancel",
-                    safeDefault: true, dismissOnClick: dismiss, validate: () => active.SelectedItem is RecordingChoice);
+                    safeDefault: true, dismissOnClick: dismiss, validate: () =>
+                    {
+                        if (active.SelectedItem is not RecordingChoice) return false;
+                        try { _ = RecordingCollections.NormalizeSaveSubfolder(physical.Text); return true; }
+                        catch (ArgumentException) { return false; }
+                    });
                 if (!owner.IsVisible || !PersonalLibrary.Enabled) break;
                 if (saved)
                 {
                     if (active.SelectedItem is RecordingChoice choice &&
-                        !RecordingCollections.SavePreference(game.Id, preference with { Automatic = choice.Automatic, ManualCollection = choice.Automatic ? null : choice.Id }))
+                        !RecordingCollections.SavePreference(game.Id, preference with
+                        {
+                            Automatic = choice.Automatic,
+                            ManualCollection = choice.Automatic ? null : choice.Id,
+                            SaveSubfolder = physical.Text,
+                        }))
                         throw new IOException("Could not save folder preference.");
                     Status.Text = "Default folder saved.";
                     return;

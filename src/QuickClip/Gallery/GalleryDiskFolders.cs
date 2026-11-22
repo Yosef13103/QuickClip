@@ -33,17 +33,18 @@ internal static class GalleryDiskFolders
         return segments.Length == 0 ? null : new(root, segments[0], segments.Skip(1).ToArray());
     }
 
-    // Legacy Personal scanner historically used the last folder's name as the game.
-    // Only infer the physical parent when the persisted label still matches that leaf.
+    // The physical root is the Gallery's presentation parent, regardless of game ID.
+    // A saved tModLoader clip in Terraria/Modded/Calamity appears beneath Terraria.
+    // The authoritative game ID/name stays unchanged in its ClipDetails metadata.
     internal static string PresentedGame(ClipDetails details, GalleryDiskFolder? folder) =>
-        details.GameId != null || folder is not { Children.Length: > 0 } ||
-        !string.Equals(details.Game, folder.Children[^1], StringComparison.OrdinalIgnoreCase)
-            ? details.Game : folder.Game;
+        folder?.Game ?? details.Game;
 
-    internal static GalleryFolderKey PresentedKey(ClipDetails details, string label, string? uniqueAssociatedId)
+    internal static GalleryFolderKey PresentedKey(ClipDetails details, string label,
+        string? uniqueAssociatedId, bool physicalFolder = false)
     {
-        // View-only alias: a distinct established ID may supply the presentation group,
-        // never the stored game ID or the authorization to capture.
+        // A directory can contain vanilla Terraria and tModLoader (different IDs).
+        // Group by the physical parent for the Gallery only; never rewrite metadata.
+        if (physicalFolder) return new GalleryFolderKey(null, LibraryFiles.TextKey(label));
         if (details.GameId != null) return GalleryFolderKey.For(details);
         if (uniqueAssociatedId != null) return new GalleryFolderKey(uniqueAssociatedId, null);
         return new GalleryFolderKey(null, LibraryFiles.TextKey(label));

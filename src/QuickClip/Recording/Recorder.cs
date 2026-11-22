@@ -803,6 +803,9 @@ internal sealed partial class Recorder
             string? gameContext;
             string? gameId;
             Guid? collectionId;
+            bool gameTriggered;
+            EndpointTrack[] savedEndpointPlan;
+            EndpointTrack[] savedEndpointPreferences;
             Guid logicalEpochSession = Guid.Empty;
             ReplayEpochGameProof? epochProof = null;
             CaptureEngine.EpochDescriptor[] retained = [];
@@ -824,10 +827,10 @@ internal sealed partial class Recorder
                 gameLookback = requestedSeconds.HasValue ? Math.Min(seconds, _replayBufferSeconds) : seconds;
                 gameContext = AppProfile.IsPersonal ? _sessionGame : _captureTarget?.Game ?? _games.GameForClip(gameLookback);
                 gameId = _sessionGameId;
-                collectionId = AppProfile.IsPersonal && _lifecycle.Mode == RecordingMode.GameTriggered
+                gameTriggered = _lifecycle.Mode == RecordingMode.GameTriggered;
+                collectionId = AppProfile.IsPersonal && gameTriggered
                     ? Library.RecordingCollections.Resolve(s, gameId, _sessionGameExecutable) : null;
-                if (AppProfile.IsPersonal && _lifecycle.Mode == RecordingMode.GameTriggered &&
-                    _epochSession.Active)
+                if (AppProfile.IsPersonal && gameTriggered && _epochSession.Active)
                 {
                     epochProof = CurrentEpochProof() ??
                         throw new IOException("The game's ownership or recording permission changed.");
@@ -836,7 +839,11 @@ internal sealed partial class Recorder
                         logicalEpochSession, epochProof, out activeGraphStartUs);
                     activeFps = _activeVideoOptions?.Fps ?? s.RecordFps;
                 }
+                savedEndpointPlan = _runningEndpointPlan.ToArray();
+                savedEndpointPreferences = s.EndpointTracks.ToArray();
             }
+            var initialAudioMix = AppProfile.IsPersonal
+                ? RecordingAudioMix.Capture(savedEndpointPlan, savedEndpointPreferences) : null;
             long positionAtTick = requestedAtTick.HasValue ? Stopwatch.GetTimestamp() : 0;
             var anchors = candidates.Select(item => new CaptureEngine.ReplayAnchor { Sequence = item.Sequence, OffsetUs = -1 }).ToArray();
             string folder = gameContext ?? "Desktop";
@@ -845,7 +852,9 @@ internal sealed partial class Recorder
                 : folder;
             string folderName = ClipNaming.SafeComponent(folder, 64);
             if (ClipLibrary.IsExcluded(folderName, null)) folderName += " (game)";
-            string dir = Path.Combine(s.ClipsFolder, folderName);
+            string dir = AppProfile.IsPersonal && gameTriggered
+                ? Library.RecordingCollections.SaveDirectory(s, gameId, folderName)
+                : Path.Combine(s.ClipsFolder, folderName);
             if (ClipLibrary.IsMomentsPath(dir)) throw new IOException("Choose a clips folder outside the Moments archive.");
             Directory.CreateDirectory(dir);
             DateTimeOffset requestedAt = DateTimeOffset.Now;
@@ -955,6 +964,7 @@ internal sealed partial class Recorder
                     GameId = gameId,
                     RecordedCollectionId = collectionId,
                     RecordingSessionId = receipt.SessionId == Guid.Empty ? null : receipt.SessionId,
+                    InitialAudioMix = initialAudioMix,
                     Bookmarks = receipt.Markers.Select(mark => new ClipBookmark(mark.Offset.TotalSeconds, mark.Marker.Label ?? "Marker")
                     { SessionId = mark.Marker.SessionId }).ToArray(),
                 });

@@ -40,6 +40,7 @@ public partial class GalleryView : UserControl
 
     private const double CardGap = 14; // must match the card's right margin
     private const double PreferredCardWidth = 440;
+    private int _preferredThumbnailWidth = 440;
 
     public static readonly DependencyProperty CardWidthProperty =
         DependencyProperty.Register(nameof(CardWidth), typeof(double), typeof(GalleryView), new PropertyMetadata(304d));
@@ -114,6 +115,19 @@ public partial class GalleryView : UserControl
     public GalleryView()
     {
         InitializeComponent();
+        _preferredThumbnailWidth = Math.Clamp(AppSettings.Current.GalleryThumbnailWidth, 180, 800);
+        ClipArea.PreviewMouseWheel += ClipArea_PreviewMouseWheel;
+        ClipArea.PreviewMouseDown += (_, _) => StopGalleryWheel();
+        PreviewKeyDown += (_, e) =>
+        {
+            if (!Keyboard.Modifiers.HasFlag(ModifierKeys.Control) || e.Key is not (Key.D0 or Key.NumPad0) ||
+                Keyboard.FocusedElement is TextBox) return;
+            _preferredThumbnailWidth = (int)PreferredCardWidth;
+            LayoutCards(ClipArea.ActualWidth, refreshCards: true);
+            AppSettings.Current.GalleryThumbnailWidth = _preferredThumbnailWidth;
+            if (!AppSettings.Current.TrySave()) ShowStatus("Could not save the Gallery thumbnail size.");
+            e.Handled = true;
+        };
         GallerySidebarColumn.Width = new GridLength(Math.Clamp(
             AppSettings.Current.GallerySidebarWidth, 190, 520));
         GalleryDetailsEditor.KnownTags = () => KnownTags;
@@ -162,6 +176,7 @@ public partial class GalleryView : UserControl
         {
             if (!IsVisible)
             {
+                StopGalleryWheel();
                 _hoverPreview.Stop();
                 return;
             }
@@ -197,6 +212,7 @@ public partial class GalleryView : UserControl
     public async Task CloseAsync()
     {
         _released = true;
+        StopGalleryWheel();
         _lifetime.Cancel();
         _hoverPreview.Stop();
         Recorder.Instance.ClipSaved -= OnClipSaved;
@@ -599,7 +615,7 @@ public partial class GalleryView : UserControl
         _displayFolderKeys.Clear();
         foreach (var item in mapped)
             _displayFolderKeys[item.Clip.Path] = GalleryDiskFolders.PresentedKey(item.Clip.Details,
-                item.Name, unambiguousIds.GetValueOrDefault(item.Name));
+                item.Name, unambiguousIds.GetValueOrDefault(item.Name), physicalFolder: item.Disk != null);
 
         var associatedNames = mapped.Where(item => item.Clip.Details.GameId != null)
             .Select(item => item.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
@@ -611,8 +627,12 @@ public partial class GalleryView : UserControl
             var clips = entries.Select(item => item.Clip).ToArray();
             var key = group.Key;
             string name = entries[0].Name;
-            if (key.GameId == null && associatedNames.Contains(name)) name += " (unassociated)";
-            var definitions = scopedDefinitions[key.GameId]
+            if (key.GameId == null && associatedNames.Contains(name) &&
+                entries.All(item => item.Disk == null)) name += " (unassociated)";
+            var definitions = (key.GameId != null
+                    ? scopedDefinitions[key.GameId]
+                    : clips.Select(c => c.Details.GameId).OfType<string>()
+                        .Distinct(StringComparer.Ordinal).SelectMany(id => scopedDefinitions[id]))
                 .Concat(clips.Select(c => c.Details.Collection).OfType<LibraryCollection>())
                 .DistinctBy(d => d.Id).OrderBy(d => d.Name, StringComparer.OrdinalIgnoreCase).ToArray();
 
@@ -719,7 +739,11 @@ public partial class GalleryView : UserControl
         _searchCancellation = cancellation;
         try
         {
-            var matches = await Task.Run(() => filter.Apply(clips.Where(c => folder.Matches(c.Details)), ClipLibrary.AllClips, cancellation.Token), cancellation.Token);
+            var presented = _displayFolderKeys.ToDictionary(pair => pair.Key, pair => pair.Value,
+                StringComparer.OrdinalIgnoreCase);
+            var matches = await Task.Run(() => filter.Apply(clips.Where(c =>
+                folder.Matches(c.Details, c.Path, presented.GetValueOrDefault(c.Path) ?? GalleryFolderKey.For(c.Details))),
+                ClipLibrary.AllClips, cancellation.Token), cancellation.Token);
             if (cancellation.IsCancellationRequested || _released) return;
             _filter = filter;
             ApplyRows(matches, preserveScroll: true);
@@ -829,6 +853,7 @@ public partial class GalleryView : UserControl
             _renderedFavoritesFirst = _filter.FavoritesFirst;
             var rows = GalleryDayFeed.Build(clips, _columns, zone, _renderedFavoritesFirst);
             _visibleClips = rows.OfType<GalleryClipRow>().SelectMany(row => row.Clips).ToArray();
+            StopGalleryWheel();
             Rows.ItemsSource = rows;
             if (preserveScroll && offset > 0) scroll?.ScrollToVerticalOffset(offset);
         }
@@ -855,15 +880,53 @@ public partial class GalleryView : UserControl
 
     private void ClipArea_SizeChanged(object sender, SizeChangedEventArgs e)
     {
-        if (!e.WidthChanged || e.NewSize.Width <= 0) return;
-        // Reserve scrollbar space even when it is hidden so filtering does not change the columns.
-        double width = Math.Max(1, e.NewSize.Width - SystemParameters.VerticalScrollBarWidth);
-        int columns = ColumnsForWidth(width);
-        double cardWidth = Math.Max(1, Math.Floor(width / columns) - CardGap);
+        if (e.WidthChanged) LayoutCards(e.NewSize.Width);
+    }
+
+    internal static int ZoomCardWidth(double displayedWidth, int preferred, int wheelDelta)
+    {
+        // Default cards stretch to fill each row. Start the first wheel movement
+        // from the visible width, not the nominal 440px setting.
+        int current = preferred == PreferredCardWidth
+            ? Math.Clamp((int)Math.Round(displayedWidth), 180, 800)
+            : Math.Clamp(preferred, 180, 800);
+        return Math.Clamp(current + Math.Sign(wheelDelta) * 40, 180, 800);
+    }
+
+    private void ClipArea_PreviewMouseWheel(object sender, MouseWheelEventArgs e)
+    {
+        if (!Keyboard.Modifiers.HasFlag(ModifierKeys.Control))
+        {
+            SmoothGalleryWheel(e);
+            return;
+        }
+        StopGalleryWheel();
+        int target = ZoomCardWidth(CardWidth, _preferredThumbnailWidth, e.Delta);
+        if (target != _preferredThumbnailWidth)
+        {
+            _preferredThumbnailWidth = target;
+            LayoutCards(ClipArea.ActualWidth, refreshCards: true);
+            AppSettings.Current.GalleryThumbnailWidth = target;
+            if (!AppSettings.Current.TrySave())
+                ShowStatus("Could not save the Gallery thumbnail size.");
+        }
+        e.Handled = true; // Ctrl+wheel changes thumbnail size, not the scroll position.
+    }
+
+    private void LayoutCards(double available, bool refreshCards = false)
+    {
+        if (available <= 0) return;
+        double width = Math.Max(1, available - SystemParameters.VerticalScrollBarWidth);
+        int maximum = _preferredThumbnailWidth >= PreferredCardWidth ? 4 : 8;
+        int columns = Math.Clamp((int)(width / (_preferredThumbnailWidth + CardGap)), 1, maximum);
+        double cardWidth = _preferredThumbnailWidth == PreferredCardWidth
+            ? Math.Max(1, Math.Floor(width / columns) - CardGap)
+            : Math.Max(1, Math.Min(_preferredThumbnailWidth, width - CardGap));
         SetValue(CardWidthProperty, cardWidth);
         SetValue(PosterHeightProperty, Math.Max(1, cardWidth - 2) * 9 / 16);
-        if (columns == _columns) return;
+        if (columns == _columns && !refreshCards) return;
         _columns = columns;
+        if (refreshCards) _renderedColumns = 0; // Re-request appropriately sized thumbnails.
         if (_clips.Count > 0) ShowFolder(preserveScroll: true);
     }
 
@@ -888,7 +951,8 @@ public partial class GalleryView : UserControl
 
     private void Poster_MouseEnter(object sender, MouseEventArgs e)
     {
-        if (Window.GetWindow(this)?.IsActive == true && sender is Grid poster && ItemOf(poster) is { } item)
+        if (!_galleryScrollAnimating && Environment.TickCount64 - _lastGalleryWheelMs > 300 &&
+            Window.GetWindow(this)?.IsActive == true && sender is Grid poster && ItemOf(poster) is { } item)
             _hoverPreview.Start(poster, item);
     }
 
@@ -914,6 +978,7 @@ public partial class GalleryView : UserControl
             if (item.Thumbnail != null) RememberThumbnail(item);
             return;
         }
+        if (DeferThumbnailWhileScrolling(card)) return;
         item.ThumbnailWidth = width;
         try
         {

@@ -83,15 +83,44 @@ public sealed class GalleryDiskFolderTests
     }
 
     [Fact]
-    public void Explicit_or_verified_game_labels_are_not_replaced_by_folder_names()
+    public void Terraria_and_tmodloader_share_physical_gallery_parent_while_preserving_separate_game_ids()
+    {
+        var vanilla = new ClipDetails(DateTimeOffset.Now, "Terraria") { GameId = "steam:105600" };
+        var modded = new ClipDetails(DateTimeOffset.Now, "tModLoader") { GameId = "steam:1281930" };
+        var vanillaDisk = GalleryDiskFolders.Locate(@"C:\Clips\Terraria\vanilla.mp4", [Root]);
+        var moddedDisk = GalleryDiskFolders.Locate(@"C:\Clips\Terraria\tModLoader\Calamity\clip.mp4", [Root]);
+        Assert.NotNull(vanillaDisk);
+        Assert.NotNull(moddedDisk);
+        Assert.Equal("Terraria", GalleryDiskFolders.PresentedGame(vanilla, vanillaDisk));
+        Assert.Equal("Terraria", GalleryDiskFolders.PresentedGame(modded, moddedDisk));
+        var rootKey = GalleryDiskFolders.PresentedKey(vanilla, "Terraria", null, physicalFolder: true);
+        Assert.Equal(rootKey,
+            GalleryDiskFolders.PresentedKey(modded, "Terraria", null, physicalFolder: true));
+        Assert.Null(rootKey.GameId);
+        Assert.Equal("steam:1281930", modded.GameId);
+        Assert.Equal(["tModLoader", "Calamity"], moddedDisk.Children);
+        var children = moddedDisk.ChildAncestors().ToArray();
+        Assert.Equal(2, children.Length);
+        Assert.Equal(children[0].Path, children[1].Parent);
+        Assert.True(new GalleryFolderSelection(rootKey, true, PhysicalDirectory: children[0].Path)
+            .Matches(modded, @"C:\Clips\Terraria\tModLoader\Calamity\clip.mp4", rootKey));
+        Assert.False(new GalleryFolderSelection(rootKey, true, PhysicalDirectory: children[0].Path)
+            .Matches(vanilla, @"C:\Clips\Terraria\vanilla.mp4", rootKey));
+    }
+
+    [Fact]
+    public void Physical_folders_control_gallery_label_but_never_rewrite_game_metadata()
     {
         var location = GalleryDiskFolders.Locate(
             @"C:\Clips\Elden Ring\Convergence\clip.mp4", [Root]);
         Assert.NotNull(location);
-        Assert.Equal("Modded Elden Ring", GalleryDiskFolders.PresentedGame(
-            new ClipDetails(DateTimeOffset.Now, "Modded Elden Ring"), location));
-        Assert.Equal("Convergence", GalleryDiskFolders.PresentedGame(
-            new ClipDetails(DateTimeOffset.Now, "Convergence") { GameId = "game-123" }, location));
+        var legacy = new ClipDetails(DateTimeOffset.Now, "Modded Elden Ring");
+        var verified = new ClipDetails(DateTimeOffset.Now, "Convergence") { GameId = "game-123" };
+        Assert.Equal("Elden Ring", GalleryDiskFolders.PresentedGame(legacy, location));
+        Assert.Equal("Elden Ring", GalleryDiskFolders.PresentedGame(verified, location));
+        Assert.Equal("Modded Elden Ring", legacy.Game);
+        Assert.Equal("Convergence", verified.Game);
+        Assert.Equal("game-123", verified.GameId);
         Assert.Null(GalleryDiskFolders.Locate(@"E:\Outside\clip.mp4", [Root]));
     }
 }

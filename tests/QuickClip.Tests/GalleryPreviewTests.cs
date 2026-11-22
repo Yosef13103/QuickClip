@@ -18,6 +18,32 @@ public sealed class GalleryPreviewTests
     public void Gallery_uses_large_cards_without_forcing_a_single_poster_at_desktop_width(double width, int columns) =>
         Assert.Equal(columns, GalleryView.ColumnsForWidth(width));
 
+    [Theory]
+    [InlineData(500, 440, 120, 540)]
+    [InlineData(500, 440, -120, 460)]
+    [InlineData(500, 320, 120, 360)]
+    [InlineData(500, 800, 120, 800)]
+    [InlineData(500, 180, -120, 180)]
+    public void Gallery_ctrl_wheel_resizes_monotonically_from_visible_card_width(
+        double actual, int preferred, int delta, int expected) =>
+        Assert.Equal(expected, GalleryView.ZoomCardWidth(actual, preferred, delta));
+
+    [Fact]
+    public void Gallery_wheel_interpolation_moves_smoothly_and_does_not_overshoot()
+    {
+        double current = 0, target = 900;
+        for (int frame = 0; frame < 60; frame++)
+        {
+            double next = GalleryView.SmoothGalleryOffset(current, target, 1d / 60);
+            Assert.True(next > current);
+            Assert.True(next <= target);
+            current = next;
+        }
+        Assert.InRange(target - current, 0, .01);
+        Assert.Equal(75, GalleryView.SmoothGalleryOffset(75, 75, 0));
+        Assert.InRange(GalleryView.SmoothGalleryOffset(0, target, 10), 0, target);
+    }
+
     [Fact]
     public async Task Cache_key_distinguishes_pixel_buckets_and_replaced_files()
     {

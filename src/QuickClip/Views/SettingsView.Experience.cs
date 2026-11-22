@@ -88,7 +88,7 @@ public partial class SettingsView
         bool basic = IsBasicExperience;
         var advanced = basic ? Visibility.Collapsed : Visibility.Visible;
         foreach (FrameworkElement element in new FrameworkElement[] { CustomSizeAdvanced,
-            CropPreviewAdvanced, EncoderTuningAdvanced, AudioLanesAdvanced,
+            CropPreviewAdvanced, EncoderTuningAdvanced,
             BitrateText, RamText })
             element.Visibility = advanced;
         SplitMusicCheck.Visibility = MusicText.Visibility = !basic && AudioRouting.SeparateTracks ? Visibility.Visible : Visibility.Collapsed;
@@ -141,10 +141,8 @@ public partial class SettingsView
         if (!AppProfile.IsPersonal || BasicAudioHint == null || LegacyAudioPanel == null) return;
         bool basic = IsBasicExperience;
         AudioHint.Visibility = Visibility.Collapsed;
-        EndpointDetailHint.Visibility = EndpointOrderLabel.Visibility = Visibility.Collapsed;
-        EndpointModeCheck.Content = "Choose specific audio devices";
-        foreach (var meter in _endpointMeters.Concat(_legacyMeters))
-            meter.Save.Visibility = basic ? Visibility.Collapsed : Visibility.Visible;
+        EndpointDetailHint.Visibility = basic ? Visibility.Collapsed : Visibility.Visible;
+        EndpointModeCheck.Content = "Choose individual audio sources";
         var settings = AppSettings.Current;
         BasicAudioHint.Text = "";
         if (!settings.UseAudioEndpoints && !_loading && settings.RecordMic && settings.MicDeviceIds.Any(id => id.Length == 0

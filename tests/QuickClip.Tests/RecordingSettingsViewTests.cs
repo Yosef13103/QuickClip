@@ -42,34 +42,60 @@ public sealed class RecordingSettingsViewTests
                 Assert.Empty(view.PlaybackPicker.Items);
                 Assert.False(view.AddPlaybackButton.IsEnabled);
 
-                EndpointTrack saved = new(EndpointFlow.Microphone, mic.Id, "Saved mic");
+                EndpointTrack saved = new(EndpointFlow.Microphone, mic.Id, "Saved mic", true, 65);
                 view.RenderEndpointRows([saved], [render], true);
                 Assert.Single(view.PlaybackPicker.Items);
                 Assert.Empty(view.MicrophonePicker.Items);
-                var track = Assert.IsType<DockPanel>(Assert.Single(view.EndpointRows.Children));
-                var reorder = Assert.IsType<StackPanel>(track.Children[0]);
-                Assert.All(reorder.Children.OfType<Button>(), button => Assert.Same(view.FindResource("IconButton"), button.Style));
-                var fields = Assert.IsType<StackPanel>(track.Children[2]);
-                var rename = Assert.IsType<Button>(fields.Children[0]);
-                Assert.Equal(saved.Label, rename.Content);
-                var nameEditor = Assert.IsType<TextBox>(fields.Children[1]);
-                Assert.Equal(Visibility.Collapsed, nameEditor.Visibility);
+                Assert.Equal("Microphones", Assert.IsType<TextBlock>(view.EndpointRows.Children[0]).Text);
+                var tile = Assert.IsType<Border>(view.EndpointRows.Children[1]);
+                var body = Assert.IsType<StackPanel>(tile.Child);
+                Assert.InRange(tile.Padding.Top, 0, 10);
+                var header = Assert.IsType<DockPanel>(body.Children[0]);
+                var actions = Assert.IsType<StackPanel>(header.Children[0]);
+                var enabled = Assert.IsType<CheckBox>(header.Children[1]);
+                Assert.Equal("Record Microphone track Saved mic", AutomationProperties.GetName(enabled));
+                var identity = Assert.IsType<StackPanel>(header.Children[2]);
+                var nameRow = Assert.IsType<Grid>(identity.Children[0]);
+                Assert.Equal(saved.Label, Assert.IsType<TextBlock>(nameRow.Children[0]).Text);
+                var edit = Assert.IsType<TextBox>(nameRow.Children[1]);
+                Assert.Equal(Visibility.Collapsed, edit.Visibility);
+                var rename = Assert.IsType<Button>(actions.Children[0]);
                 rename.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
-                Assert.Equal(saved.Label, nameEditor.Text);
-                Assert.Equal(Visibility.Visible, nameEditor.Visibility);
-                Assert.Contains("Missing device (selection kept)", Assert.IsType<TextBlock>(fields.Children[2]).Text);
+                Assert.Equal(saved.Label, edit.Text);
+                Assert.Equal(Visibility.Visible, edit.Visibility);
+                Assert.Contains("Device disconnected", Assert.IsType<TextBlock>(identity.Children[1]).Text);
+                var volume = Assert.IsType<Slider>(Assert.IsType<Grid>(body.Children[1])
+                    .Children.OfType<Slider>().Single());
+                Assert.Equal(65, volume.Value);
+                Assert.Contains("Saved mic", AutomationProperties.GetName(volume));
+                // No 'Manage...' expander. Actions sit beside the name, and one test
+                // runs a five-second record+play microphone test.
+                Assert.Empty(body.Children.OfType<Expander>());
+                var iconActions = actions.Children.OfType<Button>().ToArray();
+                Assert.Equal(AppProfile.IsPersonal ? 4 : 3, iconActions.Length);
+                Assert.Same(view.FindResource("AudioSourceIconButton"), iconActions[0].Style);
+                Assert.Same(view.FindResource("AudioSourceRemoveButton"), iconActions[^2].Style);
+                Assert.Same(view.FindResource("AudioSourceDragHandle"), iconActions[^1].Style);
+                Assert.True(tile.AllowDrop);
+                Assert.All(iconActions, button => Assert.NotEmpty(AutomationProperties.GetName(button)));
                 if (AppProfile.IsPersonal)
                 {
-                    var meter = Assert.IsType<StackPanel>(fields.Children[3]);
+                    Assert.Equal("Test mic", iconActions[1].Content);
+                    Assert.Same(view.FindResource("AudioSourceTestButton"), iconActions[1].Style);
+                    var meter = Assert.IsType<StackPanel>(body.Children[2]);
                     Assert.Equal("microphone Saved mic activity", AutomationProperties.GetName(meter.Children[0]));
-                    var actions = Assert.IsType<WrapPanel>(meter.Children[2]);
-                    Assert.All(actions.Children.OfType<Button>(), button => Assert.Same(view.FindResource("TextButton"), button.Style));
-                    Assert.Equal("Test microphone", Assert.IsType<Button>(actions.Children[0]).Content);
-                    Assert.Equal("Record 5 seconds", Assert.IsType<Button>(actions.Children[1]).Content);
-                    Assert.False(Assert.IsType<Button>(actions.Children[2]).IsEnabled);
-                    Assert.False(Assert.IsType<Button>(actions.Children[3]).IsEnabled);
+                    Assert.Equal(2, meter.Children.Count); // signal + status only
                 }
-
+                Assert.Empty(view.EndpointPanel.Children.OfType<Expander>());
+                view.RenderEndpointRows(
+                    [new(EndpointFlow.Microphone, mic.Id, "Mic", true),
+                     new(EndpointFlow.Playback, render.Id, "Game", true),
+                     new(EndpointFlow.Playback, alternate.Id, "Media", false)],
+                    [mic, render, alternate], true);
+                Assert.Equal("Playback", Assert.IsType<TextBlock>(view.EndpointRows.Children[0]).Text);
+                Assert.Equal("Microphones", Assert.IsType<TextBlock>(view.EndpointRows.Children[3]).Text);
+                var disabled = view.EndpointRows.Children.OfType<Border>().FirstOrDefault(b => b.Opacity < 1);
+                Assert.NotNull(disabled);
                 view.HotkeysSection.IsChecked = true;
                 var size = new Size(1050, 660);
                 view.Measure(size);
