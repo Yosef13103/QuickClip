@@ -426,6 +426,7 @@ namespace qc
         void CheckAuthorizedVideoStall(int64_t now)
         {
             std::lock_guard guard(videoLock);
+            if (stop) return; // quiescing a valid completed epoch must not clear its encoded ring
             const int64_t last = lastFrameUs;
             if (last != 0 && now - last >= 10'000'000) InvalidateVideoLocked();
         }
@@ -888,15 +889,41 @@ namespace qc
                 int64_t maxWaitUs = 0, maxSubmitUs = 0;
             } timing;
             HMONITOR boundMonitor = nullptr;
+            int boundWidth = 0, boundHeight = 0;
             int64_t nextDisplayCheck = 0;
             auto current = [&] {
                 return !s->stop && !s->videoSourceLost &&
                     !s->epochRotationRequired && s->generation == generation;
             };
+            auto rotateVerifiedResize = [&] {
+                // A physical display mode change can invalidate the old DXGI output before
+                // encoder format comparison. Keep its already-encoded GOP only when the
+                // same live game/process is still on the same independently identified
+                // physical display, with changed source geometry. All other losses discard.
+                if (!current() || !s->AuthorizedDuplication() || !s->game.handle ||
+                    boundWidth <= 0 || boundHeight <= 0) return false;
+                MonitorTarget updated;
+                if (!FindMonitor(s->monitorDevice, updated) ||
+                    !MatchesDisplayIdentity(s->monitorDevice, s->displayIdentity) ||
+                    (updated.width == boundWidth && updated.height == boundHeight) ||
+                    !GameOnMonitor(s->game, s->gameProcess,
+                        reinterpret_cast<HMONITOR>(updated.hmonitor))) return false;
+                FILETIME created{}, exited{}, kernel{}, user{};
+                if (!GetProcessTimes(s->gameProcess, &created, &exited, &kernel, &user) ||
+                    ((static_cast<uint64_t>(created.dwHighDateTime) << 32) |
+                        created.dwLowDateTime) != static_cast<uint64_t>(s->game.started))
+                    return false;
+                std::lock_guard guard(s->videoLock);
+                if (!current()) return false;
+                s->epochRotationRequired = true;
+                s->hasVideoOutput = false;
+                Log(LogCategory::Capture, "Verified physical display resized; ending encoded game epoch");
+                return true;
+            };
             auto verifySource = [&](bool checkDisplay) {
                 if (GameOnMonitor(s->game, s->gameProcess, boundMonitor) &&
                     (!checkDisplay || MatchesDisplayIdentity(s->monitorDevice, s->displayIdentity))) return true;
-                if (current()) s->InvalidateVideo();
+                if (current() && !rotateVerifiedResize()) s->InvalidateVideo();
                 return false;
             };
             auto closeCapture = [&] {
@@ -1026,6 +1053,8 @@ namespace qc
                         s->video = info;
                         source = ++s->nextSource;
                     }
+                    boundWidth = monitor.width;
+                    boundHeight = monitor.height;
                     s->width = pipe.encoder->width;
                     s->height = pipe.encoder->height;
                     s->usingDuplication = pipe.duplication;
@@ -1087,7 +1116,7 @@ namespace qc
                         Sleep(1);
                         continue;
                     }
-                    if (s->AuthorizedDuplication()) { s->InvalidateVideo(); break; }
+                    if (s->AuthorizedDuplication()) { if (!rotateVerifiedResize()) s->InvalidateVideo(); break; }
                     Log(LogCategory::Capture, "Capture interrupted; restarting", LogSeverity::Warning, ret);
                     closeCapture();
                     Sleep(500);
@@ -1112,7 +1141,7 @@ namespace qc
                 if (!pipe.scaler.Apply(frame, scaleError))
                 {
                     av_frame_unref(frame);
-                    if (s->AuthorizedDuplication()) { s->InvalidateVideo(); break; }
+                    if (s->AuthorizedDuplication()) { if (!rotateVerifiedResize()) s->InvalidateVideo(); break; }
                     Log(LogCategory::Capture, "Video scaling failed; restarting capture", LogSeverity::Error);
                     closeCapture();
                     Sleep(500);
@@ -1166,7 +1195,7 @@ namespace qc
                 av_frame_unref(frame);
                 if (ret < 0)
                 {
-                    if (s->AuthorizedDuplication()) { s->InvalidateVideo(); break; }
+                    if (s->AuthorizedDuplication()) { if (!rotateVerifiedResize()) s->InvalidateVideo(); break; }
                     Log(LogCategory::Capture, "Encoding failed; restarting capture", LogSeverity::Error, ret);
                     closeCapture();
                     continue;
@@ -1550,6 +1579,7 @@ namespace qc
         while (!shared_->stop)
         {
             Sleep(250);
+            if (shared_->stop) break; // do not report a source stall after shutdown was requested
             int64_t now = NowUs(), quiet = now - shared_->lastFrameUs;
             if (shared_->AuthorizedDuplication())
             {
