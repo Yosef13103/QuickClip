@@ -1,5 +1,6 @@
 #include "GroupCapture.h"
 #include "Engine.h"
+#include "DetachedEpochArchive.h"
 #include "GpuScale.h"
 
 #include <dxgi1_2.h>
@@ -394,7 +395,10 @@ namespace qc
     /// (e.g. a static screen with window capture) can't touch freed memory after Stop gives up on it.
     struct Engine::Shared
     {
-        explicit Shared(int64_t windowUs, int64_t maxBytes = 0) : ring(windowUs, maxBytes) {}
+        explicit Shared(int64_t windowUs, int64_t maxBytes = 0)
+            : ring(windowUs, maxBytes), replayWindowUs(windowUs), replayBudgetBytes(maxBytes) {}
+        int64_t replayWindowUs = 0;
+        int64_t replayBudgetBytes = 0;
 
         std::wstring monitorDevice;
         std::wstring displayIdentity;
@@ -405,6 +409,10 @@ namespace qc
         std::atomic<int> companionRevision{0};
         HANDLE gameProcess = nullptr;
         std::atomic<bool> videoSourceLost{ false };
+        // A verified game encoder changed dimensions/codec. Stop adding packets
+        // without destroying the old decodable ring; managed recorder will reauthorize
+        // and start a fresh graph. Never set for an actual source/consent loss.
+        std::atomic<bool> epochRotationRequired{ false };
         bool AuthorizedDuplication() const { return !displayIdentity.empty() && videoOptions.backend == 3; }
         void InvalidateVideo()
         {
@@ -435,7 +443,7 @@ namespace qc
             if (AuthorizedDuplication())
             {
                 std::lock_guard guard(videoLock);
-                if (videoSourceLost) av_packet_free(&packet);
+                if (videoSourceLost || epochRotationRequired) av_packet_free(&packet);
                 else ring.Push(packet, stream, timeUs, true);
             }
             else ring.Push(packet, stream, timeUs, true);
@@ -881,7 +889,10 @@ namespace qc
             } timing;
             HMONITOR boundMonitor = nullptr;
             int64_t nextDisplayCheck = 0;
-            auto current = [&] { return !s->stop && !s->videoSourceLost && s->generation == generation; };
+            auto current = [&] {
+                return !s->stop && !s->videoSourceLost &&
+                    !s->epochRotationRequired && s->generation == generation;
+            };
             auto verifySource = [&](bool checkDisplay) {
                 if (GameOnMonitor(s->game, s->gameProcess, boundMonitor) &&
                     (!checkDisplay || MatchesDisplayIdentity(s->monitorDevice, s->displayIdentity))) return true;
@@ -999,6 +1010,16 @@ namespace qc
                         if (!current()) break;
                         if (s->video && !SameVideoFormat(*s->video, *info))
                         {
+                            if (s->game.handle && s->AuthorizedDuplication())
+                            {
+                                // A changed stream cannot be appended to the old GOP.
+                                // Preserve its encoded packets and let the verified
+                                // managed lifecycle seal them before a new graph starts.
+                                s->epochRotationRequired = true;
+                                s->hasVideoOutput = false;
+                                Log(LogCategory::Capture, "Game video format changed; ending encoded epoch");
+                                break;
+                            }
                             Log(LogCategory::Capture, "Video format changed; starting a new replay buffer");
                             s->ring.Clear();
                         }
@@ -1426,7 +1447,12 @@ namespace qc
 
     bool Engine::VideoSourceLost() const
     {
-        return shared_->videoSourceLost;
+        return shared_->videoSourceLost || shared_->epochRotationRequired;
+    }
+
+    bool Engine::EpochRotationPending() const
+    {
+        return shared_->epochRotationRequired && !shared_->videoSourceLost;
     }
 
     bool Engine::HasVideoOutput() const
@@ -1549,6 +1575,13 @@ namespace qc
 
     Engine::~Engine()
     {
+        Quiesce();
+    }
+
+    void Engine::Quiesce()
+    {
+        if (quiesced_) return;
+        quiesced_ = true;
         shared_->stop = true;
         if (watchThread_.joinable()) watchThread_.join();
         if (audioThread_.joinable()) audioThread_.join();
@@ -1565,6 +1598,159 @@ namespace qc
             if (shared_->runningVideoThreads == 0) videoThread_.join();
             else videoThread_.detach();
         }
+    }
+
+
+    bool Engine::TestEpochRotationRetainsOnlyOldEncodedPackets()
+    {
+        Shared state(10'000'000, 512);
+        state.displayIdentity = L"synthetic";
+        state.videoOptions.backend = 3;
+        AVPacket* video = av_packet_alloc();
+        if (!video || av_new_packet(video, 128) < 0)
+        {
+            av_packet_free(&video);
+            return false;
+        }
+        state.ring.Push(video, 0, 100'000, true, 1);
+        state.epochRotationRequired = true;
+        AVPacket* lateAudio = av_packet_alloc();
+        if (!lateAudio || av_new_packet(lateAudio, 64) < 0)
+        {
+            av_packet_free(&lateAudio);
+            return false;
+        }
+        state.PushAudio(lateAudio, 1, 200'000);
+        int64_t bytes = 0;
+        double seconds = 0;
+        state.ring.Stats(bytes, seconds);
+        if (bytes != 128 || state.videoSourceLost || !state.epochRotationRequired)
+            return false;
+        auto packets = state.ring.Drain();
+        const bool intact = packets.size() == 1 && packets[0].stream == 0 &&
+            packets[0].key && packets[0].packet && packets[0].packet->size == 128;
+        for (auto& packet : packets) av_packet_free(&packet.packet);
+        return intact;
+    }
+
+    bool Engine::AuthorizedGameEpoch() const
+    {
+        if (!shared_->game.handle || !shared_->AuthorizedDuplication() ||
+            shared_->videoSourceLost || !shared_->gameProcess) return false;
+        MonitorTarget monitor;
+        if (!FindMonitor(shared_->monitorDevice, monitor) ||
+            !MatchesDisplayIdentity(shared_->monitorDevice, shared_->displayIdentity) ||
+            !GameOnMonitor(shared_->game, shared_->gameProcess,
+                reinterpret_cast<HMONITOR>(monitor.hmonitor))) return false;
+
+        // HWND/PID alone are not reusable authorization: check the process start,
+        // including when Windows has reused a PID during a long capture.
+        FILETIME created{}, exited{}, kernel{}, user{};
+        if (!GetProcessTimes(shared_->gameProcess, &created, &exited, &kernel, &user)) return false;
+        return ((static_cast<uint64_t>(created.dwHighDateTime) << 32) |
+            created.dwLowDateTime) == static_cast<uint64_t>(shared_->game.started);
+    }
+
+    QcGameWindow Engine::VerifiedGameIdentity() const
+    {
+        return AuthorizedGameEpoch() ? shared_->game : QcGameWindow{};
+    }
+
+    int64_t Engine::ReplayMemoryBudget() const { return shared_->replayBudgetBytes; }
+    int64_t Engine::ReplayWindowUs() const { return shared_->replayWindowUs; }
+    int64_t Engine::ReplayClockStartUs() const { return shared_->t0; }
+
+    void Engine::SetEpochPressureHandler(std::function<void(int64_t)> callback)
+    {
+        shared_->ring.SetMemoryPressureHandler(std::move(callback));
+    }
+
+    bool Engine::SealEpoch(DetachedEpochArchive& archive, uint64_t logicalSession,
+        uint64_t epochId, uint64_t grantRevision, const std::string& scope,
+        std::string& error)
+    {
+        if (!quiesced_ || logicalSession == 0 || epochId == 0 ||
+            scope.empty() || scope.size() > 512 || !AuthorizedGameEpoch())
+        {
+            error = "Only a quiesced, independently authorized game graph may seal an epoch.";
+            return false;
+        }
+
+        // Encoder contexts are stable after audio/video workers have stopped.
+        // Copy only the small codec descriptors; packet payload ownership moves
+        // from the ring into the archive, with no extra compressed-data copy.
+        struct Pending
+        {
+            std::vector<AVCodecParameters*> parameters;
+            std::vector<PacketRing::Entry> packets;
+            ~Pending()
+            {
+                for (auto*& param : parameters) avcodec_parameters_free(&param);
+                for (auto& packet : packets) av_packet_free(&packet.packet);
+            }
+        } pending;
+        std::vector<AVRational> bases;
+        std::vector<std::string> titles;
+        {
+            std::scoped_lock guard(shared_->infoLock, shared_->videoLock);
+            if (!shared_->video || !shared_->video->params)
+            {
+                error = "A decodable video stream is unavailable.";
+                return false;
+            }
+            AVCodecParameters* video = avcodec_parameters_alloc();
+            if (!video) { error = "Could not allocate an epoch video descriptor."; return false; }
+            pending.parameters.push_back(video);
+            if (avcodec_parameters_copy(video, shared_->video->params) < 0)
+            {
+                error = "Could not copy the epoch video codec.";
+                return false;
+            }
+            bases.push_back(shared_->video->timeBase);
+            titles.emplace_back("Video");
+            auto appendAudio = [&](const AVCodecContext* codec, const std::string& title) {
+                if (!codec) return false;
+                AVCodecParameters* parameter = avcodec_parameters_alloc();
+                if (!parameter) return false;
+                pending.parameters.push_back(parameter);
+                if (avcodec_parameters_from_context(parameter, codec) < 0) return false;
+                bases.push_back(AVRational{ 1, SampleRate });
+                titles.push_back(title);
+                return true;
+            };
+            if (hybridAudio_ && !appendAudio(playbackMixEncoder_.Context(), "QuickClip Full Mix"))
+            {
+                error = "Could not preserve the listening-mix codec.";
+                return false;
+            }
+            for (const auto& track : tracks_)
+                if (!appendAudio(track->encoder.Context(), track->title))
+                {
+                    error = "Could not preserve an audio-track codec.";
+                    return false;
+                }
+            pending.packets = shared_->ring.Drain();
+        }
+        // The first retained video packet must be a genuine decoder entry point.
+        auto firstKey = std::find_if(pending.packets.begin(), pending.packets.end(),
+            [](const PacketRing::Entry& e) { return e.stream == 0 && e.key; });
+        if (firstKey == pending.packets.end())
+        {
+            error = "No decodable keyframe is retained.";
+            return false;
+        }
+        const int64_t firstUs = firstKey->timeUs;
+        for (auto& e : pending.packets)
+            if (e.timeUs < firstUs) av_packet_free(&e.packet);
+        pending.packets.erase(std::remove_if(pending.packets.begin(), pending.packets.end(),
+            [](const PacketRing::Entry& e) { return e.packet == nullptr; }), pending.packets.end());
+
+        DetachedEpochArchive::Header header{
+            logicalSession, epochId, scope, grantRevision, shared_->t0 };
+        const bool accepted = archive.AppendOwned(header, pending.packets,
+            pending.parameters, bases, titles);
+        if (!accepted) error = "The completed epoch failed decoder, timing, or memory validation.";
+        return accepted;
     }
 
     void Engine::SetAudioProcesses(DWORD desktopExclude, const std::vector<DWORD>& desktopInclude,

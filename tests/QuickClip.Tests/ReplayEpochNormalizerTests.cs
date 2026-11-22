@@ -335,6 +335,61 @@ public sealed class ReplayEpochNormalizerTests
         finally { Directory.Delete(temp, recursive: true); }
     }
 
+
+    [Fact]
+    public async Task Explicit_save_joins_detached_mkv_and_current_mp4_discloses_gap_and_cleans_scratch()
+    {
+        string ffmpeg = Path.Combine(AppContext.BaseDirectory, "ffmpeg", "ffmpeg.exe");
+        string ffprobe = Path.Combine(AppContext.BaseDirectory, "ffmpeg", "ffprobe.exe");
+        string temp = Path.Combine(Path.GetTempPath(), "QuickClip-Epoch-LiveSave-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(temp);
+        try
+        {
+            string archive = Path.Combine(temp, "archive.mkv");
+            string active = Path.Combine(temp, "active.mp4");
+            await MakeFixture(ffmpeg, archive, 640, 360, 440);
+            await MakeFixture(ffmpeg, active, 960, 400, 550);
+            var proof = new ReplayEpochGameProof("synthetic:game", @"C:\Games\synthetic.exe",
+                new WindowOwner(new IntPtr(1), 1, 1, 1), "DISPLAY-A", 1, 1, 1,
+                true, true, true);
+            Guid session = Guid.NewGuid();
+            var retained = new[] { new CaptureEngine.EpochDescriptor
+            {
+                EpochId = 7, FirstUs = 0, LastUs = 2_000_000,
+                Width = 640, Height = 360, CompressedBytes = new FileInfo(archive).Length
+            } };
+            var currentSpan = new CaptureEngine.ReplaySpan
+            {
+                FirstUs = 0, LastUs = 1_966_667, DurationUs = 2_000_000,
+            };
+            var currentVideo = new CaptureEngine.ReplayVideo
+            {
+                Width = 960, Height = 400, FpsNumerator = 30, FpsDenominator = 1,
+            };
+            var request = new CaptureEngine.ReplayPosition { EventUs = 2_000_000 };
+            var result = await ReplayEpochLiveSaver.MergeAsync(
+                session, proof, retained, 3_000_000, request, 5, currentSpan, currentVideo,
+                30, active, temp, ffmpeg, ffprobe, CancellationToken.None,
+                syntheticEpochWriter: (id, destination, _) =>
+                {
+                    Assert.Equal(7UL, id);
+                    File.Copy(archive, destination);
+                    return Task.CompletedTask;
+                });
+            Assert.NotNull(result);
+            Assert.Equal(2, result.EpochCount);
+            Assert.Equal(TimeSpan.FromSeconds(1), result.Omitted);
+            Assert.InRange(result.Duration.TotalSeconds, 3.9, 4.15);
+            Assert.Equal((960, 400), (result.Width, result.Height));
+            Assert.True(File.Exists(archive) && File.Exists(active) && File.Exists(result.Path));
+            Assert.DoesNotContain(Directory.GetDirectories(temp), name =>
+                Path.GetFileName(name).StartsWith(".qc-e-", StringComparison.OrdinalIgnoreCase));
+            await Run(ffmpeg, ["-v", "error", "-nostdin", "-i", result.Path,
+                "-map", "0", "-f", "null", "-"]);
+        }
+        finally { Directory.Delete(temp, recursive: true); }
+    }
+
     private static Task MakeAv1Fixture(string ffmpeg, string file, int width, int height) =>
         Run(ffmpeg,
             ["-hide_banner", "-v", "error", "-nostdin", "-y",
@@ -355,7 +410,8 @@ public sealed class ReplayEpochNormalizerTests
             "-map", "0:v:0", "-map", "1:a:0", "-map", "2:a:0",
             "-c:v", "libx264", "-preset", "ultrafast", "-threads", "2", "-pix_fmt", "yuv420p",
             "-c:a", "aac", "-b:a", "96k", "-shortest",
-            "-metadata:s:a:0", "title=" + firstAudioTitle, "-metadata:s:a:1", "title=Microphone", file]);
+            "-metadata:s:a:0", "title=" + firstAudioTitle, "-metadata:s:a:0", "handler_name=" + firstAudioTitle,
+            "-metadata:s:a:1", "title=Microphone", "-metadata:s:a:1", "handler_name=Microphone", file]);
 
     private static async Task Run(string exe, IReadOnlyList<string> args)
     {

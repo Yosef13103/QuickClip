@@ -1,6 +1,7 @@
 // C API used by the QuickClip app (see QuickClip/Recording/CaptureEngine.cs).
 #include "Engine.h"
 #include "DetachedEpochArchive.h"
+#include "LiveEpochStore.h"
 #include <algorithm>
 #include <cmath>
 
@@ -13,6 +14,14 @@ namespace
 
     std::shared_mutex g_engineLock;   // Save holds it shared; start/stop exclusively
     std::unique_ptr<qc::Engine> g_engine;
+    // Protected by g_engineLock for state changes; each archive separately
+    // synchronizes packet-pressure and its off-thread reclamation.
+    std::shared_ptr<qc::LiveEpochStore> g_epochs;
+    void DiscardEpochsLocked()
+    {
+        if (g_epochs) g_epochs->Discard();
+        g_epochs.reset();
+    }
     std::mutex g_micTestLock;
     std::unique_ptr<qc::AudioSource> g_micTest;
     int64_t g_micTestToken = 0;
@@ -81,20 +90,37 @@ namespace
     {
         std::unique_lock guard(g_engineLock);
         DrainMicrophoneTest();
+        // A direct start while another engine exists has no authorized epoch
+        // handoff. A new manual/companion/different-process scope revokes history.
+        if (g_engine || !game || !displayIdentity || !g_epochs ||
+            !g_epochs->SameProcess(*game)) DiscardEpochsLocked();
         g_engine.reset();
         try
         {
             auto engine = std::make_unique<qc::Engine>(config, endpointMode, endpoints, count, video, displayIdentity, game, companion, companionCount);
+            // The adaptive limit can fall when system RAM becomes scarce.
+            // Never use the prior graph's larger ceiling for this new ring.
+            if (g_epochs && engine->ReplayMemoryBudget() < g_epochs->Budget())
+                DiscardEpochsLocked();
+            if (g_epochs)
+            {
+                std::weak_ptr<qc::LiveEpochStore> weak = g_epochs;
+                engine->SetEpochPressureHandler([weak](int64_t activeBytes) {
+                    if (auto store = weak.lock()) store->Pressure(activeBytes);
+                });
+            }
             std::string message;
             if (engine->Start(message))
             {
                 g_engine = std::move(engine);
                 return 1;
             }
+            DiscardEpochsLocked();
             CopyError(message, error, length);
         }
         catch (const std::exception& ex)
         {
+            DiscardEpochsLocked();
             CopyError(ex.what(), error, length);
         }
         return 0;
@@ -452,7 +478,170 @@ extern "C"
     {
         std::unique_lock guard(g_engineLock);
         DrainMicrophoneTest();
+        DiscardEpochsLocked();
         g_engine.reset();
+    }
+
+    // The caller must have revalidated the game/catalog/physical-display grant.
+    // Native independently verifies the live HWND, process creation time and display
+    // before sealing; a caller's label or token can never authorize screen capture.
+    __declspec(dllexport) int qc_seal_game_epoch_and_stop(
+        uint64_t session, uint64_t epoch, uint64_t grant, const char* scope,
+        wchar_t* error, int errorLength)
+    {
+        std::unique_lock guard(g_engineLock);
+        if (!g_engine || !scope || !session || !epoch ||
+            strnlen_s(scope, 513) == 0 || strnlen_s(scope, 513) > 512)
+        {
+            DiscardEpochsLocked();
+            g_engine.reset();
+            CopyError("Invalid game epoch handoff.", error, errorLength);
+            return 0;
+        }
+
+        bool accepted = false;
+        try
+        {
+            const auto owner = g_engine->VerifiedGameIdentity();
+            if (owner.handle)
+            {
+                const std::string sourceScope(scope);
+                std::shared_ptr<qc::LiveEpochStore> store = g_epochs;
+                if (store && (!store->Matches(session, grant, sourceScope) ||
+                    !store->SameProcess(owner)))
+                {
+                    DiscardEpochsLocked();
+                    store.reset();
+                }
+                if (!store)
+                    store = std::make_shared<qc::LiveEpochStore>(session, grant,
+                        sourceScope, owner, g_engine->ReplayMemoryBudget(),
+                        g_engine->ReplayWindowUs());
+
+                g_engine->Quiesce();
+                // Re-check after workers shut down; a stale capture window cannot
+                // become a retained epoch merely because Start once succeeded.
+                if (g_engine->AuthorizedGameEpoch())
+                {
+                    std::string message;
+                    accepted = store->Append(*g_engine, session, epoch, grant,
+                        sourceScope, message);
+                    if (!accepted) CopyError(message, error, errorLength);
+                    else g_epochs = std::move(store);
+                }
+                else CopyError("Game ownership or display authorization changed before handoff.",
+                    error, errorLength);
+            }
+            else CopyError("Game authorization was lost before handoff.", error, errorLength);
+        }
+        catch (const std::exception& ex)
+        {
+            CopyError(ex.what(), error, errorLength);
+        }
+
+        if (!accepted) DiscardEpochsLocked();
+        g_engine.reset();
+        return accepted ? 1 : 0;
+    }
+
+    __declspec(dllexport) void qc_discard_epochs()
+    {
+        std::unique_lock guard(g_engineLock);
+        DiscardEpochsLocked();
+    }
+
+    __declspec(dllexport) int qc_retained_epoch_count(uint64_t session, uint64_t grant,
+        const char* scope, int64_t* bytes)
+    {
+        std::shared_lock guard(g_engineLock);
+        if (bytes) *bytes = 0;
+        if (!g_epochs || !scope || strnlen_s(scope, 513) > 512 ||
+            !g_epochs->Matches(session, grant, scope)) return 0;
+        if (bytes) *bytes = g_epochs->Bytes();
+        return static_cast<int>(g_epochs->Count());
+    }
+
+
+    // Read-only snapshot of independently owned encoded epochs. All timestamps
+    // use the same Windows QPC clock; no disk writes or packet cloning.
+    __declspec(dllexport) int qc_list_game_epochs(
+        uint64_t session, uint64_t grant, const char* scope,
+        QcEpochDescriptor* output, int capacity, int64_t* activeGraphStartUs)
+    {
+        if (activeGraphStartUs) *activeGraphStartUs = 0;
+        if (!output || capacity <= 0 || capacity > 32 || !scope ||
+            strnlen_s(scope, 513) > 512) return 0;
+        std::shared_lock guard(g_engineLock);
+        if (!g_engine || !g_epochs || !g_engine->AuthorizedGameEpoch() ||
+            !g_epochs->Matches(session, grant, scope) ||
+            !g_epochs->SameProcess(g_engine->VerifiedGameIdentity())) return 0;
+
+        if (activeGraphStartUs) *activeGraphStartUs = g_engine->ReplayClockStartUs();
+        int n = 0;
+        const auto count = g_epochs->Count();
+        for (size_t i = 0; i < count && n < capacity; ++i)
+        {
+            auto epoch = g_epochs->Pin(i);
+            if (!epoch || !epoch->codecs[0]) continue;
+            output[n++] = { epoch->header.epochId,
+                epoch->startUs, epoch->endUs,
+                epoch->codecs[0]->width, epoch->codecs[0]->height,
+                epoch->bytes };
+        }
+        return n;
+    }
+
+    // The only disk operation for retained history is an explicit Save Clip
+    // request. The archive mutex is released before even opening the MKV file.
+    __declspec(dllexport) int qc_write_game_epoch(
+        uint64_t session, uint64_t grant, const char* scope, uint64_t epochId,
+        const wchar_t* destination, wchar_t* error, int errorLength)
+    {
+        if (!scope || strnlen_s(scope, 513) > 512 || !destination ||
+            !*destination || !epochId)
+        {
+            CopyError("Invalid archived epoch export.", error, errorLength);
+            return 0;
+        }
+
+        std::shared_ptr<qc::LiveEpochStore> store;
+        std::shared_ptr<const qc::DetachedEpochArchive::Epoch> epoch;
+        {
+            std::shared_lock guard(g_engineLock);
+            if (!g_engine || !g_epochs || !g_engine->AuthorizedGameEpoch() ||
+                !g_epochs->Matches(session, grant, scope) ||
+                !g_epochs->SameProcess(g_engine->VerifiedGameIdentity()))
+            {
+                CopyError("Archived epoch source is no longer authorized.", error, errorLength);
+                return 0;
+            }
+            store = g_epochs;
+            epoch = store->PinById(epochId);
+        }
+        if (!epoch)
+        {
+            CopyError("The requested archived epoch has expired.", error, errorLength);
+            return 0;
+        }
+
+        std::string failure;
+        bool written = qc::DetachedEpochArchive::WritePinnedSegment(
+            *epoch, destination, failure);
+        {
+            std::shared_lock guard(g_engineLock);
+            if (g_epochs != store || store->Revoked() || !g_engine ||
+                !g_engine->AuthorizedGameEpoch() ||
+                !store->SameProcess(g_engine->VerifiedGameIdentity()) ||
+                !store->Matches(session, grant, scope))
+            {
+                if (written) DeleteFileW(destination);
+                CopyError("Archived epoch authorization changed while saving.",
+                    error, errorLength);
+                return 0;
+            }
+        }
+        if (!written) CopyError(failure, error, errorLength);
+        return written ? 1 : 0;
     }
 
     __declspec(dllexport) void qc_set_audio_processes(uint32_t desktopExclude, const uint32_t* desktopInclude, int desktopCount,
@@ -524,6 +713,7 @@ extern "C"
         *stats = {};
         if (!g_engine) return 0;
         g_engine->GetStats(*stats);
+        if (g_epochs) stats->bufferBytes += g_epochs->Bytes();
         return 1;
     }
 
@@ -531,6 +721,12 @@ extern "C"
     {
         std::shared_lock guard(g_engineLock);
         return g_engine && g_engine->VideoSourceLost();
+    }
+
+    __declspec(dllexport) int qc_epoch_rotation_pending()
+    {
+        std::shared_lock guard(g_engineLock);
+        return g_engine && g_engine->EpochRotationPending();
     }
 
     __declspec(dllexport) int qc_has_video_output()
@@ -542,6 +738,11 @@ extern "C"
     __declspec(dllexport) int qc_test_authorized_video_invalidation(int stall)
     {
         return qc::Engine::TestAuthorizedVideoInvalidation(stall != 0);
+    }
+
+    __declspec(dllexport) int qc_test_epoch_rotation_buffer()
+    {
+        return qc::Engine::TestEpochRotationRetainsOnlyOldEncodedPackets() ? 1 : 0;
     }
 
     __declspec(dllexport) int qc_get_replay_position(QcReplayPosition* position)
@@ -993,5 +1194,22 @@ extern "C" __declspec(dllexport) int qc_test_epoch_packet_transfer()
     double activeSeconds = 0;
     active.Stats(activeBytes, activeSeconds);
     if (activeBytes + archive.Bytes() > 192 || activeBytes != 192) return 0;
+
+    // Time eviction happens even when current bitrate is far below the cap.
+    // A pinned export retains encoded buffers until it has finished safely.
+    qc::DetachedEpochArchive timed(192, 10'000'000);
+    Owned timedOwner;
+    {
+        qc::PacketRing graph(10'000'000, 192);
+        if (!insert(graph, 0) || !insert(graph, 1) || !drain(graph, timedOwner))
+            return 0;
+    }
+    if (!timed.AppendOwned(firstHeader, timedOwner.packets, parameters, bases) ||
+        timed.Count() != 1) return 0;
+    auto pinned = timed.Pin(0);
+    std::vector<std::shared_ptr<const qc::DetachedEpochArchive::Epoch>> retired;
+    timed.TrimExpired(13'000'000, &retired);
+    if (timed.Count() != 0 || timed.Bytes() != 0 || retired.size() != 1 ||
+        retired[0] != pinned || pinned->packets.size() != 2) return 0;
     return 1;
 }

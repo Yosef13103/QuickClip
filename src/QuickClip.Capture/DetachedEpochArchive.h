@@ -131,7 +131,7 @@ namespace qc
             if (!epochs_.empty() && startUs <= epochs_.back()->endUs)
                 return false; // Overlap requires explicit timeline reconciliation.
 
-            auto epoch = std::make_unique<Epoch>(header);
+            auto epoch = std::make_shared<Epoch>(header);
             for (size_t i = 0; i < codecs.size(); ++i)
             {
                 auto* param = codecs[i];
@@ -155,7 +155,8 @@ namespace qc
 
             // Evict before adopting packets: a new epoch must not temporarily double
             // the archive's retained data beyond its own byte/time budget.
-            while (!epochs_.empty() && (bytes_ > maxBytes_ - bytes ||
+            while (!epochs_.empty() && (epochs_.size() >= 32 ||
+                bytes_ > maxBytes_ - bytes ||
                 (endUs - epochs_.front()->endUs > retentionUs_)))
             {
                 bytes_ -= epochs_.front()->bytes;
@@ -175,12 +176,28 @@ namespace qc
 
         // Only call while the archive owner serializes reads/writes. A live ring
         // can use this to evict older epochs before retaining newly encoded data.
-        void TrimToBytes(int64_t allowedBytes)
+        void TrimToBytes(int64_t allowedBytes,
+            std::vector<std::shared_ptr<const Epoch>>* retired = nullptr)
         {
             allowedBytes = std::clamp<int64_t>(allowedBytes, 0, maxBytes_);
             while (!epochs_.empty() && bytes_ > allowedBytes)
             {
                 bytes_ -= epochs_.front()->bytes;
+                if (retired) retired->push_back(std::move(epochs_.front()));
+                epochs_.pop_front();
+            }
+        }
+
+        // Time retention is independent of byte pressure: an old graph must
+        // expire even if the current game is encoding at a very low bitrate.
+        void TrimExpired(int64_t newestGlobalUs,
+            std::vector<std::shared_ptr<const Epoch>>* retired = nullptr)
+        {
+            while (!epochs_.empty() && newestGlobalUs > epochs_.front()->endUs &&
+                newestGlobalUs - epochs_.front()->endUs > retentionUs_)
+            {
+                bytes_ -= epochs_.front()->bytes;
+                if (retired) retired->push_back(std::move(epochs_.front()));
                 epochs_.pop_front();
             }
         }
@@ -188,13 +205,19 @@ namespace qc
         size_t Count() const { return epochs_.size(); }
         int64_t Bytes() const { return bytes_; }
         const Epoch* At(size_t index) const { return index < epochs_.size() ? epochs_[index].get() : nullptr; }
+        std::shared_ptr<const Epoch> Pin(size_t index) const
+        {
+            return index < epochs_.size() ? epochs_[index] : nullptr;
+        }
         void Clear() { epochs_.clear(); bytes_ = 0; }
 
-        // Experimental fixture/export adapter. No live capture path calls this.
+        // A caller may pin an epoch under the archive mutex, then write the
+        // segment without holding any capture or archive lock.
         bool WriteSegment(size_t index, const std::wstring& path, std::string& error) const;
+        static bool WritePinnedSegment(const Epoch& epoch, const std::wstring& path, std::string& error);
 
     private:
-        std::deque<std::unique_ptr<Epoch>> epochs_;
+        std::deque<std::shared_ptr<Epoch>> epochs_;
         int64_t maxBytes_ = 0, retentionUs_ = 0, bytes_ = 0;
     };
 }

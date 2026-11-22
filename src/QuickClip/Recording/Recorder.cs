@@ -160,7 +160,14 @@ internal sealed partial class Recorder
                 Guid session = _replaySession;
                 if (AppProfile.IsPersonal && _poll != null)
                 {
-                    if (IsRunning) CaptureEngine.RestartVideo();
+                    // Resolution/physical-display transitions should end a completed
+                    // encoded epoch rather than silently erase the old replay ring.
+                    // Stop + new start only on verified game recording; desktop and
+                    // companion retain their existing capture-restart behavior.
+                    if (IsRunning && _epochSession.Active &&
+                        _lifecycle.Mode == RecordingMode.GameTriggered)
+                        _lifecycle.InvalidateGraph();
+                    else if (IsRunning) CaptureEngine.RestartVideo();
                     ReconcilePersonal();
                 }
                 else if (IsRunning && _replaySession == session)
@@ -366,7 +373,15 @@ internal sealed partial class Recorder
         bool higherPriority = _manualDisplay != null || _observedGame != null;
         if (_discordActive && (higherPriority || !s.DiscordCaptureEnabled))
             StopGraph();
-        if (IsRunning && CaptureEngine.VideoSourceLost())
+        if (IsRunning && _epochSession.Active &&
+            _lifecycle.Mode == RecordingMode.GameTriggered &&
+            CaptureEngine.EpochRotationPending())
+        {
+            // No authorization was lost: the encoder's output format changed.
+            // Preserve the old GOP and start a newly authorized recording graph.
+            _lifecycle.InvalidateGraph();
+        }
+        else if (IsRunning && CaptureEngine.VideoSourceLost())
         {
             Log.Essential(DiagnosticCategory.Capture, "Active capture source was lost");
             if (_discordActive) { ScheduleDiscordRetry(); StopGraph(); }
@@ -447,11 +462,14 @@ internal sealed partial class Recorder
         _sessionDisplay = _actualMonitorName ?? activation.Display.Device;
         _captureStartedAt = Environment.TickCount64;
         var proof = CurrentEpochProof();
+        ReplayEpochSessionTracker.Beginning? beginning = null;
         if (proof != null && proof.GameId == activation.GameId &&
             proof.Owner == activation.GameOwner)
-            _ = _epochSession.Begin(proof);
+            beginning = _epochSession.Begin(proof);
         else
             _epochSession.Discard();
+        // The new graph is never allowed to read a previous owner/grant's RAM.
+        if (beginning?.Continued != true) CaptureEngine.DiscardEpochs();
         return null;
     }
 
@@ -593,15 +611,25 @@ internal sealed partial class Recorder
         Volatile.Write(ref _readyCapture, null);
         Interlocked.Increment(ref _replayGeneration);
         bool stopNative = IsRunning;
+        // Verify the source BEFORE mutating the graph state. The native engine
+        // independently checks the same HWND, PID, process start and display.
+        var proof = stopNative && _epochSession.Active ? CurrentEpochProof() : null;
+        bool canRetain = stopNative && proof != null && _epochSession.End(proof);
+        Guid logicalSession = _epochSession.LogicalSession;
+        long epoch = _epochSession.EpochNumber;
+        if (!canRetain) _epochSession.Discard();
         IsRunning = false;
         _discordActive = false;
-        // Determine eligibility while source identity is still present. A revoked
-        // grant, missing window, or manual/Discord graph never preserves history.
-        if (stopNative && _epochSession.Active)
-            _ = _epochSession.End(CurrentEpochProof());
-        else
-            _epochSession.Discard();
-        if (stopNative) CaptureEngine.Stop();
+        if (stopNative)
+        {
+            if (canRetain && proof != null)
+            {
+                if (!CaptureEngine.SealGameEpochAndStop(logicalSession, epoch, proof))
+                    _epochSession.Discard();
+            }
+            else CaptureEngine.Stop();
+        }
+        else CaptureEngine.DiscardEpochs();
         _runningEndpointPlan = [];
         _replaySession = Guid.Empty;
         _activeVideoOptions = null;
@@ -761,6 +789,7 @@ internal sealed partial class Recorder
     {
         using var activity = QuickClip.Shell.BackgroundActivity.Begin("Saving clip");
         string? staged = null;
+        string? rawStaging = null;
         bool complete = false;
         try
         {
@@ -774,6 +803,11 @@ internal sealed partial class Recorder
             string? gameContext;
             string? gameId;
             Guid? collectionId;
+            Guid logicalEpochSession = Guid.Empty;
+            ReplayEpochGameProof? epochProof = null;
+            CaptureEngine.EpochDescriptor[] retained = [];
+            long activeGraphStartUs = 0;
+            int activeFps = 30;
             lock (_gate)
             {
                 if (!IsRunning || generation != _replayGeneration ||
@@ -792,6 +826,16 @@ internal sealed partial class Recorder
                 gameId = _sessionGameId;
                 collectionId = AppProfile.IsPersonal && _lifecycle.Mode == RecordingMode.GameTriggered
                     ? Library.RecordingCollections.Resolve(s, gameId, _sessionGameExecutable) : null;
+                if (AppProfile.IsPersonal && _lifecycle.Mode == RecordingMode.GameTriggered &&
+                    _epochSession.Active)
+                {
+                    epochProof = CurrentEpochProof() ??
+                        throw new IOException("The game's ownership or recording permission changed.");
+                    logicalEpochSession = _epochSession.LogicalSession;
+                    retained = CaptureEngine.ListGameEpochs(
+                        logicalEpochSession, epochProof, out activeGraphStartUs);
+                    activeFps = _activeVideoOptions?.Fps ?? s.RecordFps;
+                }
             }
             long positionAtTick = requestedAtTick.HasValue ? Stopwatch.GetTimestamp() : 0;
             var anchors = candidates.Select(item => new CaptureEngine.ReplayAnchor { Sequence = item.Sequence, OffsetUs = -1 }).ToArray();
@@ -806,7 +850,7 @@ internal sealed partial class Recorder
             Directory.CreateDirectory(dir);
             DateTimeOffset requestedAt = DateTimeOffset.Now;
             if (AppProfile.IsPersonal) _ = ClipNaming.Stem(s.ClipFilenameTemplate, folder, requestedAt, null);
-            string stagingPath = staged = ClipNaming.ReserveStagingPath(dir, ".mp4");
+            string stagingPath = staged = rawStaging = ClipNaming.ReserveStagingPath(dir, ".mp4");
             CaptureEngine.ReplaySpan span = default;
             CaptureEngine.ReplayVideo video = default;
             cancellationToken.ThrowIfCancellationRequested();
@@ -835,9 +879,29 @@ internal sealed partial class Recorder
                 return null;
             }
             DateTimeOffset? capturedAt = Mp4Info.Read(stagingPath).CaptureTime?.ToLocalTime();
+            ReplayEpochLiveSaver.Merged? merged = null;
+            if (epochProof != null && retained.Length > 0)
+            {
+                if (Deps.FFmpeg == null || Deps.FFprobe == null)
+                    throw new IOException("Bundled FFmpeg tools are needed for cross-epoch clips.");
+                merged = ReplayEpochLiveSaver.MergeAsync(logicalEpochSession, epochProof,
+                    retained, activeGraphStartUs, position, seconds, span, video, activeFps,
+                    stagingPath, dir, Deps.FFmpeg, Deps.FFprobe, cancellationToken)
+                    .GetAwaiter().GetResult();
+                if (merged != null) staged = merged.Path;
+            }
             DateTimeOffset capture = capturedAt ?? requestedAt;
+            if (merged != null && capturedAt.HasValue)
+            {
+                capture = capture.AddTicks(checked((merged.FirstGlobalUs -
+                    checked(activeGraphStartUs + span.FirstUs)) * 10));
+                capturedAt = capture;
+            }
             string stem = AppProfile.IsPersonal ? ClipNaming.Stem(s.ClipFilenameTemplate, folder, capture, null)
                 : $"{folder} {requestedAt:yyyy-MM-dd HH-mm-ss}";
+            // Never silently conceal missing footage at a resolution/restart seam.
+            if (merged?.Omitted > TimeSpan.Zero)
+                stem += $" [missing {merged.Omitted.TotalSeconds:0.##}s]";
             cancellationToken.ThrowIfCancellationRequested();
             string path;
             lock (_gate)
@@ -846,21 +910,43 @@ internal sealed partial class Recorder
                     !(_discordActive ? MaySaveDiscord(s) :
                         MaySaveFromDisplay(s, _lifecycle.Mode, _captureDisplayIdentity, ManualDesktopRequested)) || CaptureEngine.VideoSourceLost()))
                     throw new IOException("The recording source changed before the replay could be saved.");
-                path = ClipNaming.Publish(stagingPath, dir, stem, ".mp4");
+                if (merged != null &&
+                    (_epochSession.LogicalSession != logicalEpochSession ||
+                    epochProof == null || CurrentEpochProof() is not { } currentProof ||
+                    ReplayEpochContinuity.Decide(epochProof, currentProof, long.MaxValue) !=
+                        ReplayEpochContinuityDecision.Continue))
+                    throw new IOException("The game's recording authorization changed before combined replay publication.");
+                path = ClipNaming.Publish(staged!, dir, stem, ".mp4");
             }
             complete = true;
-            TimeSpan? actual = span.DurationUs >= 0 ? ReplayMarkers.Time(span.DurationUs) : null;
-            var receipt = new ReplaySaveReceipt(path, folder, sessionId, seconds, actual, ReplayMarkers.Time(span.AvailableUs),
-                ReplayMarkers.Time(span.FirstUs), ReplayMarkers.Time(span.LastUs), span.FirstSource, span.LastSource,
-                capturedAt, ReplayMarkers.Match(candidates, anchors, actual))
+            TimeSpan? nativeDuration = span.DurationUs >= 0 ? ReplayMarkers.Time(span.DurationUs) : null;
+            TimeSpan? actual = merged?.Duration ?? nativeDuration;
+            IReadOnlyList<SavedReplayMarker> markers = ReplayMarkers.Match(candidates, anchors, nativeDuration);
+            if (merged != null && nativeDuration.HasValue)
+            {
+                TimeSpan prepend = merged.Duration - nativeDuration.Value;
+                markers = markers.Select(m => new SavedReplayMarker(m.Marker, m.Offset + prepend))
+                    .Where(m => m.Offset >= TimeSpan.Zero && m.Offset < merged.Duration).ToArray();
+            }
+            var receipt = new ReplaySaveReceipt(path, folder,
+                merged != null ? logicalEpochSession : sessionId, seconds, actual,
+                merged != null ? merged.Duration + merged.Omitted : ReplayMarkers.Time(span.AvailableUs),
+                merged != null ? TimeSpan.Zero : ReplayMarkers.Time(span.FirstUs),
+                merged != null ? merged.Duration : ReplayMarkers.Time(span.LastUs),
+                merged != null ? long.MinValue : span.FirstSource, span.LastSource,
+                capturedAt, markers)
             {
                 DesktopSource = desktopSource,
                 GameContext = gameContext,
                 GameContextId = gameId,
-                VideoOutput = video.Width > 0 && video.Height > 0
-                    ? new(video.Width, video.Height, video.FpsNumerator > 0 && video.FpsDenominator > 0
-                        ? (double)video.FpsNumerator / video.FpsDenominator : null)
-                    : null,
+                ArchivedEpochsIncluded = merged == null ? 0 : merged.EpochCount - 1,
+                OmittedMissingFootage = merged?.Omitted ?? TimeSpan.Zero,
+                VideoOutput = merged != null
+                    ? new(merged.Width, merged.Height, activeFps)
+                    : video.Width > 0 && video.Height > 0
+                        ? new(video.Width, video.Height, video.FpsNumerator > 0 && video.FpsDenominator > 0
+                            ? (double)video.FpsNumerator / video.FpsDenominator : null)
+                        : null,
             };
             if (AppProfile.IsPersonal)
             {
@@ -868,7 +954,7 @@ internal sealed partial class Recorder
                 {
                     GameId = gameId,
                     RecordedCollectionId = collectionId,
-                    RecordingSessionId = sessionId == Guid.Empty ? null : sessionId,
+                    RecordingSessionId = receipt.SessionId == Guid.Empty ? null : receipt.SessionId,
                     Bookmarks = receipt.Markers.Select(mark => new ClipBookmark(mark.Offset.TotalSeconds, mark.Marker.Label ?? "Marker")
                     { SessionId = mark.Marker.SessionId }).ToArray(),
                 });
@@ -894,7 +980,7 @@ internal sealed partial class Recorder
             complete = false;
             throw;
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException)
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException or InvalidOperationException)
         {
             Log.Essential(DiagnosticCategory.Capture, "Saving a clip failed", ex);
             SaveFailed?.Invoke(complete && File.Exists(staged) ? $"{ex.Message} The recording is still at {staged}." : ex.Message);
@@ -902,7 +988,12 @@ internal sealed partial class Recorder
         }
         finally
         {
-            try { if (!complete && staged != null) File.Delete(staged); } catch (IOException) { } catch (UnauthorizedAccessException) { }
+            // Raw and joined staging are both owned by this save. Neither is
+            // recoverable user media until the chosen MP4 is atomically published.
+            try { if (rawStaging != null && rawStaging != staged) File.Delete(rawStaging); }
+            catch (IOException) { } catch (UnauthorizedAccessException) { }
+            try { if (!complete && staged != null) File.Delete(staged); }
+            catch (IOException) { } catch (UnauthorizedAccessException) { }
         }
     }
 

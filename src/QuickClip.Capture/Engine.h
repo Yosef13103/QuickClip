@@ -70,6 +70,14 @@ struct QcReplayPosition
         int width, height, fpsNumerator, fpsDenominator;
     };
 
+    struct QcEpochDescriptor
+    {
+        uint64_t epochId;
+        int64_t firstUs, lastUs; // QPC global microseconds; end is exclusive
+        int width, height;
+        int64_t compressedBytes;
+    };
+
     struct QcEndpointStatus
     {
         int flow, stage, error, mixRate, mixChannels, captureRate;
@@ -105,6 +113,7 @@ struct QcReplayPosition
 
 namespace qc
 {
+    class DetachedEpochArchive;
     std::string DisplayDiagnostics();
 
     // The default listening mix has its own encoder. Keep every raw stem intact.
@@ -170,6 +179,18 @@ namespace qc
             const QcGameWindow* companion = nullptr, int companionCount = 0);
         ~Engine();
         bool Start(std::string& error);
+        // Quiesce before transferring packet ownership. Never invoked from a
+        // frame, audio or save worker; the API takes the engine lifecycle lock.
+        void Quiesce();
+        bool AuthorizedGameEpoch() const;
+        QcGameWindow VerifiedGameIdentity() const;
+        int64_t ReplayMemoryBudget() const;
+        int64_t ReplayWindowUs() const;
+        int64_t ReplayClockStartUs() const;
+        void SetEpochPressureHandler(std::function<void(int64_t)> callback);
+        bool SealEpoch(DetachedEpochArchive& archive, uint64_t logicalSession,
+            uint64_t epochId, uint64_t grantRevision, const std::string& scope,
+            std::string& error);
         /// Desktop records everything but `desktopExclude`'s process tree (nothing when that is 0) plus the trees of
         /// `desktopInclude`, less the sound of `desktopSubtract`'s trees (some of the Chat and Music processes), taken
         /// out sample for sample. Chat and Music record their processes' trees.
@@ -186,8 +207,10 @@ namespace qc
         /// Starts capture again on the next frame (the display changed; the old capture may be stale).
         void RequestRebuild();
         bool VideoSourceLost() const;
+        bool EpochRotationPending() const;
         bool HasVideoOutput() const;
         static bool TestAuthorizedVideoInvalidation(bool stall);
+        static bool TestEpochRotationRetainsOnlyOldEncodedPackets();
         /// Records `window` (a game's) instead of the monitor, at this size and bitrate; null goes back to the monitor.
         void SetCaptureWindow(HWND window, int width, int height, int videoKbps);
         bool UpdateCompanionWindows(const QcGameWindow* windows, int count);
@@ -250,6 +273,7 @@ namespace qc
 
         std::mutex videoRestartLock_;
         std::thread videoThread_, audioThread_, watchThread_;
+        bool quiesced_ = false;
     };
 
     int EnumOutputs(QcOutput* outputs, int max);

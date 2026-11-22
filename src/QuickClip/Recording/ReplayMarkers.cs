@@ -28,7 +28,9 @@ public sealed record ReplaySaveReceipt(string Path, string Game, Guid SessionId,
             ? "Entire display (Desktop Duplication)" : "Entire display (Windows Graphics Capture)"
         : spansEpochs ? "Mixed or unverified sources" : "Unverified source";
     public ReplayVideoOutput? VideoOutput { get; init; }
-    public bool SpansCaptureEpochs => FirstSourceId != LastSourceId;
+    public int ArchivedEpochsIncluded { get; init; }
+    public TimeSpan OmittedMissingFootage { get; init; }
+    public bool SpansCaptureEpochs => ArchivedEpochsIncluded > 0 || FirstSourceId != LastSourceId;
     public bool? IsShorterThanRequested => ActualVideoDuration is TimeSpan duration ? duration < TimeSpan.FromSeconds(RequestedSeconds) : null;
 }
 

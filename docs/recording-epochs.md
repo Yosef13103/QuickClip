@@ -1,6 +1,10 @@
 # Recording epochs — experimental branch
 
-Status: **isolated research and planning; NOT enabled at runtime**. Source branch `feat/recording-epochs` created from accepted `integration/development` at `66511a358277dab97c817c9c9532ab7b0afbe7e2`. No automatic merge to Development or Production. Owner wants this architecture for both game and Discord capture, including resolution changes, same-game monitor moves, brief display loss, game crashes, replay preservation, and future overlapping replay union.
+> **2026-11-22 live integration checkpoint:** The isolated `feat/recording-epochs` build now contains an experimental runtime path for **verified game recordings**: capture graph stop/format rotation seals decodable compressed packet epochs into a volatile, adaptive-budget archive; a following verified graph may retain those epochs; an explicit Save Clip can stage their MKV segments and normalize them with the current MP4. No media is continuously written to disk. The original no-epoch save remains unchanged. This code is **not merged into Development/Production and has no real GPU/game/permission-transition acceptance**. The historical research notes below describe the earlier pre-integration checkpoints.
+>
+> **Limits:** manual desktop and Discord companion epoch continuity, physical monitor disconnect/crash reconnection, rolling MKV crash recovery, sample-accurate real stem seams, GPU export/frame pacing, and user-facing gap policy are not accepted. The combined memory ceiling bounds retained compressed ring/archive packets, with short reclamation lag and additional in-flight/codec/GPU allocations outside that accounting. Every hardware and privacy acceptance gate remains required; no FPS guarantee is claimed. On older supported games/encoders, the routine codec selection remains unchanged.
+
+Status (historical starting point): **isolated research and planning; NOT enabled at runtime**. Source branch `feat/recording-epochs` created from accepted `integration/development` at `66511a358277dab97c817c9c9532ab7b0afbe7e2`. No automatic merge to Development or Production. Owner wants this architecture for both game and Discord capture, including resolution changes, same-game monitor moves, brief display loss, game crashes, replay preservation, and future overlapping replay union.
 
 ## Verified starting point
 

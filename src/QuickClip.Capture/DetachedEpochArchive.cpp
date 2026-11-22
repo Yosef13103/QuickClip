@@ -6,7 +6,14 @@ namespace qc
 {
     bool DetachedEpochArchive::WriteSegment(size_t index, const std::wstring& path, std::string& error) const
     {
-        const Epoch* epoch = At(index);
+        auto epoch = Pin(index);
+        if (!epoch) { error = "Detached epoch does not exist."; return false; }
+        return WritePinnedSegment(*epoch, path, error);
+    }
+
+    bool DetachedEpochArchive::WritePinnedSegment(const Epoch& value, const std::wstring& path, std::string& error)
+    {
+        const Epoch* epoch = &value;
         if (!epoch || epoch->packets.empty() || epoch->codecs.empty() ||
             epoch->codecs.size() != epoch->timeBases.size() ||
             epoch->codecs.size() != epoch->streamTitles.size() || path.empty())

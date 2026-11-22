@@ -17,6 +17,7 @@ internal sealed class ReplayEpochSessionTracker(long maximumReconnectGapUs)
         bool DiscardPreviousHistory);
 
     internal Guid LogicalSession => _logicalSession;
+    internal long EpochNumber => _epochNumber;
     internal bool Active => _active;
 
     /// <summary>Call after the native graph has started and its source is verified.</summary>

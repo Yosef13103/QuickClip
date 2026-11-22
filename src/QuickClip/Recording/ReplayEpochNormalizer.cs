@@ -84,6 +84,15 @@ internal static class ReplayEpochNormalizer
 
         int tracks = firstTitles?.Length ?? 0;
         if (tracks > 16) throw new InvalidOperationException("Too many audio tracks.");
+        // A complete unchanged epoch is container work, not video transcoding.
+        // A requested encoder override always disables stream copy.
+        bool canStreamCopy = encodingOptions?.EncoderId == null &&
+            plan.Slices.Count == 1 && !plan.HasDiscontinuities &&
+            !plan.RequiresVideoNormalization &&
+            plan.Slices[0].StartUs == plan.Slices[0].Epoch.StartUs &&
+            plan.Slices[0].EndUs == plan.Slices[0].Epoch.EndUs &&
+            probes[0].Width == outputWidth && probes[0].Height == outputHeight &&
+            Math.Abs(probes[0].FramesPerSecond - fps) < 0.01;
         // Do not collapse HDR into 8-bit SDR without an explicit, tested tonemap.
         bool hdr = probes.Any(p => p.ColorTransfer is "smpte2084" or "arib-std-b67");
         if (hdr && probes.Any(p => p.ColorTransfer != probes[0].ColorTransfer ||
@@ -96,19 +105,26 @@ internal static class ReplayEpochNormalizer
             "av1" => "libsvtav1",
             "hevc" => "libx265",
             "h264" => "libx264",
+            _ when canStreamCopy => "",
             _ => throw new InvalidOperationException("No safe default encoder for this video codec.")
         };
-        string requestedCodec = encoderId switch
+        string requestedCodec = canStreamCopy ? outputCodec : encoderId switch
         {
             "av1_nvenc" or "av1_amf" or "av1_qsv" or "libsvtav1" => "av1",
             "hevc_nvenc" or "hevc_amf" or "hevc_qsv" or "libx265" => "hevc",
             "h264_nvenc" or "h264_amf" or "h264_qsv" or "libx264" => "h264",
             _ => throw new ArgumentException("Unsupported epoch normalization encoder.", nameof(encodingOptions))
         };
-        if (hdr && requestedCodec == "h264")
-            throw new InvalidOperationException("HDR epoch normalization requires a 10-bit capable HEVC or AV1 encoder.");
+        bool tenBit = hdr || probes.Any(p =>
+            p.PixelFormat.Contains("10", StringComparison.OrdinalIgnoreCase));
+        if (!canStreamCopy && probes.Any(p =>
+            p.PixelFormat.Contains("12", StringComparison.OrdinalIgnoreCase) ||
+            p.PixelFormat.Contains("16", StringComparison.OrdinalIgnoreCase)))
+            throw new InvalidOperationException("High bit-depth epoch normalization needs an explicit color-depth policy.");
+        if (!canStreamCopy && tenBit && requestedCodec == "h264")
+            throw new InvalidOperationException("10-bit/HDR epoch normalization requires HEVC or AV1.");
 
-        string pixelFormat = hdr ? "yuv420p10le" : "yuv420p";
+        string pixelFormat = tenBit ? "yuv420p10le" : "yuv420p";
         var filters = new StringBuilder();
         static string T(double value) => value.ToString("0.######", CultureInfo.InvariantCulture);
         for (int i = 0; i < plan.Slices.Count; i++)
@@ -149,17 +165,8 @@ internal static class ReplayEpochNormalizer
         double omittedSeconds = plan.Gaps.Sum(gap => (gap.EndUs - gap.StartUs) / 1_000_000.0);
 
         string staging = Path.Combine(Path.GetDirectoryName(target)!,
-            ".quickclip-epoch-" + Guid.NewGuid().ToString("N") + ".partial" + extension);
-        // A complete unchanged epoch is a container operation, not a video edit.
-        // Keep compressed video/audio untouched when output geometry and FPS match.
-        // Multiple epochs always normalize until cross-epoch codec/timestamp compatibility
-        // is proven independently, even when a shallow fingerprint happens to match.
-        bool canStreamCopy = plan.Slices.Count == 1 && !plan.HasDiscontinuities &&
-            !plan.RequiresVideoNormalization &&
-            plan.Slices[0].StartUs == plan.Slices[0].Epoch.StartUs &&
-            plan.Slices[0].EndUs == plan.Slices[0].Epoch.EndUs &&
-            probes[0].Width == outputWidth && probes[0].Height == outputHeight &&
-            Math.Abs(probes[0].FramesPerSecond - fps) < 0.01;
+            ".quickclip-tmp-epoch-" + Guid.NewGuid().ToString("N") + ".partial" + extension);
+        // Multiple epochs always normalize until packet/timestamp compatibility is proven.
         var args = new List<string> { "-hide_banner", "-nostdin", "-loglevel", "error", "-n" };
         foreach (string path in paths) { args.Add("-i"); args.Add(path); }
         if (canStreamCopy)
@@ -179,7 +186,9 @@ internal static class ReplayEpochNormalizer
             else if (encoderId == "libx265")
                 args.AddRange(["-preset", "fast", "-crf", "22"]);
             else if (encoderId == "libsvtav1")
-                args.AddRange(["-preset", "10", "-crf", "28"]);
+                // FFmpeg's -threads alone does not bound SVT's internal worker pool.
+                // The bundled SVT-AV1 4.3 probe accepted lp=2 and reported two workers.
+                args.AddRange(["-preset", "9", "-crf", "26", "-svtav1-params", "lp=2"]);
             if (hdr)
                 args.AddRange(["-color_trc", probes[0].ColorTransfer,
                     "-color_primaries", probes[0].ColorPrimaries, "-colorspace", probes[0].ColorSpace]);
@@ -243,7 +252,7 @@ internal static class ReplayEpochNormalizer
             throw new InvalidOperationException("Too many audio streams for an epoch remux.");
 
         string staging = Path.Combine(Path.GetDirectoryName(target)!,
-            ".quickclip-remux-" + Guid.NewGuid().ToString("N") + ".partial.mp4");
+            ".quickclip-tmp-remux-" + Guid.NewGuid().ToString("N") + ".partial.mp4");
         var args = new List<string> { "-hide_banner", "-nostdin", "-loglevel", "error",
             "-n", "-i", input, "-map", "0", "-c", "copy",
             "-movflags", "+faststart", "-f", "mp4" };

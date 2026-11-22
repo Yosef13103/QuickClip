@@ -228,7 +228,86 @@ internal static partial class CaptureEngine
 
     public static void Stop() => qc_stop();
 
+    // Only the verified game recorder may call this. Native independently
+    // rechecks live HWND/PID/process creation time and physical display.
+    internal static bool SealGameEpochAndStop(Guid session, long epoch,
+        ReplayEpochGameProof proof)
+    {
+        if (session == Guid.Empty || epoch <= 0 || proof.DisableRevision < 0 ||
+            proof.PermissionRevision is < 0 or > uint.MaxValue ||
+            !ReplayEpochContinuity.IsValidProof(proof))
+        {
+            Stop();
+            return false;
+        }
+
+        ulong sessionToken = BitConverter.ToUInt64(session.ToByteArray(), 0);
+        if (sessionToken == 0) sessionToken = BitConverter.ToUInt64(session.ToByteArray(), 8);
+        if (sessionToken == 0) { Stop(); return false; }
+        ulong grant = ((ulong)(uint)proof.DisableRevision << 32) | (uint)proof.PermissionRevision;
+        string scope = EpochScope(proof);
+        var error = new char[1024];
+        return qc_seal_game_epoch_and_stop(sessionToken, (ulong)epoch, grant, scope,
+            error, error.Length) != 0;
+    }
+
+    internal static string EpochScope(ReplayEpochGameProof proof) =>
+        proof.GameId + "|" + proof.VerifiedExecutable;
+
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct EpochDescriptor
+    {
+        public ulong EpochId;
+        public long FirstUs, LastUs;
+        public int Width, Height;
+        public long CompressedBytes;
+    }
+
+    internal static EpochDescriptor[] ListGameEpochs(Guid session,
+        ReplayEpochGameProof proof, out long activeGraphStartUs)
+    {
+        activeGraphStartUs = 0;
+        if (session == Guid.Empty || !ReplayEpochContinuity.IsValidProof(proof) ||
+            proof.PermissionRevision is < 0 or > uint.MaxValue) return [];
+        ulong sessionToken = BitConverter.ToUInt64(session.ToByteArray(), 0);
+        if (sessionToken == 0) sessionToken = BitConverter.ToUInt64(session.ToByteArray(), 8);
+        ulong grant = ((ulong)(uint)proof.DisableRevision << 32) | (uint)proof.PermissionRevision;
+        var epochs = new EpochDescriptor[32];
+        int count = qc_list_game_epochs(sessionToken, grant, EpochScope(proof),
+            epochs, epochs.Length, out activeGraphStartUs);
+        return count > 0 ? epochs.Take(Math.Min(count, epochs.Length)).ToArray() : [];
+    }
+
+    internal static string? WriteGameEpoch(Guid session, ReplayEpochGameProof proof,
+        ulong epochId, string path)
+    {
+        if (session == Guid.Empty || !ReplayEpochContinuity.IsValidProof(proof) ||
+            proof.PermissionRevision is < 0 or > uint.MaxValue)
+            return "Archived game authorization is invalid.";
+        ulong sessionToken = BitConverter.ToUInt64(session.ToByteArray(), 0);
+        if (sessionToken == 0) sessionToken = BitConverter.ToUInt64(session.ToByteArray(), 8);
+        ulong grant = ((ulong)(uint)proof.DisableRevision << 32) | (uint)proof.PermissionRevision;
+        var error = new char[1024];
+        return qc_write_game_epoch(sessionToken, grant, EpochScope(proof),
+            epochId, path, error, error.Length) != 0
+                ? null : new string(error).TrimEnd('\0');
+    }
+
+    internal static void DiscardEpochs() => qc_discard_epochs();
+
+    internal static int RetainedEpochCount(Guid session, ReplayEpochGameProof proof, out long bytes)
+    {
+        bytes = 0;
+        if (session == Guid.Empty || !ReplayEpochContinuity.IsValidProof(proof) ||
+            proof.PermissionRevision is < 0 or > uint.MaxValue) return 0;
+        ulong sessionToken = BitConverter.ToUInt64(session.ToByteArray(), 0);
+        if (sessionToken == 0) sessionToken = BitConverter.ToUInt64(session.ToByteArray(), 8);
+        ulong grant = ((ulong)(uint)proof.DisableRevision << 32) | (uint)proof.PermissionRevision;
+        return qc_retained_epoch_count(sessionToken, grant, EpochScope(proof), out bytes);
+    }
+
     internal static bool VideoSourceLost() => qc_video_source_lost() != 0;
+    internal static bool EpochRotationPending() => qc_epoch_rotation_pending() != 0;
     internal static bool HasVideoOutput() => qc_has_video_output() != 0;
     internal static bool TestAuthorizedVideoInvalidation(bool stall) => qc_test_authorized_video_invalidation(stall ? 1 : 0) != 0;
 
@@ -340,6 +419,21 @@ internal static partial class CaptureEngine
     [DllImport(Dll)]
     private static extern int qc_update_companion([In] GameWindow[] windows, int count);
     [DllImport(Dll)] private static extern void qc_stop();
+    [DllImport(Dll, CharSet = CharSet.Unicode)]
+    private static extern int qc_seal_game_epoch_and_stop(ulong session, ulong epoch, ulong grant,
+        [MarshalAs(UnmanagedType.LPUTF8Str)] string scope, [Out] char[] error, int errorLength);
+    [DllImport(Dll)] private static extern void qc_discard_epochs();
+    [DllImport(Dll)]
+    private static extern int qc_retained_epoch_count(ulong session, ulong grant,
+        [MarshalAs(UnmanagedType.LPUTF8Str)] string scope, out long bytes);
+    [DllImport(Dll)]
+    private static extern int qc_list_game_epochs(ulong session, ulong grant,
+        [MarshalAs(UnmanagedType.LPUTF8Str)] string scope,
+        [Out] EpochDescriptor[] output, int capacity, out long activeGraphStartUs);
+    [DllImport(Dll, CharSet = CharSet.Unicode)]
+    private static extern int qc_write_game_epoch(ulong session, ulong grant,
+        [MarshalAs(UnmanagedType.LPUTF8Str)] string scope, ulong epochId,
+        string destination, [Out] char[] error, int errorLength);
     [DllImport(Dll)] private static extern void qc_restart_video();
     [DllImport(Dll)] private static extern void qc_set_capture_window(ulong window, int width, int height, int videoKbps);
     [DllImport(Dll)] private static extern void qc_test_freeze_video(int milliseconds);
@@ -352,6 +446,7 @@ internal static partial class CaptureEngine
         [In] EndpointConfig[] endpoints, int count, ref VideoOptions video, string? displayIdentity, in GameWindow game,
         [Out] char[] error, int errorLength);
     [DllImport(Dll)] private static extern int qc_video_source_lost();
+    [DllImport(Dll)] private static extern int qc_epoch_rotation_pending();
     [DllImport(Dll)] private static extern int qc_has_video_output();
     [DllImport(Dll)] private static extern int qc_test_authorized_video_invalidation(int stall);
     [DllImport(Dll, CharSet = CharSet.Unicode)] private static extern int qc_save(string path, int seconds, string title, [Out] char[] error, int errorLength);
