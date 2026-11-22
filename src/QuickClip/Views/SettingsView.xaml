@@ -491,9 +491,9 @@
                             <TextBlock Text="Recording presets" FontWeight="SemiBold" />
                             <TextBlock x:Name="SetupPresetRecommendation" Style="{StaticResource Hint}" TextWrapping="Wrap" Margin="0,4,0,6" />
                             <WrapPanel>
-                                <Button Content="Performance · 720p / 30" Tag="Performance" Click="SetupPreset_Click" Margin="0,0,6,4" ToolTip="720p, 30 FPS, Medium, fast NVENC preset" />
-                                <Button Content="Balanced · 1080p / 60" Tag="Balanced" Click="SetupPreset_Click" Margin="0,0,6,4" ToolTip="1080p, 60 FPS, High, fast NVENC preset" />
-                                <Button Content="Quality · Native / 60" Tag="Quality" Click="SetupPreset_Click" Margin="0,0,6,4" ToolTip="Native size, 60 FPS, Ultra, fast NVENC preset" />
+                                <Button Content="Lighter recording · 720p / 30 FPS" Tag="Performance" Click="SetupPreset_Click" Margin="0,0,6,4" ToolTip="Uses fewer recording resources and makes smaller clips; captures 30 frames per second." />
+                                <Button Content="Recommended · 1080p / 60 FPS" Tag="Balanced" Click="SetupPreset_Click" Margin="0,0,6,4" ToolTip="Keeps 60 frames per second at a manageable resolution and balanced file-size budget." />
+                                <Button Content="More detail · Screen size / 60 FPS" Tag="Quality" Click="SetupPreset_Click" Margin="0,0,6,4" ToolTip="Records at the source resolution with extra detail and larger possible files." />
                             </WrapPanel>
                             <TextBlock x:Name="SetupPresetStatus" Style="{StaticResource Hint}" TextWrapping="Wrap" />
                             <TextBlock Text="Adjust any video setting below. Audio and clip length stay unchanged." Style="{StaticResource Hint}" TextWrapping="Wrap" Margin="0,4,0,0" />
@@ -623,9 +623,12 @@
                             <ColumnDefinition Width="150" />
                         </Grid.ColumnDefinitions>
                         <DockPanel VerticalAlignment="Center" Margin="0,0,4,4"><Button DockPanel.Dock="Left" x:Name="ResetQualityOverride" Content="&#xE72C;" Tag="Quality" Click="ResetGameField_Click" Style="{StaticResource IconButton}" Margin="0,0,4,0" Visibility="Collapsed" ToolTip="{Binding RelativeSource={RelativeSource Self}, Path=(AutomationProperties.Name)}" AutomationProperties.Name="Reset Quality override" /><TextBlock x:Name="QualityLabel" Text="Quality" TextWrapping="Wrap" VerticalAlignment="Center" /></DockPanel>
-                        <ComboBox x:Name="QualityCombo" Grid.Column="1" SelectionChanged="Changed" />
+                        <ComboBox x:Name="QualityCombo" Grid.Column="1" SelectionChanged="Changed" AutomationProperties.Name="Picture detail and file size" />
                         <TextBlock x:Name="BitrateText" Grid.Column="2" VerticalAlignment="Center" Margin="14,0,0,0" Style="{StaticResource Hint}" />
                     </Grid>
+                    <TextBlock x:Name="QualityTradeoffHint" Visibility="Collapsed" Margin="160,2,0,10"
+                               Style="{StaticResource Hint}" TextWrapping="Wrap"
+                               Text="Keeps more picture detail during fast movement, but may use more disk space. For smoother clips, change Recording smoothness below. Bigger files do not increase game FPS." />
 
                     <Grid Style="{StaticResource Row}">
                         <Grid.ColumnDefinitions>
@@ -635,6 +638,9 @@
                         <DockPanel VerticalAlignment="Center" Margin="0,0,4,4"><Button DockPanel.Dock="Left" x:Name="ResetFpsOverride" Content="&#xE72C;" Tag="Fps" Click="ResetGameField_Click" Style="{StaticResource IconButton}" Margin="0,0,4,0" Visibility="Collapsed" ToolTip="{Binding RelativeSource={RelativeSource Self}, Path=(AutomationProperties.Name)}" AutomationProperties.Name="Reset Frame rate override" /><TextBlock x:Name="FpsLabel" Text="Frame rate" TextWrapping="Wrap" VerticalAlignment="Center" /></DockPanel>
                         <ComboBox x:Name="FpsCombo" Grid.Column="1" SelectionChanged="Changed" />
                     </Grid>
+                    <TextBlock x:Name="FpsTradeoffHint" Visibility="Collapsed" Margin="160,2,0,10"
+                               Style="{StaticResource Hint}" TextWrapping="Wrap"
+                               Text="60 FPS is a good place to start. More frames can look smoother but use more recording resources. It will not make your game run faster." />
 
                     <Grid x:Name="EncoderAdvanced" Style="{StaticResource Row}">
                         <Grid.ColumnDefinitions>

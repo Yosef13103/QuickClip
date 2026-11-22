@@ -10,6 +10,7 @@ namespace QuickClip.Views;
 public partial class SettingsView
 {
     private bool _guideActive, _finishingGuide;
+    private bool? _qualityChoicesBasic;
     private int _guideAttempt;
     private bool IsBasicExperience => AppProfile.IsPersonal && (_guideActive || AppSettings.Current.BasicSettings);
     private int GuideStep => Math.Clamp(AppSettings.Current.GuidedSetupStep ?? 0, 0, 8);
@@ -20,7 +21,7 @@ public partial class SettingsView
         ("Save location", "Choose where new clips go."),
         ("Save shortcut", "Pick a shortcut. You can also save from the app."),
         ("Audio", "Choose what to hear. Test your microphone."),
-        ("Video quality", "Choose a preset or customize the video."),
+        ("Recording picture & smoothness", "Choose how smooth and detailed your clips look. Bigger files do not automatically mean smoother footage."),
         ("Sources", "Set up optional apps like Discord, and review the games QuickClip can detect."),
         ("Display permissions", "Allowed displays can capture everything visible, including messages. Only allow displays you want recorded."),
         ("Clip feedback", "Pick a sound and notification. Try the preview."),
@@ -87,6 +88,7 @@ public partial class SettingsView
     {
         if (!AppProfile.IsPersonal || CaptureAreaAdvanced == null) return;
         bool basic = IsBasicExperience;
+        RefreshQualityPresentation(basic);
         var advanced = basic ? Visibility.Collapsed : Visibility.Visible;
         foreach (FrameworkElement element in new FrameworkElement[] { CustomSizeAdvanced,
             CropPreviewAdvanced, EncoderTuningAdvanced,
@@ -99,6 +101,7 @@ public partial class SettingsView
         CaptureAreaGap.Width = new GridLength(12);
         BasicQualityHint.Visibility = BasicAudioHint.Visibility = BasicNotificationPreview.Visibility =
             basic ? Visibility.Visible : Visibility.Collapsed;
+        QualityTradeoffHint.Visibility = basic ? Visibility.Visible : Visibility.Collapsed;
         SoundOutputPanel.Visibility = basic ? Visibility.Collapsed : Visibility.Visible;
         FeedbackVisualGuide.Visibility = _guideActive && GuideStep == 7 ? Visibility.Visible : Visibility.Collapsed;
         var settings = AppSettings.Current;
@@ -143,6 +146,33 @@ public partial class SettingsView
             UpdatesCard.Visibility = hidden;
             if (step is 0 or 8) GeneralPage.Visibility = GamesPage.Visibility = hidden;
         }
+    }
+
+    private void RefreshQualityPresentation(bool basic)
+    {
+        QualityLabel.Text = basic ? "Picture detail & file size" : "Quality";
+        FpsLabel.Text = basic ? "Recording smoothness" : "Frame rate";
+        ResolutionLabel.Text = basic ? "Picture size" : "Output resolution";
+        FpsTradeoffHint.Visibility = basic ? Visibility.Visible : Visibility.Collapsed;
+        if (_qualityChoicesBasic == basic) return;
+
+        // Switching Basic/Advanced only changes presentation. Preserve any per-game
+        // override and avoid a SelectionChanged recorder restart or settings write.
+        var selected = (QualityCombo.SelectedItem as Choice)?.Value is RecordingQuality current
+            ? current : EditingVideo().Quality;
+        bool wasLoading = _loading;
+        _loading = true;
+        try
+        {
+            IEnumerable<RecordingQuality> values = Enum.GetValues<RecordingQuality>();
+            if (!basic) values = values.Reverse(); // Preserve existing Advanced order.
+            QualityCombo.ItemsSource = values
+                .Select(q => new Choice(basic ? RecordingPresets.BasicDetailLabel(q) : RecordingPresets.Label(q), q))
+                .ToList();
+            Select(QualityCombo, selected);
+            _qualityChoicesBasic = basic;
+        }
+        finally { _loading = wasLoading; }
     }
 
     private void UpdateBasicAudio()

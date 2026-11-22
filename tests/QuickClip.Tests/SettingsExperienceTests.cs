@@ -44,6 +44,20 @@ public sealed class SettingsExperienceTests
         Assert.Equal(settings.EndpointTracks, saved.EndpointTracks);
     }
 
+    [Theory]
+    [InlineData(RecordingQuality.Low, "Smallest files")]
+    [InlineData(RecordingQuality.Medium, "Save more space")]
+    [InlineData(RecordingQuality.High, "Balanced detail (recommended)")]
+    [InlineData(RecordingQuality.Ultra, "Extra detail")]
+    [InlineData(RecordingQuality.Indistinguishable, "Maximum detail (large files)")]
+    public void Basic_detail_labels_describe_storage_tradeoffs_without_changing_persisted_quality(
+        RecordingQuality quality, string label)
+    {
+        Assert.Equal(label, RecordingPresets.BasicDetailLabel(quality));
+        var saved = AppSettings.Parse(new AppSettings { RecordQuality = quality }.ToJson());
+        Assert.Equal(quality, saved.RecordQuality);
+    }
+
     [Fact]
     public void Completed_guide_does_not_reopen_and_invalid_step_is_bounded()
     {

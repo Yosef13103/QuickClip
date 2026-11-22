@@ -63,6 +63,16 @@ internal static class RecordingPresets
         _ => "Indistinguishable",
     };
 
+    /// <summary>Plain-language presentation only; does not change saved quality IDs or bitrate calculations.</summary>
+    internal static string BasicDetailLabel(RecordingQuality q) => q switch
+    {
+        RecordingQuality.Low => "Smallest files",
+        RecordingQuality.Medium => "Save more space",
+        RecordingQuality.High => "Balanced detail (recommended)",
+        RecordingQuality.Ultra => "Extra detail",
+        _ => "Maximum detail (large files)",
+    };
+
     /// <summary>
     /// Explicit target bitrate, or the automatic bitrate for a quality preset. Auto is anchored on AV1
     /// at 1080p60 and scaled sub-linearly with the pixel

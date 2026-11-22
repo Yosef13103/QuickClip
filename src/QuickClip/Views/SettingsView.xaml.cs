@@ -838,7 +838,9 @@ public partial class SettingsView : UserControl
         BufferText.Text = RecordingPresets.DurationLabel(effective.ReplaySeconds);
         ResourceSummary.Visibility = AppProfile.IsPersonal ? Visibility.Visible : Visibility.Collapsed;
         RamText.Visibility = AppProfile.IsPersonal ? Visibility.Collapsed : Visibility.Visible;
-        ResourceVideo.Text = $"{BufferText.Text} · {effective.Fps} FPS target · {RecordingPresets.Label(effective.Quality)}";
+        ResourceVideo.Text = IsBasicExperience
+            ? $"{BufferText.Text} · {effective.Fps} recording FPS · {RecordingPresets.BasicDetailLabel(effective.Quality)}"
+            : $"{BufferText.Text} · {effective.Fps} FPS target · {RecordingPresets.Label(effective.Quality)}";
         ResourceSize.Text = "Size estimates require a display or capture area.";
         _estimatedClipBytes = 0;
         UpdateStorageCards();
@@ -861,11 +863,12 @@ public partial class SettingsView : UserControl
         var encoder = VideoEncoders.Find(encoderId);
         string encoderLabel = effective.EncoderId.Length > 0 || effective.Codec.HasValue ? encoder?.Label ?? encoderId :
             RecordingPresets.DefaultEncoder(_encoders) is { } preferred ? $"Auto ({preferred.Label})" : "Auto";
-        ResourceVideo.Text = IsBasicExperience ? $"{BufferText.Text} · {w} × {h} · {effective.Fps} FPS · {RecordingPresets.Label(effective.Quality)}" :
+        ResourceVideo.Text = IsBasicExperience ? $"{BufferText.Text} · {w} × {h} · {effective.Fps} FPS · {RecordingPresets.BasicDetailLabel(effective.Quality)}" :
             $"{BufferText.Text} · {w} × {h} estimated · {effective.Fps} FPS target · {RecordingPresets.Label(effective.Quality)} · {BitrateText.Text} video · {encoderLabel}";
-        ResourceSize.Text = IsBasicExperience ? $"A full-length clip takes about {Fmt.Size(clip)} on disk." :
-            $"Estimated full clip {Fmt.Size(clip)} · Replay buffer about {Fmt.Size(ram)} RAM · {tracks} audio track(s)";
-        RamText.Text = $"The replay buffer needs about {Fmt.Size(ram)} of memory. A full-length clip is about {Fmt.Size(clip)} on disk.";
+        ResourceSize.Text = IsBasicExperience
+            ? $"Storage planning guide: around {Fmt.Size(clip)} for a full-length clip. Actual sizes vary with game motion and can be much smaller or larger."
+            : $"Bitrate-budget estimate {Fmt.Size(clip)} (not exact) · Replay buffer about {Fmt.Size(ram)} RAM · {tracks} audio track(s). Actual media size varies.";
+        RamText.Text = $"Replay buffer estimate: {Fmt.Size(ram)} RAM. A full-length clip has a nominal storage budget of {Fmt.Size(clip)}; VBR can vary above or below it.";
     }
 
     private void OnRecorderState(RecorderState state) => Dispatcher.BeginInvoke(() =>
