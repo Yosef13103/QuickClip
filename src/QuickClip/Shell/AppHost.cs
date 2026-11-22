@@ -153,16 +153,13 @@ internal sealed class AppHost : IDisposable
         Shell_NotifyIcon(NIM_MODIFY, ref data);
     }
 
-    internal void NotifyShareReady(bool copied)
+    internal void NotifyShare(string title, string message, bool warning)
     {
         var settings = AppSettings.Current;
         if (!settings.ClipNotificationsEnabled) return;
-        const string title = "Share ready";
-        string message = copied ? "Video copied to clipboard. Paste it into another app." :
-            "Video prepared. Use Media jobs to copy it or attach it.";
-        if (settings.ClipWindowsNotification) Notify(title, message);
+        if (settings.ClipWindowsNotification) Notify(title, message, warning);
         if (settings.ClipOverlay is { Enabled: true, HideSavedBannerFromCapture: false } overlay)
-            _ = ShowOverlayAsync(overlay.Banner() with { Seconds = Math.Max(3, overlay.Seconds) }, title, true, null, message);
+            _ = ShowOverlayAsync(overlay.Banner() with { Seconds = Math.Max(3, overlay.Seconds) }, title, !warning, null, message);
     }
 
     private void OnReplaySaved(ReplaySaveReceipt receipt) => _dispatcher.BeginInvoke(() =>
