@@ -19,9 +19,18 @@ public partial class GalleryView
     private string GameScopeLabel(string gameId) => _clips.FirstOrDefault(c => c.Details.GameId == gameId)?.Details.Game ??
         QuickClip.Discovery.GameCatalogRuntime.Rows(AppSettings.Current.Games ?? new())
             .FirstOrDefault(g => g.Id == gameId)?.DisplayName ?? gameId;
-    private IEnumerable<TagFilterChoice> AvailableTagFilters() => PersonalLibrary.Enabled
-        ? _tagDefinitions.Where(t => _folderSelection.Game.IsAll || t.AppliesTo(_folderSelection.Game.GameId)).Select(TagChoiceFor)
-        : KnownTags.Select(name => new TagFilterChoice(null, name, name));
+    private IEnumerable<TagFilterChoice> AvailableTagFilters()
+    {
+        if (!PersonalLibrary.Enabled)
+            return KnownTags.Select(name => new TagFilterChoice(null, name, name));
+        if (_folderSelection.Game.IsAll) return _tagDefinitions.Select(TagChoiceFor);
+        // A physical folder may contain several distinct game IDs (e.g. Terraria
+        // and tModLoader); expose each one's tags without changing clip identity.
+        var visibleIds = _clips.Where(MatchesFolder).Select(clip => clip.Details.GameId)
+            .OfType<string>().ToHashSet(StringComparer.Ordinal);
+        return _tagDefinitions.Where(tag => tag.GameId == null ||
+            visibleIds.Contains(tag.GameId)).Select(TagChoiceFor);
+    }
     private bool _matchAllTags = true;
 
     private void RefreshTagFilterButton()

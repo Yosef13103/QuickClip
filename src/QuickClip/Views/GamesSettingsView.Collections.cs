@@ -47,14 +47,14 @@ public partial class GamesSettingsView
                 var physical = new TextBox
                 {
                     Text = preference.SaveSubfolder ?? "",
-                    MaxLength = 128,
-                    ToolTip = "Relative to your Clips folder. Example: Terraria\\tModLoader. Leave empty to use this game's folder.",
+                    MaxLength = 240,
+                    ToolTip = "Relative to your Clips folder. Example: Terraria\\Modded\\Calamity. Leave empty to use this game's folder.",
                 };
                 AutomationProperties.SetName(physical, "Physical save subfolder inside Clips");
                 panel.Children.Add(physical);
                 panel.Children.Add(new TextBlock
                 {
-                    Text = $"Default: {game.DisplayName}. Example: Terraria\\tModLoader. Maximum two folder levels; existing clips are not moved.",
+                    Text = $"Default: {game.DisplayName}. Example: Terraria\\Modded\\Calamity. Up to 12 folder levels; existing clips are not moved.",
                     TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0,5,0,10)
                 });
                 var list = new ComboBox { ItemsSource = definitions, DisplayMemberPath = nameof(LibraryCollection.Name), SelectedIndex = -1 };

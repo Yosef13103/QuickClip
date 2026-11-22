@@ -53,7 +53,7 @@ public partial class EditorView : UserControl
          ".mka", ".amr", ".ape", ".wv", ".caf", ".alac", ".mp2", ".m4b"], StringComparer.OrdinalIgnoreCase);
 
     private MpvPlayer? _player;
-    private double _videoZoom;
+    private readonly VideoPreviewZoomController _previewViewport;
     private PreviewAudio? _previewAudio;
     private MediaInfo? _media;
     private HashSet<string> _encoders = ["libx264", "libx265", "libsvtav1", "libvpx-vp9", "libopus", "libmp3lame"];
@@ -365,7 +365,7 @@ public partial class EditorView : UserControl
         Row("Zoom timeline in / out / fit", "+", "−", "0");
         Row("Scroll tracks", "Wheel");
         Row("Zoom timeline", "Ctrl", "Wheel over timeline");
-        Row("Zoom video preview / reset", "Ctrl", "Wheel over video / 0");
+        Row("Zoom preview at pointer / pan / reset", "Ctrl", "Wheel over video / drag / 0");
         Row("Pan timeline", "Shift", "Wheel");
         Section("\uE8E5", "Files & view");
         Row("Open a clip", "Ctrl", "O");
@@ -507,16 +507,10 @@ public partial class EditorView : UserControl
         Video.CursorQuery = (x, y) => _fullscreen ? (_fullscreenControlsHidden ? -1 : VideoHost.IDC_ARROW)
             : _media?.Video == null ? VideoHost.IDC_ARROW : _crop.CursorAt(x, y);
         Video.VideoMouseDown += OnVideoMouseDown;
-        Video.VideoCtrlWheel += delta => ChangeVideoZoom(delta);
-        // The mpv surface is a native HWND; handle both native wheel messages and WPF routing.
-        Root.PreviewMouseWheel += (_, e) =>
-        {
-            if (!Keyboard.Modifiers.HasFlag(ModifierKeys.Control)) return;
-            var point = e.GetPosition(Video);
-            if (point.X < 0 || point.Y < 0 || point.X > Video.ActualWidth || point.Y > Video.ActualHeight) return;
-            ChangeVideoZoom(e.Delta);
-            e.Handled = true;
-        };
+        _previewViewport = new VideoPreviewZoomController(Video, () => _player,
+            () => _media?.Video != null && !_crop.Enabled,
+            () => _media?.Video == null ? 0 : _media.Video.Width / (double)Math.Max(1, _media.Video.Height));
+        Root.PreviewMouseWheel += (_, e) => _previewViewport.HandleWpfWheel(e);
         Video.VideoContextRequested += () => Dispatcher.BeginInvoke(new Action(OpenVideoContext));
         _fullscreenControlsTimer = new DispatcherTimer(TimeSpan.FromSeconds(2.5), DispatcherPriority.Background, (_, _) =>
         {
@@ -1599,21 +1593,7 @@ public partial class EditorView : UserControl
         e.Handled = handled;
     }
 
-    private void ChangeVideoZoom(int wheelDelta)
-    {
-        if (_player == null || _media?.Video == null || _crop.Enabled) return;
-        double next = VideoPreviewZoom.Step(_videoZoom, wheelDelta);
-        if (next == _videoZoom) return;
-        _videoZoom = next;
-        _player.SetProperty("video-zoom", _videoZoom);
-        _player.CommandAsync("show-text", $"Preview zoom {VideoPreviewZoom.Percent(_videoZoom)}% (Ctrl+0 to reset)", "850");
-    }
-
-    private void ResetVideoZoom()
-    {
-        _videoZoom = 0;
-        _player?.SetProperty("video-zoom", 0d);
-    }
+    private void ResetVideoZoom() => _previewViewport.Reset();
 
     private void OnVideoMouseDown(int x, int y)
     {

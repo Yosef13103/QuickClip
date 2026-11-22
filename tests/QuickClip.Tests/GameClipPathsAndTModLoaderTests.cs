@@ -23,6 +23,10 @@ public sealed class GameClipPathsAndTModLoaderTests
         Assert.Equal(target, RecordingCollections.SaveDirectory(settings, "steam:1281930", "tModLoader"));
         Assert.Equal(Path.Combine(root, "Terraria"), RecordingCollections.SaveDirectory(settings, "steam:105600", "Terraria"));
         Assert.Equal(@"Terraria\tModLoader", AppSettings.Parse(settings.ToJson()).RecordingCollections["steam:1281930"].SaveSubfolder);
+        settings.RecordingCollections = settings.RecordingCollections.SetItem("steam:1281930",
+            prefs["steam:1281930"] with { SaveSubfolder = @"Terraria\Modded\Calamity" });
+        Assert.Equal(Path.Combine(root, "Terraria", "Modded", "Calamity"),
+            RecordingCollections.SaveDirectory(settings, "steam:1281930", "tModLoader"));
         Assert.Equal("tModLoader", QuickClip.Gallery.ClipLibrary.InitialGame(root, Path.Combine(target, "test.mp4")));
     }
 
@@ -30,11 +34,11 @@ public sealed class GameClipPathsAndTModLoaderTests
     public void Nested_clips_remain_visible_to_gallery_depth_limited_scans()
     {
         using var temp = new TemporaryDirectory();
-        string nested = Path.Combine(temp.Path, "Terraria", "tModLoader");
+        string nested = Path.Combine(temp.Path, "Terraria", "tModLoader", "Calamity");
         Directory.CreateDirectory(nested);
         string clip = Path.Combine(nested, "boss.mp4");
         File.WriteAllText(clip, "fixture");
-        var options = new EnumerationOptions { RecurseSubdirectories = true, MaxRecursionDepth = 2 };
+        var options = new EnumerationOptions { RecurseSubdirectories = true, MaxRecursionDepth = 16 };
         Assert.Contains(clip, Directory.EnumerateFiles(temp.Path, "*.mp4", options));
     }
 
@@ -42,7 +46,7 @@ public sealed class GameClipPathsAndTModLoaderTests
     [InlineData(@"..\outside")]
     [InlineData(@"Terraria\..\outside")]
     [InlineData(@"C:\outside")]
-    [InlineData(@"Terraria\tModLoader\Third")]
+    [InlineData(@"a\b\c\d\e\f\g\h\i\j\k\l\m")]
     [InlineData(@"Terraria\SteelSeries Moments")]
     [InlineData(@"Terraria\QuickClip")]
     [InlineData(@"Terraria\CON")]
@@ -117,6 +121,54 @@ public sealed class GameClipPathsAndTModLoaderTests
         Assert.Equal(100, VideoPreviewZoom.Percent(0));
         Assert.Equal(200, VideoPreviewZoom.Percent(1));
         Assert.Equal(50, VideoPreviewZoom.Percent(-1));
+    }
+
+    [Fact]
+    public void Cursor_anchored_zoom_keeps_point_stationary_until_image_edge()
+    {
+        const double viewportWidth = 1000, viewportHeight = 600, aspect = 16d / 9;
+        var before = new VideoPreviewZoom.Transform(0, 0, 0);
+        var after = VideoPreviewZoom.ZoomAt(before, 120, 650, 340,
+            viewportWidth, viewportHeight, aspect);
+        var oldImage = VideoPreviewZoom.ScaledSize(viewportWidth, viewportHeight, aspect, before.Zoom);
+        var newImage = VideoPreviewZoom.ScaledSize(viewportWidth, viewportHeight, aspect, after.Zoom);
+        double oldX = (650 - viewportWidth / 2) / oldImage.Width - before.PanX;
+        double oldY = (340 - viewportHeight / 2) / oldImage.Height - before.PanY;
+        double newX = (650 - viewportWidth / 2) / newImage.Width - after.PanX;
+        double newY = (340 - viewportHeight / 2) / newImage.Height - after.PanY;
+        Assert.InRange(Math.Abs(oldX - newX), 0, 1e-9);
+        Assert.InRange(Math.Abs(oldY - newY), 0, 1e-9);
+        Assert.True(after.PanX < 0);
+        Assert.True(after.PanY < 0);
+    }
+
+    [Fact]
+    public void Preview_drag_pans_scaled_picture_and_never_exposes_empty_space()
+    {
+        const double width = 1000, height = 600, aspect = 16d / 9;
+        var enlarged = new VideoPreviewZoom.Transform(1, 0, 0);
+        var dragged = VideoPreviewZoom.PanBy(enlarged, 100, -40, width, height, aspect);
+        Assert.Equal(.05, dragged.PanX, precision: 6);
+        Assert.InRange(dragged.PanY, -.04, -.035);
+        var edge = VideoPreviewZoom.PanBy(dragged, 10000, 10000, width, height, aspect);
+        Assert.InRange(edge.PanX, 0, .251);
+        Assert.InRange(edge.PanY, 0, .234);
+        var unzoomed = VideoPreviewZoom.PanBy(default, 500, 200, width, height, aspect);
+        Assert.Equal(default, unzoomed);
+        var reset = VideoPreviewZoom.ZoomAt(edge, -1200, 500, 300, width, height, aspect);
+        Assert.Equal(VideoPreviewZoom.Min, reset.Zoom);
+        Assert.Equal(0, reset.PanX);
+        Assert.Equal(0, reset.PanY);
+    }
+
+    [Fact]
+    public void Panning_respects_letterbox_and_invalid_video_dimensions()
+    {
+        var zoomed = new VideoPreviewZoom.Transform(1, 0, 0);
+        var portrait = VideoPreviewZoom.PanBy(zoomed, 300, 250, 1200, 700, 9d / 16);
+        Assert.Equal(0, portrait.PanX); // 2x portrait still fits horizontally.
+        Assert.True(portrait.PanY > 0);
+        Assert.Equal((0d, 0d), VideoPreviewZoom.ScaledSize(0, 700, 9d / 16, 1));
     }
 
     private sealed class TemporaryDirectory : IDisposable

@@ -185,7 +185,7 @@ internal static class ClipLibrary
         var options = new EnumerationOptions
         {
             RecurseSubdirectories = true,
-            MaxRecursionDepth = 2,
+            MaxRecursionDepth = 16, // Supports validated nested per-game save paths (up to 12 levels).
             IgnoreInaccessible = true,
             AttributesToSkip = FileAttributes.Hidden | FileAttributes.System | FileAttributes.ReparsePoint,
         };

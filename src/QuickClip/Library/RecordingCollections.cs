@@ -33,14 +33,14 @@ internal static class RecordingCollections
         if (string.IsNullOrWhiteSpace(value)) return null;
         string normalized = LibraryFiles.RelativePath(value.Trim());
         string[] segments = normalized.Split('\\');
-        if (normalized.Length > 128 || segments.Length > 2 || ClipLibrary.IsExcluded(normalized, null) ||
+        if (normalized.Length > 240 || segments.Length > 12 || ClipLibrary.IsExcluded(normalized, null) ||
             segments.Any(segment => segment.Equals("QuickClip", StringComparison.OrdinalIgnoreCase) ||
                 segment.Equals(ProjectLibrary.FolderName, StringComparison.OrdinalIgnoreCase) ||
                 segment.Equals("Cache", StringComparison.OrdinalIgnoreCase) ||
                 segment.Equals("thumbs", StringComparison.OrdinalIgnoreCase) ||
                 segment.Equals("$Recycle.Bin", StringComparison.OrdinalIgnoreCase) ||
                 segment.Equals("System Volume Information", StringComparison.OrdinalIgnoreCase)))
-            throw new ArgumentException("Use one or two safe folder names inside Clips, outside excluded folders.");
+            throw new ArgumentException("Use a relative path of at most 12 safe folders inside Clips (240 characters maximum), outside excluded folders.");
         return normalized;
     }
 

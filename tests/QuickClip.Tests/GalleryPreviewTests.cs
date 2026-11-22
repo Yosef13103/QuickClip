@@ -29,6 +29,22 @@ public sealed class GalleryPreviewTests
         Assert.Equal(expected, GalleryView.ZoomCardWidth(actual, preferred, delta));
 
     [Fact]
+    public void Gallery_wheel_interpolation_moves_smoothly_and_does_not_overshoot()
+    {
+        double current = 0, target = 900;
+        for (int frame = 0; frame < 60; frame++)
+        {
+            double next = GalleryView.SmoothGalleryOffset(current, target, 1d / 60);
+            Assert.True(next > current);
+            Assert.True(next <= target);
+            current = next;
+        }
+        Assert.InRange(target - current, 0, .01);
+        Assert.Equal(75, GalleryView.SmoothGalleryOffset(75, 75, 0));
+        Assert.InRange(GalleryView.SmoothGalleryOffset(0, target, 10), 0, target);
+    }
+
+    [Fact]
     public async Task Cache_key_distinguishes_pixel_buckets_and_replaced_files()
     {
         var root = Directory.CreateTempSubdirectory("quickclip-thumbnail-");

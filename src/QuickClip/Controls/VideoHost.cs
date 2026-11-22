@@ -18,9 +18,24 @@ public sealed class VideoHost : HwndHost
     public event Action<int, int>? VideoMouseDown;
     public event Action<int, int>? VideoMouseMove;
     public event Action<int, int>? VideoMouseUp;
-    /// <summary>Ctrl+wheel over the native mpv surface, in wheel delta units.</summary>
-    public event Action<int>? VideoCtrlWheel;
+    /// <summary>Ctrl+wheel: native client coordinates and signed wheel delta.</summary>
+    public event Action<int, int, int>? VideoCtrlWheel;
+    public Func<int, int, bool>? VideoCtrlPanStart { get; set; }
+    public Action<int, int>? VideoCtrlPanMove { get; set; }
+    public Action? VideoCtrlPanEnd { get; set; }
     public event Action? VideoContextRequested;
+
+    private bool _ctrlPanCaptured;
+    internal (double Width, double Height) NativeClientSize
+    {
+        get
+        {
+            if (Hwnd != IntPtr.Zero && GetClientRect(Hwnd, out var rect) &&
+                rect.Right > rect.Left && rect.Bottom > rect.Top)
+                return (rect.Right - rect.Left, rect.Bottom - rect.Top);
+            return (Math.Max(1, ActualWidth), Math.Max(1, ActualHeight));
+        }
+    }
 
     /// <summary>Asked on WM_SETCURSOR with the cursor position; return a Win32 IDC_* id, 0 for the arrow or -1 for none.</summary>
     public Func<int, int, int>? CursorQuery { get; set; }
@@ -47,6 +62,7 @@ public sealed class VideoHost : HwndHost
 
     protected override void DestroyWindowCore(HandleRef hwnd)
     {
+        EndCtrlPan();
         DestroyWindow(hwnd.Handle);
         if (Hwnd == hwnd.Handle) Hwnd = IntPtr.Zero;
     }
@@ -94,24 +110,55 @@ public sealed class VideoHost : HwndHost
         switch (msg)
         {
             case WM_MOUSEWHEEL when (wParam.ToInt64() & MK_CONTROL) != 0 && VideoCtrlWheel != null:
-                VideoCtrlWheel.Invoke(unchecked((short)((wParam.ToInt64() >> 16) & 0xFFFF)));
+                // WM_MOUSEWHEEL lParam uses SCREEN, not client, coordinates.
+                var wheel = new POINT { X = x, Y = y };
+                if (ScreenToClient(hwnd, ref wheel))
+                    VideoCtrlWheel.Invoke(wheel.X, wheel.Y,
+                        unchecked((short)((wParam.ToInt64() >> 16) & 0xFFFF)));
                 handled = true;
                 return IntPtr.Zero;
             case WM_LBUTTONDOWN:
+                if ((wParam.ToInt64() & MK_CONTROL) != 0 && VideoCtrlPanStart?.Invoke(x, y) == true)
+                {
+                    _ctrlPanCaptured = true;
+                    SetCapture(hwnd);
+                    handled = true;
+                    return IntPtr.Zero;
+                }
                 SetCapture(hwnd);
                 VideoMouseDown?.Invoke(x, y);
                 handled = true;
                 return IntPtr.Zero;
             case WM_MOUSEMOVE:
-                VideoMouseMove?.Invoke(x, y);
+                if (_ctrlPanCaptured)
+                {
+                    if ((wParam.ToInt64() & MK_LBUTTON) == 0)
+                    {
+                        EndCtrlPan();
+                        ReleaseCapture();
+                    }
+                    else VideoCtrlPanMove?.Invoke(x, y);
+                }
+                else VideoMouseMove?.Invoke(x, y);
                 ApplyCursor(x, y);
                 handled = true;
                 return IntPtr.Zero;
             case WM_LBUTTONUP:
+                if (_ctrlPanCaptured)
+                {
+                    EndCtrlPan();
+                    ReleaseCapture();
+                    handled = true;
+                    return IntPtr.Zero;
+                }
                 ReleaseCapture();
                 VideoMouseUp?.Invoke(x, y);
                 handled = true;
                 return IntPtr.Zero;
+            case WM_CAPTURECHANGED:
+            case WM_CANCELMODE:
+                EndCtrlPan();
+                break;
             case WM_RBUTTONUP when VideoContextRequested != null:
                 VideoContextRequested.Invoke();
                 handled = true;
@@ -131,9 +178,16 @@ public sealed class VideoHost : HwndHost
         return base.WndProc(hwnd, msg, wParam, lParam, ref handled);
     }
 
+    private void EndCtrlPan()
+    {
+        if (!_ctrlPanCaptured) return;
+        _ctrlPanCaptured = false;
+        VideoCtrlPanEnd?.Invoke();
+    }
+
     private void ApplyCursor(int x, int y)
     {
-        int id = CursorQuery?.Invoke(x, y) ?? 0;
+        int id = _ctrlPanCaptured ? IDC_SIZEALL : CursorQuery?.Invoke(x, y) ?? 0;
         SetCursor(id < 0 ? IntPtr.Zero : LoadCursor(IntPtr.Zero, id == 0 ? IDC_ARROW : id));
     }
 
@@ -171,7 +225,8 @@ public sealed class VideoHost : HwndHost
     private const uint RDW_INVALIDATE = 0x0001, RDW_ALLCHILDREN = 0x0080;
     private const int WS_CHILD = 0x40000000, WS_VISIBLE = 0x10000000, WS_CLIPCHILDREN = 0x02000000, WS_CLIPSIBLINGS = 0x04000000;
     private const int BLACK_BRUSH = 4;
-    private const int WM_SETCURSOR = 0x0020, WM_ERASEBKGND = 0x0014, WM_MOUSEMOVE = 0x0200, WM_MOUSEWHEEL = 0x020A, MK_CONTROL = 0x0008, WM_LBUTTONDOWN = 0x0201,
+    private const int WM_SETCURSOR = 0x0020, WM_ERASEBKGND = 0x0014, WM_MOUSEMOVE = 0x0200, WM_MOUSEWHEEL = 0x020A,
+        WM_CAPTURECHANGED = 0x0215, WM_CANCELMODE = 0x001F, MK_CONTROL = 0x0008, MK_LBUTTON = 0x0001, WM_LBUTTONDOWN = 0x0201,
         WM_LBUTTONUP = 0x0202, WM_RBUTTONUP = 0x0205;
 
     private delegate IntPtr WndProcDelegate(IntPtr hwnd, uint msg, IntPtr wParam, IntPtr lParam);
@@ -196,6 +251,9 @@ public sealed class VideoHost : HwndHost
 
     [StructLayout(LayoutKind.Sequential)]
     private struct POINT { public int X, Y; }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct RECT { public int Left, Top, Right, Bottom; }
 
     [DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
     private static extern ushort RegisterClassEx(ref WNDCLASSEX wc);
@@ -222,6 +280,7 @@ public sealed class VideoHost : HwndHost
     [DllImport("user32.dll")] private static extern IntPtr SetCursor(IntPtr cursor);
     [DllImport("user32.dll")] private static extern IntPtr LoadCursor(IntPtr instance, int name);
     [DllImport("user32.dll")] private static extern bool GetCursorPos(out POINT pt);
+    [DllImport("user32.dll")] private static extern bool GetClientRect(IntPtr hwnd, out RECT rect);
     [DllImport("user32.dll")] private static extern bool ScreenToClient(IntPtr hwnd, ref POINT pt);
     [DllImport("user32.dll")] private static extern IntPtr WindowFromPoint(POINT pt);
     [DllImport("user32.dll")] private static extern bool IsChild(IntPtr parent, IntPtr hwnd);
