@@ -18,6 +18,9 @@ public sealed class DetachedEpochArchiveTests
         int scenario, out int epochs, out long bytes,
         out long firstUs, out long lastUs, out int streams);
 
+    [DllImport("QuickClipCapture.dll", CallingConvention = CallingConvention.Cdecl)]
+    private static extern int qc_test_epoch_packet_transfer();
+
     [Theory]
     [InlineData(0, 2, 640, 1_000_000, 6_000_000)]
     [InlineData(1, 1, 384, 1_000_000, 3_000_000)]
@@ -36,6 +39,12 @@ public sealed class DetachedEpochArchiveTests
         Assert.Equal(expectedFirstUs, firstUs);
         Assert.Equal(expectedLastUs, lastUs);
         Assert.Equal(2, streams);
+    }
+
+    [Fact]
+    public void Graph_packet_handoff_transfers_ownership_without_copy_and_preserves_failed_transfer()
+    {
+        Assert.Equal(1, qc_test_epoch_packet_transfer());
     }
 
     [Fact]

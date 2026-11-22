@@ -897,3 +897,88 @@ extern "C" __declspec(dllexport) int qc_test_detached_epoch_media_roundtrip(
     }
     return 1;
 }
+
+// Exercises zero-copy ownership transfer and rejection under an actual PacketRing lock.
+// Isolated from the global capture engine and all real display/audio devices.
+extern "C" __declspec(dllexport) int qc_test_epoch_packet_transfer()
+{
+    struct Codecs
+    {
+        AVCodecParameters* video = avcodec_parameters_alloc();
+        AVCodecParameters* audio = avcodec_parameters_alloc();
+        ~Codecs()
+        {
+            avcodec_parameters_free(&video);
+            avcodec_parameters_free(&audio);
+        }
+    } codecs;
+    if (!codecs.video || !codecs.audio) return 0;
+    codecs.video->codec_type = AVMEDIA_TYPE_VIDEO;
+    codecs.video->codec_id = AV_CODEC_ID_H264;
+    codecs.video->width = 640;
+    codecs.video->height = 360;
+    codecs.audio->codec_type = AVMEDIA_TYPE_AUDIO;
+    codecs.audio->codec_id = AV_CODEC_ID_AAC;
+    codecs.audio->sample_rate = 48000;
+    std::vector<AVCodecParameters*> parameters{ codecs.video, codecs.audio };
+    std::vector<AVRational> bases{ { 1, 30 }, { 1, 48000 } };
+    struct Owned
+    {
+        std::vector<qc::PacketRing::Entry> packets;
+        ~Owned() { for (auto& entry : packets) av_packet_free(&entry.packet); }
+    };
+    const auto insert = [](qc::PacketRing& ring, int stream) -> AVPacket* {
+        auto* packet = av_packet_alloc();
+        if (!packet) return nullptr;
+        if (av_new_packet(packet, 64) < 0)
+        {
+            av_packet_free(&packet);
+            return nullptr;
+        }
+        // Delayed audio packets can arrive after video with earlier timestamps.
+        ring.Push(packet, stream, stream == 0 ? 1'000'000 : 0, stream == 0, 1);
+        return packet;
+    };
+    const auto drain = [](qc::PacketRing& ring, Owned& owner) {
+        owner.packets = ring.Drain();
+        int64_t bytes = -1;
+        double seconds = -1;
+        ring.Stats(bytes, seconds);
+        return bytes == 0 && seconds == 0 && owner.packets.size() == 2;
+    };
+
+    qc::DetachedEpochArchive archive(192, 10'000'000);
+    qc::DetachedEpochArchive::Header firstHeader{ 42, 1, "verified-game:synthetic", 11, 1'000'000 };
+    AVPacket* firstVideo = nullptr;
+    Owned first;
+    {
+        qc::PacketRing graph(10'000'000, 192);
+        firstVideo = insert(graph, 0);
+        if (!firstVideo || !insert(graph, 1) || !drain(graph, first)) return 0;
+    } // Graph was destroyed before archive adoption.
+    if (!archive.AppendOwned(firstHeader, first.packets, parameters, bases) ||
+        archive.Count() != 1 || archive.Bytes() != 128 ||
+        archive.At(0)->packets[0].packet != firstVideo ||
+        first.packets[0].packet || first.packets[1].packet)
+        return 0;
+
+    qc::DetachedEpochArchive::Header nextHeader{ 42, 2, "verified-game:synthetic", 12, 5'000'000 };
+    AVPacket* nextVideo = nullptr;
+    Owned next;
+    {
+        qc::PacketRing graph(10'000'000, 192);
+        nextVideo = insert(graph, 0);
+        if (!nextVideo || !insert(graph, 1) || !drain(graph, next)) return 0;
+    }
+    // A stale or changed grant must fail without consuming the caller's packets.
+    if (archive.AppendOwned(nextHeader, next.packets, parameters, bases) ||
+        next.packets[0].packet != nextVideo ||
+        archive.Count() != 1 || archive.Bytes() != 128) return 0;
+    nextHeader.grantRevision = 11;
+    if (!archive.AppendOwned(nextHeader, next.packets, parameters, bases) ||
+        next.packets[0].packet || next.packets[1].packet ||
+        archive.Count() != 1 || archive.Bytes() != 128 ||
+        archive.At(0)->packets[0].packet != nextVideo)
+        return 0; // Old epoch evicted before adopting the new 128-byte batch.
+    return 1;
+}

@@ -120,6 +120,18 @@ namespace qc
         seconds = oldest < 0 ? 0 : std::min<double>((newestVideoUs_ - oldest) / 1e6, windowUs_ / 1e6);
     }
 
+    std::vector<PacketRing::Entry> PacketRing::Drain()
+    {
+        std::lock_guard guard(lock_);
+        std::vector<Entry> drained;
+        drained.reserve(entries_.size());
+        for (auto& entry : entries_) drained.push_back(entry);
+        entries_.clear();
+        bytes_ = 0;
+        newestVideoUs_ = -1;
+        return drained;
+    }
+
     void PacketRing::Clear()
     {
         std::lock_guard guard(lock_);

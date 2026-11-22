@@ -54,7 +54,32 @@ namespace qc
         explicit DetachedEpochArchive(int64_t maxBytes, int64_t retentionUs)
             : maxBytes_(maxBytes), retentionUs_(retentionUs) {}
 
+        // Convenience path for fixture snapshots: clone caller-owned packets.
         bool Append(const Header& header, const std::vector<PacketRing::Entry>& originals,
+            const std::vector<AVCodecParameters*>& codecs, const std::vector<AVRational>& bases,
+            const std::vector<std::string>& titles = {})
+        {
+            std::vector<PacketRing::Entry> copies;
+            copies.reserve(originals.size());
+            for (const auto& entry : originals)
+            {
+                AVPacket* copy = entry.packet ? av_packet_clone(entry.packet) : nullptr;
+                if (!copy)
+                {
+                    for (auto& pending : copies) av_packet_free(&pending.packet);
+                    return false;
+                }
+                copies.push_back({ copy, entry.stream, entry.timeUs, entry.key, entry.sequence, entry.source });
+            }
+            const bool appended = AppendOwned(header, copies, codecs, bases, titles);
+            for (auto& pending : copies) av_packet_free(&pending.packet);
+            return appended;
+        }
+
+        // Graph teardown path: adopt existing encoded packets without cloning their buffers.
+        // Failure preserves ownership in originals; success nulls transferred pointers.
+        // Caller releases any unaccepted entries, including on validation failure.
+        bool AppendOwned(const Header& header, std::vector<PacketRing::Entry>& originals,
             const std::vector<AVCodecParameters*>& codecs, const std::vector<AVRational>& bases,
             const std::vector<std::string>& titles = {})
         {
@@ -71,6 +96,40 @@ namespace qc
                 header.grantRevision != epochs_.front()->header.grantRevision ||
                 header.epochId <= epochs_.back()->header.epochId))
                 return false;
+
+            int64_t bytes = 0, startUs = INT64_MAX, endUs = -1;
+            std::vector<int64_t> lastDts(codecs.size(), INT64_MIN);
+            bool firstVideo = false;
+            for (const auto& entry : originals)
+            {
+                if (!entry.packet || entry.packet->size < 0 ||
+                    entry.stream < 0 || static_cast<size_t>(entry.stream) >= codecs.size() ||
+                    entry.timeUs < 0 ||
+                    entry.timeUs > INT64_MAX - header.graphStartUs ||
+                    entry.packet->size > maxBytes_ - bytes) return false;
+                // Encoded packets must remain in decode order within each stream.
+                const int64_t dts = entry.packet->dts;
+                if (dts != AV_NOPTS_VALUE)
+                {
+                    if (lastDts[entry.stream] != INT64_MIN && dts < lastDts[entry.stream])
+                        return false;
+                    lastDts[entry.stream] = dts;
+                }
+                if (entry.stream == 0 && !firstVideo)
+                {
+                    firstVideo = true;
+                    if (!entry.key) return false;
+                }
+                // Audio and video encoders publish asynchronously; global arrival order
+                // need not be timestamp order. Preserve per-stream packet order for the muxer.
+                const int64_t globalUs = header.graphStartUs + entry.timeUs;
+                startUs = std::min(startUs, globalUs);
+                endUs = std::max(endUs, globalUs);
+                bytes += entry.packet->size;
+            }
+            if (!firstVideo || endUs - startUs > retentionUs_) return false;
+            if (!epochs_.empty() && startUs <= epochs_.back()->endUs)
+                return false; // Overlap requires explicit timeline reconciliation.
 
             auto epoch = std::make_unique<Epoch>(header);
             for (size_t i = 0; i < codecs.size(); ++i)
@@ -89,42 +148,28 @@ namespace qc
             if (epoch->streamTitles.empty())
                 for (size_t i = 0; i < codecs.size(); ++i)
                     epoch->streamTitles.push_back(i == 0 ? "Video" : "Audio " + std::to_string(i));
-            bool firstVideo = false, hasKey = false;
-            int64_t previousTime = -1;
-            for (const auto& packet : originals)
-            {
-                if (!packet.packet || packet.packet->size < 0 ||
-                    packet.stream < 0 || static_cast<size_t>(packet.stream) >= codecs.size() ||
-                    packet.timeUs < 0 || packet.timeUs < previousTime ||
-                    packet.timeUs > INT64_MAX - header.graphStartUs) return false;
-                if (packet.stream == 0 && !firstVideo)
-                {
-                    firstVideo = true;
-                    hasKey = packet.key;
-                    if (!hasKey) return false;
-                }
-                previousTime = packet.timeUs;
-                auto* clone = av_packet_clone(packet.packet);
-                if (!clone) return false;
-                epoch->packets.push_back({ clone, packet.stream, packet.timeUs,
-                    header.graphStartUs + packet.timeUs, packet.key, packet.sequence, packet.source });
-                epoch->bytes += clone->size;
-                if (epoch->bytes > maxBytes_) return false;
-            }
-            if (!firstVideo || !hasKey) return false;
-            epoch->startUs = epoch->packets.front().globalUs;
-            epoch->endUs = epoch->packets.back().globalUs;
-            if (epoch->endUs - epoch->startUs > retentionUs_) return false;
-            if (!epochs_.empty() && epoch->startUs <= epochs_.back()->endUs)
-                return false; // Explicit gaps are allowed. Overlaps require separate provenance validation.
-            bytes_ += epoch->bytes;
-            epochs_.push_back(std::move(epoch));
-            while (!epochs_.empty() && (bytes_ > maxBytes_ ||
-                (epochs_.back()->endUs - epochs_.front()->endUs > retentionUs_)))
+            epoch->packets.reserve(originals.size());
+            epoch->startUs = startUs;
+            epoch->endUs = endUs;
+            epoch->bytes = bytes;
+
+            // Evict before adopting packets: a new epoch must not temporarily double
+            // the archive's retained data beyond its own byte/time budget.
+            while (!epochs_.empty() && (bytes_ > maxBytes_ - bytes ||
+                (endUs - epochs_.front()->endUs > retentionUs_)))
             {
                 bytes_ -= epochs_.front()->bytes;
                 epochs_.pop_front();
             }
+            for (auto& entry : originals)
+            {
+                AVPacket* packet = entry.packet;
+                entry.packet = nullptr;
+                epoch->packets.push_back({ packet, entry.stream, entry.timeUs,
+                    header.graphStartUs + entry.timeUs, entry.key, entry.sequence, entry.source });
+            }
+            bytes_ += bytes;
+            epochs_.push_back(std::move(epoch));
             return true;
         }
 

@@ -132,6 +132,9 @@ namespace qc
             QcReplaySpan* span = nullptr, QcReplayAnchor* anchors = nullptr, int count = 0, int64_t boundedFrameUs = 0);
         void Position(QcReplayPosition& position);
         void Stats(int64_t& bytes, double& seconds);
+        // Transfers packet ownership out of this graph under the ring lock. Caller must
+        // release unaccepted entries; the graph no longer owns them after Drain().
+        std::vector<Entry> Drain();
         void Clear();
 
     private:
