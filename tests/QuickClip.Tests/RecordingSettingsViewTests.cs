@@ -59,7 +59,7 @@ public sealed class RecordingSettingsViewTests
                 Assert.Equal(saved.Label, Assert.IsType<TextBlock>(nameRow.Children[0]).Text);
                 var edit = Assert.IsType<TextBox>(nameRow.Children[1]);
                 Assert.Equal(Visibility.Collapsed, edit.Visibility);
-                var rename = Assert.IsType<Button>(nameRow.Children[2]);
+                var rename = Assert.IsType<Button>(actions.Children[0]);
                 rename.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
                 Assert.Equal(saved.Label, edit.Text);
                 Assert.Equal(Visibility.Visible, edit.Visibility);
@@ -73,14 +73,15 @@ public sealed class RecordingSettingsViewTests
                 Assert.Empty(body.Children.OfType<Expander>());
                 var iconActions = actions.Children.OfType<Button>().ToArray();
                 Assert.Equal(AppProfile.IsPersonal ? 4 : 3, iconActions.Length);
-                Assert.All(iconActions.TakeLast(3), button =>
-                {
-                    Assert.Same(view.FindResource("AudioSourceIconButton"), button.Style);
-                    Assert.NotEmpty(AutomationProperties.GetName(button));
-                });
+                Assert.Same(view.FindResource("AudioSourceIconButton"), iconActions[0].Style);
+                Assert.Same(view.FindResource("AudioSourceRemoveButton"), iconActions[^2].Style);
+                Assert.Same(view.FindResource("AudioSourceDragHandle"), iconActions[^1].Style);
+                Assert.True(tile.AllowDrop);
+                Assert.All(iconActions, button => Assert.NotEmpty(AutomationProperties.GetName(button)));
                 if (AppProfile.IsPersonal)
                 {
-                    Assert.Equal("Test mic", iconActions[0].Content);
+                    Assert.Equal("Test mic", iconActions[1].Content);
+                    Assert.Same(view.FindResource("AudioSourceTestButton"), iconActions[1].Style);
                     var meter = Assert.IsType<StackPanel>(body.Children[2]);
                     Assert.Equal("microphone Saved mic activity", AutomationProperties.GetName(meter.Children[0]));
                     Assert.Equal(2, meter.Children.Count); // signal + status only

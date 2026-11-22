@@ -97,8 +97,92 @@
                 <Setter Property="Height" Value="28" />
                 <Setter Property="MinWidth" Value="28" />
                 <Setter Property="MinHeight" Value="28" />
-                <Setter Property="Margin" Value="1,0,0,0" />
+                <Setter Property="Margin" Value="2,0,0,0" />
                 <Setter Property="Padding" Value="2" />
+                <Setter Property="Background" Value="Transparent" />
+                <Setter Property="BorderThickness" Value="0" />
+                <Setter Property="Template">
+                    <Setter.Value>
+                        <ControlTemplate TargetType="Button">
+                            <Border x:Name="Chrome" CornerRadius="5" Background="{TemplateBinding Background}"
+                                    BorderBrush="{DynamicResource AccentBrush}" BorderThickness="0">
+                                <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                            </Border>
+                            <ControlTemplate.Triggers>
+                                <Trigger Property="IsMouseOver" Value="True">
+                                    <Setter TargetName="Chrome" Property="Background" Value="{DynamicResource SelectionBrush}"/>
+                                </Trigger>
+                                <Trigger Property="IsKeyboardFocused" Value="True">
+                                    <Setter TargetName="Chrome" Property="BorderThickness" Value="1"/>
+                                </Trigger>
+                                <Trigger Property="IsEnabled" Value="False">
+                                    <Setter TargetName="Chrome" Property="Opacity" Value=".4"/>
+                                </Trigger>
+                            </ControlTemplate.Triggers>
+                        </ControlTemplate>
+                    </Setter.Value>
+                </Setter>
+            </Style>
+            <Style x:Key="AudioSourceRemoveButton" TargetType="Button" BasedOn="{StaticResource AudioSourceIconButton}">
+                <Style.Triggers>
+                    <Trigger Property="IsMouseOver" Value="True">
+                        <Setter Property="Foreground" Value="{DynamicResource DangerBrush}"/>
+                    </Trigger>
+                </Style.Triggers>
+            </Style>
+            <Style x:Key="AudioSourceTestButton" TargetType="Button" BasedOn="{StaticResource TextButton}">
+                <Setter Property="Height" Value="28" />
+                <Setter Property="MinHeight" Value="28" />
+                <Setter Property="Padding" Value="9,2" />
+                <Setter Property="Margin" Value="4,0,2,0" />
+                <Setter Property="FontSize" Value="11" />
+            </Style>
+            <Style x:Key="AudioSourceDragHandle" TargetType="Button">
+                <Setter Property="Width" Value="28" />
+                <Setter Property="Height" Value="28" />
+                <Setter Property="MinWidth" Value="28" />
+                <Setter Property="MinHeight" Value="28" />
+                <Setter Property="Margin" Value="3,0,0,0" />
+                <Setter Property="Background" Value="Transparent" />
+                <Setter Property="Foreground" Value="{DynamicResource SecondaryTextBrush}" />
+                <Setter Property="Cursor" Value="SizeAll" />
+                <Setter Property="Template">
+                    <Setter.Value>
+                        <ControlTemplate TargetType="Button">
+                            <Border x:Name="Chrome" CornerRadius="5" Background="Transparent"
+                                    BorderBrush="{DynamicResource AccentBrush}" BorderThickness="0">
+                                <Grid x:Name="Dots" Width="9" Height="17" Opacity=".55"
+                                      HorizontalAlignment="Center" VerticalAlignment="Center">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="4.5" />
+                                        <ColumnDefinition Width="4.5" />
+                                    </Grid.ColumnDefinitions>
+                                    <Grid.RowDefinitions>
+                                        <RowDefinition Height="5.67" />
+                                        <RowDefinition Height="5.67" />
+                                        <RowDefinition Height="5.66" />
+                                    </Grid.RowDefinitions>
+                                    <Ellipse Grid.Row="0" Grid.Column="0" Width="3" Height="3" Fill="{TemplateBinding Foreground}" />
+                                    <Ellipse Grid.Row="0" Grid.Column="1" Width="3" Height="3" Fill="{TemplateBinding Foreground}" />
+                                    <Ellipse Grid.Row="1" Grid.Column="0" Width="3" Height="3" Fill="{TemplateBinding Foreground}" />
+                                    <Ellipse Grid.Row="1" Grid.Column="1" Width="3" Height="3" Fill="{TemplateBinding Foreground}" />
+                                    <Ellipse Grid.Row="2" Grid.Column="0" Width="3" Height="3" Fill="{TemplateBinding Foreground}" />
+                                    <Ellipse Grid.Row="2" Grid.Column="1" Width="3" Height="3" Fill="{TemplateBinding Foreground}" />
+                                </Grid>
+                            </Border>
+                            <ControlTemplate.Triggers>
+                                <Trigger Property="IsMouseOver" Value="True">
+                                    <Setter TargetName="Dots" Property="Opacity" Value="1"/>
+                                    <Setter TargetName="Chrome" Property="Background" Value="{DynamicResource SelectionBrush}"/>
+                                </Trigger>
+                                <Trigger Property="IsKeyboardFocused" Value="True">
+                                    <Setter TargetName="Dots" Property="Opacity" Value="1"/>
+                                    <Setter TargetName="Chrome" Property="BorderThickness" Value="1"/>
+                                </Trigger>
+                            </ControlTemplate.Triggers>
+                        </ControlTemplate>
+                    </Setter.Value>
+                </Setter>
             </Style>
             <Style x:Key="EndpointPlaceholder" TargetType="TextBlock" BasedOn="{StaticResource Hint}">
                 <Setter Property="Visibility" Value="Collapsed" />

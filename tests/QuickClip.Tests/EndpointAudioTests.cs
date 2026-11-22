@@ -109,6 +109,29 @@ public sealed class EndpointAudioTests
     }
 
     [Fact]
+    public void Drag_drop_reorders_within_flow_and_preserves_other_lanes_and_settings()
+    {
+        EndpointTrack[] original =
+        [
+            new(EndpointFlow.Microphone, "mic-1", "Voice", true, 150),
+            new(EndpointFlow.Playback, "game", "Game", true, 100),
+            new(EndpointFlow.Playback, "media", "Media", false, 55),
+            new(EndpointFlow.Microphone, "mic-2", "Second mic", false, 90),
+            new(EndpointFlow.Playback, "chat", "Chat", true, 40),
+        ];
+        var first = EndpointAudio.MoveWithinFlow(original, original[4], original[1], after: false);
+        Assert.Equal(["mic-1", "chat", "game", "mic-2", "media"], first.Select(t => t.DeviceId));
+        Assert.Equal([150, 40, 100, 90, 55], first.Select(t => t.DefaultMixPercent));
+        var last = EndpointAudio.MoveWithinFlow(original, original[1], original[4], after: true);
+        Assert.Equal(["mic-1", "media", "chat", "mic-2", "game"], last.Select(t => t.DeviceId));
+        Assert.Equal(original, EndpointAudio.MoveWithinFlow(original, original[4], original[0], after: false)); // different flow
+        Assert.Equal(original, EndpointAudio.MoveWithinFlow(original, original[1], original[1], after: true));
+        Assert.Equal(original, EndpointAudio.MoveWithinFlow(original, original[1],
+            new(EndpointFlow.Playback, "not-found", "Missing"), after: true));
+        Assert.Equal(["mic-1", "game", "media", "mic-2", "chat"], original.Select(t => t.DeviceId));
+    }
+
+    [Fact]
     public void Running_status_matches_the_original_plan_by_lane_and_flow()
     {
         EndpointTrack[] original =

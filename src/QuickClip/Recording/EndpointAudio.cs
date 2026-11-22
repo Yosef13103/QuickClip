@@ -58,6 +58,26 @@ internal static class EndpointAudio
         return tracks;
     }
 
+    // Keep opposite-flow slots unchanged, moving full tracks and saved mix values.
+    internal static List<EndpointTrack> MoveWithinFlow(
+        IReadOnlyList<EndpointTrack> source, EndpointTrack selected, EndpointTrack target, bool after)
+    {
+        var tracks = source.ToList();
+        if (selected.Flow != target.Flow ||
+            SameDevice(selected.Flow, selected.DeviceId, target.Flow, target.DeviceId)) return tracks;
+        var slots = Enumerable.Range(0, tracks.Count).Where(i => tracks[i].Flow == selected.Flow).ToArray();
+        var siblings = slots.Select(i => tracks[i]).ToList();
+        int from = siblings.FindIndex(t => SameDevice(t.Flow, t.DeviceId, selected.Flow, selected.DeviceId));
+        int to = siblings.FindIndex(t => SameDevice(t.Flow, t.DeviceId, target.Flow, target.DeviceId));
+        if (from < 0 || to < 0) return tracks;
+        var moved = siblings[from];
+        siblings.RemoveAt(from);
+        to = siblings.FindIndex(t => SameDevice(t.Flow, t.DeviceId, target.Flow, target.DeviceId));
+        siblings.Insert(to + (after ? 1 : 0), moved);
+        for (int i = 0; i < slots.Length; i++) tracks[slots[i]] = siblings[i];
+        return tracks;
+    }
+
     public static List<EndpointTrack> Normalize(IEnumerable<EndpointTrack?>? tracks)
     {
         var result = new List<EndpointTrack>();

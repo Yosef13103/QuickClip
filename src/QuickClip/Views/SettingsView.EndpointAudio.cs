@@ -12,6 +12,7 @@ public partial class SettingsView
     private bool _loadingEndpoints;
     private string? _endpointError;
     private bool _endpointsLoaded;
+    private readonly Dictionary<string, Button> _endpointDragHandles = new(StringComparer.OrdinalIgnoreCase);
 
     private void ShowEndpointMode()
     {
@@ -72,6 +73,7 @@ public partial class SettingsView
     {
         ClearMicrophoneMeters(_endpointMeters);
         EndpointRows.Children.Clear();
+        _endpointDragHandles.Clear();
         foreach (var flow in new[] { EndpointFlow.Playback, EndpointFlow.Microphone })
         {
             var sourceIndices = Enumerable.Range(0, tracks.Count)
@@ -95,9 +97,11 @@ public partial class SettingsView
                 {
                     CornerRadius = new CornerRadius(7),
                     BorderThickness = new Thickness(1),
-                    Padding = new Thickness(10, 7, 10, 8),
-                    Margin = new Thickness(0, 0, 0, 5),
-                    Opacity = track.Enabled ? 1 : .68,
+                    Padding = new Thickness(10, 6, 10, 7),
+                    Margin = new Thickness(0, 0, 0, 4),
+                    Opacity = track.Enabled ? 1 : .78,
+                    AllowDrop = true,
+                    Tag = track,
                 };
                 tile.SetResourceReference(Border.BackgroundProperty,
                     track.Enabled ? "ElevatedSurfaceBrush" : "PanelBrush");
@@ -117,33 +121,10 @@ public partial class SettingsView
                 {
                     Orientation = Orientation.Horizontal,
                     VerticalAlignment = VerticalAlignment.Center,
+                    Margin = new Thickness(4, 0, 0, 0),
                 };
                 DockPanel.SetDock(controls, Dock.Right);
-                var onState = new StackPanel
-                {
-                    Orientation = Orientation.Horizontal,
-                    VerticalAlignment = VerticalAlignment.Center,
-                    Margin = new Thickness(3, 0, 8, 0),
-                };
-                var dot = new System.Windows.Shapes.Ellipse
-                {
-                    Width = 6, Height = 6,
-                    Margin = new Thickness(0, 0, 5, 0),
-                    VerticalAlignment = VerticalAlignment.Center,
-                };
-                dot.SetResourceReference(System.Windows.Shapes.Shape.FillProperty,
-                    track.Enabled ? "SuccessBrush" : "DangerBrush");
-                onState.Children.Add(dot);
-                var stateLabel = new TextBlock
-                {
-                    Text = track.Enabled ? "Enabled" : "Disabled",
-                    VerticalAlignment = VerticalAlignment.Center,
-                    FontSize = 11,
-                };
-                stateLabel.SetResourceReference(TextBlock.ForegroundProperty,
-                    track.Enabled ? "SuccessBrush" : "DangerBrush");
-                onState.Children.Add(stateLabel);
-                controls.Children.Add(onState);
+                header.Children.Add(controls);
 
                 MicrophoneMeter? mic = null;
                 if (AppProfile.IsPersonal && flow == EndpointFlow.Microphone)
@@ -152,27 +133,8 @@ public partial class SettingsView
                         $"microphone {caption}", compact: true);
                     mic.Test.Content = "Test mic";
                     mic.Test.ToolTip = "Record 5 seconds from this microphone, then play the sample.";
-                    mic.Test.Margin = new Thickness(3, 0, 5, 0);
-                    controls.Children.Add(mic.Test);
+                    mic.Test.Style = (Style)FindResource("AudioSourceTestButton");
                 }
-
-                int positionInGroup = Array.IndexOf(sourceIndices, index);
-                controls.Children.Add(Icon("\uE70E", $"Move {caption} up within {FlowName(flow)}",
-                    positionInGroup > 0, () => MoveEndpointWithinFlow(track, -1)));
-                controls.Children.Add(Icon("\uE70D", $"Move {caption} down within {FlowName(flow)}",
-                    positionInGroup + 1 < sourceIndices.Length, () => MoveEndpointWithinFlow(track, 1)));
-                var remove = Icon("\uE711", $"Remove {caption} from future recordings", true, () =>
-                {
-                    var remaining = AppSettings.Current.EndpointTracks.ToList();
-                    int actual = remaining.FindIndex(t =>
-                        EndpointAudio.SameDevice(t.Flow, t.DeviceId, track.Flow, track.DeviceId));
-                    if (actual < 0) return;
-                    remaining.RemoveAt(actual);
-                    CommitEndpoints(settings => settings.EndpointTracks = remaining, rebuild: true);
-                });
-                remove.SetResourceReference(Control.ForegroundProperty, "DangerBrush");
-                controls.Children.Add(remove);
-                header.Children.Add(controls);
 
                 var enabled = new CheckBox
                 {
@@ -192,7 +154,6 @@ public partial class SettingsView
                 var identity = new StackPanel { Margin = new Thickness(0, 0, 6, 0) };
                 var titleLine = new Grid();
                 titleLine.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-                titleLine.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
                 var name = new TextBlock
                 {
                     Text = caption,
@@ -226,8 +187,7 @@ public partial class SettingsView
                     input.SelectAll();
                 });
                 AutomationProperties.SetName(rename, $"Rename {FlowName(track.Flow)} track {index + 1}");
-                Grid.SetColumn(rename, 1);
-                titleLine.Children.Add(rename);
+                controls.Children.Add(rename);
                 void FinishRename(bool save)
                 {
                     if (!ReferenceEquals(tile.Parent, EndpointRows) || input.Visibility != Visibility.Visible) return;
@@ -260,6 +220,69 @@ public partial class SettingsView
                     Margin = new Thickness(0, 1, 0, 0),
                 });
                 header.Children.Add(identity);
+
+                if (mic != null) controls.Children.Add(mic.Test);
+                var remove = Icon("\uE711", $"Remove {caption} from future recordings", true, () =>
+                {
+                    var remaining = AppSettings.Current.EndpointTracks.ToList();
+                    int actual = remaining.FindIndex(t =>
+                        EndpointAudio.SameDevice(t.Flow, t.DeviceId, track.Flow, track.DeviceId));
+                    if (actual < 0) return;
+                    remaining.RemoveAt(actual);
+                    CommitEndpoints(settings => settings.EndpointTracks = remaining, rebuild: true);
+                });
+                remove.Style = (Style)FindResource("AudioSourceRemoveButton");
+                controls.Children.Add(remove);
+
+                // Only the grip starts a drag, never the audio slider or switch.
+                var grip = new Button
+                {
+                    Style = (Style)FindResource("AudioSourceDragHandle"),
+                    ToolTip = $"Drag to reorder {caption} within {FlowName(flow)}. Ctrl+Up / Ctrl+Down to reorder with the keyboard.",
+                };
+                AutomationProperties.SetName(grip, $"Reorder {caption} within {FlowName(flow)}");
+                AutomationProperties.SetHelpText(grip, "Drag to move, or press Ctrl+Up or Ctrl+Down.");
+                controls.Children.Add(grip);
+                _endpointDragHandles[track.DeviceId] = grip;
+                Point? dragStart = null;
+                grip.PreviewMouseLeftButtonDown += (_, e) => dragStart = e.GetPosition(grip);
+                grip.PreviewMouseLeftButtonUp += (_, _) => dragStart = null;
+                grip.PreviewMouseMove += (_, e) =>
+                {
+                    if (dragStart is not { } start || e.LeftButton != MouseButtonState.Pressed) return;
+                    Point now = e.GetPosition(grip);
+                    if (Math.Abs(now.X - start.X) < SystemParameters.MinimumHorizontalDragDistance &&
+                        Math.Abs(now.Y - start.Y) < SystemParameters.MinimumVerticalDragDistance) return;
+                    dragStart = null;
+                    DragDrop.DoDragDrop(grip, new DataObject(typeof(EndpointTrack), track), DragDropEffects.Move);
+                };
+                grip.KeyDown += (_, e) =>
+                {
+                    if ((Keyboard.Modifiers & ModifierKeys.Control) == 0 || e.Key is not (Key.Up or Key.Down)) return;
+                    e.Handled = true;
+                    MoveEndpointWithinFlow(track, e.Key == Key.Up ? -1 : 1);
+                };
+                void RestoreBorder() => tile.SetResourceReference(Border.BorderBrushProperty, "DividerBrush");
+                tile.DragOver += (_, e) =>
+                {
+                    bool valid = e.Data.GetData(typeof(EndpointTrack)) is EndpointTrack moving &&
+                        moving.Flow == track.Flow &&
+                        !EndpointAudio.SameDevice(moving.Flow, moving.DeviceId, track.Flow, track.DeviceId);
+                    e.Effects = valid ? DragDropEffects.Move : DragDropEffects.None;
+                    tile.SetResourceReference(Border.BorderBrushProperty, valid ? "AccentBrush" : "DividerBrush");
+                    e.Handled = true;
+                };
+                tile.DragLeave += (_, _) => RestoreBorder();
+                tile.Drop += (_, e) =>
+                {
+                    RestoreBorder();
+                    if (e.Data.GetData(typeof(EndpointTrack)) is not EndpointTrack moving) return;
+                    if (moving.Flow != track.Flow ||
+                        EndpointAudio.SameDevice(moving.Flow, moving.DeviceId, track.Flow, track.DeviceId)) return;
+                    bool after = e.GetPosition(tile).Y > tile.ActualHeight / 2;
+                    MoveEndpointTo(moving, track, after);
+                    e.Handled = true;
+                };
                 body.Children.Add(header);
 
                 // A single compact second line. Playback and microphone sources
@@ -384,12 +407,22 @@ public partial class SettingsView
             [.. current.EndpointTracks, new EndpointTrack(endpoint.Flow, endpoint.Id, EndpointName(endpoint))], rebuild: true);
     }
 
+    private void MoveEndpointTo(EndpointTrack selected, EndpointTrack target, bool after)
+    {
+        var original = AppSettings.Current.EndpointTracks;
+        var reordered = EndpointAudio.MoveWithinFlow(original, selected, target, after);
+        if (reordered.SequenceEqual(original)) return;
+        if (CommitEndpoints(settings => settings.EndpointTracks = reordered, rebuild: true))
+            _endpointDragHandles.GetValueOrDefault(selected.DeviceId)?.Focus();
+    }
+
     private void MoveEndpointWithinFlow(EndpointTrack selected, int direction)
     {
         var original = AppSettings.Current.EndpointTracks;
         var reordered = EndpointAudio.ReorderWithinFlow(original, selected, direction);
         if (reordered.SequenceEqual(original)) return;
-        CommitEndpoints(settings => settings.EndpointTracks = reordered, rebuild: true);
+        if (CommitEndpoints(settings => settings.EndpointTracks = reordered, rebuild: true))
+            _endpointDragHandles.GetValueOrDefault(selected.DeviceId)?.Focus();
     }
 
     private void UpdateEndpoint(EndpointTrack selected, Func<EndpointTrack, EndpointTrack> change, bool rebuild = false)
