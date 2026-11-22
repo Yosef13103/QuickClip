@@ -422,6 +422,11 @@
                             <StackPanel Margin="0,2,0,0">
                                 <TextBlock Text="Format" Style="{StaticResource FieldLabel}" />
                                 <ComboBox x:Name="FormatCombo" SelectionChanged="ExportOption_Changed" />
+                                <Button x:Name="RemuxMkvButton" Content="Convert to MP4 (no re-encode)"
+                                        Style="{StaticResource TextButton}" HorizontalAlignment="Left"
+                                        Margin="0,6,0,2" Visibility="Collapsed"
+                                        ToolTip="Make a separate MP4 without quality loss. Preserves all original audio tracks; doesn't apply timeline edits."
+                                        Click="RemuxMkv_Click" />
                                 <StackPanel x:Name="ResolutionOptions">
                                     <TextBlock Text="Resolution" Style="{StaticResource FieldLabel}" />
                                     <ComboBox x:Name="ResolutionCombo" SelectionChanged="ExportOption_Changed" />

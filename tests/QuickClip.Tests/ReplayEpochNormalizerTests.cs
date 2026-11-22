@@ -14,9 +14,11 @@ public sealed class ReplayEpochNormalizerTests
     private static readonly Guid Session = Guid.Parse("00000000-0000-4000-8000-000000000201");
 
     [Theory]
-    [InlineData(".mp4")]
-    [InlineData(".mkv")]
-    public async Task Mixed_resolution_segments_produce_one_decodable_mp4_with_two_audio_stems(string inputExtension)
+    [InlineData(".mp4", ".mp4")]
+    [InlineData(".mkv", ".mp4")]
+    [InlineData(".mkv", ".mkv")]
+    public async Task Mixed_resolution_segments_produce_one_decodable_export_with_two_audio_stems(
+        string inputExtension, string outputExtension)
     {
         string ffmpeg = Path.Combine(AppContext.BaseDirectory, "ffmpeg", "ffmpeg.exe");
         string ffprobe = Path.Combine(AppContext.BaseDirectory, "ffmpeg", "ffprobe.exe");
@@ -39,11 +41,12 @@ public sealed class ReplayEpochNormalizerTests
             var plan = ReplayEpochPlanner.Select([first, second], Session,
                 "verified-game:synthetic", 0, 4_000_000, 8_000_000);
             Assert.True(plan.RequiresVideoNormalization);
-            string resultPath = Path.Combine(temp, "joined.mp4");
+            string resultPath = Path.Combine(temp, "joined" + outputExtension);
             var result = await ReplayEpochNormalizer.ExportAsync(plan,
                 [new(first.EpochId, a), new(second.EpochId, b)],
                 resultPath, ffmpeg, ffprobe);
             Assert.Equal((960, 400, 2), (result.Width, result.Height, result.AudioTracks));
+            Assert.False(result.StreamCopied); // Mixed geometry must normalize, not concatenate incompatible codecs.
             Assert.InRange(result.Duration.TotalSeconds, 3.9, 4.15);
             Assert.True(File.Exists(resultPath));
             Assert.True(File.Exists(a) && File.Exists(b)); // Original encoded segments untouched.
@@ -58,6 +61,92 @@ public sealed class ReplayEpochNormalizerTests
         {
             Directory.Delete(temp, recursive: true);
         }
+    }
+
+    [Theory]
+    [InlineData(".mp4", 30, true)]
+    [InlineData(".mkv", 30, true)]
+    [InlineData(".mkv", 60, false)]
+    public async Task Single_epoch_stream_copy_only_when_geometry_and_fps_are_compatible(
+        string extension, int outputFps, bool expectedCopy)
+    {
+        string ffmpeg = Path.Combine(AppContext.BaseDirectory, "ffmpeg", "ffmpeg.exe");
+        string ffprobe = Path.Combine(AppContext.BaseDirectory, "ffmpeg", "ffprobe.exe");
+        string temp = Path.Combine(Path.GetTempPath(), "QuickClip-Epoch-Copy-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(temp);
+        try
+        {
+            var single = new ReplayEncodedEpoch(Session, "verified-game:synthetic", Guid.NewGuid(),
+                0, 2_000_000, 640, 360, "h264+aac");
+            string input = Path.Combine(temp, "source.mkv");
+            string target = Path.Combine(temp, "saved" + extension);
+            await MakeFixture(ffmpeg, input, 640, 360, 440);
+            var plan = ReplayEpochPlanner.Select([single], Session,
+                "verified-game:synthetic", 0, 2_000_000, 34_000_000);
+            var result = await ReplayEpochNormalizer.ExportAsync(plan,
+                [new(single.EpochId, input)], target, ffmpeg, ffprobe, fps: outputFps);
+            Assert.Equal(expectedCopy, result.StreamCopied);
+            Assert.Equal((640, 360, 2), (result.Width, result.Height, result.AudioTracks));
+            Assert.InRange(result.Duration.TotalSeconds, 1.9, 2.15);
+            await Run(ffmpeg, ["-v", "error", "-nostdin", "-i", target,
+                "-map", "0", "-f", "null", "-"]);
+            Assert.True(File.Exists(input));
+        }
+        finally { Directory.Delete(temp, recursive: true); }
+    }
+
+    [Fact]
+    public async Task Custom_canvas_normalizes_mixed_sources_to_exact_size_without_touching_mkv_inputs()
+    {
+        string ffmpeg = Path.Combine(AppContext.BaseDirectory, "ffmpeg", "ffmpeg.exe");
+        string ffprobe = Path.Combine(AppContext.BaseDirectory, "ffmpeg", "ffprobe.exe");
+        string temp = Path.Combine(Path.GetTempPath(), "QuickClip-Epoch-Canvas-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(temp);
+        try
+        {
+            var one = new ReplayEncodedEpoch(Session, "verified-game:synthetic", Guid.NewGuid(),
+                0, 2_000_000, 640, 360, "h264+aac");
+            var two = new ReplayEncodedEpoch(Session, "verified-game:synthetic", Guid.NewGuid(),
+                2_000_000, 4_000_000, 960, 400, "h264+aac");
+            string a = Path.Combine(temp, "one.mkv"), b = Path.Combine(temp, "two.mkv");
+            await MakeFixture(ffmpeg, a, 640, 360, 440);
+            await MakeFixture(ffmpeg, b, 960, 400, 550);
+            string target = Path.Combine(temp, "custom.mkv");
+            var plan = ReplayEpochPlanner.Select([one, two], Session,
+                "verified-game:synthetic", 0, 4_000_000, 34_000_000);
+            var output = await ReplayEpochNormalizer.ExportAsync(plan,
+                [new(one.EpochId, a), new(two.EpochId, b)], target, ffmpeg, ffprobe,
+                outputOptions: new(ReplayEpochOutputSize.Custom, 480, 200));
+            Assert.Equal((480, 200, 2), (output.Width, output.Height, output.AudioTracks));
+            Assert.True(File.Exists(a) && File.Exists(b) && File.Exists(target));
+            await Run(ffmpeg, ["-v", "error", "-nostdin", "-i", target, "-map", "0", "-f", "null", "-"]);
+        }
+        finally { Directory.Delete(temp, recursive: true); }
+    }
+
+    [Fact]
+    public async Task Mkv_to_mp4_remux_uses_stream_copy_and_keeps_two_audio_stems()
+    {
+        string ffmpeg = Path.Combine(AppContext.BaseDirectory, "ffmpeg", "ffmpeg.exe");
+        string ffprobe = Path.Combine(AppContext.BaseDirectory, "ffmpeg", "ffprobe.exe");
+        string temp = Path.Combine(Path.GetTempPath(), "QuickClip-Epoch-Remux-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(temp);
+        try
+        {
+            string input = Path.Combine(temp, "original.mkv");
+            string target = Path.Combine(temp, "lossless-container-conversion.mp4");
+            await MakeFixture(ffmpeg, input, 960, 400, 440);
+            byte[] original = await File.ReadAllBytesAsync(input);
+            var result = await ReplayEpochNormalizer.RemuxMkvToMp4Async(
+                input, target, ffmpeg, ffprobe);
+            Assert.Equal((960, 400, 2), (result.Width, result.Height, result.AudioTracks));
+            Assert.InRange(result.Duration.TotalSeconds, 1.9, 2.1);
+            Assert.Equal(original, await File.ReadAllBytesAsync(input));
+            await Run(ffmpeg, ["-v", "error", "-nostdin", "-i", target,
+                "-map", "0", "-f", "null", "-"]);
+            Assert.Empty(Directory.EnumerateFiles(temp, "*.partial.mp4"));
+        }
+        finally { Directory.Delete(temp, recursive: true); }
     }
 
     [Fact]

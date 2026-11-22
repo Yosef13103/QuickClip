@@ -15,6 +15,7 @@ using QuickClip.Gallery;
 using QuickClip.Library;
 using ClipBookmark = QuickClip.Gallery.ClipBookmark;
 using QuickClip.Media;
+using QuickClip.Recording;
 using QuickClip.Mpv;
 using QuickClip.Shell;
 using Container = QuickClip.Media.Container;
@@ -1884,6 +1885,9 @@ public partial class EditorView : UserControl
         CropCheck.IsEnabled = hasVideo && !busy;
         CropPanel.IsEnabled = _crop.Enabled && !busy;
         ExportButton.IsEnabled = _media != null && !busy;
+        RemuxMkvButton.Visibility = Show(AppProfile.IsPersonal && _media != null &&
+            string.Equals(Path.GetExtension(_media.Path), ".mkv", StringComparison.OrdinalIgnoreCase));
+        RemuxMkvButton.IsEnabled = _media != null && !busy;
         ShareSelectionButton.IsEnabled = ShareSelectionOptionsButton.IsEnabled = hasVideo && !busy;
         SaveOverButton.IsEnabled = _media != null && !busy;
         DeleteMediaButton.IsEnabled = _media != null && !busy && !_deletingMedia;
@@ -2084,6 +2088,116 @@ public partial class EditorView : UserControl
             return;
         }
         await RunExportAsync(dlg.FileName, container, overwrite: false, limit);
+    }
+
+    // Container-only conversion. Does not apply trim/crop/volume edits; those use Export.
+    // All original tracks remain separate and the source MKV is never replaced.
+    private async void RemuxMkv_Click(object sender, RoutedEventArgs e)
+    {
+        if (!AppProfile.IsPersonal || _media is not { } media ||
+            _exportCts != null || _exportPreparing || _loading || _deletingMedia ||
+            !SourceReady || !string.Equals(Path.GetExtension(media.Path), ".mkv",
+                StringComparison.OrdinalIgnoreCase) ||
+            !EditorSource.MatchesLoadedPreview(CurrentFile, media.Path) || !VerifySource(media.Path))
+            return;
+        if (Deps.FFmpeg is not { } ffmpeg || Deps.FFprobe is not { } ffprobe)
+        {
+            ModalDialog.Show(OwnerWindow, "FFmpeg is unavailable.", "Can't convert",
+                MessageBoxButton.OK, MessageBoxImage.Warning);
+            return;
+        }
+
+        string source = media.Path;
+        if (ClipLibrary.IsMomentsPath(source))
+        {
+            ModalDialog.Show(OwnerWindow, "Move or copy this clip outside the Moments archive first.",
+                "Can't convert", MessageBoxButton.OK, MessageBoxImage.Warning);
+            return;
+        }
+
+        string directory = Path.GetDirectoryName(source)!;
+        var dialog = new SaveFileDialog
+        {
+            Title = "Convert original MKV to MP4 (copy streams)",
+            InitialDirectory = directory,
+            FileName = Path.GetFileName(UniquePath(directory,
+                Path.GetFileNameWithoutExtension(source) + " (MP4)", ".mp4")),
+            Filter = "MP4 video|*.mp4",
+            DefaultExt = ".mp4",
+            AddExtension = true,
+            OverwritePrompt = false,
+        };
+        if (dialog.ShowDialog(OwnerWindow) != true) return;
+        string destination = Path.GetFullPath(dialog.FileName);
+        if (ClipLibrary.IsMomentsPath(destination) || File.Exists(destination))
+        {
+            ModalDialog.Show(OwnerWindow, "Choose a new destination outside the Moments archive.",
+                "Can't convert", MessageBoxButton.OK, MessageBoxImage.Warning);
+            return;
+        }
+        var cts = new CancellationTokenSource();
+        _exportCts = cts;
+        var details = CurrentClipDetails();
+        RevealButton.Visibility = Visibility.Collapsed;
+        ProgressPanel.Visibility = Visibility.Visible;
+        ExportProgress.Value = 0;
+        ExportProgress.IsIndeterminate = true;
+        StatusText.Text = "Copying original MKV streams to MP4. Current edits are not applied.";
+        UpdateUiState();
+        try
+        {
+            var input = MediaSource.Capture(source);
+            if (_sourceStamp != input.Stamp)
+                throw new ExportException("The original changed; reopen it before converting.");
+            var submission = MediaJobs.Current.Submit(new MediaJobRequest(
+                Path.GetFileName(destination), false, [input], destination, async (job, ct) =>
+                {
+                    MediaProcessing.CheckFreeSpace(Path.GetDirectoryName(destination)!,
+                        new FileInfo(source).Length);
+                    ReplayEpochNormalizer.Result result;
+                    try
+                    {
+                        result = await ReplayEpochNormalizer.RemuxMkvToMp4Async(
+                            source, destination, ffmpeg, ffprobe, ct);
+                    }
+                    catch (IOException)
+                    {
+                        throw new ExportException("This MKV cannot be copied into MP4 as-is. " +
+                            "Use regular Export if its streams require conversion.");
+                    }
+                    job.Validating();
+                    return result.Path;
+                }));
+            using var cancel = cts.Token.Register(() => MediaJobs.Current.Cancel(submission.Id));
+            var completed = await submission.Completion;
+            if (completed.State == MediaJobState.Cancelled) throw new OperationCanceledException();
+            if (completed.State != MediaJobState.Completed || completed.Output == null)
+                throw new ExportException(completed.Message ?? "MKV conversion failed.");
+            _lastExport = completed.Output;
+            if (AppProfile.IsPersonal) ClipDetailsStore.TryWrite(completed.Output, details);
+            RevealButton.Visibility = Visibility.Visible;
+            StatusText.Text = "Saved " + Path.GetFileName(completed.Output) +
+                " without re-encoding. Original MKV retained.";
+        }
+        catch (OperationCanceledException)
+        {
+            StatusText.Text = "MKV conversion cancelled.";
+        }
+        catch (Exception ex)
+        {
+            Log.Failure(DiagnosticCategory.Editor, "Lossless MKV to MP4 conversion failed", ex);
+            StatusText.Text = "MKV conversion failed.";
+            ModalDialog.Show(OwnerWindow, ex.Message, "Can't convert", MessageBoxButton.OK, MessageBoxImage.Warning);
+        }
+        finally
+        {
+            _exportCts = null;
+            cts.Dispose();
+            ProgressPanel.Visibility = Visibility.Collapsed;
+            ExportProgress.IsIndeterminate = false;
+            UpdateUiState();
+            await OpenPendingFileAsync();
+        }
     }
 
     private ClipDetails CurrentClipDetails()

@@ -13,29 +13,31 @@ internal static class ReplayEpochNormalizer
 {
     internal sealed record Media(Guid EpochId, string Path);
     internal sealed record Result(string Path, int Width, int Height, int AudioTracks, TimeSpan Duration,
-        TimeSpan OmittedMissingFootage);
+        TimeSpan OmittedMissingFootage, bool StreamCopied = false);
 
-    private sealed record Probe(int Width, int Height, double DurationSeconds, string[] AudioTitles);
+    private sealed record Probe(int Width, int Height, double DurationSeconds, string[] AudioTitles,
+        double FramesPerSecond);
 
     internal static async Task<Result> ExportAsync(
         ReplayEpochExportPlan plan, IReadOnlyList<Media> media, string destination,
         string ffmpegPath, string ffprobePath, int fps = 30,
         ReplayEpochGapPolicy gapPolicy = ReplayEpochGapPolicy.Reject,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        ReplayEpochOutputOptions? outputOptions = null)
     {
         ArgumentNullException.ThrowIfNull(plan);
         ArgumentNullException.ThrowIfNull(media);
         if (plan.Slices.Count is < 1 or > 32 ||
             plan.HasDiscontinuities && gapPolicy != ReplayEpochGapPolicy.OmitMissingFootage ||
-            plan.Width is < 16 or > 8192 || plan.Height is < 16 or > 4320 ||
-            (plan.Width & 1) != 0 || (plan.Height & 1) != 0 ||
             fps is < 1 or > 240)
             throw new InvalidOperationException("Unsupported epoch export plan. Discontinuities require an explicit gap policy.");
+        var (outputWidth, outputHeight) = ReplayEpochCanvas.Resolve(plan, outputOptions);
 
         string target = Path.GetFullPath(destination);
-        if (!string.Equals(Path.GetExtension(target), ".mp4", StringComparison.OrdinalIgnoreCase) ||
+        string extension = Path.GetExtension(target).ToLowerInvariant();
+        if (extension is not (".mp4" or ".mkv") ||
             !Directory.Exists(Path.GetDirectoryName(target)) || File.Exists(target))
-            throw new IOException("Choose a new MP4 destination in an existing folder.");
+            throw new IOException("Choose a new MP4 or MKV destination in an existing folder.");
         if (!File.Exists(ffmpegPath) || !File.Exists(ffprobePath))
             throw new FileNotFoundException("The bundled FFmpeg and FFprobe tools are required.");
 
@@ -81,9 +83,9 @@ internal static class ReplayEpochNormalizer
             double length = (slice.EndUs - slice.StartUs) / 1_000_000.0;
             filters.Append('[').Append(i).Append(":v:0]trim=start=").Append(T(from))
                 .Append(":duration=").Append(T(length)).Append(",setpts=PTS-STARTPTS,fps=")
-                .Append(fps).Append(",scale=").Append(plan.Width).Append(':').Append(plan.Height)
+                .Append(fps).Append(",scale=").Append(outputWidth).Append(':').Append(outputHeight)
                 .Append(":force_original_aspect_ratio=decrease:force_divisible_by=2:flags=bicubic")
-                .Append(",pad=").Append(plan.Width).Append(':').Append(plan.Height)
+                .Append(",pad=").Append(outputWidth).Append(':').Append(outputHeight)
                 .Append(":(ow-iw)/2:(oh-ih)/2,setsar=1,format=yuv420p[v").Append(i).Append("];");
             for (int track = 0; track < tracks; track++)
             {
@@ -111,16 +113,35 @@ internal static class ReplayEpochNormalizer
         double omittedSeconds = plan.Gaps.Sum(gap => (gap.EndUs - gap.StartUs) / 1_000_000.0);
 
         string staging = Path.Combine(Path.GetDirectoryName(target)!,
-            ".quickclip-epoch-" + Guid.NewGuid().ToString("N") + ".partial.mp4");
+            ".quickclip-epoch-" + Guid.NewGuid().ToString("N") + ".partial" + extension);
+        // A complete unchanged epoch is a container operation, not a video edit.
+        // Keep compressed video/audio untouched when output geometry and FPS match.
+        // Multiple epochs always normalize until cross-epoch codec/timestamp compatibility
+        // is proven independently, even when a shallow fingerprint happens to match.
+        bool canStreamCopy = plan.Slices.Count == 1 && !plan.HasDiscontinuities &&
+            !plan.RequiresVideoNormalization &&
+            plan.Slices[0].StartUs == plan.Slices[0].Epoch.StartUs &&
+            plan.Slices[0].EndUs == plan.Slices[0].Epoch.EndUs &&
+            probes[0].Width == outputWidth && probes[0].Height == outputHeight &&
+            Math.Abs(probes[0].FramesPerSecond - fps) < 0.01;
         var args = new List<string> { "-hide_banner", "-nostdin", "-loglevel", "error", "-n" };
         foreach (string path in paths) { args.Add("-i"); args.Add(path); }
-        args.AddRange(["-filter_complex", graph, "-map", "[v]"]);
-        for (int track = 0; track < tracks; track++) args.AddRange(["-map", "[a" + track + "]"]);
-        args.AddRange(["-c:v", "libx264", "-preset", "veryfast", "-threads", "2", "-crf", "19",
-            "-pix_fmt", "yuv420p", "-r", fps.ToString(CultureInfo.InvariantCulture),
-            "-c:a", "aac", "-b:a", "160k", "-movflags", "+faststart"]);
+        if (canStreamCopy)
+            args.AddRange(["-map", "0", "-c", "copy"]);
+        else
+        {
+            args.AddRange(["-filter_complex", graph, "-map", "[v]"]);
+            for (int track = 0; track < tracks; track++) args.AddRange(["-map", "[a" + track + "]"]);
+            args.AddRange(["-c:v", "libx264", "-preset", "veryfast", "-threads", "2", "-crf", "19",
+                "-pix_fmt", "yuv420p", "-r", fps.ToString(CultureInfo.InvariantCulture),
+                "-c:a", "aac", "-b:a", "160k"]);
+        }
+        if (extension == ".mp4") args.AddRange(["-movflags", "+faststart"]);
+        // A .partial extension alone is ambiguous; explicitly choose the muxer.
+        args.AddRange(["-f", extension == ".mp4" ? "mp4" : "matroska"]);
         for (int track = 0; track < tracks; track++)
-            args.AddRange(["-metadata:s:a:" + track, "title=" + firstTitles![track]]);
+            args.AddRange(["-metadata:s:a:" + track, "title=" + firstTitles![track],
+                "-metadata:s:a:" + track, "handler_name=" + firstTitles[track]]);
         if (omittedSeconds > 0)
             args.AddRange(["-metadata", "comment=QuickClip replay: " + T(omittedSeconds) +
                 " seconds of unavailable source footage omitted."]);
@@ -129,15 +150,68 @@ internal static class ReplayEpochNormalizer
         {
             await RunAsync(ffmpegPath, args, cancellationToken).ConfigureAwait(false);
             var result = await ProbeAsync(ffprobePath, staging, cancellationToken).ConfigureAwait(false);
-            if (result.Width != plan.Width || result.Height != plan.Height ||
-                result.AudioTitles.Length != tracks ||
+            if (result.Width != outputWidth || result.Height != outputHeight ||
+                !result.AudioTitles.SequenceEqual(firstTitles!, StringComparer.OrdinalIgnoreCase) ||
                 Math.Abs(result.DurationSeconds - duration) > Math.Max(0.15, plan.Slices.Count / (double)fps))
                 throw new IOException("The normalized output did not pass video/audio/duration validation.");
             cancellationToken.ThrowIfCancellationRequested();
             if (File.Exists(target)) throw new IOException("The destination was created concurrently.");
             File.Move(staging, target);
-            return new Result(target, plan.Width, plan.Height, tracks,
-                TimeSpan.FromSeconds(result.DurationSeconds), TimeSpan.FromSeconds(omittedSeconds));
+            return new Result(target, outputWidth, outputHeight, tracks,
+                TimeSpan.FromSeconds(result.DurationSeconds), TimeSpan.FromSeconds(omittedSeconds),
+                StreamCopied: canStreamCopy);
+        }
+        finally
+        {
+            if (File.Exists(staging)) File.Delete(staging);
+        }
+    }
+
+    // Container-only conversion used by the Editor's "Convert to MP4" action.
+    // Does not resize or re-encode streams. Incompatible streams fail rather than fall back
+    // to lossy conversion or silently discard independent audio tracks.
+    internal static async Task<Result> RemuxMkvToMp4Async(
+        string sourcePath, string destination, string ffmpegPath, string ffprobePath,
+        CancellationToken cancellationToken = default)
+    {
+        string input = Path.GetFullPath(sourcePath);
+        string target = Path.GetFullPath(destination);
+        if (!string.Equals(Path.GetExtension(input), ".mkv", StringComparison.OrdinalIgnoreCase) ||
+            !string.Equals(Path.GetExtension(target), ".mp4", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(input, target, StringComparison.OrdinalIgnoreCase) ||
+            !File.Exists(input) || !Directory.Exists(Path.GetDirectoryName(target)) ||
+            File.Exists(target))
+            throw new IOException("Choose an existing MKV and a new MP4 destination.");
+        if (!File.Exists(ffmpegPath) || !File.Exists(ffprobePath))
+            throw new FileNotFoundException("The bundled FFmpeg tools are required.");
+
+        var before = await ProbeAsync(ffprobePath, input, cancellationToken).ConfigureAwait(false);
+        if (before.AudioTitles.Length > 16)
+            throw new InvalidOperationException("Too many audio streams for an epoch remux.");
+
+        string staging = Path.Combine(Path.GetDirectoryName(target)!,
+            ".quickclip-remux-" + Guid.NewGuid().ToString("N") + ".partial.mp4");
+        var args = new List<string> { "-hide_banner", "-nostdin", "-loglevel", "error",
+            "-n", "-i", input, "-map", "0", "-c", "copy",
+            "-movflags", "+faststart", "-f", "mp4" };
+        for (int i = 0; i < before.AudioTitles.Length; i++)
+            args.AddRange(["-metadata:s:a:" + i, "title=" + before.AudioTitles[i],
+                "-metadata:s:a:" + i, "handler_name=" + before.AudioTitles[i]]);
+        args.Add(staging);
+
+        try
+        {
+            await RunAsync(ffmpegPath, args, cancellationToken).ConfigureAwait(false);
+            var after = await ProbeAsync(ffprobePath, staging, cancellationToken).ConfigureAwait(false);
+            if (before.Width != after.Width || before.Height != after.Height ||
+                !before.AudioTitles.SequenceEqual(after.AudioTitles, StringComparer.OrdinalIgnoreCase) ||
+                Math.Abs(before.DurationSeconds - after.DurationSeconds) > 0.15)
+                throw new IOException("The stream-copy remux changed dimensions, audio tracks or duration.");
+            cancellationToken.ThrowIfCancellationRequested();
+            if (File.Exists(target)) throw new IOException("The destination was created concurrently.");
+            File.Move(staging, target);
+            return new Result(target, after.Width, after.Height, after.AudioTitles.Length,
+                TimeSpan.FromSeconds(after.DurationSeconds), TimeSpan.Zero, StreamCopied: true);
         }
         finally
         {
@@ -148,7 +222,7 @@ internal static class ReplayEpochNormalizer
     private static async Task<Probe> ProbeAsync(string ffprobe, string path, CancellationToken cancel)
     {
         string output = await RunAsync(ffprobe,
-            ["-v", "error", "-show_entries", "stream=codec_type,width,height:stream_tags=title:format=duration",
+            ["-v", "error", "-show_entries", "stream=codec_type,width,height,avg_frame_rate:stream_tags=title,handler_name:format=duration",
                 "-of", "json", path], cancel).ConfigureAwait(false);
         using var document = JsonDocument.Parse(output);
         var videos = document.RootElement.GetProperty("streams").EnumerateArray()
@@ -156,13 +230,31 @@ internal static class ReplayEpochNormalizer
         if (videos.Length != 1) throw new InvalidOperationException("Expected exactly one video stream.");
         var audio = document.RootElement.GetProperty("streams").EnumerateArray()
             .Where(item => item.GetProperty("codec_type").GetString() == "audio").ToArray();
-        string[] names = audio.Select((item, i) => item.TryGetProperty("tags", out var tags) &&
-            tags.TryGetProperty("title", out var title) && !string.IsNullOrWhiteSpace(title.GetString())
-                ? title.GetString()! : "Audio " + (i + 1)).ToArray();
+        string[] names = audio.Select((item, i) =>
+        {
+            if (item.TryGetProperty("tags", out var tags))
+            {
+                if (tags.TryGetProperty("title", out var title) &&
+                    !string.IsNullOrWhiteSpace(title.GetString()))
+                    return title.GetString()!;
+                // MP4 commonly persists handler_name but discards Matroska's
+                // free-form title. Rejecting renamed/misordered stems requires both.
+                if (tags.TryGetProperty("handler_name", out var handler) &&
+                    !string.IsNullOrWhiteSpace(handler.GetString()) &&
+                    handler.GetString() is not ("SoundHandler" or "VideoHandler"))
+                    return handler.GetString()!;
+            }
+            return "Audio " + (i + 1);
+        }).ToArray();
         double seconds = double.Parse(document.RootElement.GetProperty("format").GetProperty("duration").GetString()!,
             CultureInfo.InvariantCulture);
+        string[] rate = videos[0].GetProperty("avg_frame_rate").GetString()!.Split('/');
+        double fps = rate.Length == 2 &&
+            double.TryParse(rate[0], NumberStyles.Float, CultureInfo.InvariantCulture, out double n) &&
+            double.TryParse(rate[1], NumberStyles.Float, CultureInfo.InvariantCulture, out double den) &&
+            den > 0 ? n / den : 0;
         return new Probe(videos[0].GetProperty("width").GetInt32(),
-            videos[0].GetProperty("height").GetInt32(), seconds, names);
+            videos[0].GetProperty("height").GetInt32(), seconds, names, fps);
     }
 
     private static async Task<string> RunAsync(string executable, IEnumerable<string> args, CancellationToken cancellationToken)
