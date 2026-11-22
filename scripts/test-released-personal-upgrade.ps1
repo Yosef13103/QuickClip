@@ -5,7 +5,7 @@ param(
     [Parameter(Mandatory)][string]$CandidateSetup,
     [Parameter(Mandatory)][string]$CandidatePayload,
     [ValidateSet('1.2.0','1.2.2')][string]$ReleasedVersion = '1.2.0',
-    [ValidateSet('1.2.1','1.3.1')][string]$CandidateVersion = '1.2.1'
+    [ValidateSet('1.2.1','1.3.1','1.3.2')][string]$CandidateVersion = '1.2.1'
 )
 $ErrorActionPreference = 'Stop'
 if ($env:GITHUB_ACTIONS -ne 'true' -or $env:RUNNER_ENVIRONMENT -ne 'github-hosted') { throw 'Disposable GitHub-hosted runner only.' }

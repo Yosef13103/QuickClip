@@ -27,7 +27,7 @@ permissions:
   contents: read
 jobs:
   upgrade:
-    name: Released 1.2.2 → 1.3.1 direct handoff (${{ matrix.layout }})
+    name: Released 1.2.2 → 1.3.2 direct handoff (${{ matrix.layout }})
     runs-on: windows-2025
     timeout-minutes: 35
     strategy:
@@ -50,4 +50,4 @@ jobs:
         run: ./scripts/package.ps1 -Personal
       - name: Test exact released package and embedded worker
         run: |
-          ./scripts/test-released-personal-upgrade.ps1 -Layout '${{ matrix.layout }}' -ReleasedVersion 1.2.2 -CandidateVersion 1.3.1 -CandidateSetup publish-personal/QuickClip-Personal-1.3.1-setup.exe -CandidatePayload publish-personal/QuickClip-Personal
+          ./scripts/test-released-personal-upgrade.ps1 -Layout '${{ matrix.layout }}' -ReleasedVersion 1.2.2 -CandidateVersion 1.3.2 -CandidateSetup publish-personal/QuickClip-Personal-1.3.2-setup.exe -CandidatePayload publish-personal/QuickClip-Personal
