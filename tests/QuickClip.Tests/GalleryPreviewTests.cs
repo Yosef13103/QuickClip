@@ -18,6 +18,16 @@ public sealed class GalleryPreviewTests
     public void Gallery_uses_large_cards_without_forcing_a_single_poster_at_desktop_width(double width, int columns) =>
         Assert.Equal(columns, GalleryView.ColumnsForWidth(width));
 
+    [Theory]
+    [InlineData(500, 440, 120, 540)]
+    [InlineData(500, 440, -120, 460)]
+    [InlineData(500, 320, 120, 360)]
+    [InlineData(500, 800, 120, 800)]
+    [InlineData(500, 180, -120, 180)]
+    public void Gallery_ctrl_wheel_resizes_monotonically_from_visible_card_width(
+        double actual, int preferred, int delta, int expected) =>
+        Assert.Equal(expected, GalleryView.ZoomCardWidth(actual, preferred, delta));
+
     [Fact]
     public async Task Cache_key_distinguishes_pixel_buckets_and_replaced_files()
     {

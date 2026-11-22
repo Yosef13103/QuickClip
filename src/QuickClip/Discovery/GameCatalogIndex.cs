@@ -74,7 +74,8 @@ internal sealed class GameCatalogIndex
         if (candidates.FirstOrDefault(candidate => candidate.Rules.Inclusion == CatalogInclusion.Exclude) is { } excluded)
             return new(CatalogMatchKind.Ignored, excluded);
         bool attached = IsExplicitSelection(entry, path);
-        if (CatalogPaths.DefaultRole(path) is var role && role != CatalogMatchKind.Unknown && !attached)
+        bool tmodRuntime = IsVerifiedTModLoaderRuntime(entry, path);
+        if (CatalogPaths.DefaultRole(path) is var role && role != CatalogMatchKind.Unknown && !attached && !tmodRuntime)
             return new(role, entry);
         foreach (var candidate in candidates)
         {
@@ -113,7 +114,14 @@ internal sealed class GameCatalogIndex
         !CatalogPaths.IsProtectedExecutable(path) && entry.Source == CatalogSource.Manual &&
             entry.Executables.Contains(path, StringComparer.OrdinalIgnoreCase);
 
+    internal static bool IsVerifiedTModLoaderRuntime(CatalogEntry entry, string path) =>
+        entry.Source == CatalogSource.Steam && entry.Id.Equals("steam:1281930", StringComparison.OrdinalIgnoreCase) &&
+        entry.Executables.Contains(path, StringComparer.OrdinalIgnoreCase) &&
+        entry.InstallDirectories.Any(install => CatalogPaths.IsTModLoaderRuntime(path, install)) &&
+        !entry.UnverifiedExecutables.Contains(path, StringComparer.OrdinalIgnoreCase);
+
     private static bool HasGameEvidence(CatalogEntry entry, string path) =>
+        IsVerifiedTModLoaderRuntime(entry, path) ||
         IsExplicitAttachment(entry, path) ||
         entry.Rules.Classification == AppClassification.Game ||
         entry.Source == CatalogSource.Manual ||

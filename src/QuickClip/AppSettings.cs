@@ -45,6 +45,7 @@ internal sealed class AppSettings
 
     internal int RecordingDisableRevision => Volatile.Read(ref _recordingDisableRevision);
     internal bool AllowsManualDesktop(int revision) => RecordingEnabled && revision == RecordingDisableRevision;
+    public int GalleryThumbnailWidth { get; set; } = 440; // Ctrl+wheel in Gallery: 180–800 WPF pixels
     public int GallerySidebarWidth { get; set; } = 230;        // Folder navigation width, 190–520 WPF pixels
     public string RecordMonitor { get; set; } = "";             // GDI device name; empty = main monitor
     public string RecordAspect { get; set; } = "";              // "16:9" records the monitor's 16:9 center; empty = all of it

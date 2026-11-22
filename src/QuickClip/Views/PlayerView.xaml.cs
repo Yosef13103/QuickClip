@@ -24,6 +24,7 @@ public partial class PlayerView : UserControl
     private readonly DispatcherTimer _childWindowTimer;
     private readonly DispatcherTimer _hideTimer;
     private MpvPlayer? _player;
+    private double _videoZoom;
     private Popup? _fullscreenPopup;
     private PreviewAudio? _audio;
     private List<ClipItem> _clips = [];
@@ -58,6 +59,16 @@ public partial class PlayerView : UserControl
             { IsEnabled = false };
 
         Video.VideoMouseDown += OnVideoMouseDown;
+        Video.VideoCtrlWheel += delta => ChangeVideoZoom(delta);
+        // The mpv surface is a native HWND; handle both native wheel messages and WPF routing.
+        Root.PreviewMouseWheel += (_, e) =>
+        {
+            if (!Keyboard.Modifiers.HasFlag(ModifierKeys.Control)) return;
+            var point = e.GetPosition(Video);
+            if (point.X < 0 || point.Y < 0 || point.X > Video.ActualWidth || point.Y > Video.ActualHeight) return;
+            ChangeVideoZoom(e.Delta);
+            e.Handled = true;
+        };
         Video.VideoMouseMove += OnVideoMouseMove;
         Video.CursorQuery = (_, _) => _controlsHidden ? -1 : 0;
         SeekBar.AddHandler(Thumb.DragStartedEvent, new DragStartedEventHandler((_, _) => _dragging = true));
@@ -223,6 +234,7 @@ public partial class PlayerView : UserControl
         NextButton.IsEnabled = FloatingNext.IsEnabled = index < _clips.Count - 1;
         TitleChanged?.Invoke();
         _player.Command("stop");
+        ResetVideoZoom();
         _duration = clip.Duration ?? 0;
         _mpvTimePos = 0;
         SeekMarkers.Show([], 0); // switching clips must never show the previous clip's markers
@@ -538,8 +550,30 @@ public partial class PlayerView : UserControl
         Video.RefreshCursor();
     }
 
+    private void ChangeVideoZoom(int wheelDelta)
+    {
+        if (_player == null || Current == null) return;
+        double next = VideoPreviewZoom.Step(_videoZoom, wheelDelta);
+        if (next == _videoZoom) return;
+        _videoZoom = next;
+        _player.SetProperty("video-zoom", _videoZoom);
+        _player.CommandAsync("show-text", $"Preview zoom {VideoPreviewZoom.Percent(_videoZoom)}% (Ctrl+0 to reset)", "850");
+    }
+
+    private void ResetVideoZoom()
+    {
+        _videoZoom = 0;
+        _player?.SetProperty("video-zoom", 0d);
+    }
+
     private void OnPreviewKeyDown(object sender, KeyEventArgs e)
     {
+        if (Keyboard.Modifiers.HasFlag(ModifierKeys.Control) && e.Key is Key.D0 or Key.NumPad0)
+        {
+            ResetVideoZoom();
+            e.Handled = true;
+            return;
+        }
         bool shift = Keyboard.Modifiers.HasFlag(ModifierKeys.Shift);
         bool handled = true;
         switch (e.Key)

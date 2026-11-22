@@ -726,6 +726,7 @@ internal sealed partial class Recorder
             string? gameContext;
             string? gameId;
             Guid? collectionId;
+            bool gameTriggered;
             EndpointTrack[] savedEndpointPlan;
             EndpointTrack[] savedEndpointPreferences;
             lock (_gate)
@@ -744,7 +745,8 @@ internal sealed partial class Recorder
                 gameLookback = requestedSeconds.HasValue ? Math.Min(seconds, _replayBufferSeconds) : seconds;
                 gameContext = AppProfile.IsPersonal ? _sessionGame : _captureTarget?.Game ?? _games.GameForClip(gameLookback);
                 gameId = _sessionGameId;
-                collectionId = AppProfile.IsPersonal && _lifecycle.Mode == RecordingMode.GameTriggered
+                gameTriggered = _lifecycle.Mode == RecordingMode.GameTriggered;
+                collectionId = AppProfile.IsPersonal && gameTriggered
                     ? Library.RecordingCollections.Resolve(s, gameId, _sessionGameExecutable) : null;
                 savedEndpointPlan = _runningEndpointPlan.ToArray();
                 savedEndpointPreferences = s.EndpointTracks.ToArray();
@@ -759,7 +761,9 @@ internal sealed partial class Recorder
                 : folder;
             string folderName = ClipNaming.SafeComponent(folder, 64);
             if (ClipLibrary.IsExcluded(folderName, null)) folderName += " (game)";
-            string dir = Path.Combine(s.ClipsFolder, folderName);
+            string dir = AppProfile.IsPersonal && gameTriggered
+                ? Library.RecordingCollections.SaveDirectory(s, gameId, folderName)
+                : Path.Combine(s.ClipsFolder, folderName);
             if (ClipLibrary.IsMomentsPath(dir)) throw new IOException("Choose a clips folder outside the Moments archive.");
             Directory.CreateDirectory(dir);
             DateTimeOffset requestedAt = DateTimeOffset.Now;

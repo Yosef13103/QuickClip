@@ -18,6 +18,8 @@ public sealed class VideoHost : HwndHost
     public event Action<int, int>? VideoMouseDown;
     public event Action<int, int>? VideoMouseMove;
     public event Action<int, int>? VideoMouseUp;
+    /// <summary>Ctrl+wheel over the native mpv surface, in wheel delta units.</summary>
+    public event Action<int>? VideoCtrlWheel;
     public event Action? VideoContextRequested;
 
     /// <summary>Asked on WM_SETCURSOR with the cursor position; return a Win32 IDC_* id, 0 for the arrow or -1 for none.</summary>
@@ -91,6 +93,10 @@ public sealed class VideoHost : HwndHost
         int y = unchecked((short)((lParam.ToInt64() >> 16) & 0xFFFF));
         switch (msg)
         {
+            case WM_MOUSEWHEEL when (wParam.ToInt64() & MK_CONTROL) != 0 && VideoCtrlWheel != null:
+                VideoCtrlWheel.Invoke(unchecked((short)((wParam.ToInt64() >> 16) & 0xFFFF)));
+                handled = true;
+                return IntPtr.Zero;
             case WM_LBUTTONDOWN:
                 SetCapture(hwnd);
                 VideoMouseDown?.Invoke(x, y);
@@ -165,7 +171,7 @@ public sealed class VideoHost : HwndHost
     private const uint RDW_INVALIDATE = 0x0001, RDW_ALLCHILDREN = 0x0080;
     private const int WS_CHILD = 0x40000000, WS_VISIBLE = 0x10000000, WS_CLIPCHILDREN = 0x02000000, WS_CLIPSIBLINGS = 0x04000000;
     private const int BLACK_BRUSH = 4;
-    private const int WM_SETCURSOR = 0x0020, WM_ERASEBKGND = 0x0014, WM_MOUSEMOVE = 0x0200, WM_LBUTTONDOWN = 0x0201,
+    private const int WM_SETCURSOR = 0x0020, WM_ERASEBKGND = 0x0014, WM_MOUSEMOVE = 0x0200, WM_MOUSEWHEEL = 0x020A, MK_CONTROL = 0x0008, WM_LBUTTONDOWN = 0x0201,
         WM_LBUTTONUP = 0x0202, WM_RBUTTONUP = 0x0205;
 
     private delegate IntPtr WndProcDelegate(IntPtr hwnd, uint msg, IntPtr wParam, IntPtr lParam);

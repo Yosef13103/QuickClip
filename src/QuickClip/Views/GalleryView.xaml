@@ -374,7 +374,7 @@
                     </ScrollViewer>
                 </Border>
 
-                <Grid x:Name="ClipArea" SizeChanged="ClipArea_SizeChanged">
+                <Grid x:Name="ClipArea" SizeChanged="ClipArea_SizeChanged" ToolTip="Ctrl+mouse wheel to resize thumbnails">
                     <ItemsControl x:Name="Rows" VirtualizingPanel.IsVirtualizing="True" VirtualizingPanel.VirtualizationMode="Recycling"
                                   VirtualizingPanel.ScrollUnit="Pixel" ScrollViewer.CanContentScroll="True">
                         <ItemsControl.Template>

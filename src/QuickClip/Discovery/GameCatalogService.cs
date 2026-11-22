@@ -527,6 +527,19 @@ internal static partial class GameCatalogService
             if (!incomplete && failuresBefore == _installFailures)
                 yield return new(() => IdentifyRenderer(game, install, executables, launchExecutable, allowFolderFallback,
                     requireInstallNamedFallback));
+            // tModLoader (Steam app 1281930) uses a bundled .NET host as gameplay.
+            // Never generalize this exception to unrelated dotnet.exe processes.
+            if (!incomplete && failuresBefore == _installFailures &&
+                game.Source == CatalogSource.Steam && game.Id == "steam:1281930" &&
+                Path.GetFileName(install).Equals("tModLoader", StringComparison.OrdinalIgnoreCase))
+            {
+                string runtime = Path.Combine(install, CatalogPaths.TModLoaderRuntimeRelative);
+                if (CheckDirectory(Path.GetDirectoryName(runtime)!) && File.Exists(runtime) &&
+                    TryAttributes(runtime, out var attributes) &&
+                    (attributes & (FileAttributes.Directory | FileAttributes.ReparsePoint)) == 0 &&
+                    !IsExcluded(runtime))
+                    game.Executables.Add(runtime);
+            }
             if (!incomplete && failuresBefore == _installFailures && game.Executables.Count > 0)
             {
                 bool InInstall(string path) => CatalogPaths.IsWithin(path, install);
