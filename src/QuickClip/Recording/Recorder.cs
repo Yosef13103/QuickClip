@@ -27,6 +27,9 @@ internal sealed partial class Recorder
     private readonly object _gate = new();
     private readonly ReplaySaveGate _saveGate = new();
     private readonly ReplayMarkers _replayMarkers = new();
+    // Epoch continuity is independently verified before each native graph handoff.
+    // It does not change legacy replay saving until native archive integration is enabled.
+    private readonly ReplayEpochSessionTracker _epochSession = new(10_000_000);
     private Guid _replaySession;
     private long _replayGeneration;
     private int _replayBufferSeconds;
@@ -387,6 +390,36 @@ internal sealed partial class Recorder
         CaptureSourcePolicy.IsEligibleGame(observation with { IsForeground = GameDetector.IsForegroundOwner(observation.Owner) },
             GameDetector.IsObservableOwner, GameCatalogRuntime.Match);
 
+    private static long EpochMonotonicUs()
+    {
+        long timestamp = Stopwatch.GetTimestamp();
+        long frequency = Stopwatch.Frequency;
+        return checked((timestamp / frequency) * 1_000_000L +
+            (timestamp % frequency) * 1_000_000L / frequency);
+    }
+
+    // Never authorize retained replay from a stale title or an inferred game label.
+    // This executes under the recorder gate; the native handoff will require the
+    // same grant generation at the time packets are actually transferred.
+    private ReplayEpochGameProof? CurrentEpochProof()
+    {
+        if (!AppProfile.IsPersonal || _discordActive || _sessionGameId == null ||
+            _observedGame == null) return null;
+        try
+        {
+            return ReplayEpochLiveProof.TryCreate(AppSettings.Current, _observedGame,
+                Monitors.List(), GameDetector.IsCurrent, GameCatalogRuntime.Match,
+                Monitors.ForWindow, EpochMonotonicUs());
+        }
+        catch (Exception ex)
+        {
+            // Failure to check eligibility must NEVER prevent the existing recorder
+            // from stopping or leave a graph running without authorization.
+            Log.Essential(DiagnosticCategory.Capture, "Epoch eligibility check failed", ex);
+            return null;
+        }
+    }
+
     private string? StartPersonalGraph(CaptureActivation activation)
     {
         var game = activation.GameOwner is { } owner && _observedGame?.Owner == owner ? _observedGame : null;
@@ -413,6 +446,12 @@ internal sealed partial class Recorder
         _sessionGameExecutable = game?.Executable;
         _sessionDisplay = _actualMonitorName ?? activation.Display.Device;
         _captureStartedAt = Environment.TickCount64;
+        var proof = CurrentEpochProof();
+        if (proof != null && proof.GameId == activation.GameId &&
+            proof.Owner == activation.GameOwner)
+            _ = _epochSession.Begin(proof);
+        else
+            _epochSession.Discard();
         return null;
     }
 
@@ -422,6 +461,9 @@ internal sealed partial class Recorder
     {
         var s = AppSettings.Current;
         Error = null;
+        // A manual desktop or Discord graph is a different recording scope.
+        // Do not retain a previous game epoch across either source category.
+        if (!AppProfile.IsPersonal || gameOwner == null) _epochSession.Discard();
         var backend = fixedBackend ?? s.CaptureBackend;
         if (!CaptureEngine.IsAvailable)
         {
@@ -553,6 +595,12 @@ internal sealed partial class Recorder
         bool stopNative = IsRunning;
         IsRunning = false;
         _discordActive = false;
+        // Determine eligibility while source identity is still present. A revoked
+        // grant, missing window, or manual/Discord graph never preserves history.
+        if (stopNative && _epochSession.Active)
+            _ = _epochSession.End(CurrentEpochProof());
+        else
+            _epochSession.Discard();
         if (stopNative) CaptureEngine.Stop();
         _runningEndpointPlan = [];
         _replaySession = Guid.Empty;

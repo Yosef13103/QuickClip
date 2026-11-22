@@ -49,6 +49,16 @@ namespace qc
             av_packet_free(&entries_.front().packet);
             entries_.pop_front();
         }
+        // The old epoch store must release the oldest history before the active ring
+        // is allowed to make the combined compressed-packet budget exceed its ceiling.
+        if (memoryPressure_) memoryPressure_(bytes_);
+    }
+
+    void PacketRing::SetMemoryPressureHandler(std::function<void(int64_t)> handler)
+    {
+        std::lock_guard guard(lock_);
+        memoryPressure_ = std::move(handler);
+        if (memoryPressure_) memoryPressure_(bytes_);
     }
 
     void PacketRing::Position(QcReplayPosition& position)

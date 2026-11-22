@@ -4,6 +4,7 @@
 #include "Audio.h"
 #include "QcGameWindow.h"
 #include <deque>
+#include <functional>
 #include <map>
 #include <memory>
 #include <shared_mutex>
@@ -132,6 +133,10 @@ namespace qc
             QcReplaySpan* span = nullptr, QcReplayAnchor* anchors = nullptr, int count = 0, int64_t boundedFrameUs = 0);
         void Position(QcReplayPosition& position);
         void Stats(int64_t& bytes, double& seconds);
+        // Called with the ring lock held after admission/eviction. The handler may
+        // evict older detached epochs but MUST NOT call back into this ring.
+        // This path allocates no new encoded packet payloads.
+        void SetMemoryPressureHandler(std::function<void(int64_t)> handler);
         // Transfers packet ownership out of this graph under the ring lock. Caller must
         // release unaccepted entries; the graph no longer owns them after Drain().
         std::vector<Entry> Drain();
@@ -143,6 +148,7 @@ namespace qc
         int64_t bytes_ = 0;
         int64_t windowUs_;
         int64_t maxBytes_ = 0;  // 0 means unbounded (legacy fixtures); live capture supplies a RAM budget.
+        std::function<void(int64_t)> memoryPressure_;
         int64_t newestVideoUs_ = -1;
         int64_t sequence_ = 0; // keep increasing even when incompatible video clears the ring
     };

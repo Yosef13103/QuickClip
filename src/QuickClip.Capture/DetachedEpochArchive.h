@@ -173,6 +173,18 @@ namespace qc
             return true;
         }
 
+        // Only call while the archive owner serializes reads/writes. A live ring
+        // can use this to evict older epochs before retaining newly encoded data.
+        void TrimToBytes(int64_t allowedBytes)
+        {
+            allowedBytes = std::clamp<int64_t>(allowedBytes, 0, maxBytes_);
+            while (!epochs_.empty() && bytes_ > allowedBytes)
+            {
+                bytes_ -= epochs_.front()->bytes;
+                epochs_.pop_front();
+            }
+        }
+
         size_t Count() const { return epochs_.size(); }
         int64_t Bytes() const { return bytes_; }
         const Epoch* At(size_t index) const { return index < epochs_.size() ? epochs_[index].get() : nullptr; }

@@ -32,7 +32,7 @@ internal static class ReplayEpochContinuity
     {
         ArgumentNullException.ThrowIfNull(old);
         ArgumentNullException.ThrowIfNull(current);
-        if (!ValidProof(old) || !ValidProof(current) ||
+        if (!IsValidProof(old) || !IsValidProof(current) ||
             old.DisableRevision != current.DisableRevision ||
             old.PermissionRevision != current.PermissionRevision)
             return ReplayEpochContinuityDecision.RevokeAndDiscard;
@@ -60,7 +60,7 @@ internal static class ReplayEpochContinuity
         return ReplayEpochContinuityDecision.StartNewTimeline;
     }
 
-    private static bool ValidProof(ReplayEpochGameProof proof) =>
+    internal static bool IsValidProof(ReplayEpochGameProof proof) =>
         proof.RecordingEnabled && proof.GameOwnerVerified && proof.DisplayPermissionVerified &&
         !string.IsNullOrWhiteSpace(proof.GameId) &&
         !string.IsNullOrWhiteSpace(proof.VerifiedExecutable) &&

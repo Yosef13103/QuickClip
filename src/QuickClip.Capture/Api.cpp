@@ -980,5 +980,18 @@ extern "C" __declspec(dllexport) int qc_test_epoch_packet_transfer()
         archive.Count() != 1 || archive.Bytes() != 128 ||
         archive.At(0)->packets[0].packet != nextVideo)
         return 0; // Old epoch evicted before adopting the new 128-byte batch.
+
+    // Active packets win over older archived history as the ring fills.
+    qc::PacketRing active(10'000'000, 192);
+    active.SetMemoryPressureHandler([&archive](int64_t liveBytes) {
+        archive.TrimToBytes(192 - liveBytes);
+    });
+    if (!insert(active, 0) || archive.Count() != 1) return 0; // 64 + 128 = 192.
+    if (!insert(active, 1) || archive.Count() != 0) return 0; // 128 + 128 exceeds limit.
+    if (!insert(active, 0) || !insert(active, 1)) return 0;
+    int64_t activeBytes = 0;
+    double activeSeconds = 0;
+    active.Stats(activeBytes, activeSeconds);
+    if (activeBytes + archive.Bytes() > 192 || activeBytes != 192) return 0;
     return 1;
 }
