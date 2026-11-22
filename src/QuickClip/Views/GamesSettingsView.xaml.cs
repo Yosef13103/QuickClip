@@ -65,6 +65,7 @@ public partial class GamesSettingsView : UserControl
     private GameRow? _expanded;
     private string _query = "";
     private ScrollViewer? _catalogScroller;
+    private VirtualizingStackPanel? _realizedGamePanel;
     private ListBoxItem[] _searchPaddingItems = [];
     private bool _changingSearchLayout;
     private double? _searchAnchorDocumentY;
@@ -157,6 +158,8 @@ public partial class GamesSettingsView : UserControl
         if (_catalogScroller != null)
             _catalogScroller.ScrollChanged -= CatalogScroll_Changed;
         _catalogScroller = null;
+        _realizedGamePanel = null;
+        _searchAnchorDocumentY = null;
     }
 
     private void CatalogScroll_Changed(object sender, ScrollChangedEventArgs e)
@@ -201,31 +204,62 @@ public partial class GamesSettingsView : UserControl
     private void UpdateStickySearch()
     {
         if (_changingSearchLayout) return;
-        // Keep the search beside the catalog until it reaches the top.
-        // Scrolling UP past it hides the overlay and reveals Apps/Discord and
-        // discovery normally, regardless of whether the search has text.
         var scroller = _catalogScroller;
         if (scroller == null || Games.ActualHeight <= 0) return;
-        if (Games.IsAncestorOf(SearchAnchorItem))
+
+        // The Apps/discovery header ends immediately before the search marker.
+        // When the header is visible, its measured bottom gives a stable
+        // document position even if virtualization hasn't realized the marker.
+        if (Games.Items.Count > 2 && Games.Items[2] is ListBoxItem discovery &&
+            Games.IsAncestorOf(discovery) && discovery.ActualHeight > 0)
         {
-            var top = SearchAnchorItem.TranslatePoint(new Point(0, 0), Games).Y;
-            if (double.IsFinite(top))
-                _searchAnchorDocumentY = top + scroller.VerticalOffset;
-        }
-        if (_searchAnchorDocumentY is not { } documentY)
-        {
-            SearchDock.Visibility = Visibility.Collapsed;
-            return;
+            double top = discovery.TranslatePoint(new Point(0, 0), Games).Y;
+            if (double.IsFinite(top) && top < Games.ActualHeight && top + discovery.ActualHeight > 0)
+                _searchAnchorDocumentY = top + discovery.ActualHeight + scroller.VerticalOffset;
         }
 
-        double naturalY = documentY - scroller.VerticalOffset;
-        if (naturalY >= Games.ActualHeight)
+        // A recycled placeholder may report a stale offscreen transform.
+        // Only refresh the document position while its marker is near view.
+        if (Games.IsAncestorOf(SearchAnchorItem))
         {
-            SearchDock.Visibility = Visibility.Collapsed;
+            double top = SearchAnchorItem.TranslatePoint(new Point(0, 0), Games).Y;
+            if (double.IsFinite(top) && top >= -56 && top <= Games.ActualHeight)
+                _searchAnchorDocumentY = top + scroller.VerticalOffset;
+        }
+
+        bool gameVisible = HasVisibleGameRow();
+        if (_searchAnchorDocumentY is not { } documentY ||
+            documentY - scroller.VerticalOffset >= Games.ActualHeight)
+        {
+            // Recycled/absent marker: a visible game card establishes that we
+            // are in the catalog, so its search must stay pinned.
+            SearchDockTransform.Y = 0;
+            SearchDock.Visibility = gameVisible ? Visibility.Visible : Visibility.Collapsed;
             return;
         }
         SearchDockTransform.Y = StickySearchTop(documentY, scroller.VerticalOffset);
         SearchDock.Visibility = Visibility.Visible;
+    }
+
+    private bool HasVisibleGameRow()
+    {
+        _realizedGamePanel ??= FindGamePanel(Games);
+        if (_realizedGamePanel == null) return false;
+        return _realizedGamePanel.Children.OfType<ListBoxItem>().Any(item =>
+        {
+            if (item.Content is not GameRow || !item.IsVisible || item.ActualHeight <= 0) return false;
+            double y = item.TranslatePoint(new Point(0, 0), Games).Y;
+            return double.IsFinite(y) && y < Games.ActualHeight && y + item.ActualHeight > 0;
+        });
+    }
+
+    private static VirtualizingStackPanel? FindGamePanel(DependencyObject element)
+    {
+        if (element is VirtualizingStackPanel panel) return panel;
+        for (int i = 0; i < VisualTreeHelper.GetChildrenCount(element); i++)
+            if (FindGamePanel(VisualTreeHelper.GetChild(element, i)) is { } child)
+                return child;
+        return null;
     }
 
     // Even a ListBox with its scrollbar disabled owns an internal ScrollViewer

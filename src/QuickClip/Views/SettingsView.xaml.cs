@@ -643,11 +643,10 @@ public partial class SettingsView : UserControl
         }
         if (sender == MonitorCombo && AppProfile.IsPersonal)
         {
-            // This control owns only manual display selection. Do not rewrite other
-            // recorder preferences or restart an automatic-game graph on selection.
-            if (SelectedMonitor is not { CaptureIdentity: not null } selected) return;
-            if (!CaptureSourcePolicy.TrySelectManualTarget(s, selected, setting => setting.TrySave()))
-                ModalDialog.Show(Window.GetWindow(this), "Couldn’t save the selected display.", "Settings");
+            // This hidden combo drives crop/area previews only. Its selection can
+            // change during display refresh or view initialization; never let it
+            // overwrite the explicitly saved "Default for manual capture" card.
+            // The physical-display radio is the sole preference writer.
             var effective = EditingVideo();
             RefreshAreas(effective.Aspect);
             RefreshResolutions(effective.Resolution);

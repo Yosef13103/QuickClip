@@ -307,6 +307,12 @@ public partial class SettingsView
         var anchor = (GameIndicatorAnchorCombo.SelectedItem as Choice)?.Label ?? "Bottom-right";
         var channel = (ClipNotificationModeCombo.SelectedItem as Choice)?.Label ?? "QuickClip overlay";
         FeedbackIndicatorIcons.Opacity = GameIndicatorCheck.IsChecked == true ? 1 : .35;
+        if (_feedbackMicExample != null)
+            _feedbackMicExample.Visibility = MicrophoneIndicatorCheck.IsChecked == true
+                ? Visibility.Visible : Visibility.Collapsed;
+        FeedbackMicLegend.Text = MicrophoneIndicatorCheck.IsChecked == true
+            ? "Camera = replay; mic red until verified, then white."
+            : "Camera = replay. Microphone signal status is hidden.";
         FeedbackSavedExample.Opacity = enabled ? 1 : .35;
         FeedbackStateSummary.Text = $"Status icons: {(GameIndicatorCheck.IsChecked == true ? "on" : "off")} at {anchor}. " +
             $"Saved notifications: {(enabled ? channel : "off")}. Previews do not change these settings.";

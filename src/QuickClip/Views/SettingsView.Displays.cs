@@ -12,6 +12,7 @@ namespace QuickClip.Views;
 public partial class SettingsView
 {
     private bool _refreshingDisplays;
+    private FrameworkElement? _feedbackMicExample;
 
     private void InitializeFeedbackIndicatorExample()
     {
@@ -21,6 +22,7 @@ public partial class SettingsView
             ClipNotificationOverlay.CameraGlyphGeometry, out _));
         var mic = ClipNotificationOverlay.StatusGlyph(ClipNotificationOverlay.MicrophoneGlyphGeometry, out var stroke);
         stroke.Stroke = Brushes.Red; // Before the selected microphone is verified.
+        _feedbackMicExample = mic;
         FeedbackIndicatorIcons.Children.Add(mic);
     }
 
@@ -306,6 +308,7 @@ public partial class SettingsView
         {
             GuideError.Text = "Could not save manual display selection.";
             RenderDisplayCards();
+            DisplayTargetConflict.Text = "Could not save the default for manual capture. Your previous choice is unchanged.";
             return;
         }
         GuideError.Text = "";

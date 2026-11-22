@@ -340,7 +340,7 @@
                                             ToolTip="Keep your choices and resume setup later. Does not change recording." />
                                     <Button VerticalContentAlignment="Center" HorizontalContentAlignment="Center" MinHeight="{DynamicResource QuickClipVisual36}" MinWidth="{DynamicResource QuickClipVisual36}" x:Name="GuideNext" Content="Continue" Click="GuideNext_Click" Margin="0,0,0,4" Style="{DynamicResource AccentButtonStyle}" />
                                 </WrapPanel>
-                                <TextBlock x:Name="GuideCompletionNotice" Text="Finishing setup enables recording."
+                                <TextBlock x:Name="GuideCompletionNotice" Text="Finishing setup enables game capture."
                                            Visibility="Collapsed" Style="{StaticResource Hint}" TextWrapping="Wrap" MaxWidth="290" HorizontalAlignment="Right" />
                             </StackPanel>
                         </DockPanel>
@@ -959,7 +959,7 @@
                                         <StackPanel>
                                             <TextBlock Text="Recording status" FontWeight="SemiBold" />
                                             <StackPanel x:Name="FeedbackIndicatorIcons" Orientation="Horizontal" Margin="0,9,0,6" />
-                                            <TextBlock Text="Camera = replay; mic red until verified, then white." Style="{StaticResource Hint}" TextWrapping="Wrap" />
+                                            <TextBlock x:Name="FeedbackMicLegend" Text="Camera = replay; mic red until verified, then white." Style="{StaticResource Hint}" TextWrapping="Wrap" />
                                             <TextBlock Text="Shown at the chosen corner of the active display." Style="{StaticResource Hint}" TextWrapping="Wrap" />
                                         </StackPanel>
                                     </Border>

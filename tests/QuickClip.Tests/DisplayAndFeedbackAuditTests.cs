@@ -126,6 +126,15 @@ public sealed class DisplayAndFeedbackAuditTests
 
                 Assert.Equal(B.DeviceName, settings.RecordMonitor);
                 Assert.Equal(B.CaptureIdentity, settings.RecordMonitorIdentity);
+                // A separate crop-preview selection must not overwrite the
+                // explicit, serialized manual default (including after reload).
+                var persisted = AppSettings.Parse(settings.ToJson());
+                Assert.Equal(B.DeviceName, persisted.RecordMonitor);
+                Assert.Equal(B.CaptureIdentity, persisted.RecordMonitorIdentity);
+                view.MonitorCombo.SelectedIndex = 0; // Preview display A, not default B.
+                Assert.Equal(B.DeviceName, settings.RecordMonitor);
+                Assert.Equal(B.CaptureIdentity, settings.RecordMonitorIdentity);
+                RefreshChoices(view, A, B);
                 Assert.True(CardControl<RadioButton>(view, B).IsChecked);
                 Assert.Same(permissions.Item1, settings.AllowedRecordingDisplays);
                 Assert.Same(permissions.Item2, settings.ExcludedGameDisplays);
@@ -237,6 +246,16 @@ public sealed class DisplayAndFeedbackAuditTests
             Assert.DoesNotContain(guide, button => Equals(button.Content, "Preview saved notification"));
             Assert.Equal(Visibility.Visible, view.FeedbackVisualGuide.Visibility);
             Assert.Equal(Visibility.Visible, view.GameIndicatorStatus.Visibility);
+            Assert.Equal("Finishing setup enables game capture.", view.GuideCompletionNotice.Text);
+            Assert.Equal(2, view.FeedbackIndicatorIcons.Children.Count);
+            view.MicrophoneIndicatorCheck.IsChecked = false;
+            Call(view, "UpdateFeedbackVisibility");
+            Assert.Equal(Visibility.Collapsed, view.FeedbackIndicatorIcons.Children[1].Visibility);
+            Assert.Contains("hidden", view.FeedbackMicLegend.Text);
+            view.MicrophoneIndicatorCheck.IsChecked = true;
+            Call(view, "UpdateFeedbackVisibility");
+            Assert.Equal(Visibility.Visible, view.FeedbackIndicatorIcons.Children[1].Visibility);
+            Assert.Contains("mic red", view.FeedbackMicLegend.Text);
 
             Call(view, "ExitGuide");
             view.NotificationsSection.IsChecked = true;
