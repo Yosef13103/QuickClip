@@ -288,15 +288,7 @@ public partial class SettingsView : UserControl
             EndpointModeCheck.IsChecked = s.UseAudioEndpoints;
             ShowEndpointMode();
 
-            _monitors = await Task.Run(Monitors.List);
-            MonitorCombo.ItemsSource = _monitors.Select(m => new Choice(m.Label, m.DeviceName)).ToList();
-            var savedDisplay = AppProfile.IsPersonal ? CaptureSourcePolicy.StoredManualTarget(s, _monitors) :
-                _monitors.FirstOrDefault(m => string.Equals(m.DeviceName, s.RecordMonitor, StringComparison.OrdinalIgnoreCase));
-            // A remembered but disconnected device must never silently select a different display.
-            var initialDisplay = savedDisplay ?? (string.IsNullOrWhiteSpace(s.RecordMonitor) || !AppProfile.IsPersonal
-                ? _monitors.FirstOrDefault(m => m.IsPrimary) ?? _monitors.FirstOrDefault() : null);
-            if (initialDisplay != null) Select(MonitorCombo, initialDisplay.DeviceName);
-            else MonitorCombo.SelectedIndex = -1;
+            LoadDisplayChoices(s, await Task.Run(Monitors.List));
             RefreshAreas(s.RecordAspect);
 
             int stepIndex = Array.FindIndex(RecordingPresets.BufferSteps, v => v >= s.BufferSeconds);
@@ -437,21 +429,21 @@ public partial class SettingsView : UserControl
             CaptureTargetHint.Text = _guideActive
                 ? "Games use allowed screens. Manual desktop recording starts only when you ask for it."
                 : "Automatic recording follows an eligible game to an allowed display. QuickClip records everything visible there, including messages and notifications. Changing the recording display starts a fresh replay.";
-            var manualTarget = CaptureSourcePolicy.StoredManualTarget(settings, _monitors);
-            bool canStartManual = _monitors.Count == 1
-                ? identity != null && CaptureSourcePolicy.AllowsRecordingDisplay(settings, identity)
-                : manualTarget?.CaptureIdentity is { } id && CaptureSourcePolicy.AllowsRecordingDisplay(settings, id);
+            var recorder = Recorder.Instance;
+            bool manualRequested = recorder.ManualDesktopRequested;
+            var manualTarget = AppHost.ResolveManualTarget(settings, _monitors);
+            bool canStartManual = AppHost.CanRequestManualDisplay(settings, manualTarget, settings.RecordingDisableRevision);
             ManualDesktopButton.IsEnabled = settings.RecordingEnabled &&
-                (Recorder.Instance.ManualDesktopRequested || canStartManual);
-            ManualDesktopButton.IsChecked = Recorder.Instance.ManualDesktopRequested;
+                (manualRequested || canStartManual);
+            ManualDesktopButton.IsChecked = manualRequested;
             ManualDisplayHint.Visibility = _guideActive ? Visibility.Collapsed : Visibility.Visible;
             ManualDisplayHint.Text = !settings.RecordingEnabled
                 ? "Enable recording first. Manual capture remains off until you explicitly start it."
-                : Recorder.Instance.ManualDesktopRequested
-                    ? "Manual capture is on. Turn it off to return to automatic game capture."
+                : manualRequested
+                    ? ManualSessionHint(recorder.State, recorder.Feedback)
                     : canStartManual
                         ? "Manual capture is off. Turn it on to capture everything visible on your preferred screen, including messages."
-                        : "Choose an allowed default screen above before starting manual capture.";
+                        : "Choose an allowed display below before starting manual capture.";
             GuideManualCaptureHint.Visibility = _guideActive ? Visibility.Visible : Visibility.Collapsed;
             VisualDisplayPanel.Visibility = Visibility.Visible;
             LegacyDisplayControls.Visibility = Visibility.Collapsed;
@@ -584,35 +576,44 @@ public partial class SettingsView : UserControl
 
     private async Task ApplyDisplayPermissionAsync(Action<AppSettings> update)
     {
-        CapturePermissionCard.IsEnabled = false;
+        string? error = null;
         try
         {
-            if (!await Recorder.Instance.UpdateDisplayPermissionsAsync(update) && IsVisible)
-                ModalDialog.Show(Window.GetWindow(this), "Could not save display permissions.", "Settings");
+            if (!await UpdateDisplayPermissionsAsync(update, Recorder.Instance.UpdateDisplayPermissionsAsync))
+                error = "Could not save display permissions.";
         }
         catch (Exception ex)
         {
             Log.Essential(DiagnosticCategory.Settings, "Updating display permissions failed", ex);
-            if (IsVisible)
-                ModalDialog.Show(Window.GetWindow(this),
-                    "Could not apply display permissions. Recording permissions were not granted. Try again.", "Settings");
+            error = "Could not apply display permissions. Recording permissions were not granted. Try again.";
         }
+        if (error != null && IsVisible)
+            ModalDialog.Show(Window.GetWindow(this), error, "Settings");
+    }
+
+    internal async Task<bool> UpdateDisplayPermissionsAsync(Action<AppSettings> update,
+        Func<Action<AppSettings>, Task<bool>> apply)
+    {
+        var focus = FocusedDisplayControl();
+        CapturePermissionCard.IsEnabled = false;
+        var focusWhileDisabled = Keyboard.FocusedElement;
+        try { return await apply(update); }
         finally
         {
             CapturePermissionCard.IsEnabled = true;
+            bool restoreFocus = CanRestoreDisplayFocus(focusWhileDisabled);
             ShowGameWindowState();
             if (_guideActive) UpdateGuideHeader();
+            if (restoreFocus) RestoreDisplayFocus(focus);
         }
     }
 
     private void ManualDesktop_Click(object sender, RoutedEventArgs e)
     {
         var recorder = Recorder.Instance;
+        bool start = ManualDesktopButton.IsChecked == true;
         ManualDesktopButton.IsChecked = recorder.ManualDesktopRequested;
-        if (recorder.ManualDesktopRequested) App.Host?.ToggleManualDesktop(recorder);
-        else if (SelectedMonitor is { CaptureIdentity: not null } selected)
-            App.Host?.SelectManualDisplay(recorder, selected);
-        else App.Host?.ToggleManualDesktop(recorder);
+        App.Host?.SetManualDesktop(recorder, start);
         ShowGameWindowState();
     }
 
@@ -645,13 +646,8 @@ public partial class SettingsView : UserControl
             // This control owns only manual display selection. Do not rewrite other
             // recorder preferences or restart an automatic-game graph on selection.
             if (SelectedMonitor is not { CaptureIdentity: not null } selected) return;
-            if (Recorder.Instance.ManualDesktopRequested)
-                App.Host?.SelectManualDisplay(Recorder.Instance, selected, onlyIfActive: true);
-            else
-            {
-                if (!CaptureSourcePolicy.TrySelectManualTarget(s, selected, setting => setting.TrySave()))
-                    ModalDialog.Show(Window.GetWindow(this), "Couldn’t save the selected display.", "Settings");
-            }
+            if (!CaptureSourcePolicy.TrySelectManualTarget(s, selected, setting => setting.TrySave()))
+                ModalDialog.Show(Window.GetWindow(this), "Couldn’t save the selected display.", "Settings");
             var effective = EditingVideo();
             RefreshAreas(effective.Aspect);
             RefreshResolutions(effective.Resolution);
