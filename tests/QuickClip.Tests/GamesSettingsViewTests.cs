@@ -120,23 +120,39 @@ public sealed class GamesSettingsViewTests
     [InlineData(780, 480, 1.25)]
     public Task Games_page_loads_at_nonmaximized_sizes(int width, int height, double scale) => OnSta(() =>
     {
-        var page = new GamesSettingsView();
-        page.LayoutTransform = new ScaleTransform(scale, scale);
-        Arrange(page, width, height);
-        Assert.True(page.Games.ActualHeight > 0);
-        Assert.True(page.Search.ActualWidth > 0);
-        Assert.DoesNotContain(page.Search, Descendants<TextBox>(page.Games)); // Search stays focused during ListBox refresh.
-        Assert.True(page.AutoScan.IsChecked == true);
-        Assert.Single(page.Applications.Items);
-        page.RenderRows(Fixture(200));
-        Arrange(page, width, height);
-        var scroll = Descendants<ScrollViewer>(page.Games).First();
-        Assert.True(scroll.ScrollableHeight > 0);
-        Assert.Null(page.Games.ItemContainerGenerator.ContainerFromIndex(200));
-        page.Games.ScrollIntoView(page.Games.Items[200]);
-        Arrange(page, width, height);
-        Assert.NotNull(page.Games.ItemContainerGenerator.ContainerFromIndex(200));
-        Assert.False(page.CancelButton.IsEnabled);
+        var page = new GamesSettingsView { LayoutTransform = new ScaleTransform(scale, scale) };
+        // Sticky search is collapsed until its natural catalog location is in view.
+        // Realize it in a real WPF window instead of measuring a detached control.
+        var window = new Window
+        {
+            Title = "QuickClip Sources Small Window Test",
+            Content = page, Width = width, Height = height, ShowInTaskbar = false,
+        };
+        window.Show();
+        try
+        {
+            Assert.True(page.Games.ActualHeight > 0);
+            var anchor = Assert.IsType<ListBoxItem>(page.FindName("SearchAnchorItem"));
+            page.Games.ScrollIntoView(anchor);
+            page.Search.Text = "Test";
+            window.UpdateLayout();
+            Assert.True(page.Search.ActualWidth > 0);
+            Assert.DoesNotContain(page.Search, Descendants<TextBox>(page.Games));
+            Assert.True(page.AutoScan.IsChecked == true);
+            Assert.Single(page.Applications.Items);
+            page.Search.Clear();
+            page.RenderRows(Fixture(200));
+            window.UpdateLayout();
+            var scroll = Descendants<ScrollViewer>(page.Games).First();
+            Assert.True(scroll.ScrollableHeight > 0);
+            Assert.Null(page.Games.ItemContainerGenerator.ContainerFromIndex(200));
+            page.Games.ScrollIntoView(page.Games.Items[200]);
+            window.UpdateLayout();
+            Assert.NotNull(page.Games.ItemContainerGenerator.ContainerFromIndex(200));
+            // A loaded page may auto-start discovery, enabling Pause scan.
+            // Scanner state is independent of the small-window layout contract.
+        }
+        finally { window.Close(); }
     });
 
     [Fact]
@@ -178,11 +194,16 @@ public sealed class GamesSettingsViewTests
         var state = Fixture(count);
         page.RenderRows(state);
         Arrange(page);
-        Assert.Equal(count + 1, page.Games.Items.Count); // One Games controls header.
-        var first = Assert.IsType<GamesSettingsView.GameRow>(page.Games.Items[1]);
-        var second = Assert.IsType<GamesSettingsView.GameRow>(page.Games.Items[2]);
+        Assert.Equal(count + 4, page.Games.Items.Count); // Sources, Apps, discovery and search anchor.
+        var rows = page.Games.Items.OfType<GamesSettingsView.GameRow>().ToArray();
+        Assert.Equal(count, rows.Length);
+        var first = rows[0];
+        var second = rows[1];
+        int firstIndex = page.Games.Items.IndexOf(first);
         Assert.Equal("Manual · Ready to record", first.Summary);
-        var container = Assert.IsType<ListBoxItem>(page.Games.ItemContainerGenerator.ContainerFromIndex(1));
+        page.Games.ScrollIntoView(first);
+        Arrange(page);
+        var container = Assert.IsType<ListBoxItem>(page.Games.ItemContainerGenerator.ContainerFromIndex(firstIndex));
         double collapsedHeight = container.ActualHeight;
         var capture = Descendants<CheckBox>(container).Single(button =>
             AutomationProperties.GetName(button).StartsWith("Disable automatic targeting", StringComparison.Ordinal));
@@ -192,12 +213,13 @@ public sealed class GamesSettingsViewTests
         Arrange(page);
         Assert.True(container.ActualHeight > collapsedHeight);
         Assert.False(second.IsExpanded);
-        if (count == 200) Assert.Null(page.Games.ItemContainerGenerator.ContainerFromIndex(count));
+        if (count == 200)
+            Assert.Null(page.Games.ItemContainerGenerator.ContainerFromIndex(page.Games.Items.IndexOf(rows[^1])));
 
         page.Search.Text = second.Entry.Executables[0];
         Assert.Same(second, Assert.Single(page.Games.Items.OfType<GamesSettingsView.GameRow>()));
         page.Search.Clear();
-        Assert.Same(first, page.Games.Items[1]);
+        Assert.Same(first, page.Games.Items.OfType<GamesSettingsView.GameRow>().First());
         Assert.True(first.IsExpanded);
         Assert.True(page.ToggleDetails(second));
         Assert.False(first.IsExpanded);
@@ -210,7 +232,8 @@ public sealed class GamesSettingsViewTests
         var page = new GamesSettingsView();
         var state = Fixture(8);
         page.RenderRows(state);
-        var row = Assert.IsType<GamesSettingsView.GameRow>(page.Games.Items[1]);
+        var row = Assert.IsType<GamesSettingsView.GameRow>(
+            page.Games.Items.OfType<GamesSettingsView.GameRow>().First());
         string enabledIcon = row.CaptureIcon;
         state = state with
         {
@@ -221,7 +244,7 @@ public sealed class GamesSettingsViewTests
             OfflineIds = [row.Entry.Id],
         };
         page.RenderRows(AppSettings.Parse(new AppSettings { Games = state }.ToJson()).Games);
-        Assert.Same(row, page.Games.Items[1]);
+        Assert.Same(row, page.Games.Items.OfType<GamesSettingsView.GameRow>().First());
         Assert.NotEqual(enabledIcon, row.CaptureIcon);
         Assert.Contains("Disabled", row.Summary);
         Assert.Contains("games remembered", row.Summary);

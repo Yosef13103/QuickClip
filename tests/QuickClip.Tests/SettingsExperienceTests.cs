@@ -54,24 +54,17 @@ public sealed class SettingsExperienceTests
     }
 
     [Fact]
-    public void Finish_enable_only_becomes_live_after_persistence_and_rolls_back_on_failure()
+    public void Completion_requires_applied_master_and_persistence_or_preserves_progress()
     {
         var settings = new AppSettings { GuidedSetupStep = 8, ReplayOnboardingCompleted = false, RecordingEnabled = false };
-        Assert.False(SettingsView.SaveGuideCompletion(settings, true, (live, candidate) =>
-        {
-            Assert.False(live.RecordingEnabled);
-            Assert.True(candidate);
-            return false;
-        }));
-        Assert.False(settings.RecordingEnabled);
+        Assert.False(SettingsView.SaveGuideCompletion(settings, _ => true));
         Assert.False(settings.ReplayOnboardingCompleted);
         Assert.Equal(8, settings.GuidedSetupStep);
-        Assert.True(SettingsView.SaveGuideCompletion(settings, true, (live, candidate) =>
-        {
-            Assert.False(live.RecordingEnabled);
-            Assert.True(candidate);
-            return true;
-        }));
+        settings.RecordingEnabled = true; // Represents successful recorder application before completion.
+        Assert.False(SettingsView.SaveGuideCompletion(settings, _ => false));
+        Assert.False(settings.ReplayOnboardingCompleted);
+        Assert.Equal(8, settings.GuidedSetupStep);
+        Assert.True(SettingsView.SaveGuideCompletion(settings, _ => true));
         Assert.True(settings.RecordingEnabled);
         Assert.True(settings.ReplayOnboardingCompleted);
         Assert.Null(settings.GuidedSetupStep);
@@ -87,15 +80,14 @@ public sealed class SettingsExperienceTests
         Assert.NotNull(SettingsView.CheckDestination(@"\\fixture\share"));
     }
 
-    [Theory]
-    [InlineData(true)]
-    [InlineData(false)]
-    public void Skip_retains_current_recording_and_does_not_grant_a_display(bool alreadyEnabled)
+    [Fact]
+    public void Fresh_profile_requires_explicit_display_consent_and_leaves_recording_off()
     {
-        var settings = new AppSettings { GuidedSetupStep = 3, RecordingEnabled = alreadyEnabled };
-        Assert.True(SettingsView.SaveGuideCompletion(settings, false, (_, candidate) => candidate == null));
-        Assert.Equal(alreadyEnabled, settings.RecordingEnabled);
-        Assert.Empty(settings.AllowedRecordingDisplays);
-        Assert.Null(settings.GuidedSetupStep);
+        var settings = new AppSettings();
+        if (!AppProfile.IsPersonal) return;
+        Assert.False(settings.AllowRecordingDisplaysByDefault);
+        Assert.False(settings.RecordingEnabled);
+        Assert.False(CaptureSourcePolicy.AllowsRecordingDisplay(settings, "physical-display"));
+        Assert.Equal(0, settings.GuidedSetupStep);
     }
 }

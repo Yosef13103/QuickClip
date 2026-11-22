@@ -64,11 +64,23 @@ public partial class GamesSettingsView : UserControl
     private int _uniqueCount, _manualCount, _retainedCount, _offlineCount;
     private GameRow? _expanded;
     private string _query = "";
+    private ScrollViewer? _catalogScroller;
+    private ListBoxItem[] _searchPaddingItems = [];
+    private bool _changingSearchLayout;
+    private double? _searchAnchorDocumentY;
+    private long _searchRevision;
     private static GameCatalogSettings State => AppSettings.Current.Games ?? new();
 
     public GamesSettingsView()
     {
         InitializeComponent();
+        // Search is a permanent sibling of the virtualized list. Only its rendered Y
+        // changes as the placeholder scrolls; filtering never recycles its TextBox.
+        Loaded += (_, _) => AttachStickySearch();
+        Unloaded += (_, _) => DetachStickySearch();
+        Games.SizeChanged += (_, _) => UpdateStickySearch();
+        SearchAnchorItem.Loaded += (_, _) => UpdateStickySearch();
+        SearchAnchorItem.LayoutUpdated += (_, _) => UpdateStickySearch();
         _ignoredExpander = new() { Header = "Ignored issues", Margin = new Thickness(4, 4, 0, 4) };
         _ignoredExpander.Expanded += IgnoredExpansion_Changed;
         _ignoredExpander.Collapsed += IgnoredExpansion_Changed;
@@ -122,6 +134,99 @@ public partial class GamesSettingsView : UserControl
     {
         Content = content, Focusable = false, HorizontalContentAlignment = HorizontalAlignment.Stretch,
     };
+
+    // The search input must never become a recycled ListBox item. The static
+    // placeholder marks its natural document position while the real input stays
+    // in a sibling overlay. ScrollUnit=Pixel gives offsets in WPF device units.
+    private void AttachStickySearch()
+    {
+        var scroller = FindPageScrollViewer(Games);
+        if (ReferenceEquals(scroller, _catalogScroller))
+        {
+            UpdateStickySearch();
+            return;
+        }
+        DetachStickySearch();
+        _catalogScroller = scroller;
+        if (scroller != null) scroller.ScrollChanged += CatalogScroll_Changed;
+        UpdateStickySearch();
+    }
+
+    private void DetachStickySearch()
+    {
+        if (_catalogScroller != null)
+            _catalogScroller.ScrollChanged -= CatalogScroll_Changed;
+        _catalogScroller = null;
+    }
+
+    private void CatalogScroll_Changed(object sender, ScrollChangedEventArgs e)
+    {
+        if (ReferenceEquals(e.OriginalSource, _catalogScroller))
+            UpdateStickySearch();
+    }
+
+    internal static double StickySearchTop(double documentY, double scrollY) =>
+        Math.Max(0, documentY - scrollY);
+
+    // Keep Apps/Discord and discovery controls in the normal scroll range even
+    // while filtering games. A short result list otherwise leaves too little
+    // scrollable extent to bring the search anchor to the viewport's top.
+    // Virtualized, nonfocusable trailing rows reserve only the needed viewport;
+    // they do not participate in game filtering or represent recording sources.
+    internal static int SearchPaddingRows(double viewport) =>
+        Math.Clamp((int)Math.Ceiling(Math.Max(0, viewport) / 64) + 6, 16, 48);
+
+    private void UpdateSearchPadding(bool searching)
+    {
+        if (!searching)
+        {
+            SearchScrollPadding.Collection = null;
+            return;
+        }
+
+        double viewport = _catalogScroller?.ViewportHeight > 0
+            ? _catalogScroller.ViewportHeight : Games.ActualHeight;
+        int count = SearchPaddingRows(viewport);
+        if (_searchPaddingItems.Length != count)
+            _searchPaddingItems = Enumerable.Range(0, count).Select(_ => new ListBoxItem
+            {
+                Height = 64, Focusable = false, IsTabStop = false,
+                IsHitTestVisible = false, Background = Brushes.Transparent,
+                Content = null
+            }).ToArray();
+        if (!ReferenceEquals(SearchScrollPadding.Collection, _searchPaddingItems))
+            SearchScrollPadding.Collection = _searchPaddingItems;
+    }
+
+    private void UpdateStickySearch()
+    {
+        if (_changingSearchLayout) return;
+        // Keep the search beside the catalog until it reaches the top.
+        // Scrolling UP past it hides the overlay and reveals Apps/Discord and
+        // discovery normally, regardless of whether the search has text.
+        var scroller = _catalogScroller;
+        if (scroller == null || Games.ActualHeight <= 0) return;
+        if (Games.IsAncestorOf(SearchAnchorItem))
+        {
+            var top = SearchAnchorItem.TranslatePoint(new Point(0, 0), Games).Y;
+            if (double.IsFinite(top))
+                _searchAnchorDocumentY = top + scroller.VerticalOffset;
+        }
+        if (_searchAnchorDocumentY is not { } documentY)
+        {
+            SearchDock.Visibility = Visibility.Collapsed;
+            return;
+        }
+
+        double naturalY = documentY - scroller.VerticalOffset;
+        if (naturalY >= Games.ActualHeight)
+        {
+            SearchDock.Visibility = Visibility.Collapsed;
+            return;
+        }
+        SearchDockTransform.Y = StickySearchTop(documentY, scroller.VerticalOffset);
+        SearchDock.Visibility = Visibility.Visible;
+    }
 
     // Even a ListBox with its scrollbar disabled owns an internal ScrollViewer
     // that consumes wheel events. Forward them to the page's virtualized scroller.
@@ -611,11 +716,58 @@ public partial class GamesSettingsView : UserControl
         } });
     }
 
+    private void PositionGameSearch()
+    {
+        var scroller = _catalogScroller;
+        if (scroller == null) return;
+        _changingSearchLayout = true;
+        try
+        {
+            // Realize the search marker without replacing or refocusing the
+            // TextBox. The Apps and discovery controls are always still above it.
+            Games.ScrollIntoView(SearchAnchorItem);
+            Games.UpdateLayout();
+            if (!Games.IsAncestorOf(SearchAnchorItem)) return;
+            double anchor = SearchAnchorItem.TranslatePoint(new Point(0, 0), Games).Y
+                + scroller.VerticalOffset;
+            _searchAnchorDocumentY = anchor;
+            for (int attempt = 0; attempt < 3; attempt++)
+            {
+                scroller.ScrollToVerticalOffset(Math.Min(Math.Max(0, anchor), scroller.ScrollableHeight));
+                Games.UpdateLayout();
+            }
+        }
+        finally
+        {
+            _changingSearchLayout = false;
+            UpdateStickySearch();
+        }
+    }
+
     private void Search_Changed(object sender, TextChangedEventArgs e)
     {
+        // Apps/Discord and discovery are never removed or filtered. Keep the
+        // genuine search input alive outside the virtualized ListBox and scroll
+        // to the first matching game rather than preserving a stale scroll offset.
+        long revision = ++_searchRevision;
         _query = Search.Text.Trim();
-        RefreshIssueViews();
-        UpdateCount();
+        _changingSearchLayout = true;
+        try
+        {
+            UpdateSearchPadding(_query.Length > 0);
+            RefreshIssueViews();
+            UpdateCount();
+        }
+        finally { _changingSearchLayout = false; }
+
+        // Reposition synchronously on edits, then once after WPF recalculates
+        // the virtualized extent. Scrolling up afterward remains entirely free.
+        PositionGameSearch();
+        _ = Dispatcher.BeginInvoke(new Action(() =>
+        {
+            if (revision == _searchRevision && IsLoaded)
+                PositionGameSearch();
+        }), System.Windows.Threading.DispatcherPriority.Loaded);
     }
 
     private void Render()

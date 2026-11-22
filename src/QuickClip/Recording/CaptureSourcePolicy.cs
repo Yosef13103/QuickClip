@@ -102,6 +102,39 @@ internal static class CaptureSourcePolicy
         (settings.AllowRecordingDisplaysByDefault ||
             (settings.AllowedRecordingDisplays ?? []).Contains(identity, StringComparer.OrdinalIgnoreCase));
 
+    internal static bool TrySelectManualTarget(AppSettings settings, MonitorInfo selected, Func<AppSettings, bool> persist)
+    {
+        if (string.IsNullOrWhiteSpace(selected.CaptureIdentity)) return false;
+        var previous = (settings.RecordMonitor, settings.RecordMonitorIdentity);
+        settings.RecordMonitor = selected.DeviceName;
+        settings.RecordMonitorIdentity = selected.CaptureIdentity;
+        if (persist(settings)) return true;
+        (settings.RecordMonitor, settings.RecordMonitorIdentity) = previous;
+        return false;
+    }
+
+    internal static bool TryClearManualTarget(AppSettings settings, Func<AppSettings, bool> persist)
+    {
+        var previous = (settings.RecordMonitor, settings.RecordMonitorIdentity);
+        settings.RecordMonitor = "";
+        settings.RecordMonitorIdentity = null;
+        if (persist(settings)) return true;
+        (settings.RecordMonitor, settings.RecordMonitorIdentity) = previous;
+        return false;
+    }
+
+    internal static MonitorInfo? StoredManualTarget(AppSettings settings, IReadOnlyList<MonitorInfo> monitors)
+    {
+        // Legacy targets had only a GDI display name; that name can be reassigned
+        // after hot-plug or topology changes. Keep the saved choice but require one
+        // deliberate physical-target confirmation rather than choosing a wrong screen.
+        if (string.IsNullOrWhiteSpace(settings.RecordMonitor) ||
+            string.IsNullOrWhiteSpace(settings.RecordMonitorIdentity)) return null;
+        return monitors.FirstOrDefault(m =>
+            string.Equals(m.DeviceName, settings.RecordMonitor, StringComparison.OrdinalIgnoreCase) &&
+            string.Equals(m.CaptureIdentity, settings.RecordMonitorIdentity, StringComparison.OrdinalIgnoreCase));
+    }
+
     internal static MonitorInfo? SelectMonitor(IReadOnlyList<MonitorInfo> monitors, string device, bool requireSelected)
     {
         if (!string.IsNullOrEmpty(device))

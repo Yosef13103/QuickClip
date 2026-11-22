@@ -307,7 +307,18 @@
                         <TextBlock x:Name="GuideProgressLabel" Style="{StaticResource Hint}" />
                         <ProgressBar x:Name="GuideProgress" Minimum="0" Maximum="9" Height="5" Margin="0,4,0,8" />
                         <TextBlock x:Name="GuideTitle" FontSize="{DynamicResource QuickClipText24}" FontWeight="SemiBold" TextWrapping="Wrap" />
-                        <TextBlock x:Name="GuideHint" TextWrapping="Wrap" Margin="0,6,0,8" AutomationProperties.LiveSetting="Polite" />
+                        <TextBlock x:Name="GuideHint" TextWrapping="Wrap" Margin="0,5,0,8" AutomationProperties.LiveSetting="Polite" />
+                        <WrapPanel x:Name="GuideIntroFlow" Visibility="Collapsed" Margin="0,3,0,10">
+                            <Border Background="{DynamicResource PanelBrush}" CornerRadius="7" Padding="12,9" Margin="0,0,8,5">
+                                <StackPanel><TextBlock Text="1 · Start a game" FontWeight="SemiBold" /><TextBlock Style="{StaticResource Hint}" Text="QuickClip detects it" /></StackPanel>
+                            </Border>
+                            <Border Background="{DynamicResource PanelBrush}" CornerRadius="7" Padding="12,9" Margin="0,0,8,5">
+                                <StackPanel><TextBlock Text="2 · Keep replay ready" FontWeight="SemiBold" /><TextBlock Style="{StaticResource Hint}" Text="Recent moments in memory" /></StackPanel>
+                            </Border>
+                            <Border Background="{DynamicResource PanelBrush}" CornerRadius="7" Padding="12,9" Margin="0,0,8,5">
+                                <StackPanel><TextBlock Text="3 · Save a clip" FontWeight="SemiBold" /><TextBlock Style="{StaticResource Hint}" Text="Shortcut or Save Clip" /></StackPanel>
+                            </Border>
+                        </WrapPanel>
                         <ItemsControl x:Name="GuideSummaryViewport" AutomationProperties.Name="Setup summary" Visibility="Collapsed" Margin="0,4,0,8">
                             <ItemsControl.ItemTemplate>
                                 <DataTemplate>
@@ -325,10 +336,12 @@
                             <Button x:Name="GuideBack" DockPanel.Dock="Left" Content="Back" Click="GuideBack_Click" Margin="0,0,8,4" VerticalAlignment="Top" />
                             <StackPanel HorizontalAlignment="Right">
                                 <WrapPanel HorizontalAlignment="Right" FlowDirection="LeftToRight">
-                                    <Button x:Name="GuideSkip" Content="Skip remaining setup" Click="GuideSkip_Click" Margin="0,0,8,4" />
-                                    <Button VerticalContentAlignment="Center" HorizontalContentAlignment="Center" MinHeight="{DynamicResource QuickClipVisual36}" MinWidth="{DynamicResource QuickClipVisual36}" x:Name="GuideNext" Content="Continue" Click="GuideNext_Click" Margin="0,0,0,4" Style="{DynamicResource AccentButtonStyle}" Background="#187644" Foreground="White" />
+                                    <Button x:Name="GuideCancel" Content="Close setup" Style="{StaticResource TextButton}" Click="GuideCancel_Click" Margin="0,0,8,4"
+                                            ToolTip="Keep your choices and resume setup later. Does not change recording." />
+                                    <Button VerticalContentAlignment="Center" HorizontalContentAlignment="Center" MinHeight="{DynamicResource QuickClipVisual36}" MinWidth="{DynamicResource QuickClipVisual36}" x:Name="GuideNext" Content="Continue" Click="GuideNext_Click" Margin="0,0,0,4" Style="{DynamicResource AccentButtonStyle}" />
                                 </WrapPanel>
-                                <Button VerticalContentAlignment="Center" HorizontalContentAlignment="Center" MinHeight="{DynamicResource QuickClipVisual36}" MinWidth="{DynamicResource QuickClipVisual36}" x:Name="GuideEnable" Content="Enable recording and finish" Style="{DynamicResource AccentButtonStyle}" Background="#187644" Foreground="White" Click="GuideEnable_Click" Margin="0,0,0,4" HorizontalAlignment="Right" Visibility="Collapsed" />
+                                <TextBlock x:Name="GuideCompletionNotice" Text="Finishing setup enables recording."
+                                           Visibility="Collapsed" Style="{StaticResource Hint}" TextWrapping="Wrap" MaxWidth="290" HorizontalAlignment="Right" />
                             </StackPanel>
                         </DockPanel>
                         <TextBlock x:Name="GuideError" TextWrapping="Wrap" Foreground="{DynamicResource DangerBrush}" AutomationProperties.LiveSetting="Assertive" />
@@ -411,26 +424,64 @@
                     <TextBlock x:Name="CaptureTargetHint" Style="{StaticResource Hint}" Margin="0,6,0,4" TextWrapping="Wrap" />
                     <Border x:Name="CapturePermissionCard" Background="{DynamicResource CardBrush}" CornerRadius="9" Padding="14" Margin="0,12,0,0">
                         <StackPanel>
-                            <CheckBox Style="{StaticResource SwitchCheckBox}" x:Name="ManualDesktopButton" Visibility="Collapsed"
-                                      Content="Manual desktop capture" FontWeight="SemiBold"
-                                      ToolTip="Records everything visible on the chosen display until stopped" Click="ManualDesktop_Click" />
-                            <TextBlock x:Name="ManualDisplayHint" Style="{StaticResource Hint}" Text="Manual capture records everything visible, including messages. Start or stop it with the switch above." Margin="0,3,0,6" />
-                            <TextBlock x:Name="MonitorLabel" Text="Monitor" TextWrapping="Wrap" Margin="0,6,0,4" />
-                            <Grid>
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="*" />
-                                    <ColumnDefinition Width="Auto" />
-                                </Grid.ColumnDefinitions>
-                                <ComboBox x:Name="MonitorCombo" MinWidth="0" SelectionChanged="Changed" AutomationProperties.Name="Manual desktop display" />
-                                <CheckBox Grid.Column="1" x:Name="DisplayPermissionCheck" Style="{StaticResource SwitchCheckBox}"
-                                          Margin="10,0,0,0" Visibility="Collapsed" Click="DisplayPermission_Click"
-                                          Content="Allow recording on this display"
-                                          ToolTip="Allows automatic game recording and deliberate manual recording on this display."
-                                          ToolTipService.ShowOnDisabled="True"
-                                          AutomationProperties.Name="Allow capture on selected display" />
-                            </Grid>
-                            <TextBlock x:Name="DisplayPermissionHint" Style="{StaticResource Hint}" TextWrapping="Wrap" Margin="0,5,0,0" Visibility="Collapsed" />
-                            <Button x:Name="DefaultDisplayPermissionsButton" Content="Use default display permissions" Click="DefaultDisplayPermissions_Click" HorizontalAlignment="Left" Visibility="Collapsed" Margin="0,6,0,0" />
+                            <!-- One monitor layout serves guided setup and ordinary Personal settings. -->
+                            <StackPanel x:Name="VisualDisplayPanel" Visibility="Collapsed" Margin="0,5,0,0">
+                                <CheckBox Style="{StaticResource SwitchCheckBox}" x:Name="ManualDesktopButton"
+                                          Visibility="Collapsed" Content="Manual desktop capture"
+                                          FontWeight="SemiBold" Margin="0,0,0,3"
+                                          ToolTip="Explicitly start or stop an entire-display recording session" Click="ManualDesktop_Click" />
+                                <TextBlock x:Name="ManualDisplayHint" Style="{StaticResource Hint}"
+                                           Text="Manual desktop capture stays off until you switch it on. It records everything visible on the selected screen, including messages."
+                                           TextWrapping="Wrap" Margin="0,0,0,12" Visibility="Collapsed" />
+                                <DockPanel LastChildFill="True" Margin="0,0,0,5">
+                                    <Button x:Name="RefreshDisplaysButton" DockPanel.Dock="Right" Content="Refresh displays"
+                                            Style="{StaticResource TextButton}" Click="RefreshDisplays_Click"
+                                            ToolTip="Find connected displays again" Margin="8,0,0,0" />
+                                    <TextBlock Text="Where recording is allowed" FontWeight="SemiBold" VerticalAlignment="Center"
+                                               FontSize="{DynamicResource QuickClipText16}" />
+                                </DockPanel>
+                                <TextBlock Text="Allow the screens QuickClip may record. Both enabled does not mean both record at once."
+                                           Style="{StaticResource Hint}" TextWrapping="Wrap" Margin="0,0,0,9" />
+                                <RadioButton x:Name="NoManualDefaultButton" Content="No preferred screen for manual capture"
+                                             GroupName="QuickClipManualDisplay" Visibility="Collapsed"
+                                             Margin="2,0,0,9" Click="NoManualDefault_Click"
+                                             ToolTip="Leave manual desktop capture without a preferred screen; it stays off until you start it." />
+                                <WrapPanel x:Name="DisplayCardsPanel" KeyboardNavigation.TabNavigation="Continue" />
+                                <TextBlock x:Name="DisplayPrivacyHint" Style="{StaticResource Hint}" TextWrapping="Wrap"
+                                           Margin="0,0,0,9" />
+                                <Button x:Name="RequireDisplayApprovalButton" Content="Require approval for new displays"
+                                        Style="{StaticResource TextButton}" Click="RequireDisplayApproval_Click"
+                                        HorizontalAlignment="Left" Visibility="Collapsed" Margin="0,0,0,9" />
+                                <TextBlock x:Name="DisplayTargetConflict" Foreground="{DynamicResource WarningBrush}"
+                                           TextWrapping="Wrap" Margin="0,7,0,0" AutomationProperties.LiveSetting="Polite" />
+                                <Button x:Name="AllowTargetButton" Content="Allow selected display"
+                                        Style="{StaticResource TextButton}" Click="AllowSelectedDisplay_Click"
+                                        HorizontalAlignment="Left" Visibility="Collapsed" Margin="0,5,0,0" />
+                                <Button x:Name="SelectSingleDisplayButton" Content="Use connected display"
+                                        Style="{StaticResource TextButton}" Click="SelectSingleDisplay_Click"
+                                        HorizontalAlignment="Left" Visibility="Collapsed" Margin="0,5,0,0" />
+                                <TextBlock x:Name="GuideManualCaptureHint" Style="{StaticResource Hint}"
+                                           Text="Manual desktop capture is optional and stays off during setup. Start it later from Recording settings."
+                                           TextWrapping="Wrap" Margin="0,10,0,0" Visibility="Collapsed" />
+                            </StackPanel>
+                            <StackPanel x:Name="LegacyDisplayControls">
+                                <TextBlock x:Name="MonitorLabel" Text="Monitor" TextWrapping="Wrap" Margin="0,6,0,4" />
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+                                    <ComboBox x:Name="MonitorCombo" MinWidth="0" SelectionChanged="Changed" AutomationProperties.Name="Manual desktop display" />
+                                    <CheckBox Grid.Column="1" x:Name="DisplayPermissionCheck" Style="{StaticResource SwitchCheckBox}"
+                                              Margin="10,0,0,0" Visibility="Collapsed" Click="DisplayPermission_Click"
+                                              Content="Allow recording on this display"
+                                              ToolTip="Allows automatic game recording and deliberate manual recording on this display."
+                                              ToolTipService.ShowOnDisabled="True"
+                                              AutomationProperties.Name="Allow capture on selected display" />
+                                </Grid>
+                                <TextBlock x:Name="DisplayPermissionHint" Style="{StaticResource Hint}" TextWrapping="Wrap" Margin="0,5,0,0" Visibility="Collapsed" />
+                                <Button x:Name="DefaultDisplayPermissionsButton" Content="Use default display permissions" Click="DefaultDisplayPermissions_Click" HorizontalAlignment="Left" Visibility="Collapsed" Margin="0,6,0,0" />
+                            </StackPanel>
                         </StackPanel>
                     </Border>
 
@@ -897,7 +948,47 @@
                         <CheckBox Style="{StaticResource SwitchCheckBox}" x:Name="GameIndicatorCheck" Content="Recording status icons (can appear in footage)" Focusable="True" Margin="0,8,0,0" Click="ClipFeedback_Changed" />
                         <TextBlock Style="{StaticResource Hint}" TextWrapping="Wrap" Text="Small replay and microphone icons on the recorded display. Enable them to show ordinary icons that can appear in footage." />
                         <CheckBox Style="{StaticResource SwitchCheckBox}" x:Name="MicrophoneIndicatorCheck" Content="Show microphone signal status" Focusable="True" Margin="0,8,0,0" Click="ClipFeedback_Changed" />
-                        <TextBlock Style="{StaticResource Hint}" TextWrapping="Wrap" Text="One microphone icon: checks for sound for 10 seconds at recording start. Red if any selected input has not been verified; white once all have produced sound. White stays for the session, even when you stop talking. Hidden when none is selected." />
+                        <TextBlock Style="{StaticResource Hint}" TextWrapping="Wrap" Text="The replay icon shows a recording is active. Microphone icon: red until the selected mic has been heard, then white; hidden when no mic is selected." />
+                        <Border x:Name="FeedbackVisualGuide" Visibility="Collapsed" Background="{DynamicResource ElevatedSurfaceBrush}"
+                                BorderBrush="{DynamicResource DividerBrush}" BorderThickness="1" CornerRadius="8" Padding="12" Margin="0,12,0,10">
+                            <StackPanel>
+                                <TextBlock Text="This is what you'll see" FontSize="{DynamicResource QuickClipText16}" FontWeight="SemiBold" Margin="0,0,0,9" />
+                                <WrapPanel>
+                                    <Border Background="{DynamicResource PanelBrush}" BorderBrush="{DynamicResource DividerBrush}"
+                                            BorderThickness="1" CornerRadius="7" Padding="11,8" MinWidth="192" Margin="0,0,10,8">
+                                        <StackPanel>
+                                            <TextBlock Text="Recording status" FontWeight="SemiBold" />
+                                            <StackPanel x:Name="FeedbackIndicatorIcons" Orientation="Horizontal" Margin="0,9,0,6" />
+                                            <TextBlock Text="Camera = replay; mic red until verified, then white." Style="{StaticResource Hint}" TextWrapping="Wrap" />
+                                            <TextBlock Text="Shown at the chosen corner of the active display." Style="{StaticResource Hint}" TextWrapping="Wrap" />
+                                        </StackPanel>
+                                    </Border>
+                                    <Border x:Name="FeedbackSavedExample" Background="{DynamicResource PanelBrush}" BorderBrush="{DynamicResource DividerBrush}"
+                                            BorderThickness="1" CornerRadius="7" Padding="11,8" MinWidth="220" Margin="0,0,0,8">
+                                        <StackPanel>
+                                            <TextBlock Text="Saved clip" FontWeight="SemiBold" />
+                                            <Border Background="{DynamicResource CardBrush}" CornerRadius="6" Padding="9" Margin="0,7,0,5">
+                                                <StackPanel>
+                                                    <TextBlock Text="Clip saved" FontWeight="SemiBold" />
+                                                    <TextBlock Text="Example clip · 30 s · 1080p" Style="{StaticResource Hint}" />
+                                                </StackPanel>
+                                            </Border>
+                                            <TextBlock Text="Preview uses your selected position" Style="{StaticResource Hint}" TextWrapping="Wrap" />
+                                        </StackPanel>
+                                    </Border>
+                                </WrapPanel>
+                                <TextBlock Text="Status icons use the real QuickClip HUD artwork. Saved-clip example is illustrative."
+                                           Style="{StaticResource Hint}" TextWrapping="Wrap" />
+                                <WrapPanel Margin="0,9,0,6">
+                                    <Button Content="Preview saved notification" Click="TestClipOverlay_Click" Margin="0,0,9,5"
+                                            ToolTip="Shows a safe example; does not save a clip or send a Windows notification." />
+                                    <Button Content="Preview recording icons" Click="PreviewRecordingIndicator_Click" Margin="0,0,0,5"
+                                            ToolTip="Shows actual QuickClip status icons for four seconds without recording." />
+                                </WrapPanel>
+                                <TextBlock x:Name="FeedbackStateSummary" Style="{StaticResource Hint}" FontWeight="SemiBold"
+                                           TextWrapping="Wrap" Margin="0,6,0,0" AutomationProperties.LiveSetting="Polite" />
+                            </StackPanel>
+                        </Border>
                         <StackPanel x:Name="AdvancedNotificationOptions">
                         <ComboBox x:Name="GameIndicatorAnchorCombo" AutomationProperties.Name="Recording status position" SelectionChanged="ClipFeedback_Changed" Margin="0,4,0,0" />
                         <Button Content="Preview recording icons" HorizontalAlignment="Left" Margin="0,6,0,0" Click="PreviewRecordingIndicator_Click" />

@@ -301,7 +301,15 @@ public partial class SettingsView
             { Value: ClipNotificationMode.Overlay or ClipNotificationMode.Both };
         bool image = enabled && ImageOnlyCheck.IsChecked == true;
         if (!banners && !image) App.Host?.HideClipOverlay();
-        ClipOverlayOptions.Visibility = enabled ? Visibility.Visible : Visibility.Collapsed;
+        ClipEventsPanel.Visibility = _guideActive ? Visibility.Collapsed : Visibility.Visible;
+        ClipOverlayOptions.Visibility = enabled && !_guideActive ? Visibility.Visible : Visibility.Collapsed;
+        FeedbackVisualGuide.Visibility = _guideActive && GuideStep == 7 ? Visibility.Visible : Visibility.Collapsed;
+        var anchor = (GameIndicatorAnchorCombo.SelectedItem as Choice)?.Label ?? "Bottom-right";
+        var channel = (ClipNotificationModeCombo.SelectedItem as Choice)?.Label ?? "QuickClip overlay";
+        FeedbackIndicatorIcons.Opacity = GameIndicatorCheck.IsChecked == true ? 1 : .35;
+        FeedbackSavedExample.Opacity = enabled ? 1 : .35;
+        FeedbackStateSummary.Text = $"Status icons: {(GameIndicatorCheck.IsChecked == true ? "on" : "off")} at {anchor}. " +
+            $"Saved notifications: {(enabled ? channel : "off")}. Previews do not change these settings.";
         BannerAppearancePanel.Visibility = banners && !IsBasicExperience ? Visibility.Visible : Visibility.Collapsed;
         ImageAppearancePanel.Visibility = image && !IsBasicExperience ? Visibility.Visible : Visibility.Collapsed;
         bool savedBanner = banners && ClipSavedNotice.IsChecked == true;

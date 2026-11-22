@@ -357,7 +357,11 @@ internal sealed class AppHost : IDisposable
             _ = ShowOverlayAsync(saved, "Clip saved", true, details, saved: true);
         if (feedback.ImageOverlay is { } celebration)
             _ = ShowOverlayAsync(celebration, "Clip saved", true, details, saved: true, imageChannel: true);
-        if (feedback.Windows) Notify("Clip saved", "Example clip");
+        // Settings preview must never emit a real Windows notification.
+        // For Windows-only preference, show a clearly synthetic local overlay instead.
+        if (feedback.Windows && feedback.BannerOverlay == null && feedback.ImageOverlay == null)
+            _ = ShowOverlayAsync(options.Banner() with { HideSavedBannerFromCapture = false },
+                "Clip saved (preview)", true, details, saved: true);
     }
 
     private async Task ShowOverlayAsync(ClipOverlayOptions options, string title, bool success,
@@ -564,7 +568,13 @@ internal sealed class AppHost : IDisposable
             _ = recorder.SetManualDesktopAsync(null);
             return;
         }
-        var selected = CaptureSourcePolicy.SelectMonitor(Monitors.List(), AppSettings.Current.RecordMonitor, requireSelected: true);
+        var connected = Monitors.List();
+        var settings = AppSettings.Current;
+        var selected = CaptureSourcePolicy.StoredManualTarget(settings, connected);
+        // A single physical display needs no redundant manual-target picker.
+        // This does not grant permission; SelectManualDisplay checks it separately.
+        if (selected == null && string.IsNullOrWhiteSpace(settings.RecordMonitor) && connected.Count == 1)
+            selected = connected[0];
         if (selected?.CaptureIdentity == null || string.IsNullOrWhiteSpace(AppSettings.Current.RecordMonitor))
         {
             NotifySource("Choose a display", "Select a connected display in Recording settings before starting desktop capture.");
@@ -585,11 +595,8 @@ internal sealed class AppHost : IDisposable
             NotifySource("Display permission required", "Allow recording on this display in Recording settings first.");
             return;
         }
-        string previous = settings.RecordMonitor;
-        settings.RecordMonitor = selected.DeviceName;
-        if (!settings.TrySave())
+        if (!CaptureSourcePolicy.TrySelectManualTarget(settings, selected, s => s.TrySave()))
         {
-            settings.RecordMonitor = previous;
             NotifySource("Could not save display", "The active capture target has not changed.");
             return;
         }

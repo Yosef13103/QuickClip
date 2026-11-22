@@ -122,17 +122,27 @@
             <BooleanToVisibilityConverter x:Key="ShowManualActions" />
         </ResourceDictionary>
     </UserControl.Resources>
-    <Grid>
-        <Grid.RowDefinitions>
-            <RowDefinition Height="Auto" />
-            <RowDefinition Height="Auto" />
-            <RowDefinition Height="Auto" />
-            <RowDefinition Height="*" />
-        </Grid.RowDefinitions>
-        <StackPanel Grid.Row="0" Margin="20,12,26,12">
+    <Grid x:Name="CatalogViewport" ClipToBounds="True">
+        <!-- Search stays in this stable visual tree, outside recycled game rows.
+             It follows the catalog placeholder until reaching the top, then sticks. -->
+        <ListBox x:Name="Games" Margin="0" Padding="20,10,14,12" HorizontalContentAlignment="Stretch"
+                 Background="Transparent" BorderThickness="0" AutomationProperties.Name="Games catalog"
+                 ScrollViewer.CanContentScroll="True" ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                 VirtualizingPanel.IsVirtualizing="True" VirtualizingPanel.VirtualizationMode="Recycling"
+                 VirtualizingPanel.ScrollUnit="Pixel">
+        <ListBox.ItemsSource>
+            <CompositeCollection>
+                <!-- Keep Apps and discovery settings in the same virtualized scroll surface as games.
+                     Only the floating search stays fixed after reaching the top of the catalog. -->
+                <ListBoxItem Focusable="False" HorizontalContentAlignment="Stretch" Padding="0" Background="Transparent">
+                    <TextBlock Text="Sources" FontSize="{DynamicResource QuickClipText24}"
+                               FontWeight="SemiBold" Margin="0,2,0,10" />
+                </ListBoxItem>
+                <ListBoxItem Focusable="False" HorizontalContentAlignment="Stretch" Padding="0" Background="Transparent">
+        <StackPanel Margin="0,4,12,10">
             <TextBlock Text="Apps" FontSize="{DynamicResource QuickClipText24}"
                        FontWeight="SemiBold" Margin="0,0,0,4" />
-            <TextBlock Text="Apps capture moments based on your settings. When you're playing a game, QuickClip records the game instead."
+            <TextBlock Text="Apps are optional recording sources. Discord can capture calls when enabled; an eligible game takes priority while you play."
                        Style="{StaticResource Hint}" TextWrapping="Wrap" Margin="0,0,0,12" />
             <ItemsControl x:Name="Applications" AutomationProperties.Name="Recording applications">
                 <ItemsControl.ItemsPanel>
@@ -211,24 +221,11 @@
                     </DataTemplate>
                 </ItemsControl.ItemTemplate>
             </ItemsControl>
+                    <TextBlock Text="Games" FontSize="{DynamicResource QuickClipText24}"
+                               FontWeight="SemiBold" Margin="20,2,26,4" />
         </StackPanel>
-        <TextBlock Grid.Row="1" Text="Games" FontSize="{DynamicResource QuickClipText24}"
-                   FontWeight="SemiBold" Margin="20,4,26,7" />
-        <!-- Search is deliberately outside the virtualized ListBox. Changing its
-             collection view must never recycle the focused search TextBox. -->
-        <DockPanel Grid.Row="2" Margin="20,0,26,8" KeyboardNavigation.TabNavigation="Continue">
-            <TextBlock DockPanel.Dock="Left" Text="Search games" VerticalAlignment="Center"
-                       Margin="0,0,10,0" />
-            <TextBox x:Name="Search" AutomationProperties.Name="Search games by name or executable"
-                     TextChanged="Search_Changed" />
-        </DockPanel>
-        <ListBox x:Name="Games" Grid.Row="3" Margin="0" Padding="20,10,14,12" HorizontalContentAlignment="Stretch"
-                 Background="Transparent" BorderThickness="0" AutomationProperties.Name="Games catalog"
-                 ScrollViewer.CanContentScroll="True" ScrollViewer.HorizontalScrollBarVisibility="Disabled"
-                 VirtualizingPanel.IsVirtualizing="True" VirtualizingPanel.VirtualizationMode="Recycling"
-                 VirtualizingPanel.ScrollUnit="Pixel">
-        <ListBox.ItemsSource>
-            <CompositeCollection>
+                </ListBoxItem>
+
                 <ListBoxItem Focusable="False" HorizontalContentAlignment="Stretch" Padding="0" Background="Transparent">
                   <StackPanel Margin="0,6,12,0">
         <Border Background="{DynamicResource PanelBrush}" CornerRadius="8" Padding="20,8,20,18" Margin="0,0,14,14">
@@ -319,12 +316,21 @@
                         </Border>
                   </StackPanel>
                 </ListBoxItem>
+                <!-- Placeholder reserves the search bar's place directly above the results.
+                     The real TextBox is outside this virtualized list so text input stays focused. -->
+                <ListBoxItem x:Name="SearchAnchorItem" Focusable="False" IsTabStop="False"
+                             HorizontalContentAlignment="Stretch" Padding="0" Background="Transparent">
+                    <Border Height="56" Background="Transparent" />
+                </ListBoxItem>
                 <CollectionContainer x:Name="AttentionHeading" />
                 <CollectionContainer x:Name="AttentionItems" />
                 <CollectionContainer x:Name="IgnoredHeading" />
                 <CollectionContainer x:Name="IgnoredItems" />
                 <CollectionContainer x:Name="OtherGamesHeading" />
                 <CollectionContainer x:Name="GameItems" />
+                <!-- Noninteractive trailing room lets a narrow game query scroll to its
+                     search anchor without moving or hiding Apps/discovery above it. -->
+                <CollectionContainer x:Name="SearchScrollPadding" />
             </CompositeCollection>
         </ListBox.ItemsSource>
             <ListBox.ItemContainerStyle>
@@ -459,5 +465,22 @@
                 </DataTemplate>
             </ListBox.ItemTemplate>
     </ListBox>
+        <!-- One persistent TextBox follows the in-list placeholder, then pins to
+             the viewport's top edge. Filter refreshes never replace this control. -->
+        <Border x:Name="SearchDock" Visibility="Collapsed" Panel.ZIndex="10"
+                HorizontalAlignment="Stretch" VerticalAlignment="Top"
+                Margin="20,0,26,0" Padding="0,6,0,8"
+                Background="{DynamicResource ApplicationBackgroundBrush}"
+                KeyboardNavigation.TabNavigation="Continue">
+            <Border.RenderTransform>
+                <TranslateTransform x:Name="SearchDockTransform" />
+            </Border.RenderTransform>
+            <DockPanel>
+                <TextBlock DockPanel.Dock="Left" Text="Search games" VerticalAlignment="Center"
+                           Margin="0,0,10,0" />
+                <TextBox x:Name="Search" AutomationProperties.Name="Search games by name or executable"
+                         TextChanged="Search_Changed" />
+            </DockPanel>
+        </Border>
     </Grid>
 </UserControl>

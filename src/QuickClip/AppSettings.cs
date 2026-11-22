@@ -48,6 +48,7 @@ internal sealed class AppSettings
     public int GalleryThumbnailWidth { get; set; } = 440; // Ctrl+wheel in Gallery: 180–800 WPF pixels
     public int GallerySidebarWidth { get; set; } = 230;        // Folder navigation width, 190–520 WPF pixels
     public string RecordMonitor { get; set; } = "";             // GDI device name; empty = main monitor
+    public string? RecordMonitorIdentity { get; set; }          // Physical display identity for deliberate manual selection
     public string RecordAspect { get; set; } = "";              // "16:9" records the monitor's 16:9 center; empty = all of it
     public int RecordFps { get; set; } = 60;
     public int RecordResolution { get; set; }                   // short side; 0 = native
@@ -69,9 +70,9 @@ internal sealed class AppSettings
         Recording.Companion.DiscordCaptureMode.DuringCalls;
 
     // Preserve the original physical-display grant without broadening it on upgrade.
-    // Fresh Personal profiles permit identifiable displays until the user blocks one.
-    // Legacy whitelist profiles retain their grants until a deliberate migration.
-    public bool AllowRecordingDisplaysByDefault { get; set; } = AppProfile.IsPersonal;
+    // New Personal profiles require explicit per-display consent. Existing serialized
+    // defaults and legacy whitelists retain their previous permission decisions.
+    public bool AllowRecordingDisplaysByDefault { get; set; } = false;
     public string[] AllowedRecordingDisplays { get; set; } = [];
     public string[] ExcludedGameDisplays { get; set; } = [];
     public bool SplitChatAudio { get; set; } = true;

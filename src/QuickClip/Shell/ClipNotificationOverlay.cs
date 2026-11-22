@@ -12,6 +12,8 @@ namespace QuickClip.Shell;
 /// <summary>One reusable no-activate overlay. It is hidden between save events.</summary>
 internal sealed class ClipNotificationOverlay : IDisposable
 {
+    internal const string CameraGlyphGeometry = "M2,5 H5 L6.5,3 H9.5 L11,5 H14 V13 H2 Z M10.5,9 A2.5,2.5 0 1 1 5.5,9 A2.5,2.5 0 1 1 10.5,9";
+    internal const string MicrophoneGlyphGeometry = "M6,3 A2,2 0 0 1 10,3 V8 A2,2 0 0 1 6,8 Z M4,7 V8 A4,4 0 0 0 12,8 V7 M8,12 V14 M5.5,14 H10.5";
     private Window? _window;
     private Grid? _surface;
     private Border? _ring;
@@ -489,11 +491,11 @@ internal sealed class ClipNotificationOverlay : IDisposable
         _card.Padding = new Thickness(0);
         _card.BorderThickness = new Thickness(0);
         var icons = new StackPanel { Orientation = Orientation.Horizontal };
-        var camera = StatusGlyph("M2,5 H5 L6.5,3 H9.5 L11,5 H14 V13 H2 Z M10.5,9 A2.5,2.5 0 1 1 5.5,9 A2.5,2.5 0 1 1 10.5,9", out _);
+        var camera = StatusGlyph(CameraGlyphGeometry, out _);
         if ((int)anchor % 3 == 0 || !hasMicrophone) icons.Children.Add(camera);
         if (hasMicrophone)
         {
-            icons.Children.Add(StatusGlyph("M6,3 A2,2 0 0 1 10,3 V8 A2,2 0 0 1 6,8 Z M4,7 V8 A4,4 0 0 0 12,8 V7 M8,12 V14 M5.5,14 H10.5", out var mic));
+            icons.Children.Add(StatusGlyph(MicrophoneGlyphGeometry, out var mic));
             _indicatorMicrophoneGlyph = mic;
             if ((int)anchor % 3 != 0) icons.Children.Add(camera);
         }
@@ -565,7 +567,8 @@ internal sealed class ClipNotificationOverlay : IDisposable
         finally { if (prior != IntPtr.Zero) SetThreadDpiAwarenessContext(prior); }
     }
 
-    private static Grid StatusGlyph(string geometry, out System.Windows.Shapes.Path foreground)
+    // Shared with onboarding's non-capturing example so both use identical glyph artwork.
+    internal static Grid StatusGlyph(string geometry, out System.Windows.Shapes.Path foreground)
     {
         var data = Geometry.Parse(geometry);
         data.Freeze();
