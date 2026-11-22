@@ -280,6 +280,7 @@ if ($Mode -eq 'Run') {
                             $extra.Fps=1000/($frames | Measure-Object -Average).Average
                             $extra.OnePercentLowFps=1000/($orderedFrames | Select-Object -Last ([Math]::Ceiling($frames.Count*.01)) | Measure-Object -Average).Average
                             $extra.FrameP95Ms=$orderedFrames[[int][Math]::Ceiling(.95*$frames.Count)-1]
+                            $extra.FrameP99Ms=$orderedFrames[[int][Math]::Ceiling(.99*$frames.Count)-1]
                         }
                     }
                     if ($process -and $Scenario -in 'Game','Save') {
@@ -314,7 +315,7 @@ if ($Mode -eq 'Run') {
                     $gpuSamples=Join-Path $sample.OutputDirectory 'gpu-device.csv'
                     if (Test-Path -LiteralPath $gpuSamples) {
                         foreach ($adapter in (Import-Csv -LiteralPath $gpuSamples | Group-Object AdapterIndex)) {
-                            foreach ($field in 'GpuPercent','EncodePercent','DecodePercent','DeviceMemoryMiB','GraphicsMHz') {
+                            foreach ($field in 'GpuPercent','EncodePercent','DecodePercent','DeviceMemoryMiB','GraphicsMHz','PowerW','TemperatureC','MemoryMHz') {
                                 $values=@($adapter.Group | ForEach-Object {
                                     $number=0.0
                                     if ([double]::TryParse($_.$field,[Globalization.NumberStyles]::Float,[Globalization.CultureInfo]::InvariantCulture,[ref]$number)) { $number }
@@ -351,7 +352,7 @@ foreach ($group in (Get-ChildItem -LiteralPath $runs -Directory)) {
     $report+='| Metric | Variant | n | Median | p95 | Delta | Delta % |','| --- | --- | ---: | ---: | ---: | ---: | ---: |'
     foreach ($metric in $names) {
         $baseline=if ($group.Name -like '*-Game' -and ($metric -like 'Game.*' -or
-            $metric -like 'DeviceGPU*' -or $metric -in 'Fps','OnePercentLowFps','FrameP95Ms')) {
+            $metric -like 'DeviceGPU*' -or $metric -in 'Fps','OnePercentLowFps','FrameP95Ms','FrameP99Ms')) {
             'Control'
         } elseif ($studyData.StudyKind -eq 'EpochsThreeWay') { 'Development' } else { 'Personal' }
         $reference=$null

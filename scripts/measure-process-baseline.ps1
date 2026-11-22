@@ -122,13 +122,13 @@ try {
             $err = Join-Path $directory 'gpu-query-error.tmp'
             $query = $null
             try {
-                $query = Start-Process -FilePath $gpuTool.Source -ArgumentList '--query-gpu=index,utilization.gpu,utilization.encoder,utilization.decoder,memory.used,clocks.gr --format=csv,noheader,nounits' -PassThru -WindowStyle Hidden -RedirectStandardOutput $temp -RedirectStandardError $err
+                $query = Start-Process -FilePath $gpuTool.Source -ArgumentList '--query-gpu=index,utilization.gpu,utilization.encoder,utilization.decoder,memory.used,clocks.gr,power.draw,temperature.gpu,clocks.mem --format=csv,noheader,nounits' -PassThru -WindowStyle Hidden -RedirectStandardOutput $temp -RedirectStandardError $err
                 if (!$query.WaitForExit(2000)) { $query.Kill(); $query.WaitForExit() }
                 elseif ($query.ExitCode -eq 0) {
                     foreach ($line in (Get-Content -LiteralPath $temp)) {
                         $v = @($line.Split(',') | ForEach-Object { $_.Trim() })
-                        if ($v.Count -eq 6) {
-                            $gpu.Add([pscustomobject]@{ ElapsedSeconds=$watch.Elapsed.TotalSeconds; AdapterIndex=$v[0]; GpuPercent=$v[1]; EncodePercent=$v[2]; DecodePercent=$v[3]; DeviceMemoryMiB=$v[4]; GraphicsMHz=$v[5] })
+                        if ($v.Count -eq 9) {
+                            $gpu.Add([pscustomobject]@{ ElapsedSeconds=$watch.Elapsed.TotalSeconds; AdapterIndex=$v[0]; GpuPercent=$v[1]; EncodePercent=$v[2]; DecodePercent=$v[3]; DeviceMemoryMiB=$v[4]; GraphicsMHz=$v[5]; PowerW=$v[6]; TemperatureC=$v[7]; MemoryMHz=$v[8] })
                         }
                     }
                 }
