@@ -15,23 +15,28 @@ public partial class GalleryView
     private bool _galleryScrollAnimating;
     private readonly HashSet<FrameworkElement> _deferredThumbnailCards = [];
 
-    private bool DeferThumbnailWhileScrolling(FrameworkElement card)
+    private bool DeferThumbnailDuringWheelGesture(FrameworkElement card)
     {
-        if (!_galleryScrollAnimating) return false;
+        if (!_galleryScrollAnimating && !_galleryZoomPending) return false;
         // Do not start FFmpeg or image decoding for cards that are being recycled
-        // rapidly. Load only the final visible cards when the scroll settles.
+        // rapidly or resized. Load only the final visible cards when the gesture settles.
         _deferredThumbnailCards.Add(card);
         return true;
     }
 
     private void FlushDeferredThumbnails()
     {
-        if (_deferredThumbnailCards.Count == 0) return;
-        FrameworkElement[] pending = [.. _deferredThumbnailCards];
-        _deferredThumbnailCards.Clear();
+        if (_released)
+        {
+            _deferredThumbnailCards.Clear();
+            return;
+        }
+        if (_galleryScrollAnimating || _galleryZoomPending || _deferredThumbnailCards.Count == 0) return;
         Dispatcher.BeginInvoke(new Action(() =>
         {
-            if (_released || _galleryScrollAnimating) return;
+            if (_released || _galleryScrollAnimating || _galleryZoomPending) return;
+            FrameworkElement[] pending = [.. _deferredThumbnailCards];
+            _deferredThumbnailCards.Clear();
             foreach (var card in pending)
             {
                 if (!card.IsLoaded || !card.IsVisible || card.ActualHeight <= 0) continue;
@@ -46,7 +51,7 @@ public partial class GalleryView
     // interpolation makes the motion stable on both 60 Hz and high-refresh screens.
     private void SmoothGalleryWheel(MouseWheelEventArgs e)
     {
-        var scroll = Rows.Template?.FindName("GalleryScroll", Rows) as ScrollViewer;
+        var scroll = GalleryScroll;
         if (scroll == null || scroll.ScrollableHeight <= 0) return;
         _lastGalleryWheelMs = Environment.TickCount64;
         _hoverPreview.Stop();
