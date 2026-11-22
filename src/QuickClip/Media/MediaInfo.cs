@@ -66,10 +66,14 @@ internal sealed class MediaInfo
     public VideoStreamInfo? Video { get; init; }
     public List<AudioStreamInfo> Audio { get; } = [];
 
+    /// <summary>The generated soundtrack of a recognized hybrid clip.</summary>
+    public AudioStreamInfo? PlaybackMix =>
+        Audio.Count > 1 && Audio[0].IsPlaybackMix && Audio[0].IsDefault
+            ? Audio[0] : null;
+
     /// <summary>Legacy multitrack media stays unchanged; a recognized hybrid hides only its first composite stream.</summary>
     public IReadOnlyList<AudioStreamInfo> EditableAudio =>
-        Audio.Count > 1 && Audio[0].IsPlaybackMix && Audio[0].IsDefault
-            ? Audio.Skip(1).ToArray() : Audio;
+        PlaybackMix != null ? Audio.Skip(1).ToArray() : Audio;
 
     public string Summary
     {

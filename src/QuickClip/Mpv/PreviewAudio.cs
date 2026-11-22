@@ -1,3 +1,5 @@
+using QuickClip.Media;
+
 namespace QuickClip.Mpv;
 
 /// <summary>
@@ -40,9 +42,28 @@ internal sealed class PreviewAudio(MpvPlayer player)
     public void Configure(IReadOnlyList<int> audioIds, Func<int, double> volume)
     {
         var (complex, filter) = Build(audioIds, volume);
+        Apply(complex, filter, audioIds.Count > 0 ? audioIds[0].ToString() : "no");
+    }
+
+    /// <summary>Configures Player audio before loading a clip. A null probe result uses mpv's default selection.</summary>
+    public void ConfigurePlayback(MediaInfo? media)
+    {
+        var mix = media?.PlaybackMix;
+        if (mix == null && media != null)
+        {
+            Configure(media.Audio.Count, _ => 1);
+            return;
+        }
+
+        // mpv audio IDs are one-based audio ordinals, independent of ffprobe's stream index.
+        Apply("", "", mix == null ? "auto" : (mix.Ordinal + 1).ToString());
+    }
+
+    private void Apply(string complex, string filter, string aid)
+    {
         player.SetProperty("lavfi-complex", complex);
         player.SetProperty("af", filter);
-        player.SetProperty("aid", audioIds.Count > 0 ? audioIds[0].ToString() : "no");
+        player.SetProperty("aid", aid);
         _appliedFilter = filter;
     }
 

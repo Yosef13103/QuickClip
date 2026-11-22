@@ -13,7 +13,7 @@ using QuickClip.Shell;
 namespace QuickClip.Views;
 
 /// <summary>
-/// Watches clips from the gallery: the whole file with all its audio tracks, previous/next through the folder,
+/// Watches clips from the gallery: the whole file with its soundtrack, previous/next through the folder,
 /// full screen with controls that get out of the way while playing.
 /// </summary>
 public partial class PlayerView : UserControl
@@ -233,13 +233,12 @@ public partial class PlayerView : UserControl
         ShowPosition(0);
         ShowMessage(null);
 
-        // Every audio track plays (Desktop, Chat, Music, Mic...), so the track count is needed before loading.
-        int tracks = 1;
+        // Probe before loading to distinguish hybrid soundtracks from stem-only clips.
+        MediaInfo? info = null;
         try
         {
-            var info = await MediaInfo.ProbeAsync(clip.Path);
+            info = await MediaInfo.ProbeAsync(clip.Path);
             if (token != _openToken || _player == null) return;
-            tracks = info.Audio.Count;
             if (info.Duration > 0) _duration = info.Duration;
         }
         catch (Exception ex)
@@ -269,7 +268,7 @@ public partial class PlayerView : UserControl
 
         _eof = false;
         _player.Command("stop");
-        _audio.Configure(tracks, _ => 1);
+        _audio.ConfigurePlayback(info);
         _player.SetProperty("pause", false);
         _player.CommandAsync("loadfile", clip.Path, "replace");
         ShowPosition(0);
