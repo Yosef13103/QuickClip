@@ -1,11 +1,7 @@
-using System.IO;
-using System.Text.Json;
-using System.Text.Json.Serialization;
 using System.Windows;
 using System.Windows.Automation;
 using System.Windows.Controls;
 using System.Windows.Threading;
-using Microsoft.Win32;
 using QuickClip.Recording;
 using QuickClip.Shell;
 using static QuickClip.Recording.CaptureEngine;
@@ -15,7 +11,7 @@ namespace QuickClip.Views;
 public partial class SettingsView
 {
     private sealed class MicrophoneMeter(FrameworkElement panel, Func<string> id, string caption, ProgressBar level, TextBlock status,
-        Button test, Button record, Button play, Button save)
+        Button test)
     {
         public FrameworkElement Panel { get; } = panel;
         public Func<string> Id { get; } = id;
@@ -23,9 +19,6 @@ public partial class SettingsView
         public ProgressBar Level { get; } = level;
         public TextBlock Status { get; } = status;
         public Button Test { get; } = test;
-        public Button Record { get; } = record;
-        public Button Play { get; } = play;
-        public Button Save { get; } = save;
         public byte[]? Wave { get; set; }
         public string? SampleId { get; set; }
         public NativeAudioSignal? TestResult { get; set; }
@@ -87,7 +80,8 @@ public partial class SettingsView
         meters.Clear();
     }
 
-    private MicrophoneMeter AddMicrophoneMeter(List<MicrophoneMeter> meters, Func<string> id, string caption)
+    private MicrophoneMeter AddMicrophoneMeter(List<MicrophoneMeter> meters, Func<string> id, string caption,
+        bool compact = false)
     {
         var panel = new StackPanel { Margin = new Thickness(0, 5, 0, 1) };
         var actions = new WrapPanel();
@@ -96,37 +90,30 @@ public partial class SettingsView
         AutomationProperties.SetName(level, $"{caption} activity");
         var status = new TextBlock { Text = "Ready to test", Style = (Style)FindResource("Hint"), TextWrapping = TextWrapping.Wrap };
         MicrophoneMeter row = null!;
-        var test = EndpointButton("Test microphone", $"Test {caption}", true, () => ToggleMicrophoneTest(row));
-        var save = EndpointButton("Save diagnostics", $"Save diagnostics for {caption}", false, () => SaveMicrophoneDiagnostics(row));
-        var record = EndpointButton("Record 5 seconds", $"Record five seconds from {caption}", true, () => ToggleMicrophoneTest(row, true));
-        var play = EndpointButton("Play recording", $"Play sample from {caption}", false, () => PlayMicrophoneSample(row));
-        row = new(panel, id, caption, level, status, test, record, play, save);
-        actions.Children.Add(test);
-        actions.Children.Add(record);
-        actions.Children.Add(play);
-        actions.Children.Add(save);
+        // One action: record five seconds, then play the sample back.
+        // The native level meter stays visible during an ordinary recording.
+        var test = EndpointButton("Test mic", $"Record and play five seconds from {caption}",
+            true, () => ToggleMicrophoneTest(row));
+        row = new(panel, id, caption, level, status, test);
+        if (!compact) actions.Children.Add(test);
         panel.Children.Add(level);
         panel.Children.Add(status);
-        panel.Children.Add(actions);
+        if (!compact) panel.Children.Add(actions);
         meters.Add(row);
         panel.IsVisibleChanged += (_, _) => UpdateMicrophoneMonitoring();
         return row;
     }
 
-    private void ToggleMicrophoneTest(MicrophoneMeter row, bool record = false)
+    private void ToggleMicrophoneTest(MicrophoneMeter row)
     {
         if (row == _testingMeter)
         {
-            if (record && _microphoneSample != null)
+            try
             {
-                try
-                {
-                    if (!_finishingSample && FinishMicrophoneSample(_microphoneToken)) _finishingSample = true;
-                    else if (!_finishingSample) StopMicrophoneTest("No playable audio received.");
-                }
-                catch (EntryPointNotFoundException) { StopMicrophoneTest("Update the native engine to stop a sample early."); }
+                if (!_finishingSample && FinishMicrophoneSample(_microphoneToken)) _finishingSample = true;
+                else if (!_finishingSample) StopMicrophoneTest("No playable audio received.");
             }
-            else StopMicrophoneTest("Test stopped.");
+            catch (EntryPointNotFoundException) { StopMicrophoneTest("Update the native engine to stop a sample early."); }
             RefreshMicrophoneMeters();
             return;
         }
@@ -145,10 +132,10 @@ public partial class SettingsView
         try
         {
             long token;
-            int result = record ? StartMicrophoneSample(row.Id(), out token) : StartMicrophoneTest(row.Id(), out token);
+            int result = StartMicrophoneSample(row.Id(), out token);
             if (result >= 0)
             {
-                _microphoneSample = record ? new short[MicrophoneSampleCapacity] : null;
+                _microphoneSample = new short[MicrophoneSampleCapacity];
                 _testingMeter = row;
                 _microphoneToken = token;
                 _microphoneTestStarted = Environment.TickCount64;
@@ -209,7 +196,8 @@ public partial class SettingsView
                         if (samples > 0 && samples <= _microphoneSample.Length && samples % 2 == 0)
                         {
                             testing.Wave = MicrophoneSampleWave.Encode(_microphoneSample.AsSpan(0, samples));
-                            StopMicrophoneTest($"Recorded {samples / 96000d:0.0} seconds. Play it to hear your microphone.");
+                            StopMicrophoneTest($"Recorded {samples / 96000d:0.0} seconds.");
+                            PlayMicrophoneSample(testing);
                         }
                         else if (samples != 0) StopMicrophoneTest("No playable audio received. Check your microphone.");
                         else if (Environment.TickCount64 - _microphoneTestStarted > 12000)
@@ -244,20 +232,15 @@ public partial class SettingsView
                 if (_playingMeter == row) StopSamplePlayback();
                 row.Wave = null;
             }
-            row.Save.Visibility = IsBasicExperience ? Visibility.Collapsed : Visibility.Visible;
-            row.Save.IsEnabled = snapshot.HasValue;
             bool recordingSample = testingNow && _microphoneSample != null;
             bool canTest = _testingMeter == null && _playingMeter == null && running == null && !Recorder.Instance.State.Running;
-            row.Test.IsEnabled = (testingNow && !recordingSample) || canTest;
-            row.Record.IsEnabled = (recordingSample && !_finishingSample) || canTest;
-            row.Record.Content = recordingSample ? (_finishingSample ? "Finishing recording..." : "Stop recording") : "Record 5 seconds";
-            AutomationProperties.SetName(row.Record, recordingSample ? $"Stop recording from {row.Caption}" : $"Record five seconds from {row.Caption}");
-            row.Play.IsEnabled = row.Wave != null && _testingMeter == null && _playingMeter == null && !Recorder.Instance.State.Running;
-            string testCaption = testingNow && !recordingSample ? "Stop test" : "Test microphone";
+            row.Test.IsEnabled = (recordingSample && !_finishingSample) || canTest;
+            string testCaption = recordingSample ? (_finishingSample ? "Finishing..." : "Finish test") : "Test mic";
             if (!Equals(row.Test.Content, testCaption))
             {
                 row.Test.Content = testCaption;
-                AutomationProperties.SetName(row.Test, testingNow ? $"Stop test for {row.Caption}" : $"Test {row.Caption}");
+                AutomationProperties.SetName(row.Test, recordingSample ?
+                    $"Finish five-second microphone test for {row.Caption}" : $"Record and play microphone test for {row.Caption}");
             }
             double target = snapshot is { Stage: EndpointStage.Streaming, HResult: >= 0 } live && (running.HasValue || testingNow)
                 ? MicrophoneSignal.MeterValue(live.RecentPeak) : 0;
@@ -304,27 +287,4 @@ public partial class SettingsView
         // Keep the ownership until the asynchronous render has actually stopped.
     }
 
-    private void SaveMicrophoneDiagnostics(MicrophoneMeter row)
-    {
-        if (row.Snapshot is not { } snapshot) return;
-        var snapshotUtc = row.SnapshotUtc;
-        var dialog = new SaveFileDialog
-        {
-            Title = "Save local microphone diagnostics",
-            FileName = $"quickclip-microphone-{snapshotUtc:yyyyMMdd-HHmmss}.json",
-            Filter = "JSON files (*.json)|*.json",
-        };
-        if (dialog.ShowDialog(Window.GetWindow(this)) != true) return;
-        try
-        {
-            var options = new JsonSerializerOptions { IncludeFields = true, WriteIndented = true };
-            options.Converters.Add(new JsonStringEnumConverter());
-            File.WriteAllText(dialog.FileName, JsonSerializer.Serialize(new { CapturedUtc = snapshotUtc, Signal = snapshot }, options));
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-        {
-            MessageBox.Show(Window.GetWindow(this), "Could not save the diagnostic file.", "QuickClip",
-                MessageBoxButton.OK, MessageBoxImage.Warning);
-        }
-    }
 }

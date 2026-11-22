@@ -365,9 +365,12 @@ public partial class EditorView
         var details = await PersonalLibrary.Current.ReadAsync(path, token);
         var folder = _settings.ClipsFolder;
         var embedded = embeddedCreationTime ?? (SavedRecordingFolders.Paths.Equals(CurrentFile, path) ? _media?.EmbeddedCreationTime : null);
-        return await Task.Run(() => EditorSource.Check(path, stamp, out _) == EditorSourceState.Ready
-            ? details ?? ClipDetailsStore.Read(new FileInfo(path), ClipLibrary.InitialGame(folder, path), embedded)
-            : null, token);
+        return await Task.Run(() =>
+        {
+            if (EditorSource.Check(path, stamp, out _) != EditorSourceState.Ready) return null;
+            var sidecar = ClipDetailsStore.Read(new FileInfo(path), ClipLibrary.InitialGame(folder, path), embedded);
+            return details == null ? sidecar : QuickClip.Recording.RecordingAudioMix.WithSavedDefaults(details, sidecar);
+        }, token);
     }
 
     private async Task RefreshSourceAsync()

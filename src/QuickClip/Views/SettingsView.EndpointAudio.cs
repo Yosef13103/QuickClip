@@ -12,7 +12,7 @@ public partial class SettingsView
     private bool _loadingEndpoints;
     private string? _endpointError;
     private bool _endpointsLoaded;
-    private int _statusRequest;
+    private readonly Dictionary<string, Button> _endpointDragHandles = new(StringComparer.OrdinalIgnoreCase);
 
     private void ShowEndpointMode()
     {
@@ -73,84 +73,282 @@ public partial class SettingsView
     {
         ClearMicrophoneMeters(_endpointMeters);
         EndpointRows.Children.Clear();
-        for (int i = 0; i < tracks.Count; i++)
+        _endpointDragHandles.Clear();
+        foreach (var flow in new[] { EndpointFlow.Playback, EndpointFlow.Microphone })
         {
-            var track = tracks[i];
-            int index = i;
-            var device = EndpointAudio.FindEndpoint(track, endpoints);
-            string caption = string.IsNullOrWhiteSpace(track.Label) ? FlowName(track.Flow) : track.Label;
-            var row = new DockPanel { Margin = new Thickness(0, 8, 0, 0), LastChildFill = true };
-            var actions = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Top, Margin = new Thickness(4, 0, 0, 0) };
-            DockPanel.SetDock(actions, Dock.Right);
-            actions.Children.Add(EndpointButton("\uE70E", $"Move {caption} up", index > 0, () => MoveEndpoint(index, -1), icon: true));
-            actions.Children.Add(EndpointButton("\uE70D", $"Move {caption} down", index + 1 < tracks.Count, () => MoveEndpoint(index, 1), icon: true));
-            actions.Children.Add(EndpointButton("\uE711", $"Remove {caption}", true, () =>
+            var sourceIndices = Enumerable.Range(0, tracks.Count)
+                .Where(index => tracks[index].Flow == flow).ToArray();
+            if (sourceIndices.Length == 0) continue;
+            EndpointRows.Children.Add(new TextBlock
             {
-                var remaining = AppSettings.Current.EndpointTracks.ToList();
-                remaining.RemoveAt(index);
-                CommitEndpoints(settings => settings.EndpointTracks = remaining, rebuild: true);
-            }, icon: true));
-            row.Children.Add(actions);
-
-            var enabled = new CheckBox { IsChecked = track.Enabled, VerticalAlignment = VerticalAlignment.Top, Margin = new Thickness(0, 7, 0, 0), ToolTip = "Record this device" };
-            enabled.SetResourceReference(FrameworkElement.StyleProperty, "SwitchCheckBox");
-            AutomationProperties.SetName(enabled, $"Record {FlowName(track.Flow)} track {caption}");
-            enabled.Checked += (_, _) => UpdateEndpoint(track, t => t with { Enabled = true });
-            enabled.Unchecked += (_, _) => UpdateEndpoint(track, t => t with { Enabled = false });
-            row.Children.Add(enabled);
-
-            var fields = new StackPanel { Margin = new Thickness(8, 0, 4, 0) };
-            var rename = new Button { Content = caption, Style = (Style)FindResource("TextButton"),
-                ToolTip = "Rename this track" };
-            AutomationProperties.SetName(rename, $"Rename {FlowName(track.Flow)} track {i + 1}");
-            rename.HorizontalAlignment = HorizontalAlignment.Left;
-            var label = new TextBox { Text = track.Label, Visibility = Visibility.Collapsed,
-                ToolTip = "Name of this track in saved clips", Padding = new Thickness(5, 4, 5, 4) };
-            AutomationProperties.SetName(label, $"Name of {FlowName(track.Flow)} track {i + 1}");
-            string savedLabel = track.Label;
-            rename.Click += (_, _) =>
-            {
-                label.Text = savedLabel;
-                rename.Visibility = Visibility.Collapsed;
-                label.Visibility = Visibility.Visible;
-                label.Focus();
-                label.SelectAll();
-            };
-            void FinishRename(bool save)
-            {
-                if (!ReferenceEquals(row.Parent, EndpointRows) || label.Visibility != Visibility.Visible) return;
-                string text = label.Text.Trim();
-                rename.Visibility = Visibility.Visible;
-                label.Visibility = Visibility.Collapsed;
-                if (!save) return;
-                UpdateEndpoint(track, t => t with { Label = text });
-                savedLabel = AppSettings.Current.EndpointTracks.FirstOrDefault(t =>
-                    EndpointAudio.SameDevice(t.Flow, t.DeviceId, track.Flow, track.DeviceId))?.Label ?? savedLabel;
-                rename.Content = string.IsNullOrWhiteSpace(savedLabel) ? FlowName(track.Flow) : savedLabel;
-            }
-            label.LostKeyboardFocus += (_, _) => FinishRename(save: true);
-            label.KeyDown += (_, e) =>
-            {
-                if (e.Key is not (Key.Enter or Key.Escape)) return;
-                e.Handled = true;
-                FinishRename(save: e.Key == Key.Enter);
-                rename.Focus();
-            };
-            fields.Children.Add(rename);
-            fields.Children.Add(label);
-            string deviceText = $"{i + 1} · {FlowName(track.Flow)} · " +
-                (device != null ? EndpointName(device) + (device.IsDefault ? " (Windows default)" : "") : availabilityChecked ? "Missing device (selection kept)" : "Availability not checked");
-            fields.Children.Add(new TextBlock
-            {
-                Text = deviceText,
-                ToolTip = deviceText,
-                TextTrimming = TextTrimming.CharacterEllipsis,
-                Style = (Style)FindResource("Hint"),
+                Text = flow == EndpointFlow.Playback ? "Playback" : "Microphones",
+                Style = (Style)FindResource("SectionHeader"),
+                Margin = new Thickness(0, flow == EndpointFlow.Playback ? 4 : 12, 0, 5),
             });
-            if (AppProfile.IsPersonal && track.Flow == EndpointFlow.Microphone)
-                fields.Children.Add(AddMicrophoneMeter(_endpointMeters, () => track.DeviceId, $"microphone {caption}").Panel);
-            row.Children.Add(fields);
-            EndpointRows.Children.Add(row);
+            foreach (int index in sourceIndices)
+            {
+                var track = tracks[index];
+                var device = EndpointAudio.FindEndpoint(track, endpoints);
+                string caption = string.IsNullOrWhiteSpace(track.Label) ? FlowName(track.Flow) : track.Label;
+                string endpoint = device != null
+                    ? EndpointName(device) + (device.IsDefault ? " · Windows default" : "")
+                    : availabilityChecked ? "Device disconnected · selection kept" : "Device availability not checked";
+                var tile = new Border
+                {
+                    CornerRadius = new CornerRadius(7),
+                    BorderThickness = new Thickness(1),
+                    Padding = new Thickness(10, 6, 10, 7),
+                    Margin = new Thickness(0, 0, 0, 4),
+                    Opacity = track.Enabled ? 1 : .78,
+                    AllowDrop = true,
+                    Tag = track,
+                };
+                tile.SetResourceReference(Border.BackgroundProperty,
+                    track.Enabled ? "ElevatedSurfaceBrush" : "PanelBrush");
+                tile.SetResourceReference(Border.BorderBrushProperty, "DividerBrush");
+                var body = new StackPanel();
+                tile.Child = body;
+
+                Button Icon(string glyph, string hint, bool enabled, Action action)
+                {
+                    var button = EndpointButton(glyph, hint, enabled, action, icon: true);
+                    button.Style = (Style)FindResource("AudioSourceIconButton");
+                    return button;
+                }
+
+                var header = new DockPanel { LastChildFill = true };
+                var controls = new StackPanel
+                {
+                    Orientation = Orientation.Horizontal,
+                    VerticalAlignment = VerticalAlignment.Center,
+                    Margin = new Thickness(4, 0, 0, 0),
+                };
+                DockPanel.SetDock(controls, Dock.Right);
+                header.Children.Add(controls);
+
+                MicrophoneMeter? mic = null;
+                if (AppProfile.IsPersonal && flow == EndpointFlow.Microphone)
+                {
+                    mic = AddMicrophoneMeter(_endpointMeters, () => track.DeviceId,
+                        $"microphone {caption}", compact: true);
+                    mic.Test.Content = "Test mic";
+                    mic.Test.ToolTip = "Record 5 seconds from this microphone, then play the sample.";
+                    mic.Test.Style = (Style)FindResource("AudioSourceTestButton");
+                }
+
+                var enabled = new CheckBox
+                {
+                    IsChecked = track.Enabled,
+                    VerticalAlignment = VerticalAlignment.Center,
+                    Margin = new Thickness(0, 0, 9, 0),
+                    Width = 52, MinWidth = 52, Height = 30,
+                    ToolTip = "Include this source in new recordings",
+                };
+                enabled.SetResourceReference(FrameworkElement.StyleProperty, "SwitchCheckBox");
+                AutomationProperties.SetName(enabled, $"Record {FlowName(track.Flow)} track {caption}");
+                enabled.Checked += (_, _) => UpdateEndpoint(track, t => t with { Enabled = true }, rebuild: true);
+                enabled.Unchecked += (_, _) => UpdateEndpoint(track, t => t with { Enabled = false }, rebuild: true);
+                DockPanel.SetDock(enabled, Dock.Left);
+                header.Children.Add(enabled);
+
+                var identity = new StackPanel { Margin = new Thickness(0, 0, 6, 0) };
+                var titleLine = new Grid();
+                titleLine.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+                var name = new TextBlock
+                {
+                    Text = caption,
+                    FontWeight = FontWeights.SemiBold,
+                    TextTrimming = TextTrimming.CharacterEllipsis,
+                    VerticalAlignment = VerticalAlignment.Center,
+                    FontSize = 13,
+                    ToolTip = $"Saved audio track: {caption}",
+                };
+                name.SetResourceReference(TextBlock.ForegroundProperty, "PrimaryTextBrush");
+                titleLine.Children.Add(name);
+                var input = new TextBox
+                {
+                    Text = track.Label,
+                    Visibility = Visibility.Collapsed,
+                    VerticalAlignment = VerticalAlignment.Center,
+                    MinWidth = 95,
+                    ToolTip = "Track name in newly recorded clips",
+                };
+                input.SetResourceReference(FrameworkElement.StyleProperty, "CompactBox");
+                AutomationProperties.SetName(input, $"Name of {FlowName(track.Flow)} track {index + 1}");
+                titleLine.Children.Add(input);
+
+                string savedLabel = track.Label;
+                var rename = Icon("\uE70F", $"Rename {caption}", true, () =>
+                {
+                    input.Text = savedLabel;
+                    name.Visibility = Visibility.Collapsed;
+                    input.Visibility = Visibility.Visible;
+                    input.Focus();
+                    input.SelectAll();
+                });
+                AutomationProperties.SetName(rename, $"Rename {FlowName(track.Flow)} track {index + 1}");
+                controls.Children.Add(rename);
+                void FinishRename(bool save)
+                {
+                    if (!ReferenceEquals(tile.Parent, EndpointRows) || input.Visibility != Visibility.Visible) return;
+                    string value = input.Text.Trim();
+                    input.Visibility = Visibility.Collapsed;
+                    name.Visibility = Visibility.Visible;
+                    if (!save) return;
+                    UpdateEndpoint(track, t => t with { Label = value });
+                    savedLabel = AppSettings.Current.EndpointTracks.FirstOrDefault(t =>
+                        EndpointAudio.SameDevice(t.Flow, t.DeviceId, track.Flow, track.DeviceId))?.Label ?? savedLabel;
+                    name.Text = string.IsNullOrWhiteSpace(savedLabel) ? FlowName(track.Flow) : savedLabel;
+                }
+                input.LostKeyboardFocus += (_, _) => FinishRename(save: true);
+                input.KeyDown += (_, e) =>
+                {
+                    if (e.Key is not (Key.Enter or Key.Escape)) return;
+                    e.Handled = true;
+                    FinishRename(save: e.Key == Key.Enter);
+                    rename.Focus();
+                };
+                identity.Children.Add(titleLine);
+                identity.Children.Add(new TextBlock
+                {
+                    Text = endpoint,
+                    ToolTip = endpoint,
+                    Style = (Style)FindResource("Hint"),
+                    TextTrimming = TextTrimming.CharacterEllipsis,
+                    TextWrapping = TextWrapping.NoWrap,
+                    FontSize = 11,
+                    Margin = new Thickness(0, 1, 0, 0),
+                });
+                header.Children.Add(identity);
+
+                if (mic != null) controls.Children.Add(mic.Test);
+                var remove = Icon("\uE711", $"Remove {caption} from future recordings", true, () =>
+                {
+                    var remaining = AppSettings.Current.EndpointTracks.ToList();
+                    int actual = remaining.FindIndex(t =>
+                        EndpointAudio.SameDevice(t.Flow, t.DeviceId, track.Flow, track.DeviceId));
+                    if (actual < 0) return;
+                    remaining.RemoveAt(actual);
+                    CommitEndpoints(settings => settings.EndpointTracks = remaining, rebuild: true);
+                });
+                remove.Style = (Style)FindResource("AudioSourceRemoveButton");
+                controls.Children.Add(remove);
+
+                // Only the grip starts a drag, never the audio slider or switch.
+                var grip = new Button
+                {
+                    Style = (Style)FindResource("AudioSourceDragHandle"),
+                    ToolTip = $"Drag to reorder {caption} within {FlowName(flow)}. Ctrl+Up / Ctrl+Down to reorder with the keyboard.",
+                };
+                AutomationProperties.SetName(grip, $"Reorder {caption} within {FlowName(flow)}");
+                AutomationProperties.SetHelpText(grip, "Drag to move, or press Ctrl+Up or Ctrl+Down.");
+                controls.Children.Add(grip);
+                _endpointDragHandles[track.DeviceId] = grip;
+                Point? dragStart = null;
+                grip.PreviewMouseLeftButtonDown += (_, e) => dragStart = e.GetPosition(grip);
+                grip.PreviewMouseLeftButtonUp += (_, _) => dragStart = null;
+                grip.PreviewMouseMove += (_, e) =>
+                {
+                    if (dragStart is not { } start || e.LeftButton != MouseButtonState.Pressed) return;
+                    Point now = e.GetPosition(grip);
+                    if (Math.Abs(now.X - start.X) < SystemParameters.MinimumHorizontalDragDistance &&
+                        Math.Abs(now.Y - start.Y) < SystemParameters.MinimumVerticalDragDistance) return;
+                    dragStart = null;
+                    DragDrop.DoDragDrop(grip, new DataObject(typeof(EndpointTrack), track), DragDropEffects.Move);
+                };
+                grip.KeyDown += (_, e) =>
+                {
+                    if ((Keyboard.Modifiers & ModifierKeys.Control) == 0 || e.Key is not (Key.Up or Key.Down)) return;
+                    e.Handled = true;
+                    MoveEndpointWithinFlow(track, e.Key == Key.Up ? -1 : 1);
+                };
+                void RestoreBorder() => tile.SetResourceReference(Border.BorderBrushProperty, "DividerBrush");
+                tile.DragOver += (_, e) =>
+                {
+                    bool valid = e.Data.GetData(typeof(EndpointTrack)) is EndpointTrack moving &&
+                        moving.Flow == track.Flow &&
+                        !EndpointAudio.SameDevice(moving.Flow, moving.DeviceId, track.Flow, track.DeviceId);
+                    e.Effects = valid ? DragDropEffects.Move : DragDropEffects.None;
+                    tile.SetResourceReference(Border.BorderBrushProperty, valid ? "AccentBrush" : "DividerBrush");
+                    e.Handled = true;
+                };
+                tile.DragLeave += (_, _) => RestoreBorder();
+                tile.Drop += (_, e) =>
+                {
+                    RestoreBorder();
+                    if (e.Data.GetData(typeof(EndpointTrack)) is not EndpointTrack moving) return;
+                    if (moving.Flow != track.Flow ||
+                        EndpointAudio.SameDevice(moving.Flow, moving.DeviceId, track.Flow, track.DeviceId)) return;
+                    bool after = e.GetPosition(tile).Y > tile.ActualHeight / 2;
+                    MoveEndpointTo(moving, track, after);
+                    e.Handled = true;
+                };
+                body.Children.Add(header);
+
+                // A single compact second line. Playback and microphone sources
+                // both use the same 0–200% starting-editor-mix setting.
+                var mix = new Grid { Margin = new Thickness(0, 5, 0, 0) };
+                mix.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(50) });
+                mix.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(77) });
+                mix.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+                mix.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(49) });
+                var mixTitle = new TextBlock
+                {
+                    Text = "Volume",
+                    Style = (Style)FindResource("Hint"),
+                    VerticalAlignment = VerticalAlignment.Center,
+                    ToolTip = "Starting level in the editor for clips saved from now on",
+                };
+                Grid.SetColumn(mixTitle, 1);
+                mix.Children.Add(mixTitle);
+                var level = new Slider
+                {
+                    Minimum = 0, Maximum = 200,
+                    Value = Math.Clamp(track.DefaultMixPercent, 0, 200),
+                    SmallChange = 1, LargeChange = 10,
+                    IsMoveToPointEnabled = true,
+                    ToolTip = "Default for new clips only; older clips and original audio stems are unchanged",
+                    VerticalAlignment = VerticalAlignment.Center,
+                };
+                level.SetResourceReference(FrameworkElement.StyleProperty, "ThemedMediaSlider");
+                AutomationProperties.SetName(level, $"Default mix for new clips: {caption}");
+                Grid.SetColumn(level, 2);
+                mix.Children.Add(level);
+                var percent = new TextBlock
+                {
+                    Text = $"{Math.Clamp(track.DefaultMixPercent, 0, 200)}%",
+                    FontWeight = FontWeights.SemiBold,
+                    VerticalAlignment = VerticalAlignment.Center,
+                    HorizontalAlignment = HorizontalAlignment.Right,
+                    Margin = new Thickness(6, 0, 0, 0),
+                };
+                Grid.SetColumn(percent, 3);
+                mix.Children.Add(percent);
+                var saveTimer = new System.Windows.Threading.DispatcherTimer
+                {
+                    Interval = TimeSpan.FromMilliseconds(250),
+                };
+                void SaveMix()
+                {
+                    int desired = (int)Math.Round(level.Value);
+                    if (desired != track.DefaultMixPercent) UpdateEndpointMix(track, desired);
+                }
+                saveTimer.Tick += (_, _) => { saveTimer.Stop(); SaveMix(); };
+                level.ValueChanged += (_, _) =>
+                {
+                    percent.Text = $"{Math.Round(level.Value):0}%";
+                    saveTimer.Stop();
+                    saveTimer.Start();
+                };
+                tile.Unloaded += (_, _) => { saveTimer.Stop(); SaveMix(); };
+                body.Children.Add(mix);
+                if (mic != null)
+                {
+                    mic.Panel.Margin = new Thickness(50, 4, 0, 0);
+                    body.Children.Add(mic.Panel);
+                }
+                EndpointRows.Children.Add(tile);
+            }
         }
 
         PopulatePicker(PlaybackPicker, PlaybackPlaceholder, EndpointFlow.Playback, "Choose a playback device");
@@ -209,15 +407,25 @@ public partial class SettingsView
             [.. current.EndpointTracks, new EndpointTrack(endpoint.Flow, endpoint.Id, EndpointName(endpoint))], rebuild: true);
     }
 
-    private void MoveEndpoint(int index, int direction)
+    private void MoveEndpointTo(EndpointTrack selected, EndpointTrack target, bool after)
     {
-        var tracks = AppSettings.Current.EndpointTracks.ToList();
-        int next = index + direction;
-        (tracks[index], tracks[next]) = (tracks[next], tracks[index]);
-        CommitEndpoints(settings => settings.EndpointTracks = tracks, rebuild: true);
+        var original = AppSettings.Current.EndpointTracks;
+        var reordered = EndpointAudio.MoveWithinFlow(original, selected, target, after);
+        if (reordered.SequenceEqual(original)) return;
+        if (CommitEndpoints(settings => settings.EndpointTracks = reordered, rebuild: true))
+            _endpointDragHandles.GetValueOrDefault(selected.DeviceId)?.Focus();
     }
 
-    private void UpdateEndpoint(EndpointTrack selected, Func<EndpointTrack, EndpointTrack> change)
+    private void MoveEndpointWithinFlow(EndpointTrack selected, int direction)
+    {
+        var original = AppSettings.Current.EndpointTracks;
+        var reordered = EndpointAudio.ReorderWithinFlow(original, selected, direction);
+        if (reordered.SequenceEqual(original)) return;
+        if (CommitEndpoints(settings => settings.EndpointTracks = reordered, rebuild: true))
+            _endpointDragHandles.GetValueOrDefault(selected.DeviceId)?.Focus();
+    }
+
+    private void UpdateEndpoint(EndpointTrack selected, Func<EndpointTrack, EndpointTrack> change, bool rebuild = false)
     {
         var tracks = AppSettings.Current.EndpointTracks.ToList();
         int index = tracks.FindIndex(track => EndpointAudio.SameDevice(track.Flow, track.DeviceId, selected.Flow, selected.DeviceId));
@@ -225,7 +433,25 @@ public partial class SettingsView
         var updated = change(tracks[index]);
         if (updated == tracks[index]) return;
         tracks[index] = updated;
-        CommitEndpoints(settings => settings.EndpointTracks = tracks);
+        CommitEndpoints(settings => settings.EndpointTracks = tracks, rebuild);
+    }
+
+    private void UpdateEndpointMix(EndpointTrack selected, int percent)
+    {
+        var settings = AppSettings.Current;
+        var prior = settings.EndpointTracks;
+        var tracks = prior.ToList();
+        int index = tracks.FindIndex(track =>
+            EndpointAudio.SameDevice(track.Flow, track.DeviceId, selected.Flow, selected.DeviceId));
+        if (index < 0) return;
+        percent = Math.Clamp(percent, 0, 200);
+        if (tracks[index].DefaultMixPercent == percent) return;
+        tracks[index] = tracks[index] with { DefaultMixPercent = percent };
+        settings.EndpointTracks = tracks;
+        if (settings.TrySave()) return;
+        settings.EndpointTracks = prior;
+        ModalDialog.Show(Window.GetWindow(this),
+            "Couldn't save this track's default volume. Your previous level is still saved.", "Audio");
     }
 
     private bool CommitEndpoints(Action<AppSettings> update, bool rebuild = false)
@@ -264,36 +490,6 @@ public partial class SettingsView
         if (missing > 0) notices.Add($"{missing} enabled device(s) missing. QuickClip keeps those selections and retries the same devices without substituting a default.");
         if (_endpointsLoaded && _endpoints.Count == 0 && missing == 0) notices.Add("No active devices found.");
         EndpointNotice.Text = string.Join(" ", notices);
-    }
-
-    private async void ReadEndpointStatus_Click(object sender, RoutedEventArgs e)
-    {
-        int request = ++_statusRequest;
-        ReadEndpointStatusButton.IsEnabled = false;
-        try
-        {
-            var lanes = await Task.Run(Recorder.Instance.ReadRunningEndpointAudio);
-            if (request != _statusRequest) return;
-            EndpointStatusText.Text = lanes.Length == 0 ? "No endpoint audio lanes are running." :
-                "Snapshot of the running recorder. Packet counts and maxima are since the current device stream opened. Pending Settings edits may differ.\n" +
-                string.Join("\n", lanes.Select(DescribeLane));
-        }
-        catch (Exception ex)
-        {
-            if (request == _statusRequest) EndpointStatusText.Text = "Could not read running audio status.";
-            Log.Failure(DiagnosticCategory.Audio, "Reading running endpoint status failed", ex);
-        }
-        finally
-        {
-            if (request == _statusRequest) ReadEndpointStatusButton.IsEnabled = true;
-        }
-    }
-
-    private void EndpointStatus_Collapsed(object sender, RoutedEventArgs e)
-    {
-        ++_statusRequest;
-        ReadEndpointStatusButton.IsEnabled = true;
-        EndpointStatusText.Text = "";
     }
 
     internal static string DescribeLane(RunningEndpointLane lane, int index)

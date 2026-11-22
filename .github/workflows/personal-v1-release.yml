@@ -1,4 +1,4 @@
-name: QuickClip Personal v1.3.1 release
+name: QuickClip Personal v1.3.2 release
 
 on:
   pull_request:
@@ -6,13 +6,13 @@ on:
     paths:
       - .github/workflows/personal-v1-release.yml
       - src/QuickClip/QuickClip.csproj
-      - docs/releases/personal-v1.3.1.md
+      - docs/releases/personal-v1.3.2.md
   push:
     branches: [custom/main]
     paths:
       - .github/workflows/personal-v1-release.yml
       - src/QuickClip/QuickClip.csproj
-      - docs/releases/personal-v1.3.1.md
+      - docs/releases/personal-v1.3.2.md
 
 permissions:
   contents: read
@@ -48,7 +48,7 @@ jobs:
       - name: Validate release version
         run: |
           $version = (Select-Xml -Path src/QuickClip/QuickClip.csproj -XPath '//Version').Node.InnerText
-          if ($version -ne '1.3.1') { throw "Unexpected Personal release version: $version" }
+          if ($version -ne '1.3.2') { throw "Unexpected Personal release version: $version" }
       - name: Provision SHA-256-verified dependencies
         run: ./scripts/get-deps.ps1 -Force
       - name: Restore
@@ -98,7 +98,7 @@ jobs:
           } | Set-Content publish-personal/SHA256SUMS.txt -Encoding utf8
       - uses: actions/upload-artifact@v4
         with:
-          name: quickclip-personal-v1.3.1-release-assets
+          name: quickclip-personal-v1.3.2-release-assets
           path: |
             publish-personal/*.zip
             publish-personal/*.exe
@@ -121,22 +121,22 @@ jobs:
           persist-credentials: false
       - uses: actions/download-artifact@v4
         with:
-          name: quickclip-personal-v1.3.1-release-assets
+          name: quickclip-personal-v1.3.2-release-assets
           path: release-assets
-      - name: Create QuickClip Personal v1.3.1 GitHub Release
+      - name: Create QuickClip Personal v1.3.2 GitHub Release
         id: release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          tag='personal-v1.3.1'
+          tag='personal-v1.3.2'
           if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             echo "Release $tag already exists; refusing to overwrite it."
             exit 0
           fi
           gh release create "$tag" release-assets/*.zip release-assets/*.exe release-assets/SHA256SUMS.txt \
             --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
-            --title 'QuickClip Personal v1.3.1' \
-            --notes-file docs/releases/personal-v1.3.1.md --latest
+            --title 'QuickClip Personal v1.3.2' \
+            --notes-file docs/releases/personal-v1.3.2.md --latest
           echo 'published=true' >> "$GITHUB_OUTPUT"
 
