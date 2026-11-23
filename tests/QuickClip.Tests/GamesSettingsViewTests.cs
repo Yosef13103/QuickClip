@@ -184,6 +184,91 @@ public sealed class GamesSettingsViewTests
         finally { window.Close(); }
     });
 
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public Task Sources_search_is_visible_in_real_settings_with_68_games(bool basic) => OnSta(() =>
+    {
+        if (!AppProfile.IsPersonal) return;
+        var settings = AppSettings.Current;
+        bool previous = settings.BasicSettings;
+        int? priorStep = settings.GuidedSetupStep;
+        Window? window = null;
+        try
+        {
+            settings.BasicSettings = basic;
+            settings.GuidedSetupStep = null;
+            var view = new SettingsView();
+            window = new Window
+            {
+                Content = view, Width = 1470, Height = 940, ShowInTaskbar = false,
+                WindowStartupLocation = WindowStartupLocation.Manual, Left = -16000, Top = -16000
+            };
+            window.Show();
+            var setSection = typeof(SettingsView).GetMethod("ApplySettingsSection",
+                System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!;
+            setSection.Invoke(view, [view.GamesSection]);
+            view.GamesPage.RenderRows(Fixture(68));
+            window.UpdateLayout();
+            window.UpdateLayout();
+
+            var sources = view.GamesPage;
+            var games = sources.Games;
+            var scroll = Descendants<ScrollViewer>(games).FirstOrDefault();
+            var marker = Assert.IsType<ListBoxItem>(games.Items[3]);
+            var discovery = Assert.IsType<ListBoxItem>(games.Items[2]);
+            double firstGameY = double.NaN;
+            var row = games.Items.OfType<GamesSettingsView.GameRow>().FirstOrDefault();
+            if (row != null && games.ItemContainerGenerator.ContainerFromItem(row) is FrameworkElement container)
+                firstGameY = container.TranslatePoint(new Point(), games).Y;
+            var scrollerField = typeof(GamesSettingsView).GetField("_catalogScroller",
+                System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!;
+            var anchorField = typeof(GamesSettingsView).GetField("_searchAnchorDocumentY",
+                System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!;
+            Assert.True(sources.SearchDock.Visibility == Visibility.Visible,
+                $"Basic={basic}, panelVisible={sources.IsVisible}, listActual={games.ActualHeight:F1}, " +
+                $"scroll={scroll?.VerticalOffset:F1}, cachedScroller={scrollerField.GetValue(sources) != null}, " +
+                $"cachedAnchor={anchorField.GetValue(sources)}, markerAncestor={games.IsAncestorOf(marker)}, " +
+                $"markerY={marker.TranslatePoint(new Point(),games).Y:F1}, " +
+                $"discoveryAncestor={games.IsAncestorOf(discovery)}, " +
+                $"discoveryY={discovery.TranslatePoint(new Point(),games).Y:F1}, " +
+                $"discoveryH={discovery.ActualHeight:F1}, firstGameY={firstGameY:F1}");
+            Assert.NotNull(scrollerField.GetValue(sources)); // Attachment must finish in Settings, not only wizard.
+            double markerY = marker.TranslatePoint(new Point(), games).Y;
+            Assert.InRange(sources.SearchDockTransform.Y, markerY - 3, markerY + 3);
+            sources.Search.Text = "Test game 001";
+            window.UpdateLayout();
+            Assert.Equal(Visibility.Visible, sources.SearchDock.Visibility);
+            Assert.InRange(sources.SearchDockTransform.Y, 0, 1);
+            scroll!.ScrollToTop();
+            window.UpdateLayout();
+            Assert.Equal(Visibility.Visible, sources.SearchDock.Visibility);
+            Assert.Same(discovery, games.Items[2]); // Apps/discovery remain accessible above filtered games.
+            sources.Search.Clear();
+            window.UpdateLayout();
+            Assert.Equal(Visibility.Visible, sources.SearchDock.Visibility);
+            var output = Environment.GetEnvironmentVariable("QUICKCLIP_UI_RENDER_OUTPUT");
+            if (!string.IsNullOrEmpty(output))
+            {
+                Directory.CreateDirectory(output);
+                var pixels = new System.Windows.Media.Imaging.RenderTargetBitmap(
+                    (int)Math.Ceiling(view.ActualWidth), (int)Math.Ceiling(view.ActualHeight),
+                    96, 96, PixelFormats.Pbgra32);
+                pixels.Render(view);
+                var png = new System.Windows.Media.Imaging.PngBitmapEncoder();
+                png.Frames.Add(System.Windows.Media.Imaging.BitmapFrame.Create(pixels));
+                using var file = File.Create(Path.Combine(output, basic
+                    ? "sources-basic-68.png" : "sources-advanced-68.png"));
+                png.Save(file);
+            }
+        }
+        finally
+        {
+            window?.Close();
+            settings.BasicSettings = previous;
+            settings.GuidedSetupStep = priorStep;
+        }
+    });
     [Fact]
     public Task Sticky_game_search_survives_recycled_rows_and_expansion() => OnSta(() =>
     {

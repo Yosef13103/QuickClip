@@ -147,6 +147,9 @@ public partial class GamesSettingsView : UserControl
     private void AttachStickySearch()
     {
         var scroller = FindPageScrollViewer(Games);
+        // Initial Loaded fires before ListBox.ApplyTemplate on some pages.
+        // Leave the connection pending; LayoutUpdated will retry.
+        if (scroller == null) return;
         if (ReferenceEquals(scroller, _catalogScroller))
         {
             UpdateStickySearch();
@@ -209,6 +212,14 @@ public partial class GamesSettingsView : UserControl
     private void UpdateStickySearch()
     {
         if (_changingSearchLayout) return;
+        // Loaded can run before WPF creates the ListBox template's ScrollViewer.
+        // LayoutUpdated must attach once that visual child exists; otherwise
+        // the search stays collapsed forever in Basic/Advanced Sources.
+        if (_catalogScroller == null)
+        {
+            AttachStickySearch();
+            return; // Attach updates the dock once the ScrollViewer exists.
+        }
         var scroller = _catalogScroller;
         if (scroller == null || Games.ActualHeight <= 0) return;
 
