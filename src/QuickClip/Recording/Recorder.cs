@@ -71,6 +71,11 @@ internal sealed partial class Recorder
     public string? Error { get; private set; }
     public int VideoKbps { get; private set; }
     public int AudioTracks { get; private set; }
+    /// <summary>The currently active graph's target, including per-game FPS overrides.</summary>
+    internal int ActiveTargetFps
+    {
+        get { lock (_gate) return _activeVideoOptions?.Fps ?? AppSettings.Current.RecordFps; }
+    }
 
     /// <summary>Raised (on a worker thread) when recording starts, stops, fails or chat or music apps change.</summary>
     public event Action<RecorderState>? StateChanged;

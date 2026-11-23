@@ -410,6 +410,8 @@ public partial class SettingsView
     private void TestSavedBanner_Click(object sender, RoutedEventArgs e) => App.Host?.TestClipOverlay(savedBanner: true);
     private void PreviewRecordingIndicator_Click(object sender, RoutedEventArgs e) =>
         GameIndicatorStatus.Text = App.Host?.PreviewRecordingIndicator() ?? "Recording icons are unavailable.";
+    private void PreviewCaptureHealthWarning_Click(object sender, RoutedEventArgs e) =>
+        GameIndicatorStatus.Text = App.Host?.PreviewRecordingIndicator(warning: true) ?? "Recording icons are unavailable.";
 
     private void TestCompactBanner_Click(object sender, RoutedEventArgs e) => App.Host?.TestClipOverlay(banner: true);
 }

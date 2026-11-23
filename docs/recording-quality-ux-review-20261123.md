@@ -103,3 +103,47 @@ A new user can set up recording without seeing Mbps, NVENC, a lossless claim, or
 - Previous separate shared-MKV duration fix at bench/quality-storage-20261122, commit 3a57128, not included in these UX changes.
 - Source evidence: src/QuickClip/Recording/RecordingPresets.cs; src/QuickClip/Views/SettingsView.xaml(.cs), SettingsView.Experience.cs, SettingsView.Library.cs; src/QuickClip/Library/LibraryModels.cs; src/QuickClip.Capture/Engine.cpp.
 - External context: https://obsproject.com/kb/advanced-recording-settings-guide , https://obsproject.com/kb/advanced-nvenc-options , https://docs.nvidia.com/video-technologies/video-codec-sdk/13.1/nvenc-application-note/ , https://gravitymark.tellusim.com/
+
+## Implemented continuation (2026-11-23, no Codex)
+
+The isolated bench/recording-ux-20261123 branch was merged with current integration/development c3814fc (merge e5abc9e) **without modifying Development, Production, the installed app, or unrelated worktrees**.
+
+### Camera indicator captures real recording health
+
+- New src/QuickClip/Shell/CaptureHealthSignal.cs debounces a native recorder capture graph's actual one-second submitted FPS (native GetStats.Fps) and cumulative missing Desktop Duplication timeline slots (GetStats.DroppedFrames). ActiveTargetFps reflects the graph's resolved game override, not always global defaults.
+- Startup grace 2 seconds; only sample intervals >=0.7s; reset on epoch changes, counter regression or long sampling gaps. Warn after 2 consecutive bad ~1s samples (>=10% missed slots or <82% of target submitted FPS), or immediately after severe >=25% missing slots, with a floor of 15. Isolated 1-2 misses do not trigger.
+- Return to normal after 3 consecutive good intervals; signal independent of microphone confirmation. A slow 950ms soft-red opacity pulse only on the existing camera glyph when recording indicator is enabled and capture is active; no sounds, toasts, new screen popups, or game setting changes. If indicator is disabled or hidden, no warning HUD appears.
+- The warning is based on recorder *capture health*; it must NOT claim the game FPS dropped or that VBR quality is low. Sudden display hotplug/authorized source transitions must reset rather than carry stale loss data.
+- Settings > recording icon feedback includes a four-second “Preview missed-frame warning” button that renders the same overlay without initiating recording; existing normal preview remains.
+- Unit tests in CaptureHealthSignalTests cover isolated losses, persistent degradation, severe jumps, frame-rate-only degradation, recovery, and capture epoch resets.
+
+### Straightforward preset choice
+
+- Onboarding, Basic settings and Advanced settings present three equal-width preset cards: Performance, Balanced, Quality. All are optional user choices; card selection visible and custom state preserved. Advanced retains all independent encoder/bitrate/frame controls. A synthetic WPF screenshot exposed non-stretching controls, corrected before commit.
+- On capable direct hardware encoders: Performance = 720p short-side / 60fps / Medium bitrate quality / P2; Balanced = 1080p short-side / 60fps / High / P2; Quality = native capture dimensions / 60fps / High / P2. Quality intentionally does NOT choose Ultra/Indistinguishable's potentially large bitrate; screen size is the primary added-detail tradeoff, not an unsupported promise of losslessness.
+- For a slower MediaFoundation software fallback the Performance bundle conservatively targets 720p/30fps, while the user retains explicit Basic FPS control and Advanced encoder choices.
+- “Pick for my PC” checks the *actual available supported encoder ID*, recommends Balanced for direct vendor hardware encoder, Performance for Windows fallback, and asks for device verification when none is detected. This is capability-based only and does NOT claim per-game calibration, game 1% low benchmarking, or GPU performance guarantee. No GPU clock, power plan, frame cap, VSync, or graphics settings are modified.
+- Basic detail choices hide Indistinguishable from new selections; if a profile already uses it, its selection remains visible and persists. Advanced retains all five legacy enum values and technical controls.
+- Existing settings compatibility, manual and game override boundaries, and normal capture behavior are preserved. No forced automatic profile switching during game sessions.
+
+### UI visual verification and desktop shortcut
+
+- Branch Release build (0 warnings/errors) and 29 targeted tests passed before user visual preview launch.
+- Build an isolated app with scripts/dev.ps1 -BuildOnly using the shared SDK environment, never Workspace.ps1 -Action Launch (it owns the canonical Development profile).
+- Desktop shortcut: C:\Users\Yosef\Desktop\QuickClip Recording Preview.lnk
+- Shortcut launcher in ignored .local/launchers/Run-RecordingPreview.ps1; isolated settings, clips and process mutex under .local/recording-preview-profile. It rebuilds when Git HEAD changes, but never rebuilds the executable while that same preview instance is running. If already running, it focuses the current preview and defers update to next restart. Existing regular QuickClip configuration is untouched.
+- Verified actual branch QuickClip.exe --show process and independent profile persisted.
+
+### Real game 1%-low diagnostics
+
+- Latest official CapFrameX v1.9.2 portable ZIP was downloaded and verified against publisher's SHA256SUMS.txt (0C3374D382ABB359439F8898BDAAA1C4E6A7CC0FDD936022C0EAD0CA213BDA08); extracted into ignored .local/benchmarks/tools/CapFrameX-1.9.2. Installer and system dependencies were NOT modified.
+- CapFrameX GUI launch raised Windows UAC and the user cancelled. We did not bypass UAC or retry that GUI.
+- Its embedded standalone CX-PresentMon 2.6.1 in a bounded GravityMark D3D12 test still reported lost ETW events and wrote no usable CSV, matching earlier PresentMon 2.3. No valid game 1%-low figure resulted.
+- Existing RivaTuner Statistics Server (RTSS) 2.21 on Jambo exposes RTSSSharedMemoryV2. After read-only validation, .local/benchmarks/rtss_benchmark_wrap.py temporarily set STATFLAG_RECORD only for its own new GravityMark process ID, restored it before exit, and measured native RTSS rendered FPS and 1% low over ~22 seconds each: baseline A1 57.6/55.2 FPS, with QuickClip 56.5/53.9 FPS, baseline A2 57.1/55.0 FPS. Scratch report: .local/benchmarks/output/rtss-bench-20261123/RESULTS.md. No RTSS config, MSI Afterburner overclock, performance profile, global state or elevated permissions changed. These are game-like, not actual game replay results.
+- Real RTSS 1% low metrics are now verified from the temporary benchmark session. The client must still distinguish presented/game-frame statistics from encoded-recording FPS; further real-game tests need a deterministic playable demo/replay, repeated ABBA cases, and no display hotplug interruptions. Never infer 1% lows from sporadic instantaneous FPS reads.
+
+### Test and handoff boundaries
+
+- Source & docs remain in bench/recording-ux-20261123, not merged/pushed.
+- Bench tools and 1GB+ scratch recordings are retained under ignored .local/benchmarks; do not include in source commits.
+- Existing user-facing previous quality report and measured 62s native MKV remain available; no false precise size estimates have been reintroduced.
