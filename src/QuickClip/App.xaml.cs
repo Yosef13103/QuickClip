@@ -146,7 +146,10 @@ public partial class App : Application
             return;
         }
 #endif
-        if (!AppSettings.SaveDisabled) AppSettings.Current.ApplyReplayStartupPreference();
+        // Launching or rebuilding Development must honor the saved master switch.
+        // The separate replay-on-Windows-startup option applies only to an actual
+        // Windows autostart invocation, not every manual application launch.
+        if (!AppSettings.SaveDisabled) AppSettings.Current.ApplyReplayStartupPreference(windowsStartup);
         _ = Task.Run(Media.MediaStaging.Recover);
         Host = new AppHost();
         Host.OpenRequested += () => ShowMain();

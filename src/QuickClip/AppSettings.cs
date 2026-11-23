@@ -138,9 +138,9 @@ internal sealed class AppSettings
     public bool StartInTray { get; set; } = true;
     public bool CloseToTray { get; set; } = true;
 
-    internal void ApplyReplayStartupPreference()
+    internal void ApplyReplayStartupPreference(bool windowsStartup)
     {
-        if (!AppProfile.IsPersonal || EnableReplayOnStartup is not bool enabled ||
+        if (!windowsStartup || !AppProfile.IsPersonal || EnableReplayOnStartup is not bool enabled ||
             !(LoadedFromFile || ReplayOnboardingCompleted)) return;
         RecordingEnabled = enabled;
         if (enabled) PreferGameWindow = true;

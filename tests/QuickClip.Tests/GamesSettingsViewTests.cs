@@ -137,8 +137,8 @@ public sealed class GamesSettingsViewTests
             page.Search.Text = "Test";
             window.UpdateLayout();
             Assert.InRange(page.Search.ActualWidth,
-                Math.Min(page.SearchDock.ActualWidth, 1340) - 3,
-                Math.Min(page.SearchDock.ActualWidth, 1340) + 3);
+                Math.Min(page.SearchDock.ActualWidth - 13, 1334) - 3,
+                Math.Min(page.SearchDock.ActualWidth - 13, 1334) + 3);
             Assert.DoesNotContain(page.Search, Descendants<TextBox>(page.Games));
             Assert.True(page.AutoScan.IsChecked == true);
             Assert.Single(page.Applications.Items);
@@ -270,11 +270,9 @@ public sealed class GamesSettingsViewTests
                 $"discoveryY={discovery.TranslatePoint(new Point(),games).Y:F1}, " +
                 $"discoveryH={discovery.ActualHeight:F1}, firstGameY={firstGameY:F1}");
             Assert.NotNull(scrollerField.GetValue(sources)); // Attachment must finish in Settings, not only wizard.
-            var expectedSearchWidth = Math.Min(sources.SearchDock.ActualWidth, 1340);
+            var expectedSearchWidth = Math.Min(sources.SearchDock.ActualWidth - 13, 1334);
             Assert.InRange(sources.Search.ActualWidth, expectedSearchWidth - 3, expectedSearchWidth + 3);
-            double searchLeft = sources.Search.TranslatePoint(new Point(), sources.SearchDock).X;
-            double centeredLeft = (sources.SearchDock.ActualWidth - sources.Search.ActualWidth) / 2;
-            Assert.InRange(Math.Abs(searchLeft - centeredLeft), 0, 3);
+            // Actual card-edge equality is asserted below after the first row is realized.
             double markerY = marker.TranslatePoint(new Point(), games).Y;
             Assert.InRange(sources.SearchDockTransform.Y, markerY - 3, markerY + 3);
             sources.Search.Text = "Test game 001";
@@ -302,6 +300,23 @@ public sealed class GamesSettingsViewTests
                     ? "sources-basic-68.png" : "sources-advanced-68.png"));
                 png.Save(file);
             }
+            // Compare actual rendered geometry to a real game card, not to
+            // the search container's own center (which can be off-center).
+            var firstRow = games.Items.OfType<GamesSettingsView.GameRow>().First();
+            games.ScrollIntoView(firstRow);
+            window.UpdateLayout();
+            var gameItem = Assert.IsType<ListBoxItem>(games.ItemContainerGenerator.ContainerFromItem(firstRow));
+            var gameCard = Descendants<Border>(gameItem).First(element =>
+                element.CornerRadius == new CornerRadius(9) &&
+                element.BorderThickness == new Thickness(1));
+            var field = sources.Search.TransformToVisual(sources).TransformBounds(
+                new Rect(0, 0, sources.Search.ActualWidth, sources.Search.ActualHeight));
+            var card = gameCard.TransformToVisual(sources).TransformBounds(
+                new Rect(0, 0, gameCard.ActualWidth, gameCard.ActualHeight));
+            Assert.True(Math.Abs(field.Left - card.Left) <= 1.0 &&
+                Math.Abs(field.Right - card.Right) <= 1.0,
+                $"Search X={field.Left:F2}..{field.Right:F2}, " +
+                $"game card X={card.Left:F2}..{card.Right:F2}, window={windowWidth}, basic={basic}");
         }
         finally
         {

@@ -475,10 +475,11 @@
             <Border.RenderTransform>
                 <TranslateTransform x:Name="SearchDockTransform" />
             </Border.RenderTransform>
-            <!-- Align with game rows (1340 maximum), not the entire ultrawide
-                 viewport. Keep the search field itself as wide as the cards. -->
-            <StackPanel HorizontalAlignment="Center" MaxWidth="1340"
-                        Width="{Binding ActualWidth, ElementName=SearchDock}">
+            <!-- Match the actual game card geometry inside the ListBox:
+                 list padding, focus container and card margins are asymmetric.
+                 Using its same insets also aligns both edges on ultrawide. -->
+            <StackPanel HorizontalAlignment="Stretch" MaxWidth="1334"
+                        Margin="4,0,9,0">
                 <TextBlock Text="Search games" Margin="0,0,0,5" />
                 <!-- The stock Fluent TextBox border antialiases a bright stray pixel
                      at the rounded bottom corner. Match the idle stroke to the

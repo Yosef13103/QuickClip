@@ -34,25 +34,47 @@ public sealed class StartupTests
         Assert.Null(Startup.PersonalCommand("QuickClip.exe"));
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Manual_restart_preserves_saved_master_independently_of_windows_startup(bool startupPreference)
+    {
+        if (!AppProfile.IsPersonal) return;
+        var restored = AppSettings.Parse(new AppSettings
+        {
+            RecordingEnabled = true,
+            EnableReplayOnStartup = startupPreference,
+            ReplayOnboardingCompleted = true
+        }.ToJson());
+        restored.ApplyReplayStartupPreference(windowsStartup: false);
+        Assert.True(restored.RecordingEnabled);
+        Assert.Equal(startupPreference, restored.EnableReplayOnStartup);
+        Assert.True(AppSettings.Parse(restored.ToJson()).RecordingEnabled);
+
+        // A genuine Windows autostart still honors the explicit preference.
+        restored.ApplyReplayStartupPreference(windowsStartup: true);
+        Assert.Equal(startupPreference, restored.RecordingEnabled);
+    }
+
     [Fact]
     public void Existing_settings_and_onboarding_keep_their_startup_behavior()
     {
         if (!AppProfile.IsPersonal) return;
         var old = AppSettings.Parse("""{"RecordingEnabled":true,"PreferGameWindow":false}""");
         Assert.Null(old.EnableReplayOnStartup);
-        old.ApplyReplayStartupPreference();
+        old.ApplyReplayStartupPreference(windowsStartup: true);
         Assert.True(old.RecordingEnabled);
         Assert.False(old.PreferGameWindow);
 
         var fresh = new AppSettings { EnableReplayOnStartup = true, PreferGameWindow = false };
-        fresh.ApplyReplayStartupPreference();
+        fresh.ApplyReplayStartupPreference(windowsStartup: true);
         Assert.False(fresh.RecordingEnabled);
         fresh.ReplayOnboardingCompleted = true;
-        fresh.ApplyReplayStartupPreference();
+        fresh.ApplyReplayStartupPreference(windowsStartup: true);
         Assert.True(fresh.RecordingEnabled);
         Assert.True(fresh.PreferGameWindow);
         fresh.EnableReplayOnStartup = false;
-        fresh.ApplyReplayStartupPreference();
+        fresh.ApplyReplayStartupPreference(windowsStartup: true);
         Assert.False(fresh.RecordingEnabled);
         Assert.False(AppSettings.Parse(fresh.ToJson()).EnableReplayOnStartup);
     }
