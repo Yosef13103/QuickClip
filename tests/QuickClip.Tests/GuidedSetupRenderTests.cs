@@ -53,6 +53,19 @@ public sealed class GuidedSetupRenderTests
                 render.Invoke(view, []);
                 Directory.CreateDirectory(output);
                 SaveFrame(view, Path.Combine(output, "two-monitors.png"));
+                settings.GuidedSetupStep = 4;
+                typeof(SettingsView).GetMethod("ShowGuideStep",
+                    BindingFlags.NonPublic | BindingFlags.Instance)!.Invoke(view, []);
+                var qualityLabel = Assert.IsType<System.Windows.Controls.TextBlock>(view.FindName("QualityLabel"));
+                Assert.Equal("Picture detail & file size", qualityLabel.Text);
+                var fpsLabel = Assert.IsType<System.Windows.Controls.TextBlock>(view.FindName("FpsLabel"));
+                Assert.Equal("Recording smoothness", fpsLabel.Text);
+                var qualityChoices = Assert.IsType<System.Windows.Controls.ComboBox>(view.FindName("QualityCombo"));
+                Assert.Contains(qualityChoices.Items.Cast<object>(), choice =>
+                    (string?)choice.GetType().GetProperty("Label")?.GetValue(choice) == "Balanced detail (recommended)");
+                SaveFrame(view, Path.Combine(output, "recording-video-basics.png"));
+                SaveFrame((FrameworkElement)view.FindName("RecordingQualityControls")!,
+                    Path.Combine(output, "recording-controls.png"));
                 settings.GuidedSetupStep = 5;
                 typeof(SettingsView).GetMethod("ShowGuideStep",
                     BindingFlags.NonPublic | BindingFlags.Instance)!.Invoke(view, []);

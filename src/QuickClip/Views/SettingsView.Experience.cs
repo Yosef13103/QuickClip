@@ -10,6 +10,7 @@ namespace QuickClip.Views;
 public partial class SettingsView
 {
     private bool _guideActive, _finishingGuide;
+    private bool? _qualityChoicesBasic;
     private int _guideAttempt;
     private bool IsBasicExperience => AppProfile.IsPersonal && (_guideActive || AppSettings.Current.BasicSettings);
     private int GuideStep => Math.Clamp(AppSettings.Current.GuidedSetupStep ?? 0, 0, 8);
@@ -20,7 +21,7 @@ public partial class SettingsView
         ("Save location", "Choose where new clips go."),
         ("Save shortcut", "Pick a shortcut. You can also save from the app."),
         ("Audio", "Choose what to hear. Test your microphone."),
-        ("Video quality", "Choose a preset or customize the video."),
+        ("Recording picture & smoothness", "Choose how smooth and detailed your clips look. Bigger files do not automatically mean smoother footage."),
         ("Sources", "Set up optional apps like Discord, and review the games QuickClip can detect."),
         ("Display permissions", "Allowed displays can capture everything visible, including messages. Only allow displays you want recorded."),
         ("Clip feedback", "Pick a sound and notification. Try the preview."),
@@ -87,6 +88,7 @@ public partial class SettingsView
     {
         if (!AppProfile.IsPersonal || CaptureAreaAdvanced == null) return;
         bool basic = IsBasicExperience;
+        RefreshQualityPresentation(basic);
         var advanced = basic ? Visibility.Collapsed : Visibility.Visible;
         foreach (FrameworkElement element in new FrameworkElement[] { CustomSizeAdvanced,
             CropPreviewAdvanced, EncoderTuningAdvanced,
@@ -99,6 +101,7 @@ public partial class SettingsView
         CaptureAreaGap.Width = new GridLength(12);
         BasicQualityHint.Visibility = BasicAudioHint.Visibility = BasicNotificationPreview.Visibility =
             basic ? Visibility.Visible : Visibility.Collapsed;
+        QualityTradeoffHint.Visibility = basic ? Visibility.Visible : Visibility.Collapsed;
         SoundOutputPanel.Visibility = basic ? Visibility.Collapsed : Visibility.Visible;
         FeedbackVisualGuide.Visibility = _guideActive && GuideStep == 7 ? Visibility.Visible : Visibility.Collapsed;
         var settings = AppSettings.Current;
@@ -133,7 +136,7 @@ public partial class SettingsView
         LegacyDisplayControls.Visibility = hidden;
         if (!_guideActive || step == 6) RenderDisplayCards();
         RecordingQualityControls.Visibility = !_guideActive || step == 4 ? visible : hidden;
-        SetupQualityPresets.Visibility = basic && (!_guideActive || step == 4) ? visible : hidden;
+        SetupQualityPresets.Visibility = !_guideActive || step == 4 ? visible : hidden;
         RefreshGameProfiles((GameProfileCombo.SelectedItem as QuickClip.Discovery.RecordingProfileRow)?.GameId);
         UpdateSetupPresetStatus();
         GeneralPreferences.Visibility = _guideActive ? hidden : visible;
@@ -143,6 +146,36 @@ public partial class SettingsView
             UpdatesCard.Visibility = hidden;
             if (step is 0 or 8) GeneralPage.Visibility = GamesPage.Visibility = hidden;
         }
+    }
+
+    private void RefreshQualityPresentation(bool basic)
+    {
+        QualityLabel.Text = basic ? "Picture detail & file size" : "Quality";
+        FpsLabel.Text = basic ? "Recording smoothness" : "Frame rate";
+        ResolutionLabel.Text = basic ? "Picture size" : "Output resolution";
+        FpsTradeoffHint.Visibility = basic ? Visibility.Visible : Visibility.Collapsed;
+        if (_qualityChoicesBasic == basic) return;
+
+        // Switching Basic/Advanced only changes presentation. Preserve any per-game
+        // override and avoid a SelectionChanged recorder restart or settings write.
+        var selected = (QualityCombo.SelectedItem as Choice)?.Value is RecordingQuality current
+            ? current : EditingVideo().Quality;
+        bool wasLoading = _loading;
+        _loading = true;
+        try
+        {
+            IEnumerable<RecordingQuality> values = Enum.GetValues<RecordingQuality>();
+            if (basic)
+                values = values.Where(q => q != RecordingQuality.Indistinguishable ||
+                    selected == RecordingQuality.Indistinguishable);
+            else values = values.Reverse(); // Preserve existing Advanced order.
+            QualityCombo.ItemsSource = values
+                .Select(q => new Choice(basic ? RecordingPresets.BasicDetailLabel(q) : RecordingPresets.Label(q), q))
+                .ToList();
+            Select(QualityCombo, selected);
+            _qualityChoicesBasic = basic;
+        }
+        finally { _loading = wasLoading; }
     }
 
     private void UpdateBasicAudio()
@@ -230,31 +263,68 @@ public partial class SettingsView
     private sealed record SetupVideoPreset(string Name, int Resolution, int Fps, RecordingQuality Quality, CaptureEngine.NvencSpeed Speed);
     private static readonly SetupVideoPreset[] SetupPresets =
     [
-        new("Performance", 720, 30, RecordingQuality.Medium, CaptureEngine.NvencSpeed.FastestP2),
+        // Smaller capture still targets smooth footage on hardware encoders.
+        new("Performance", 720, 60, RecordingQuality.Medium, CaptureEngine.NvencSpeed.FastestP2),
         new("Balanced", 1080, 60, RecordingQuality.High, CaptureEngine.NvencSpeed.FastestP2),
-        new("Quality", 0, 60, RecordingQuality.Ultra, CaptureEngine.NvencSpeed.FastestP2),
+        // Native pixel dimensions preserve detail; not an excessive bitrate tier.
+        new("Quality", 0, 60, RecordingQuality.High, CaptureEngine.NvencSpeed.FastestP2),
     ];
+
+    internal static string SuggestedPresetName(string? encoderId, IReadOnlySet<string> available) =>
+        !string.IsNullOrWhiteSpace(encoderId) && available.Contains(encoderId) &&
+        !encoderId.EndsWith("_mf", StringComparison.Ordinal) ? "Balanced" : "Performance";
+
+    private SetupVideoPreset ResolveSetupPreset(string name, string? preferred) =>
+        name == "Performance" && SuggestedPresetName(preferred, _encoders) == "Performance"
+            ? new("Performance", 720, 30, RecordingQuality.Medium, CaptureEngine.NvencSpeed.FastestP2)
+            : SetupPresets.First(p => p.Name == name);
 
     private void UpdateSetupPresetStatus()
     {
-        if (SetupPresetStatus == null || SetupPresetRecommendation == null || !IsBasicExperience || (_guideActive && GuideStep != 4)) return;
+        if (SetupPresetStatus == null || SetupPresetRecommendation == null || (_guideActive && GuideStep != 4)) return;
         var settings = AppSettings.Current;
         string? preferred = settings.RecordEncoder.Length == 0 ? RecordingPresets.DefaultEncoder(_encoders)?.Id : settings.RecordEncoder;
-        bool direct = preferred != null && _encoders.Contains(preferred) && !preferred.EndsWith("_mf", StringComparison.Ordinal);
-        SetupPresetRecommendation.Text = _loading ? "Checking hardware…" : preferred == null || !_encoders.Contains(preferred)
-            ? "No encoder detected. Check recording hardware."
-            : direct ? "Balanced recommended."
-            : "Performance recommended.";
-        var active = SetupPresets.FirstOrDefault(p => p.Resolution == settings.RecordResolution && p.Fps == settings.RecordFps &&
-            p.Quality == settings.RecordQuality && (!string.IsNullOrEmpty(preferred) && preferred.EndsWith("_nvenc", StringComparison.Ordinal)
-                ? p.Speed == settings.NvencPreset : true));
+        bool ready = preferred != null && _encoders.Contains(preferred);
+        string suggested = SuggestedPresetName(preferred, _encoders);
+        SetupPresetRecommendation.Text = _loading ? "Checking recording hardware…" : !ready
+            ? "Recording hardware not confirmed. Check encoder settings before recording."
+            : $"Suggested for your PC: {suggested}. Based on available recording hardware, not game FPS testing.";
+        var active = SetupPresets.FirstOrDefault(p =>
+        {
+            var resolved = ResolveSetupPreset(p.Name, preferred);
+            return resolved.Resolution == settings.RecordResolution && resolved.Fps == settings.RecordFps &&
+                resolved.Quality == settings.RecordQuality && (preferred?.EndsWith("_nvenc", StringComparison.Ordinal) == true
+                    ? resolved.Speed == settings.NvencPreset : true);
+        });
         SetupPresetStatus.Text = active == null ? "Selected: Custom" : "Selected: " + active.Name;
+        foreach (var (button, name) in new[]
+        {
+            (PresetPerformanceButton, "Performance"), (PresetBalancedButton, "Balanced"), (PresetQualityButton, "Quality")
+        })
+        {
+            button.BorderThickness = active?.Name == name ? new Thickness(2) : new Thickness(1);
+            if (active?.Name == name && Application.Current?.TryFindResource("AccentBrush") is System.Windows.Media.Brush accent)
+                button.BorderBrush = accent;
+            else button.ClearValue(Control.BorderBrushProperty);
+        }
     }
 
     private void SetupPreset_Click(object sender, RoutedEventArgs e)
     {
-        if (!IsBasicExperience || (_guideActive && GuideStep != 4) || _loading || _finishingGuide ||
-            sender is not Button { Tag: string name } || SetupPresets.FirstOrDefault(p => p.Name == name) is not { } preset) return;
+        if ((_guideActive && GuideStep != 4) || _loading || _finishingGuide ||
+            sender is not Button { Tag: string name } || (name != "Auto" && SetupPresets.All(p => p.Name != name))) return;
+        string? preferred = AppSettings.Current.RecordEncoder.Length == 0
+            ? RecordingPresets.DefaultEncoder(_encoders)?.Id : AppSettings.Current.RecordEncoder;
+        if (name == "Auto")
+        {
+            if (preferred == null || !_encoders.Contains(preferred))
+            {
+                GuideError.Text = "Recording hardware is not ready. Check your encoder before choosing a preset.";
+                return;
+            }
+            name = SuggestedPresetName(preferred, _encoders);
+        }
+        var preset = ResolveSetupPreset(name, preferred);
         var settings = AppSettings.Current;
         var previous = (settings.RecordResolution, settings.RecordFps, settings.RecordQuality, settings.NvencPreset);
         (settings.RecordResolution, settings.RecordFps, settings.RecordQuality, settings.NvencPreset) =

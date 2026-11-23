@@ -10,6 +10,8 @@ internal sealed class RecordingIndicator : IDisposable
 {
     private readonly ClipNotificationOverlay _overlay = new();
     private readonly MicrophoneIndicatorSignal _signal = new();
+    private readonly CaptureHealthSignal _healthSignal = new();
+    private DispatcherTimer? _healthTimer;
     private readonly Dispatcher _dispatcher = Dispatcher.CurrentDispatcher;
     private DispatcherTimer? _timer;
     private NativeAudioSignal[]? _buffer;
@@ -52,7 +54,11 @@ internal sealed class RecordingIndicator : IDisposable
             Hide();
             return;
         }
-        if (_epoch != state.Epoch) _showAttempts = 0;
+        if (_epoch != state.Epoch)
+        {
+            _showAttempts = 0;
+            _healthSignal.Reset(state.Epoch, Environment.TickCount64);
+        }
         _epoch = state.Epoch;
         _signal.Configure(_epoch, state.Microphones, state.StartedAt);
         if (!IsEnabled(settings))
@@ -61,7 +67,7 @@ internal sealed class RecordingIndicator : IDisposable
             return;
         }
         var microphone = settings.ShowRecordingMicrophoneIndicator ? _signal.State : MicrophoneIndicatorState.Hidden;
-        _overlay.ShowRecordingIndicator(state.Device, settings.GameRecordingIndicatorAnchor, microphone);
+        _overlay.ShowRecordingIndicator(state.Device, settings.GameRecordingIndicatorAnchor, microphone, _healthSignal.State);
         if (_overlay.IndicatorFailure is { } failure && failure != _failureReported)
         {
             _failureReported = failure;
@@ -85,6 +91,18 @@ internal sealed class RecordingIndicator : IDisposable
                 _showRetry.Start();
             }
         }
+        // Health is independent of microphone confirmation: continue monitoring
+        // for the entire recording, even when the microphone is verified.
+        if (_overlay.IsVisible)
+        {
+            _healthTimer ??= new DispatcherTimer(DispatcherPriority.Background)
+                { Interval = TimeSpan.FromSeconds(1) };
+            _healthTimer.Tick -= SampleHealth;
+            _healthTimer.Tick += SampleHealth;
+            _healthTimer.Start();
+        }
+        else _healthTimer?.Stop();
+
         if (!_overlay.IsVisible || microphone is MicrophoneIndicatorState.Hidden or MicrophoneIndicatorState.Active)
         {
             _timer?.Stop();
@@ -118,7 +136,7 @@ internal sealed class RecordingIndicator : IDisposable
             ?? displays.FirstOrDefault(d => d.Primary);
     }
 
-    internal string Preview()
+    internal string Preview(bool warning = false)
     {
         if (_disposed) return "Recording icons are unavailable.";
         // Preview is a deliberate user action. It must work even while the
@@ -127,7 +145,8 @@ internal sealed class RecordingIndicator : IDisposable
         var display = SelectPreviewDisplay(ClipNotificationOverlay.Displays(), Recorder.Instance.Feedback);
         if (display == null) return "No connected display is available for the preview.";
         _preview.ShowRecordingIndicator(display.Device, AppSettings.Current.GameRecordingIndicatorAnchor,
-            AppSettings.Current.ShowRecordingMicrophoneIndicator ? MicrophoneIndicatorState.Active : MicrophoneIndicatorState.Hidden);
+            AppSettings.Current.ShowRecordingMicrophoneIndicator ? MicrophoneIndicatorState.Active : MicrophoneIndicatorState.Hidden,
+            warning ? CaptureHealthState.MissingFrames : CaptureHealthState.Healthy);
         if (!_preview.IsVisible) return _preview.IndicatorFailure ?? "Could not show preview.";
         if (_previewTimer == null)
         {
@@ -137,6 +156,37 @@ internal sealed class RecordingIndicator : IDisposable
         _previewTimer.Stop();
         _previewTimer.Start();
         return $"Preview on {display.Device} for four seconds.";
+    }
+
+    private void SampleHealth(object? sender, EventArgs args)
+    {
+        var state = Recorder.Instance.Feedback;
+        if (state?.Epoch != _epoch || !IsEnabled(AppSettings.Current) || !_overlay.IsVisible)
+        {
+            _healthTimer?.Stop();
+            Refresh(state);
+            return;
+        }
+        try
+        {
+            var stats = Recorder.Instance.Stats();
+            int targetFps = Recorder.Instance.ActiveTargetFps;
+            if (Recorder.Instance.Feedback?.Epoch != _epoch)
+            {
+                Refresh();
+                return;
+            }
+            if (_healthSignal.Observe(_epoch, Environment.TickCount64, stats.Running != 0,
+                stats.Fps, targetFps, stats.DroppedFrames))
+                _overlay.UpdateRecordingIndicatorCamera(_healthSignal.State);
+        }
+        catch (Exception ex) when (ex is DllNotFoundException or EntryPointNotFoundException)
+        {
+            // The indicator is optional. Never affect a capture if native stats
+            // cannot be read. Keep the normal icon instead of a false warning.
+            _healthTimer?.Stop();
+            _overlay.UpdateRecordingIndicatorCamera(CaptureHealthState.Healthy);
+        }
     }
 
     private void Sample()
@@ -183,6 +233,8 @@ internal sealed class RecordingIndicator : IDisposable
     {
         _showRetry?.Stop();
         _showAttempts = 0;
+        _healthTimer?.Stop();
+        _healthSignal.Reset(-1, 0);
         _timer?.Stop();
         _buffer = null;
         if (_overlay.IsVisible) _overlay.Hide();

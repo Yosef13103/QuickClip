@@ -490,12 +490,37 @@
                         <StackPanel>
                             <TextBlock Text="Recording presets" FontWeight="SemiBold" />
                             <TextBlock x:Name="SetupPresetRecommendation" Style="{StaticResource Hint}" TextWrapping="Wrap" Margin="0,4,0,6" />
-                            <WrapPanel>
-                                <Button Content="Performance · 720p / 30" Tag="Performance" Click="SetupPreset_Click" Margin="0,0,6,4" ToolTip="720p, 30 FPS, Medium, fast NVENC preset" />
-                                <Button Content="Balanced · 1080p / 60" Tag="Balanced" Click="SetupPreset_Click" Margin="0,0,6,4" ToolTip="1080p, 60 FPS, High, fast NVENC preset" />
-                                <Button Content="Quality · Native / 60" Tag="Quality" Click="SetupPreset_Click" Margin="0,0,6,4" ToolTip="Native size, 60 FPS, Ultra, fast NVENC preset" />
+                            <UniformGrid Columns="3" Margin="0,0,0,6">
+                                <Button x:Name="PresetPerformanceButton" Tag="Performance" Click="SetupPreset_Click" Margin="0,0,6,0" HorizontalAlignment="Stretch"
+                                        HorizontalContentAlignment="Stretch" VerticalContentAlignment="Stretch"
+                                        ToolTip="Records at a smaller picture size, leaving more hardware resources for the game. FPS depends on available hardware.">
+                                    <StackPanel Margin="5,6">
+                                        <TextBlock Text="Performance" FontWeight="SemiBold" />
+                                        <TextBlock Text="Lighter on your PC" Style="{StaticResource Hint}" TextWrapping="Wrap" Margin="0,4,0,0" />
+                                    </StackPanel>
+                                </Button>
+                                <Button x:Name="PresetBalancedButton" Tag="Balanced" Click="SetupPreset_Click" Margin="0,0,6,0" HorizontalAlignment="Stretch"
+                                        HorizontalContentAlignment="Stretch" VerticalContentAlignment="Stretch"
+                                        ToolTip="1080p-sized recording, 60 FPS and balanced video detail. A good starting point on supported hardware.">
+                                    <StackPanel Margin="5,6">
+                                        <TextBlock Text="Balanced" FontWeight="SemiBold" />
+                                        <TextBlock Text="Smooth, clear clips" Style="{StaticResource Hint}" TextWrapping="Wrap" Margin="0,4,0,0" />
+                                    </StackPanel>
+                                </Button>
+                                <Button x:Name="PresetQualityButton" Tag="Quality" Click="SetupPreset_Click" HorizontalAlignment="Stretch"
+                                        HorizontalContentAlignment="Stretch" VerticalContentAlignment="Stretch"
+                                        ToolTip="Full source picture size at 60 FPS and a moderate detail budget. Uses more resources, not an unlimited bitrate.">
+                                    <StackPanel Margin="5,6">
+                                        <TextBlock Text="Quality" FontWeight="SemiBold" />
+                                        <TextBlock Text="Full screen size" Style="{StaticResource Hint}" TextWrapping="Wrap" Margin="0,4,0,0" />
+                                    </StackPanel>
+                                </Button>
+                            </UniformGrid>
+                            <WrapPanel Margin="0,2,0,5">
+                                <Button Content="Pick for my PC" Tag="Auto" Click="SetupPreset_Click" Margin="0,0,8,0"
+                                        ToolTip="Choose a starting preset based on available recording hardware. Does not benchmark or alter your games." />
+                                <TextBlock x:Name="SetupPresetStatus" Style="{StaticResource Hint}" VerticalAlignment="Center" TextWrapping="Wrap" />
                             </WrapPanel>
-                            <TextBlock x:Name="SetupPresetStatus" Style="{StaticResource Hint}" TextWrapping="Wrap" />
                             <TextBlock Text="Adjust any video setting below. Audio and clip length stay unchanged." Style="{StaticResource Hint}" TextWrapping="Wrap" Margin="0,4,0,0" />
                         </StackPanel>
                     </Border>
@@ -623,9 +648,12 @@
                             <ColumnDefinition Width="150" />
                         </Grid.ColumnDefinitions>
                         <DockPanel VerticalAlignment="Center" Margin="0,0,4,4"><Button DockPanel.Dock="Left" x:Name="ResetQualityOverride" Content="&#xE72C;" Tag="Quality" Click="ResetGameField_Click" Style="{StaticResource IconButton}" Margin="0,0,4,0" Visibility="Collapsed" ToolTip="{Binding RelativeSource={RelativeSource Self}, Path=(AutomationProperties.Name)}" AutomationProperties.Name="Reset Quality override" /><TextBlock x:Name="QualityLabel" Text="Quality" TextWrapping="Wrap" VerticalAlignment="Center" /></DockPanel>
-                        <ComboBox x:Name="QualityCombo" Grid.Column="1" SelectionChanged="Changed" />
+                        <ComboBox x:Name="QualityCombo" Grid.Column="1" SelectionChanged="Changed" AutomationProperties.Name="Picture detail and file size" />
                         <TextBlock x:Name="BitrateText" Grid.Column="2" VerticalAlignment="Center" Margin="14,0,0,0" Style="{StaticResource Hint}" />
                     </Grid>
+                    <TextBlock x:Name="QualityTradeoffHint" Visibility="Collapsed" Margin="160,2,0,10"
+                               Style="{StaticResource Hint}" TextWrapping="Wrap"
+                               Text="Keeps more picture detail during fast movement, but may use more disk space. For smoother clips, change Recording smoothness below. Bigger files do not increase game FPS." />
 
                     <Grid Style="{StaticResource Row}">
                         <Grid.ColumnDefinitions>
@@ -635,6 +663,9 @@
                         <DockPanel VerticalAlignment="Center" Margin="0,0,4,4"><Button DockPanel.Dock="Left" x:Name="ResetFpsOverride" Content="&#xE72C;" Tag="Fps" Click="ResetGameField_Click" Style="{StaticResource IconButton}" Margin="0,0,4,0" Visibility="Collapsed" ToolTip="{Binding RelativeSource={RelativeSource Self}, Path=(AutomationProperties.Name)}" AutomationProperties.Name="Reset Frame rate override" /><TextBlock x:Name="FpsLabel" Text="Frame rate" TextWrapping="Wrap" VerticalAlignment="Center" /></DockPanel>
                         <ComboBox x:Name="FpsCombo" Grid.Column="1" SelectionChanged="Changed" />
                     </Grid>
+                    <TextBlock x:Name="FpsTradeoffHint" Visibility="Collapsed" Margin="160,2,0,10"
+                               Style="{StaticResource Hint}" TextWrapping="Wrap"
+                               Text="60 FPS is a good place to start. More frames can look smoother but use more recording resources. It will not make your game run faster." />
 
                     <Grid x:Name="EncoderAdvanced" Style="{StaticResource Row}">
                         <Grid.ColumnDefinitions>
@@ -959,7 +990,7 @@
                                         <StackPanel>
                                             <TextBlock Text="Recording status" FontWeight="SemiBold" />
                                             <StackPanel x:Name="FeedbackIndicatorIcons" Orientation="Horizontal" Margin="0,9,0,6" />
-                                            <TextBlock x:Name="FeedbackMicLegend" Text="Camera = replay; mic red until verified, then white." Style="{StaticResource Hint}" TextWrapping="Wrap" />
+                                            <TextBlock x:Name="FeedbackMicLegend" Text="Camera = recording; a soft red pulse means significant missed frames. Mic red until verified, then white." Style="{StaticResource Hint}" TextWrapping="Wrap" />
                                             <TextBlock Text="Shown at the chosen corner of the active display." Style="{StaticResource Hint}" TextWrapping="Wrap" />
                                         </StackPanel>
                                     </Border>
@@ -985,8 +1016,12 @@
                         </Border>
                         <StackPanel x:Name="AdvancedNotificationOptions">
                         <ComboBox x:Name="GameIndicatorAnchorCombo" AutomationProperties.Name="Recording status position" SelectionChanged="ClipFeedback_Changed" Margin="0,4,0,0" />
-                        <Button Content="Preview recording icons" HorizontalAlignment="Left" Margin="0,6,0,0"
-                                ToolTip="Shows QuickClip status icons for four seconds without recording." Click="PreviewRecordingIndicator_Click" />
+                        <WrapPanel Margin="0,6,0,0">
+                            <Button Content="Preview recording icons" Margin="0,0,6,4"
+                                    ToolTip="Shows QuickClip status icons for four seconds without recording." Click="PreviewRecordingIndicator_Click" />
+                            <Button Content="Preview missed-frame warning" Margin="0,0,0,4"
+                                    ToolTip="Shows how the camera icon slowly pulses red when recording is losing frames. Does not record or change settings." Click="PreviewCaptureHealthWarning_Click" />
+                        </WrapPanel>
                         <TextBlock x:Name="GameIndicatorStatus" TextWrapping="Wrap" Style="{StaticResource Hint}" AutomationProperties.LiveSetting="Polite" />
                         <TextBlock Text="Notification channels" Style="{StaticResource FieldLabel}" />
                         <ComboBox x:Name="ClipNotificationModeCombo" AutomationProperties.Name="Notification channels" SelectionChanged="ClipFeedback_Changed" />

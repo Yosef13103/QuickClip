@@ -37,7 +37,9 @@ public partial class SettingsView
             GridLength Fraction(long bytes) => new((double)bytes / usage.Total, GridUnitType.Star);
             bool known = usage.Tracked.HasValue;
             string clips = _estimatedClipBytes > 0
-                ? $"About {free / _estimatedClipBytes:N0} more clips at the current length and quality"
+                ? IsBasicExperience
+                    ? "Real clip sizes depend on game motion. Free space is measured; clip counts cannot be predicted exactly."
+                    : $"Bitrate-budget guide: ~{free / _estimatedClipBytes:N0} clips, but the actual number varies with footage and shared sources."
                 : "Choose recording dimensions to estimate how many clips fit";
             model = new($"{Fmt.Size(usage.Total)} destination drive", Fraction(tracked), Fraction(occupied - tracked), Fraction(free),
                 known ? $"Tracked clips ≈ {Fmt.Size(tracked)}" : "Clip usage not yet available",

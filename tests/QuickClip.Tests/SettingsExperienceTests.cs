@@ -45,6 +45,35 @@ public sealed class SettingsExperienceTests
     }
 
     [Fact]
+    public void Hardware_capability_recommendation_is_a_starting_point_not_a_gpu_fps_claim()
+    {
+        Assert.Equal("Balanced", SettingsView.SuggestedPresetName("hevc_nvenc",
+            new HashSet<string> { "hevc_nvenc" }));
+        Assert.Equal("Balanced", SettingsView.SuggestedPresetName("h264_amf",
+            new HashSet<string> { "h264_amf" }));
+        Assert.Equal("Performance", SettingsView.SuggestedPresetName("h264_mf",
+            new HashSet<string> { "h264_mf" }));
+        Assert.Equal("Performance", SettingsView.SuggestedPresetName(null,
+            new HashSet<string>()));
+        Assert.Equal("Performance", SettingsView.SuggestedPresetName("h264_nvenc",
+            new HashSet<string> { "h264_mf" }));
+    }
+
+    [Theory]
+    [InlineData(RecordingQuality.Low, "Smallest files")]
+    [InlineData(RecordingQuality.Medium, "Save more space")]
+    [InlineData(RecordingQuality.High, "Balanced detail (recommended)")]
+    [InlineData(RecordingQuality.Ultra, "Extra detail")]
+    [InlineData(RecordingQuality.Indistinguishable, "Maximum detail (large files)")]
+    public void Basic_detail_labels_describe_storage_tradeoffs_without_changing_persisted_quality(
+        RecordingQuality quality, string label)
+    {
+        Assert.Equal(label, RecordingPresets.BasicDetailLabel(quality));
+        var saved = AppSettings.Parse(new AppSettings { RecordQuality = quality }.ToJson());
+        Assert.Equal(quality, saved.RecordQuality);
+    }
+
+    [Fact]
     public void Completed_guide_does_not_reopen_and_invalid_step_is_bounded()
     {
         var done = AppSettings.Parse(new AppSettings { ReplayOnboardingCompleted = true, GuidedSetupStep = null }.ToJson());

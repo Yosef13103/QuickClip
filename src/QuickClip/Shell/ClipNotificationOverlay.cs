@@ -34,6 +34,8 @@ internal sealed class ClipNotificationOverlay : IDisposable
     private IntPtr _handle;
     private (string Device, OverlayAnchor Anchor, Rect Bounds, Rect WorkArea, uint Dpi, bool HasMicrophone)? _indicatorPlacement;
     private System.Windows.Shapes.Path? _indicatorMicrophoneGlyph;
+    private System.Windows.Shapes.Path? _indicatorCameraGlyph;
+    private CaptureHealthState _cameraHealth = CaptureHealthState.Healthy;
 
     internal string? IndicatorFailure { get; private set; }
     internal IntPtr WindowHandle => _handle;
@@ -416,6 +418,9 @@ internal sealed class ClipNotificationOverlay : IDisposable
         _indicatorZOrderTimer?.Stop();
         _indicatorPlacement = null;
         _indicatorMicrophoneGlyph = null;
+        _indicatorCameraGlyph?.BeginAnimation(UIElement.OpacityProperty, null);
+        _indicatorCameraGlyph = null;
+        _cameraHealth = CaptureHealthState.Healthy;
         _showRevision++;
         _timer?.Stop();
         _frameTimer?.Stop();
@@ -457,7 +462,7 @@ internal sealed class ClipNotificationOverlay : IDisposable
     }
 
     // Separate status surface: no animation, theme lookup or fallback to another monitor.
-    internal void ShowRecordingIndicator(string device, OverlayAnchor anchor, MicrophoneIndicatorState microphone)
+    internal void ShowRecordingIndicator(string device, OverlayAnchor anchor, MicrophoneIndicatorState microphone, CaptureHealthState cameraHealth = CaptureHealthState.Healthy)
     {
         if (_disposed) return;
         var display = Displays().FirstOrDefault(d => string.Equals(d.Device, device, StringComparison.OrdinalIgnoreCase));
@@ -474,6 +479,7 @@ internal sealed class ClipNotificationOverlay : IDisposable
         if (IsVisible && _indicatorPlacement == placement)
         {
             UpdateRecordingIndicatorMicrophone(microphone);
+            UpdateRecordingIndicatorCamera(cameraHealth);
             return;
         }
         Hide();
@@ -491,7 +497,9 @@ internal sealed class ClipNotificationOverlay : IDisposable
         _card.Padding = new Thickness(0);
         _card.BorderThickness = new Thickness(0);
         var icons = new StackPanel { Orientation = Orientation.Horizontal };
-        var camera = StatusGlyph(CameraGlyphGeometry, out _);
+        var camera = StatusGlyph(CameraGlyphGeometry, out var cameraGlyph);
+        _indicatorCameraGlyph = cameraGlyph;
+        _cameraHealth = CaptureHealthState.Healthy;
         if ((int)anchor % 3 == 0 || !hasMicrophone) icons.Children.Add(camera);
         if (hasMicrophone)
         {
@@ -501,6 +509,7 @@ internal sealed class ClipNotificationOverlay : IDisposable
         }
         _card.Child = icons;
         UpdateRecordingIndicatorMicrophone(microphone);
+        UpdateRecordingIndicatorCamera(cameraHealth);
         _window!.Width = hasMicrophone ? 56 : 28;
         _window.Height = 28;
         var prior = SetThreadDpiAwarenessContext(new IntPtr(-4));
@@ -593,6 +602,23 @@ internal sealed class ClipNotificationOverlay : IDisposable
         };
         canvas.Children.Add(foreground);
         return cell;
+    }
+
+    /// <summary>Slow, low-contrast red pulse only during sustained missing recording frames.</summary>
+    internal void UpdateRecordingIndicatorCamera(CaptureHealthState state)
+    {
+        if (_indicatorCameraGlyph == null || state == _cameraHealth) return;
+        _cameraHealth = state;
+        _indicatorCameraGlyph.BeginAnimation(UIElement.OpacityProperty, null);
+        if (state == CaptureHealthState.Healthy)
+        {
+            _indicatorCameraGlyph.Stroke = Brushes.White;
+            _indicatorCameraGlyph.Opacity = 1;
+            return;
+        }
+        _indicatorCameraGlyph.Stroke = new SolidColorBrush(Color.FromRgb(245, 107, 113));
+        _indicatorCameraGlyph.BeginAnimation(UIElement.OpacityProperty, new DoubleAnimation(.62, 1,
+            TimeSpan.FromMilliseconds(950)) { AutoReverse = true, RepeatBehavior = RepeatBehavior.Forever });
     }
 
     internal void UpdateRecordingIndicatorMicrophone(MicrophoneIndicatorState state)
