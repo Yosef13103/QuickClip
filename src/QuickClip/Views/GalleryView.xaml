@@ -380,7 +380,7 @@
                         <ItemsControl.Template>
                             <ControlTemplate TargetType="ItemsControl">
                                 <ScrollViewer x:Name="GalleryScroll" CanContentScroll="True" Focusable="False" HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
-                                    <ItemsPresenter />
+                                    <ItemsPresenter x:Name="GalleryRowsPresenter" />
                                 </ScrollViewer>
                             </ControlTemplate>
                         </ItemsControl.Template>

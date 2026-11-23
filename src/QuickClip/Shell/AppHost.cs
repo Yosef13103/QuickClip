@@ -153,16 +153,13 @@ internal sealed class AppHost : IDisposable
         Shell_NotifyIcon(NIM_MODIFY, ref data);
     }
 
-    internal void NotifyShareReady(bool copied)
+    internal void NotifyShare(string title, string message, bool warning)
     {
         var settings = AppSettings.Current;
         if (!settings.ClipNotificationsEnabled) return;
-        const string title = "Share ready";
-        string message = copied ? "Video copied to clipboard. Paste it into another app." :
-            "Video prepared. Use Media jobs to copy it or attach it.";
-        if (settings.ClipWindowsNotification) Notify(title, message);
+        if (settings.ClipWindowsNotification) Notify(title, message, warning);
         if (settings.ClipOverlay is { Enabled: true, HideSavedBannerFromCapture: false } overlay)
-            _ = ShowOverlayAsync(overlay.Banner() with { Seconds = Math.Max(3, overlay.Seconds) }, title, true, null, message);
+            _ = ShowOverlayAsync(overlay.Banner() with { Seconds = Math.Max(3, overlay.Seconds) }, title, !warning, null, message);
     }
 
     private void OnReplaySaved(ReplaySaveReceipt receipt) => _dispatcher.BeginInvoke(() =>
@@ -502,15 +499,16 @@ internal sealed class AppHost : IDisposable
             () => RunRecordingCommand(RecordingCommand.ToggleMaster)));
         if (AppProfile.IsPersonal)
         {
-            menu.Items.Add(Item(recorder.ManualDesktopRequested ? "Stop manual desktop capture" : "Start manual desktop capture…",
-                () => RunRecordingCommand(RecordingCommand.ToggleDesktop), enabled: s.RecordingEnabled));
-            if (recorder.ManualDesktopRequested)
+            bool manualRequested = recorder.ManualDesktopRequested;
+            menu.Items.Add(Item(manualRequested ? "Stop manual desktop capture" : "Start manual desktop capture…",
+                () => SetManualDesktop(recorder, start: !manualRequested), enabled: s.RecordingEnabled));
+            if (manualRequested)
             {
                 menu.Items.Add(Item("Switch to next authorized display", () => RunRecordingCommand(RecordingCommand.SwitchMonitor)));
                 var authorize = new MenuItem { Header = "Switch desktop display…" };
                 foreach (var monitor in Monitors.List().Where(m => m.CaptureIdentity is { } identity &&
                     CaptureSourcePolicy.AllowsRecordingDisplay(AppSettings.Current, identity)))
-                    authorize.Items.Add(Item(monitor.Label, () => SelectManualDisplay(recorder, monitor, onlyIfActive: true)));
+                    authorize.Items.Add(Item(monitor.Label, () => SwitchManualDisplay(recorder, monitor)));
                 authorize.IsEnabled = authorize.Items.Count > 0;
                 menu.Items.Add(authorize);
             }
@@ -540,8 +538,7 @@ internal sealed class AppHost : IDisposable
                 _ = recorder.ApplySettingsAsync();
                 break;
             case RecordingCommand.ToggleDesktop when AppProfile.IsPersonal:
-                if (settings.RecordingEnabled) ToggleManualDesktop(recorder);
-                else NotifySource("Recording is off", "Enable QuickClip recording before starting manual desktop capture.");
+                SetManualDesktop(recorder, start: !recorder.ManualDesktopRequested);
                 break;
             case RecordingCommand.SwitchMonitor when AppProfile.IsPersonal:
                 _ = SwitchMonitorAsync(recorder);
@@ -561,46 +558,74 @@ internal sealed class AppHost : IDisposable
             NotifySource("No other authorized display", "Choose another connected display in the manual desktop capture tray menu.");
     }
 
-    internal void ToggleManualDesktop(Recorder recorder)
+    internal void SetManualDesktop(Recorder recorder, bool start)
     {
-        if (recorder.ManualDesktopRequested)
+        if (!start)
         {
             _ = recorder.SetManualDesktopAsync(null);
             return;
         }
-        var connected = Monitors.List();
+        if (recorder.ManualDesktopRequested) return;
         var settings = AppSettings.Current;
-        var selected = CaptureSourcePolicy.StoredManualTarget(settings, connected);
-        // A single physical display needs no redundant manual-target picker.
-        // This does not grant permission; SelectManualDisplay checks it separately.
-        if (selected == null && string.IsNullOrWhiteSpace(settings.RecordMonitor) && connected.Count == 1)
-            selected = connected[0];
-        if (selected?.CaptureIdentity == null || string.IsNullOrWhiteSpace(AppSettings.Current.RecordMonitor))
+        int revision = settings.RecordingDisableRevision;
+        if (!settings.AllowsManualDesktop(revision))
+        {
+            NotifySource("Recording is off", "Enable QuickClip recording before starting manual desktop capture.");
+            return;
+        }
+        var selected = ResolveManualTarget(settings, Monitors.List());
+        if (selected == null)
         {
             NotifySource("Choose a display", "Select a connected display in Recording settings before starting desktop capture.");
             RecordingSettingsRequested?.Invoke();
             return;
         }
-        SelectManualDisplay(recorder, selected);
+        RequestManualDisplay(recorder, selected, revision, onlyIfActive: false);
+    }
+
+    internal static MonitorInfo? ResolveManualTarget(AppSettings settings, IReadOnlyList<MonitorInfo> connected)
+    {
+        // A single physical display needs no redundant manual-target picker.
+        // This does not grant permission; RequestManualDisplay checks it separately.
+        if (!HasManualTargetPreference(settings) && connected.Count == 1 &&
+            !string.IsNullOrWhiteSpace(connected[0].CaptureIdentity))
+            return connected[0];
+        return CaptureSourcePolicy.StoredManualTarget(settings, connected);
+    }
+
+    internal static bool HasManualTargetPreference(AppSettings settings) =>
+        !string.IsNullOrWhiteSpace(settings.RecordMonitor) || !string.IsNullOrWhiteSpace(settings.RecordMonitorIdentity);
+
+    internal static bool CanRequestManualDisplay(AppSettings settings, MonitorInfo? selected, int revision) =>
+        settings.AllowsManualDesktop(revision) && selected?.CaptureIdentity is { } identity &&
+        CaptureSourcePolicy.AllowsRecordingDisplay(settings, identity);
+
+    private void SwitchManualDisplay(Recorder recorder, MonitorInfo selected)
+    {
+        int revision = AppSettings.Current.RecordingDisableRevision;
+        var connected = Monitors.List().FirstOrDefault(m =>
+            string.Equals(m.DeviceName, selected.DeviceName, StringComparison.OrdinalIgnoreCase) &&
+            string.Equals(m.CaptureIdentity, selected.CaptureIdentity, StringComparison.OrdinalIgnoreCase));
+        if (connected == null)
+        {
+            NotifySource("Display changed", "Open the tray menu again to select a connected display.");
+            return;
+        }
+        RequestManualDisplay(recorder, connected, revision, onlyIfActive: true);
     }
 
     // The deliberate switch or display selection grants only this physical target
     // for the current manual session. No recurring confirmation dialog is needed.
-    internal void SelectManualDisplay(Recorder recorder, MonitorInfo selected, bool onlyIfActive = false)
+    private void RequestManualDisplay(Recorder recorder, MonitorInfo selected, int revision, bool onlyIfActive)
     {
-        if (selected.CaptureIdentity == null || !AppSettings.Current.RecordingEnabled) return;
         var settings = AppSettings.Current;
-        if (!CaptureSourcePolicy.AllowsRecordingDisplay(settings, selected.CaptureIdentity))
+        if (!settings.AllowsManualDesktop(revision)) return;
+        if (!CanRequestManualDisplay(settings, selected, revision))
         {
             NotifySource("Display permission required", "Allow recording on this display in Recording settings first.");
             return;
         }
-        if (!CaptureSourcePolicy.TrySelectManualTarget(settings, selected, s => s.TrySave()))
-        {
-            NotifySource("Could not save display", "The active capture target has not changed.");
-            return;
-        }
-        _ = recorder.SetManualDesktopAsync(selected.CaptureIdentity, settings.RecordingDisableRevision, onlyIfActive);
+        _ = recorder.SetManualDesktopAsync(selected.CaptureIdentity, revision, onlyIfActive);
     }
 
     private static MenuItem Item(string text, Action action, bool bold = false, bool enabled = true)

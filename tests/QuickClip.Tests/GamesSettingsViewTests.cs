@@ -184,6 +184,57 @@ public sealed class GamesSettingsViewTests
         finally { window.Close(); }
     });
 
+    [Fact]
+    public Task Sticky_game_search_survives_recycled_rows_and_expansion() => OnSta(() =>
+    {
+        var page = new GamesSettingsView();
+        var window = new Window
+        {
+            Title = "QuickClip Sticky Search Test",
+            Content = page, Width = 900, Height = 680, ShowInTaskbar = false,
+        };
+        window.Show();
+        try
+        {
+            page.RenderRows(Fixture(120));
+            var row = page.Games.Items.OfType<GamesSettingsView.GameRow>().Skip(80).First();
+            for (int attempt = 0; attempt < 3; attempt++)
+            {
+                page.Games.ScrollIntoView(row);
+                window.UpdateLayout();
+            }
+            Assert.Equal(Visibility.Visible, page.SearchDock.Visibility);
+            Assert.InRange(page.SearchDockTransform.Y, 0, 1);
+
+            Assert.True(page.ToggleDetails(row));
+            window.UpdateLayout();
+            Assert.Equal(Visibility.Visible, page.SearchDock.Visibility);
+            Assert.False(page.ToggleDetails(row)); // Collapsing returns false by design.
+            window.UpdateLayout();
+            Assert.Equal(Visibility.Visible, page.SearchDock.Visibility);
+
+            var scroll = Descendants<ScrollViewer>(page.Games).First();
+            scroll.ScrollToTop();
+            window.UpdateLayout();
+            var discovery = Assert.IsType<ListBoxItem>(page.Games.Items[2]);
+            double naturalY = discovery.TranslatePoint(new Point(0, 0), page.Games).Y + discovery.ActualHeight;
+            if (naturalY >= page.Games.ActualHeight)
+                Assert.Equal(Visibility.Collapsed, page.SearchDock.Visibility);
+            else
+            {
+                // With a short synthetic discovery header, the inline search is
+                // naturally visible near the bottom rather than hidden.
+                Assert.Equal(Visibility.Visible, page.SearchDock.Visibility);
+                Assert.InRange(page.SearchDockTransform.Y, naturalY - 2, naturalY + 2);
+            }
+            page.Games.ScrollIntoView(row);
+            window.UpdateLayout();
+            Assert.Equal(Visibility.Visible, page.SearchDock.Visibility);
+            Assert.InRange(page.SearchDockTransform.Y, 0, 1);
+        }
+        finally { window.Close(); }
+    });
+
     [Theory]
     [InlineData(8)]
     [InlineData(50)]

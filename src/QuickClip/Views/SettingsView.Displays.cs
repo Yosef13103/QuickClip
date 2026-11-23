@@ -1,6 +1,8 @@
 using System.Windows;
 using System.Windows.Automation;
 using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
+using System.Windows.Input;
 using System.Windows.Media;
 using QuickClip.Recording;
 using QuickClip.Shell;
@@ -10,6 +12,7 @@ namespace QuickClip.Views;
 public partial class SettingsView
 {
     private bool _refreshingDisplays;
+    private FrameworkElement? _feedbackMicExample;
 
     private void InitializeFeedbackIndicatorExample()
     {
@@ -19,6 +22,7 @@ public partial class SettingsView
             ClipNotificationOverlay.CameraGlyphGeometry, out _));
         var mic = ClipNotificationOverlay.StatusGlyph(ClipNotificationOverlay.MicrophoneGlyphGeometry, out var stroke);
         stroke.Stroke = Brushes.Red; // Before the selected microphone is verified.
+        _feedbackMicExample = mic;
         FeedbackIndicatorIcons.Children.Add(mic);
     }
 
@@ -28,11 +32,12 @@ public partial class SettingsView
     {
         if (!AppProfile.IsPersonal || DisplayCardsPanel == null) return;
         var settings = AppSettings.Current;
+        var focus = FocusedDisplayControl();
         DisplayCardsPanel.Children.Clear();
         RequireDisplayApprovalButton.Visibility = settings.AllowRecordingDisplaysByDefault
             ? Visibility.Visible : Visibility.Collapsed;
 
-        var selected = CaptureSourcePolicy.StoredManualTarget(settings, _monitors);
+        var selected = AppHost.ResolveManualTarget(settings, _monitors);
         for (int index = 0; index < _monitors.Count; index++)
         {
             var monitor = _monitors[index];
@@ -91,20 +96,20 @@ public partial class SettingsView
                     Margin = new Thickness(0, 5, 0, 0),
                     ToolTip = "Only sets a preferred screen for a future manual session. Does not enable capture or grant permission."
                 };
-                AutomationProperties.SetName(target, $"Manual capture target display {number}");
+                AutomationProperties.SetName(target, $"Default for manual capture, display {number}");
                 target.Click += DisplayCardTarget_Click;
                 content.Children.Add(target);
             }
-            else if (identifiable)
+            else if (isTarget)
             {
                 content.Children.Add(new TextBlock
                 {
-                    Text = "Manual capture uses this display.",
+                    Text = "Default for manual capture.",
                     Margin = new Thickness(0, 6, 0, 0), TextWrapping = TextWrapping.Wrap,
                     Style = (Style)FindResource("Hint")
                 });
             }
-            else
+            else if (!identifiable)
             {
                 content.Children.Add(new TextBlock
                 {
@@ -130,22 +135,48 @@ public partial class SettingsView
         DisplayPrivacyHint.Text = _monitors.Count > 1
             ? "Only gaming display? Leave other screens off to avoid capturing chats or unrelated windows. Allow both if games move between screens."
             : "An allowed screen may include messages and other windows. Choose what you are comfortable recording.";
-        bool stale = !string.IsNullOrWhiteSpace(settings.RecordMonitor) && selected == null;
+        bool hasStoredTarget = AppHost.HasManualTargetPreference(settings);
+        bool stale = hasStoredTarget && selected == null;
         bool conflict = selected?.CaptureIdentity is { } id && !CaptureSourcePolicy.AllowsRecordingDisplay(settings, id);
         DisplayTargetConflict.Text = stale
             ? "Saved manual target needs confirmation or is disconnected. Select its card again to reconnect safely."
             : conflict
                     ? "Manual target is blocked. Choose an allowed display or explicitly allow this one before starting manual capture."
                     : "";
-        AllowTargetButton.Visibility = conflict ? Visibility.Visible : Visibility.Collapsed;
+        AllowTargetButton.Visibility = conflict && hasStoredTarget ? Visibility.Visible : Visibility.Collapsed;
         SelectSingleDisplayButton.Visibility = _monitors.Count == 1 && stale &&
             _monitors[0].CaptureIdentity != null ? Visibility.Visible : Visibility.Collapsed;
         NoManualDefaultButton.Visibility = _monitors.Count > 1 ? Visibility.Visible : Visibility.Collapsed;
-        NoManualDefaultButton.IsChecked = string.IsNullOrWhiteSpace(settings.RecordMonitor);
-        NoManualDefaultButton.IsEnabled = !Recorder.Instance.ManualDesktopRequested;
-        NoManualDefaultButton.ToolTip = Recorder.Instance.ManualDesktopRequested
-            ? "Stop the current manual desktop capture before clearing its default display."
-            : "No preferred screen. Manual capture stays off until you explicitly start it.";
+        NoManualDefaultButton.IsChecked = !hasStoredTarget;
+        RestoreDisplayFocus(focus);
+    }
+
+    private Control? FocusedDisplayControl() =>
+        Keyboard.FocusedElement is Control focused && CapturePermissionCard.IsAncestorOf(focused) ? focused : null;
+
+    // WPF can move focus to the window after disabling a focused control.
+    // Preserve any new focus the user chose while the operation was pending.
+    private bool CanRestoreDisplayFocus(IInputElement? focusWhileDisabled) =>
+        Keyboard.FocusedElement == null ||
+        ReferenceEquals(Keyboard.FocusedElement, focusWhileDisabled) ||
+        ReferenceEquals(Keyboard.FocusedElement, Window.GetWindow(this));
+
+    private void RestoreDisplayFocus(Control? previous)
+    {
+        if (previous == null || Window.GetWindow(this)?.IsActive != true) return;
+        Control? target = previous;
+        if (!CapturePermissionCard.IsAncestorOf(previous))
+        {
+            target = DisplayCardsPanel.Children.OfType<Border>()
+                .SelectMany(card => ((StackPanel)card.Child).Children.OfType<ToggleButton>())
+                .FirstOrDefault(control => control.GetType() == previous.GetType() &&
+                    control.Tag is string identity && previous.Tag is string priorIdentity &&
+                    string.Equals(identity, priorIdentity, StringComparison.OrdinalIgnoreCase));
+        }
+        if (target is { IsVisible: true, IsEnabled: true, Focusable: true })
+            target.Focus();
+        else if (RefreshDisplaysButton is { IsVisible: true, IsEnabled: true })
+            RefreshDisplaysButton.Focus();
     }
 
     private void ResizeDisplayCards()
@@ -154,6 +185,17 @@ public partial class SettingsView
         if (available <= 0) return;
         foreach (Border card in DisplayCardsPanel.Children.OfType<Border>())
             card.Width = Math.Min(270, Math.Max(155, available - 14));
+    }
+
+    internal static string ManualSessionHint(RecorderState state, ReadyCapture? ready)
+    {
+        const string stop = "Turn it off to return to automatic game capture.";
+        if (!state.Running || state.Mode != RecordingMode.ManualDesktop)
+            return "Manual capture is requested. " + stop;
+        string display = ready is { Mode: RecordingMode.ManualDesktop } && ready.Epoch == state.ReadyEpoch
+            ? Recorder.CaptureStatusLabel(state.Mode, null, ready.Device, state.Summary)
+            : state.Summary;
+        return $"{display}. {stop}";
     }
 
     private static string DisplayNumber(string device, int fallback)
@@ -266,6 +308,7 @@ public partial class SettingsView
         {
             GuideError.Text = "Could not save manual display selection.";
             RenderDisplayCards();
+            DisplayTargetConflict.Text = "Could not save the default for manual capture. Your previous choice is unchanged.";
             return;
         }
         GuideError.Text = "";
@@ -273,17 +316,13 @@ public partial class SettingsView
         _loading = true;
         try { Select(MonitorCombo, display.DeviceName); }
         finally { _loading = previousLoading; }
-        if (!_guideActive && Recorder.Instance.ManualDesktopRequested &&
-            CaptureSourcePolicy.AllowsRecordingDisplay(settings, identity))
-            App.Host?.SelectManualDisplay(Recorder.Instance, display, onlyIfActive: true);
         ShowGameWindowState();
         UpdateCropPreview();
     }
 
     private void NoManualDefault_Click(object sender, RoutedEventArgs e)
     {
-        if (_refreshingDisplays || _loading || _monitors.Count <= 1 ||
-            Recorder.Instance.ManualDesktopRequested)
+        if (_refreshingDisplays || _loading || _monitors.Count <= 1)
         {
             RenderDisplayCards();
             return;
@@ -331,30 +370,43 @@ public partial class SettingsView
     {
         if (_refreshingDisplays || _loading) return;
         _refreshingDisplays = true;
+        var focus = FocusedDisplayControl();
         RefreshDisplaysButton.IsEnabled = false;
+        var focusWhileDisabled = Keyboard.FocusedElement;
         try
         {
-            _monitors = await Task.Run(Monitors.List);
-            var selected = CaptureSourcePolicy.StoredManualTarget(AppSettings.Current, _monitors);
-            bool old = _loading;
-            _loading = true;
-            try
-            {
-                MonitorCombo.ItemsSource = _monitors.Select(m => new Choice(m.Label, m.DeviceName)).ToList();
-                if (selected != null) Select(MonitorCombo, selected.DeviceName);
-                else MonitorCombo.SelectedIndex = -1;
-            }
-            finally { _loading = old; }
+            LoadDisplayChoices(AppSettings.Current, await Task.Run(Monitors.List));
             RefreshAreas(AppSettings.Current.RecordAspect);
-            ShowGameWindowState();
             UpdateCropPreview();
-            if (_guideActive) UpdateGuideHeader();
         }
         finally
         {
             _refreshingDisplays = false;
             RefreshDisplaysButton.IsEnabled = true;
-            RenderDisplayCards();
+            bool restoreFocus = CanRestoreDisplayFocus(focusWhileDisabled);
+            ShowGameWindowState();
+            if (_guideActive) UpdateGuideHeader();
+            if (restoreFocus) RestoreDisplayFocus(focus);
         }
+    }
+
+    internal void LoadDisplayChoices(AppSettings settings, IReadOnlyList<MonitorInfo> monitors)
+    {
+        _monitors = monitors;
+        var selected = AppProfile.IsPersonal
+            ? AppHost.ResolveManualTarget(settings, monitors)
+            : CaptureSourcePolicy.SelectMonitor(monitors, settings.RecordMonitor, requireSelected: false);
+        // The crop preview can still use the main display when no preference was saved.
+        if (selected == null && !AppHost.HasManualTargetPreference(settings))
+            selected = CaptureSourcePolicy.SelectMonitor(monitors, "", requireSelected: false);
+        bool old = _loading;
+        _loading = true;
+        try
+        {
+            MonitorCombo.ItemsSource = monitors.Select(m => new Choice(m.Label, m.DeviceName)).ToList();
+            if (selected != null) Select(MonitorCombo, selected.DeviceName);
+            else MonitorCombo.SelectedIndex = -1;
+        }
+        finally { _loading = old; }
     }
 }

@@ -39,17 +39,23 @@ public sealed record GalleryClipRow(IReadOnlyList<ClipItem> Clips);
 internal static class GalleryDayFeed
 {
     internal static List<object> Build(IReadOnlyList<ClipItem> clips, int columns, TimeZoneInfo? zone = null, bool favoritesFirst = false)
-    {
-        zone ??= TimeZoneInfo.Local;
-        var rows = new List<object>();
-        foreach (var group in clips.GroupBy(clip => TimeZoneInfo.ConvertTime(clip.Details.CapturedAt, zone).Date)
-            .OrderByDescending(group => group.Key))
-        {
-            var day = group.OrderByDescending(clip => favoritesFirst && clip.IsFavorite)
+        => BuildRows(GroupDays(clips, zone ?? TimeZoneInfo.Local, favoritesFirst), columns);
+
+    internal static GalleryDayHeader[] GroupDays(IReadOnlyList<ClipItem> clips, TimeZoneInfo zone, bool favoritesFirst) =>
+        clips.GroupBy(clip => TimeZoneInfo.ConvertTime(clip.Details.CapturedAt, zone).Date)
+            .OrderByDescending(group => group.Key)
+            .Select(group => new GalleryDayHeader(group.Key, group.OrderByDescending(clip => favoritesFirst && clip.IsFavorite)
                 .ThenByDescending(clip => clip.Details.CapturedAt)
-                .ThenBy(clip => clip.Path, StringComparer.OrdinalIgnoreCase).ToArray();
-            rows.Add(new GalleryDayHeader(group.Key, day));
-            rows.AddRange(day.Chunk(columns).Select(row => new GalleryClipRow(row)));
+                .ThenBy(clip => clip.Path, StringComparer.OrdinalIgnoreCase).ToArray()))
+            .ToArray();
+
+    internal static List<object> BuildRows(IReadOnlyList<GalleryDayHeader> days, int columns)
+    {
+        var rows = new List<object>();
+        foreach (var day in days)
+        {
+            rows.Add(day);
+            rows.AddRange(day.Clips.Chunk(columns).Select(row => new GalleryClipRow(row)));
         }
         return rows;
     }

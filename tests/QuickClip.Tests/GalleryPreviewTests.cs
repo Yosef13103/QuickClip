@@ -24,9 +24,22 @@ public sealed class GalleryPreviewTests
     [InlineData(500, 320, 120, 360)]
     [InlineData(500, 800, 120, 800)]
     [InlineData(500, 180, -120, 180)]
+    [InlineData(400, 400, 120, 441)]
+    [InlineData(480, 480, -120, 439)]
+    [InlineData(500, 320, 30, 330)]
+    [InlineData(500, 440, 0, 440)]
+    [InlineData(900, 440, 120, 440)]
+    [InlineData(170, 440, -120, 440)]
     public void Gallery_ctrl_wheel_resizes_monotonically_from_visible_card_width(
         double actual, int preferred, int delta, int expected) =>
         Assert.Equal(expected, GalleryView.ZoomCardWidth(actual, preferred, delta));
+
+    [Theory]
+    [InlineData(1107.99, 540, 1)]
+    [InlineData(1108, 540, 2)]
+    [InlineData(2000, 180, 8)]
+    public void Manual_columns_fit_card_width_and_gap(double width, int preferred, int expected) =>
+        Assert.Equal(expected, GalleryView.ColumnsForWidth(width, preferred));
 
     [Fact]
     public void Gallery_wheel_interpolation_moves_smoothly_and_does_not_overshoot()

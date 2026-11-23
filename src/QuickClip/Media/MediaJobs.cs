@@ -90,13 +90,15 @@ internal sealed class MediaJobs
         }
     }
 
-    internal void Retry(Guid id)
+    internal Task<MediaJobView>? Retry(Guid id)
     {
         lock (_gate)
         {
-            var entry = _entries.Find(e => e.Id == id && e.State is MediaJobState.Failed or MediaJobState.Cancelled);
-            if (entry == null || entry.Request.Replace != null) return;
-            Submit(entry.Request);
+            var entry = _entries.Find(e => e.Id == id && e.CanRetry);
+            if (entry == null) return null;
+            var retry = Submit(entry.Request);
+            entry.RetrySubmitted = entry.Request.Share;
+            return retry.Completion;
         }
     }
 
@@ -208,7 +210,10 @@ internal sealed class MediaJobs
         internal long Started, Finished, LastReport, PhaseStarted = Environment.TickCount64;
         internal double? Progress;
         internal string? Output, Message;
+        internal bool RetrySubmitted;
         internal bool Active => State is MediaJobState.Queued or MediaJobState.Running or MediaJobState.Retrying or MediaJobState.Validating;
+        internal bool CanRetry => !RetrySubmitted && Request.Replace == null &&
+            State is (MediaJobState.Failed or MediaJobState.Cancelled);
 
         internal MediaJobView View()
         {
@@ -218,8 +223,7 @@ internal sealed class MediaJobs
             TimeSpan? remaining = Active && Progress is >= 0.1 and < 1 && phaseSeconds >= 3
                 ? TimeSpan.FromSeconds(phaseSeconds * (1 / Progress.Value - 1)) : null;
             return new(Id, Request.Name, Request.Share, State, State == MediaJobState.Completed ? 1 : Progress,
-                elapsed, remaining, Active ? null : Output, Active ? null : Message,
-                Request.Replace == null && State is MediaJobState.Failed or MediaJobState.Cancelled);
+                elapsed, remaining, Active ? null : Output, Active ? null : Message, CanRetry);
         }
     }
 }

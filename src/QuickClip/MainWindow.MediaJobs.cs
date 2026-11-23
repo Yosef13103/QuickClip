@@ -37,14 +37,17 @@ public partial class MainWindow
             string time = job.Elapsed.TotalSeconds >= 1 ? $" · {Fmt.Time(job.Elapsed.TotalSeconds, false)}" : "";
             string eta = job.Remaining is { } left ? $" · about {Fmt.Time(left.TotalSeconds, false)} left" : "";
             _mediaClipboard = (ClipSharing.LastCopied, ClipSharing.IsLastCopyCurrent);
-            string copied = job.Share && job.Output is { } output && _mediaClipboard == (output, true) ? " · on clipboard" : "";
+            string copied = job.Share && job.Output is { } output
+                ? _mediaClipboard == (output, true) ? " · on clipboard" : " · ready to copy"
+                : "";
             row.Header = new TextBlock
             {
                 Text = $"{job.Name} · {job.State}{progress}{time}{eta}{copied}",
                 MaxWidth = 420, TextTrimming = TextTrimming.CharacterEllipsis,
             };
-            if (row.Tag is MediaJobState old && old == job.State) continue;
-            row.Tag = job.State;
+            var actions = (job.State, job.CanRetry);
+            if (Equals(row.Tag, actions)) continue;
+            row.Tag = actions;
             row.Items.Clear();
             if (job.Active)
                 SharingDialogs.Add(row.Items, "Cancel", () => MediaJobs.Current.Cancel(job.Id));
@@ -58,7 +61,7 @@ public partial class MainWindow
             {
                 if (job.Message is { } message)
                     row.Items.Add(new MenuItem { Header = new TextBlock { Text = message, MaxWidth = 360, TextWrapping = TextWrapping.Wrap }, IsEnabled = false });
-                if (job.CanRetry) SharingDialogs.Add(row.Items, "Retry", () => RetryMediaJob(job.Id));
+                if (job.CanRetry) SharingDialogs.Add(row.Items, "Retry", () => _ = RetryMediaJobAsync(job.Id));
             }
         }
     }
@@ -88,12 +91,17 @@ public partial class MainWindow
         RefreshMediaJobs();
     }
 
-    private void RetryMediaJob(Guid id)
+    private async Task RetryMediaJobAsync(Guid id)
     {
-        try { MediaJobs.Current.Retry(id); }
+        Task<MediaJobView>? completion;
+        try { completion = MediaJobs.Current.Retry(id); }
         catch (Exception ex) when (ex is ExportException or IOException or UnauthorizedAccessException)
-        { ModalDialog.Show(this, ex.Message, "Media jobs"); }
+        {
+            ModalDialog.Show(this, ex.Message, "Media jobs");
+            return;
+        }
         RefreshMediaJobs();
+        if (completion != null) await ClipSharing.ReportCompletionAsync(completion, ClipSharing.Notify);
     }
 
     private static void RevealMedia(string path)

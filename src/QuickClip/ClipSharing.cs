@@ -12,13 +12,15 @@ namespace QuickClip;
 
 internal static class ClipSharing
 {
-    private static long _lastClipboardRequest;
+    private static readonly ClipboardRequests ClipboardOwner = new(GetClipboardSequenceNumber);
     private static uint _lastCopySequence;
+    private const string CopiedMessage = "Video copied to clipboard. Paste it into another app.";
+    private const string PreparedMessage = "Video prepared. In Media jobs, choose Copy again or Reveal for manual attachment.";
 
     internal static string Folder => AppProfile.SharedDirectory;
     internal static string? LastCopied { get; private set; }
     internal static bool IsLastCopyCurrent => LastCopied != null && GetClipboardSequenceNumber() == _lastCopySequence;
-    internal static void IgnorePendingClipboardCopies() => ++_lastClipboardRequest;
+    internal static void IgnorePendingClipboardCopies() => ClipboardOwner.Invalidate();
 
     internal static async Task ShareAsync(string clip, SharingProfile? profile = null, ExportRequest? edits = null)
     {
@@ -26,8 +28,7 @@ internal static class ClipSharing
         profile ??= SharingProfiles.Default(settings);
         double limit = profile.LimitMB;
         bool motionBlur = settings.ShareMotionBlur;
-        long ticket = ++_lastClipboardRequest;
-        uint sequence = GetClipboardSequenceNumber();
+        var stillRequested = ClipboardOwner.Begin();
         try
         {
             var sources = MediaProcessing.Sources(clip, edits?.Tracks);
@@ -62,12 +63,9 @@ internal static class ClipSharing
                         catch (UnauthorizedAccessException) { }
                     }
                 }));
-            var result = await submission.Completion;
-            if (result.Output is { } file && Application.Current != null)
-            {
-                bool copied = await TryCopyAsync(file, () => ticket == _lastClipboardRequest && GetClipboardSequenceNumber() == sequence);
-                App.Host?.NotifyShareReady(copied && IsLastCopyCurrent && LastCopied == file);
-            }
+            await ReportCompletionAsync(submission.Completion, Notify,
+                async file => Application.Current != null && await TryCopyAsync(file, stillRequested) &&
+                    IsLastCopyCurrent && LastCopied == file);
         }
         catch (Exception ex) when (ex is ExportException or IOException or UnauthorizedAccessException)
         {
@@ -75,13 +73,45 @@ internal static class ClipSharing
         }
     }
 
+    internal static async Task ReportCompletionAsync(Task<MediaJobView> completion,
+        Action<string, string, bool> notify, Func<string, Task<bool>>? autoCopy = null)
+    {
+        var result = await completion;
+        if (!result.Share) return;
+        if (result.State == MediaJobState.Failed)
+        {
+            notify("Share failed", "Could not prepare the video. Open Media jobs for details and retry options.", true);
+        }
+        else if (result.State == MediaJobState.Completed && result.Output is { } file)
+        {
+            bool copied = autoCopy != null && await autoCopy(file);
+            string title = autoCopy == null ? "Share retry complete" : "Share ready";
+            notify(title, copied ? CopiedMessage : PreparedMessage, false);
+        }
+    }
+
+    internal static void Notify(string title, string message, bool warning) =>
+        App.Host?.NotifyShare(title, message, warning);
+
     internal static async Task<bool> CopyAgainAsync(string path)
     {
-        long ticket = ++_lastClipboardRequest;
-        uint sequence = GetClipboardSequenceNumber();
-        bool copied = await TryCopyAsync(path, () => ticket == _lastClipboardRequest && GetClipboardSequenceNumber() == sequence);
-        if (copied) App.Host?.NotifyShareReady(IsLastCopyCurrent && LastCopied == path);
+        bool copied = await TryCopyAsync(path, ClipboardOwner.Begin());
+        if (copied) Notify("Share ready", IsLastCopyCurrent && LastCopied == path ? CopiedMessage : PreparedMessage, false);
         return copied;
+    }
+
+    internal sealed class ClipboardRequests(Func<uint> sequenceNumber)
+    {
+        private long _lastRequest;
+
+        internal void Invalidate() => ++_lastRequest;
+
+        internal Func<bool> Begin()
+        {
+            long ticket = ++_lastRequest;
+            uint sequence = sequenceNumber();
+            return () => ticket == _lastRequest && sequenceNumber() == sequence;
+        }
     }
 
     private static async Task<bool> TryCopyAsync(string path, Func<bool> stillRequested)
