@@ -161,6 +161,11 @@ public sealed class GamesSettingsViewTests
     public Task Game_search_keeps_keyboard_focus_during_each_filtered_keystroke() => OnSta(() =>
     {
         var page = new GamesSettingsView();
+        // This isolated test doesn't initialize App.xaml's palette. Supply
+        // contrasting theme resources to verify the input's idle/focused edges.
+        page.Resources["ElevatedSurfaceBrush"] = new SolidColorBrush(Color.FromRgb(24, 27, 33));
+        page.Resources["PrimaryTextBrush"] = Brushes.White;
+        page.Resources["AccentBrush"] = new SolidColorBrush(Color.FromRgb(55, 211, 155));
         page.RenderRows(Fixture(120));
         var window = new Window
         {
@@ -170,8 +175,36 @@ public sealed class GamesSettingsViewTests
         window.Show();
         try
         {
+            page.Search.ApplyTemplate();
+            var surface = Assert.IsType<Border>(page.Search.Template.FindName("SearchSurface", page.Search));
+            Assert.Equal(new CornerRadius(6), surface.CornerRadius);
+            Assert.True(surface.SnapsToDevicePixels);
+            Assert.Equal(Assert.IsType<SolidColorBrush>(surface.Background).Color,
+                Assert.IsType<SolidColorBrush>(surface.BorderBrush).Color);
+
+            // Pixel regression: the unfocused rounded corner must not render
+            // a brighter border fragment than the themed input background.
+            int w = (int)Math.Ceiling(page.Search.ActualWidth);
+            int h = (int)Math.Ceiling(page.Search.ActualHeight);
+            var image = new System.Windows.Media.Imaging.RenderTargetBitmap(
+                w, h, 96, 96, PixelFormats.Pbgra32);
+            image.Render(page.Search);
+            var pixels = new byte[w * h * 4];
+            image.CopyPixels(pixels, w * 4, 0);
+            for (int y = h - 7; y < h; y++)
+                for (int x = 0; x < 8; x++)
+                {
+                    int i = (y * w + x) * 4;
+                    Assert.InRange((int)pixels[i], 0, 33);     // Blue
+                    Assert.InRange((int)pixels[i + 1], 0, 27); // Green
+                    Assert.InRange((int)pixels[i + 2], 0, 24); // Red
+                }
+
             Assert.True(page.Search.Focus());
             Assert.True(page.Search.IsKeyboardFocused);
+            // The bright border appears only as an intentional keyboard focus indicator.
+            Assert.NotEqual(Assert.IsType<SolidColorBrush>(surface.Background).Color,
+                Assert.IsType<SolidColorBrush>(surface.BorderBrush).Color);
             foreach (char letter in "Test game")
             {
                 page.Search.AppendText(letter.ToString());

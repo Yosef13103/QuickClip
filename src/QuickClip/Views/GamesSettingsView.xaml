@@ -480,8 +480,30 @@
             <StackPanel HorizontalAlignment="Center" MaxWidth="1340"
                         Width="{Binding ActualWidth, ElementName=SearchDock}">
                 <TextBlock Text="Search games" Margin="0,0,0,5" />
+                <!-- The stock Fluent TextBox border antialiases a bright stray pixel
+                     at the rounded bottom corner. Match the idle stroke to the
+                     fill, while retaining an intentional focus outline. -->
                 <TextBox x:Name="Search" AutomationProperties.Name="Search games by name or executable"
-                         TextChanged="Search_Changed" />
+                         TextChanged="Search_Changed" Background="{DynamicResource ElevatedSurfaceBrush}"
+                         Foreground="{DynamicResource PrimaryTextBrush}" Padding="10,6"
+                         SnapsToDevicePixels="True">
+                    <TextBox.Template>
+                        <ControlTemplate TargetType="TextBox">
+                            <Border x:Name="SearchSurface" Background="{TemplateBinding Background}"
+                                    BorderBrush="{TemplateBinding Background}" BorderThickness="1"
+                                    CornerRadius="6" Padding="{TemplateBinding Padding}"
+                                    SnapsToDevicePixels="True">
+                                <ScrollViewer x:Name="PART_ContentHost" Focusable="False" />
+                            </Border>
+                            <ControlTemplate.Triggers>
+                                <Trigger Property="IsKeyboardFocusWithin" Value="True">
+                                    <Setter TargetName="SearchSurface" Property="BorderBrush"
+                                            Value="{DynamicResource AccentBrush}" />
+                                </Trigger>
+                            </ControlTemplate.Triggers>
+                        </ControlTemplate>
+                    </TextBox.Template>
+                </TextBox>
             </StackPanel>
         </Border>
     </Grid>
