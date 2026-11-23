@@ -222,7 +222,7 @@
                 </ItemsControl.ItemTemplate>
             </ItemsControl>
                     <TextBlock Text="Games" FontSize="{DynamicResource QuickClipText24}"
-                               FontWeight="SemiBold" Margin="20,2,26,4" />
+                               FontWeight="SemiBold" Margin="0,2,0,4" />
         </StackPanel>
                 </ListBoxItem>
 

@@ -306,9 +306,13 @@ public partial class SettingsView
         FeedbackVisualGuide.Visibility = _guideActive && GuideStep == 7 ? Visibility.Visible : Visibility.Collapsed;
         var anchor = (GameIndicatorAnchorCombo.SelectedItem as Choice)?.Label ?? "Bottom-right";
         var channel = (ClipNotificationModeCombo.SelectedItem as Choice)?.Label ?? "QuickClip overlay";
-        FeedbackIndicatorIcons.Opacity = GameIndicatorCheck.IsChecked == true ? 1 : .35;
+        bool showStatus = GameIndicatorCheck.IsChecked == true;
+        FeedbackRecordingStatusExample.Visibility = showStatus ? Visibility.Visible : Visibility.Collapsed;
+        FeedbackVisualGuideHint.Text = showStatus
+            ? "Status icons use the real QuickClip HUD artwork. Saved-clip example is illustrative."
+            : "Saved-clip example is illustrative.";
         if (_feedbackMicExample != null)
-            _feedbackMicExample.Visibility = MicrophoneIndicatorCheck.IsChecked == true
+            _feedbackMicExample.Visibility = showStatus && MicrophoneIndicatorCheck.IsChecked == true
                 ? Visibility.Visible : Visibility.Collapsed;
         FeedbackMicLegend.Text = MicrophoneIndicatorCheck.IsChecked == true
             ? "Camera = replay; mic red until verified, then white."

@@ -657,11 +657,29 @@ public sealed class ClipFeedbackTests
     }
 
     [Fact]
-    public void Game_start_banner_is_independent_of_clip_saved_and_dot_is_opt_in()
+    public void New_personal_profiles_enable_status_icons_but_saved_opt_outs_stay_off()
+    {
+        var fresh = new AppSettings();
+        Assert.Equal(AppProfile.IsPersonal, fresh.ShowGameRecordingIndicator);
+        Assert.Equal(AppProfile.IsPersonal, fresh.AllowRecordingIconsInCapture);
+
+        var explicitOptOut = AppSettings.Parse("""{"ShowGameRecordingIndicator":false,"AllowRecordingIconsInCapture":false}""");
+        Assert.False(explicitOptOut.ShowGameRecordingIndicator);
+        Assert.False(explicitOptOut.AllowRecordingIconsInCapture);
+
+        // Existing settings written before the HUD flags existed must also
+        // retain their old opt-in behavior rather than silently changing.
+        var legacy = AppSettings.Parse("{}");
+        Assert.False(legacy.ShowGameRecordingIndicator);
+        Assert.False(legacy.AllowRecordingIconsInCapture);
+    }
+
+    [Fact]
+    public void Game_start_banner_is_independent_of_clip_saved_and_status_defaults()
     {
         var s = new AppSettings { ClipEvents = new(Saved: false, GameStarted: true),
             ClipOverlay = new() { Enabled = true, ImageOnly = true }, ClipNotificationsEnabled = true };
-        Assert.False(s.ShowGameRecordingIndicator);
+        Assert.Equal(AppProfile.IsPersonal, s.ShowGameRecordingIndicator);
         Assert.True(s.ClipEvents.Allows(ClipEvent.GameStarted, false));
         Assert.Equal("Game recording started", ClipFeedback.From(s, ClipEvent.GameStarted, "Fixture").Title);
         Assert.False(ClipFeedback.From(s, ClipEvent.GameStarted, "Fixture").Sound);

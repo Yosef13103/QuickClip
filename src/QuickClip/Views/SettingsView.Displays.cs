@@ -270,12 +270,6 @@ public partial class SettingsView
             HorizontalAlignment = HorizontalAlignment.Stretch,
             Child = art
         });
-        content.Children.Add(new TextBlock
-        {
-            Text = "Screen proportions · illustration only", FontSize = 10,
-            TextAlignment = TextAlignment.Center, Margin = new Thickness(0, 1, 0, 0),
-            Style = (Style)FindResource("Hint")
-        });
         return content;
     }
 

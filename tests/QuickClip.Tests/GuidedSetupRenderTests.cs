@@ -88,6 +88,11 @@ public sealed class GuidedSetupRenderTests
                 // Loaded is not raised automatically; attach the real listener.
                 typeof(GamesSettingsView).GetMethod("AttachStickySearch",
                     BindingFlags.NonPublic | BindingFlags.Instance)!.Invoke(sources, []);
+                view.UpdateLayout();
+                // Save the first unfiltered Sources layout before forcibly
+                // scrolling the search marker; the old screenshot tests only
+                // exercised the scrolled/sticky state.
+                SaveFrame(view, Path.Combine(output, "sources-initial-search.png"));
                 var findScroller = typeof(GamesSettingsView).GetMethod("FindPageScrollViewer",
                     BindingFlags.NonPublic | BindingFlags.Static)!;
                 var scroller = Assert.IsType<System.Windows.Controls.ScrollViewer>(

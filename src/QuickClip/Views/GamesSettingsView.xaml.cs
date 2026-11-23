@@ -80,6 +80,11 @@ public partial class GamesSettingsView : UserControl
         Loaded += (_, _) => AttachStickySearch();
         Unloaded += (_, _) => DetachStickySearch();
         Games.SizeChanged += (_, _) => UpdateStickySearch();
+        // The discovery header and the search placeholder are virtualized; an
+        // initial Loaded callback can precede their measured layout. Track the
+        // actual list layout, including expansion and recycling, not just the
+        // placeholder's events.
+        Games.LayoutUpdated += (_, _) => UpdateStickySearch();
         SearchAnchorItem.Loaded += (_, _) => UpdateStickySearch();
         SearchAnchorItem.LayoutUpdated += (_, _) => UpdateStickySearch();
         _ignoredExpander = new() { Header = "Ignored issues", Margin = new Thickness(4, 4, 0, 4) };

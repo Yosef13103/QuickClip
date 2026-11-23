@@ -954,7 +954,7 @@
                             <StackPanel>
                                 <TextBlock Text="This is what you'll see" FontSize="{DynamicResource QuickClipText16}" FontWeight="SemiBold" Margin="0,0,0,9" />
                                 <WrapPanel>
-                                    <Border Background="{DynamicResource PanelBrush}" BorderBrush="{DynamicResource DividerBrush}"
+                                    <Border x:Name="FeedbackRecordingStatusExample" Background="{DynamicResource PanelBrush}" BorderBrush="{DynamicResource DividerBrush}"
                                             BorderThickness="1" CornerRadius="7" Padding="11,8" MinWidth="192" Margin="0,0,10,8">
                                         <StackPanel>
                                             <TextBlock Text="Recording status" FontWeight="SemiBold" />
@@ -977,7 +977,7 @@
                                         </StackPanel>
                                     </Border>
                                 </WrapPanel>
-                                <TextBlock Text="Status icons use the real QuickClip HUD artwork. Saved-clip example is illustrative."
+                                <TextBlock x:Name="FeedbackVisualGuideHint" Text="Status icons use the real QuickClip HUD artwork. Saved-clip example is illustrative."
                                            Style="{StaticResource Hint}" TextWrapping="Wrap" />
                                 <TextBlock x:Name="FeedbackStateSummary" Style="{StaticResource Hint}" FontWeight="SemiBold"
                                            TextWrapping="Wrap" Margin="0,6,0,0" AutomationProperties.LiveSetting="Polite" />

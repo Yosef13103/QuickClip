@@ -97,8 +97,10 @@ internal sealed class AppSettings
     public string? ClipSoundOutputId { get; set; }
     public string? ClipSoundFilePath { get; set; } // Optional user-selected local chime; null uses bundled shutter.
     public Shell.ClipEventOptions ClipEvents { get; set; } = new();
-    public bool ShowGameRecordingIndicator { get; set; }
-    public bool AllowRecordingIconsInCapture { get; set; }
+    // Fresh Personal profiles show recording status by default. Existing saved
+    // choices, including explicit opt-outs, remain authoritative.
+    public bool ShowGameRecordingIndicator { get; set; } = AppProfile.IsPersonal;
+    public bool AllowRecordingIconsInCapture { get; set; } = AppProfile.IsPersonal;
     public bool ShowRecordingMicrophoneIndicator { get; set; } = true;
     public Shell.OverlayAnchor GameRecordingIndicatorAnchor { get; set; } = Shell.OverlayAnchor.BottomRight;
     public bool ClipNotificationsEnabled { get; set; } = true;
@@ -201,6 +203,12 @@ internal sealed class AppSettings
                 if (root.TryGetProperty(nameof(ClipOverlay), out _) &&
                     !root.TryGetProperty(nameof(ClipWindowsNotification), out _))
                     settings.ClipWindowsNotification = true;
+                // Old saved profiles treated recording HUD icons as opt-in.
+                // Do not silently enable visible-in-capture artwork on upgrade.
+                if (!root.TryGetProperty(nameof(ShowGameRecordingIndicator), out _))
+                    settings.ShowGameRecordingIndicator = false;
+                if (!root.TryGetProperty(nameof(AllowRecordingIconsInCapture), out _))
+                    settings.AllowRecordingIconsInCapture = false;
                 if (!root.TryGetProperty(nameof(BasicSettings), out _)) settings.BasicSettings = false;
                 if (!root.TryGetProperty(nameof(GuidedSetupStep), out _)) settings.GuidedSetupStep = null;
                 if (settings.GuidedSetupStep is < 0 or > 8) settings.GuidedSetupStep = 0;

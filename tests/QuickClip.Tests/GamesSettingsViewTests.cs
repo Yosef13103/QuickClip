@@ -197,6 +197,18 @@ public sealed class GamesSettingsViewTests
         try
         {
             page.RenderRows(Fixture(120));
+            // The first layout must display Search even before scrolling,
+            // including when the virtualized marker wasn't realized at Loaded.
+            var initiallyVisibleScroll = Descendants<ScrollViewer>(page.Games).First();
+            initiallyVisibleScroll.ScrollToTop();
+            window.UpdateLayout();
+            var initialDiscovery = Assert.IsType<ListBoxItem>(page.Games.Items[2]);
+            double initialSearchY = initialDiscovery.TranslatePoint(new Point(), page.Games).Y + initialDiscovery.ActualHeight;
+            if (initialSearchY < page.Games.ActualHeight)
+            {
+                Assert.Equal(Visibility.Visible, page.SearchDock.Visibility);
+                Assert.InRange(page.SearchDockTransform.Y, initialSearchY - 2, initialSearchY + 2);
+            }
             var row = page.Games.Items.OfType<GamesSettingsView.GameRow>().Skip(80).First();
             for (int attempt = 0; attempt < 3; attempt++)
             {

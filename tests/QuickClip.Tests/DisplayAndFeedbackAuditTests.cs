@@ -247,6 +247,14 @@ public sealed class DisplayAndFeedbackAuditTests
             Assert.Equal(Visibility.Visible, view.FeedbackVisualGuide.Visibility);
             Assert.Equal(Visibility.Visible, view.GameIndicatorStatus.Visibility);
             Assert.Equal("Finishing setup enables game capture.", view.GuideCompletionNotice.Text);
+            view.GameIndicatorCheck.IsChecked = false;
+            Call(view, "UpdateFeedbackVisibility");
+            Assert.Equal(Visibility.Collapsed, view.FeedbackRecordingStatusExample.Visibility);
+            Assert.DoesNotContain("Status icons use", view.FeedbackVisualGuideHint.Text);
+            view.GameIndicatorCheck.IsChecked = true;
+            Call(view, "UpdateFeedbackVisibility");
+            Assert.Equal(Visibility.Visible, view.FeedbackRecordingStatusExample.Visibility);
+            Assert.Contains("Status icons use", view.FeedbackVisualGuideHint.Text);
             Assert.Equal(2, view.FeedbackIndicatorIcons.Children.Count);
             view.MicrophoneIndicatorCheck.IsChecked = false;
             Call(view, "UpdateFeedbackVisibility");

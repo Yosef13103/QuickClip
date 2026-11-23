@@ -75,7 +75,7 @@ public sealed class MicrophoneIndicatorSignalTests
     public void Only_enabled_microphones_in_the_selected_audio_mode_are_expected()
     {
         var settings = new AppSettings { RecordMic = true, MicDeviceIds = ["legacy"] };
-        Assert.False(settings.ShowGameRecordingIndicator);
+        Assert.Equal(AppProfile.IsPersonal, settings.ShowGameRecordingIndicator);
         Assert.Equal(new[] { "legacy" }, MicrophoneIndicatorSignal.SelectedMicrophones(settings));
         settings.UseAudioEndpoints = true;
         settings.EndpointTracks = [new(EndpointFlow.Playback, "speaker", "Game"), new(EndpointFlow.Microphone, "a", "Mic"), new(EndpointFlow.Microphone, "b", "Muted", false)];
