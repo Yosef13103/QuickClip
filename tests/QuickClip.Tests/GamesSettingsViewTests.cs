@@ -136,7 +136,9 @@ public sealed class GamesSettingsViewTests
             page.Games.ScrollIntoView(anchor);
             page.Search.Text = "Test";
             window.UpdateLayout();
-            Assert.InRange(page.Search.ActualWidth, 200, 500);
+            Assert.InRange(page.Search.ActualWidth,
+                Math.Min(page.SearchDock.ActualWidth, 1340) - 3,
+                Math.Min(page.SearchDock.ActualWidth, 1340) + 3);
             Assert.DoesNotContain(page.Search, Descendants<TextBox>(page.Games));
             Assert.True(page.AutoScan.IsChecked == true);
             Assert.Single(page.Applications.Items);
@@ -235,8 +237,11 @@ public sealed class GamesSettingsViewTests
                 $"discoveryY={discovery.TranslatePoint(new Point(),games).Y:F1}, " +
                 $"discoveryH={discovery.ActualHeight:F1}, firstGameY={firstGameY:F1}");
             Assert.NotNull(scrollerField.GetValue(sources)); // Attachment must finish in Settings, not only wizard.
-            Assert.InRange(sources.Search.ActualWidth, 200, 500); // No ultrawide input field.
-            Assert.True(sources.SearchDock.ActualWidth > sources.Search.ActualWidth);
+            var expectedSearchWidth = Math.Min(sources.SearchDock.ActualWidth, 1340);
+            Assert.InRange(sources.Search.ActualWidth, expectedSearchWidth - 3, expectedSearchWidth + 3);
+            double searchLeft = sources.Search.TranslatePoint(new Point(), sources.SearchDock).X;
+            double centeredLeft = (sources.SearchDock.ActualWidth - sources.Search.ActualWidth) / 2;
+            Assert.InRange(Math.Abs(searchLeft - centeredLeft), 0, 3);
             double markerY = marker.TranslatePoint(new Point(), games).Y;
             Assert.InRange(sources.SearchDockTransform.Y, markerY - 3, markerY + 3);
             sources.Search.Text = "Test game 001";
