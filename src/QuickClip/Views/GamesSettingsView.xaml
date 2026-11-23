@@ -475,7 +475,10 @@
             <Border.RenderTransform>
                 <TranslateTransform x:Name="SearchDockTransform" />
             </Border.RenderTransform>
-            <DockPanel>
+            <!-- Keep the persistent sticky search usable on narrow windows
+                 without allowing it to stretch across ultrawide monitors. -->
+            <DockPanel HorizontalAlignment="Left" MaxWidth="560"
+                       Width="{Binding ActualWidth, ElementName=SearchDock}">
                 <TextBlock DockPanel.Dock="Left" Text="Search games" VerticalAlignment="Center"
                            Margin="0,0,10,0" />
                 <TextBox x:Name="Search" AutomationProperties.Name="Search games by name or executable"

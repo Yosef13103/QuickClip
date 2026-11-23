@@ -136,7 +136,7 @@ public sealed class GamesSettingsViewTests
             page.Games.ScrollIntoView(anchor);
             page.Search.Text = "Test";
             window.UpdateLayout();
-            Assert.True(page.Search.ActualWidth > 0);
+            Assert.InRange(page.Search.ActualWidth, 200, 500);
             Assert.DoesNotContain(page.Search, Descendants<TextBox>(page.Games));
             Assert.True(page.AutoScan.IsChecked == true);
             Assert.Single(page.Applications.Items);
@@ -185,9 +185,10 @@ public sealed class GamesSettingsViewTests
     });
 
     [Theory]
-    [InlineData(true)]
-    [InlineData(false)]
-    public Task Sources_search_is_visible_in_real_settings_with_68_games(bool basic) => OnSta(() =>
+    [InlineData(true, 1470)]
+    [InlineData(false, 1470)]
+    [InlineData(false, 2400)]
+    public Task Sources_search_is_visible_in_real_settings_with_68_games(bool basic, int windowWidth) => OnSta(() =>
     {
         if (!AppProfile.IsPersonal) return;
         var settings = AppSettings.Current;
@@ -201,7 +202,7 @@ public sealed class GamesSettingsViewTests
             var view = new SettingsView();
             window = new Window
             {
-                Content = view, Width = 1470, Height = 940, ShowInTaskbar = false,
+                Content = view, Width = windowWidth, Height = 940, ShowInTaskbar = false,
                 WindowStartupLocation = WindowStartupLocation.Manual, Left = -16000, Top = -16000
             };
             window.Show();
@@ -234,6 +235,8 @@ public sealed class GamesSettingsViewTests
                 $"discoveryY={discovery.TranslatePoint(new Point(),games).Y:F1}, " +
                 $"discoveryH={discovery.ActualHeight:F1}, firstGameY={firstGameY:F1}");
             Assert.NotNull(scrollerField.GetValue(sources)); // Attachment must finish in Settings, not only wizard.
+            Assert.InRange(sources.Search.ActualWidth, 200, 500); // No ultrawide input field.
+            Assert.True(sources.SearchDock.ActualWidth > sources.Search.ActualWidth);
             double markerY = marker.TranslatePoint(new Point(), games).Y;
             Assert.InRange(sources.SearchDockTransform.Y, markerY - 3, markerY + 3);
             sources.Search.Text = "Test game 001";
