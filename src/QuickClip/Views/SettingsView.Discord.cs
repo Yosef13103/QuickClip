@@ -21,6 +21,9 @@ public partial class SettingsView
             var s = AppSettings.Current;
             DiscordMirrorCheck.Visibility = Environment.OSVersion.Version.Build < 20348
                 ? Visibility.Visible : Visibility.Collapsed;
+            // This is a preference, not an action that starts recording.
+            // Keep it editable even while the master or Discord capture is off.
+            DiscordMirrorCheck.IsEnabled = Environment.OSVersion.Version.Build < 20348;
             DiscordMirrorCheck.IsChecked = s.DiscordCloakedMirror;
             DiscordBorderNotice.Visibility = Environment.OSVersion.Version.Build < 20348 &&
                 !s.DiscordCloakedMirror ? Visibility.Visible : Visibility.Collapsed;
@@ -50,6 +53,9 @@ public partial class SettingsView
     private void RefreshDiscordUi()
     {
         if (!AppProfile.IsPersonal || _discordUiTimer == null) return;
+        // Configuration is always editable on supported Windows builds,
+        // irrespective of whether Discord recording or the master is enabled.
+        DiscordMirrorCheck.IsEnabled = Environment.OSVersion.Version.Build < 20348;
         bool show = IsVisible && GamesSection.IsChecked == true && _discordDialogOpen;
         if (!show) { _discordUiTimer.Stop(); return; }
         _discordUiTimer.Start();
@@ -63,7 +69,6 @@ public partial class SettingsView
         DiscordWindowScopeHint.Text = windows10 && s.DiscordCloakedMirror
             ? "Discord and pop-outs use the same multi-window layout as normal capture. Games take priority."
             : "All visible Discord windows, including popped-out streams and cameras, share one recording. Games take priority.";
-        DiscordMirrorCheck.IsEnabled = s.DiscordCaptureEnabled && s.RecordingEnabled;
         bool manual = s.DiscordCaptureMode == DiscordCaptureMode.Manual;
         DiscordManualButton.Visibility = manual && s.DiscordCaptureEnabled ? Visibility.Visible : Visibility.Collapsed;
         DiscordManualButton.Content = Recorder.Instance.ManualDiscordRequested ? "Stop Discord capture" : "Start Discord capture";
@@ -113,7 +118,11 @@ public partial class SettingsView
             ModalDialog.Show(Window.GetWindow(this), "Could not save Discord recording settings.", "Discord");
             return;
         }
-        await Recorder.Instance.ApplySettingsAsync();
+        // Save the mirror preference while stopped, without starting or
+        // restarting the recorder. Apply it when active Discord capture could
+        // actually be affected; the master switch still gates all capture.
+        if (s.RecordingEnabled && (previousEnabled || nextEnabled))
+            await Recorder.Instance.ApplySettingsAsync();
         RefreshDiscordUi();
     }
 

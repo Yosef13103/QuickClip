@@ -111,4 +111,55 @@ public sealed class SettingsRailTests
         thread.Start();
         await completion.Task.WaitAsync(TimeSpan.FromSeconds(15));
     }
+
+    [Fact]
+    public async Task Discord_mirror_stays_editable_with_master_and_companion_disabled()
+    {
+        if (!AppProfile.IsPersonal || Environment.OSVersion.Version.Build >= 20348) return;
+        var completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var thread = new Thread(() =>
+        {
+            var settings = AppSettings.Current;
+            bool originalMaster = settings.RecordingEnabled;
+            bool originalCompanion = settings.DiscordCaptureEnabled;
+            bool originalMirror = settings.DiscordCloakedMirror;
+            try
+            {
+                settings.RecordingEnabled = false;
+                settings.DiscordCaptureEnabled = false;
+                settings.DiscordCloakedMirror = false;
+                var view = new SettingsView();
+                Assert.Equal(Visibility.Visible, view.DiscordMirrorCheck.Visibility);
+                Assert.True(view.DiscordMirrorCheck.IsEnabled);
+                var refresh = typeof(SettingsView).GetMethod("RefreshDiscordUi",
+                    System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+                Assert.NotNull(refresh);
+                refresh.Invoke(view, null);
+                Assert.True(view.DiscordMirrorCheck.IsEnabled);
+                view.DiscordMirrorCheck.IsChecked = true;
+                Assert.True(view.DiscordMirrorCheck.IsChecked == true);
+                // A saved mirror preference must not implicitly enable either capture switch.
+                var saved = AppSettings.Parse(new AppSettings
+                {
+                    RecordingEnabled = false,
+                    DiscordCaptureEnabled = false,
+                    DiscordCloakedMirror = true
+                }.ToJson());
+                Assert.True(saved.DiscordCloakedMirror);
+                Assert.False(saved.RecordingEnabled);
+                Assert.False(saved.DiscordCaptureEnabled);
+                completion.SetResult();
+            }
+            catch (Exception ex) { completion.SetException(ex); }
+            finally
+            {
+                settings.DiscordCloakedMirror = originalMirror;
+                settings.DiscordCaptureEnabled = originalCompanion;
+                settings.RecordingEnabled = originalMaster;
+            }
+        }) { IsBackground = true };
+        thread.SetApartmentState(ApartmentState.STA);
+        thread.Start();
+        await completion.Task.WaitAsync(TimeSpan.FromSeconds(15));
+    }
 }
